@@ -25,6 +25,7 @@
  * re-running the suite in place, which `speaker-portal.spec.ts` goes to real trouble to support.
  */
 import { expect, type Page, test } from "@playwright/test";
+import { fillAdditionalEvent } from "./event-creation";
 
 const DEMO_EVENT_ID = "00000000-0000-4000-8000-000000000001";
 
@@ -43,7 +44,7 @@ async function signIn(page: Page) {
  */
 async function createEvent(page: Page): Promise<string> {
   await page.getByRole("link", { name: /Event settings/ }).click();
-  await page.getByLabel("Event name", { exact: true }).fill(`Checklist Trial ${Date.now()}`);
+  await fillAdditionalEvent(page, { name: `Checklist Trial ${Date.now()}` });
   await page.getByRole("button", { name: "Create event" }).click();
   await expect(page.getByRole("combobox", { name: "Event workspace" })).toContainText(
     "Checklist Trial",

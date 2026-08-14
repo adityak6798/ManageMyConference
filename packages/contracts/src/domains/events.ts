@@ -74,6 +74,8 @@ const eventTimezoneSchema = z
 // @spec PRD-EVT-001
 export const createEventInputSchema = z.object({
   organizationId: z.string().uuid(),
+  /** Stable across retries of one deliberate create; a new intent gets a new key. */
+  idempotencyKey: z.string().uuid(),
   name: z.string().trim().min(1, "Event name is required").max(120),
   timezone: eventTimezoneSchema.default("America/Los_Angeles"),
 });

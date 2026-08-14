@@ -19,6 +19,7 @@ import type {
 
 export const createEventInputToCommand = (input: CreateEventInput): CreateEventCommand => ({
   organizationId: input.organizationId,
+  idempotencyKey: input.idempotencyKey,
   name: input.name,
   timezone: input.timezone,
 });

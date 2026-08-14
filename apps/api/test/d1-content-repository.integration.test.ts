@@ -230,10 +230,10 @@ describe("D1ContentRepository", () => {
 
     // The headshot link, against real D1: `photo_asset_id` round-trips through the same
     // `UPDATE speaker_profiles` the profile edit uses, only an image is accepted, and the
-    // asset visibility is left exactly where the organizer put it.
+    // a newly chosen asset keeps its visibility; retiring that choice makes it private.
     const photoService = makeService("8");
     await expect(
-      photoService.setProfilePhoto(organizer, managedProfile.id, privateAsset.id),
+      photoService.setProfilePhoto(organizer, managedProfile.id, privateAsset.id, 0),
     ).resolves.toMatchObject({ photoAssetId: privateAsset.id });
     await expect(repository.findProfile(managedProfile.id)).resolves.toMatchObject({
       photoAssetId: privateAsset.id,
@@ -262,10 +262,13 @@ describe("D1ContentRepository", () => {
     await repository.deleteAsset(slidesV2.id);
     await expect(repository.findAsset(slides.id)).resolves.toMatchObject({ isLatest: true });
     await expect(
-      photoService.setProfilePhoto(organizer, managedProfile.id, slides.id),
+      photoService.setProfilePhoto(organizer, managedProfile.id, slides.id, 1),
     ).rejects.toBeInstanceOf(SpeakerPhotoInvalidError);
-    await photoService.clearProfilePhoto(organizer, managedProfile.id);
+    await photoService.clearProfilePhoto(organizer, managedProfile.id, 1);
     expect(await repository.findProfile(managedProfile.id)).not.toHaveProperty("photoAssetId");
+    await expect(repository.findAsset(privateAsset.id)).resolves.toMatchObject({
+      visibility: "private",
+    });
   });
 });
 
@@ -360,6 +363,55 @@ describe("D1ContentRepository revisions", () => {
     eventId,
     actorId: "seed-organizer",
     createdAt: "2026-08-10T12:00:00.000Z",
+  });
+
+  it("rejects a stale profile version and retires prior headshots in the revision batch", async () => {
+    const { repository } = await fixture("content-profile-version-headshot");
+    const asset = (id: string, name: string) => ({
+      id,
+      eventId,
+      speakerProfileId: profileId,
+      name,
+      contentType: "image/png",
+      storageKey: `${eventId}/${profileId}/${name}`,
+      visibility: "publishable" as const,
+      uploadedAt: "2026-08-10T12:00:00.000Z",
+      versionGroupId: id,
+      versionNumber: 1,
+      isLatest: true,
+    });
+    const first = asset("80000000-0000-4000-8000-0000000000b1", "first.png");
+    const second = asset("80000000-0000-4000-8000-0000000000b2", "second.png");
+    await repository.addAsset(first);
+    await repository.addAsset(second);
+
+    await expect(
+      repository.reviseProfilePhoto(profileId, draft("a-profile-v1"), 0, first.id),
+    ).resolves.toMatchObject({ photoAssetId: first.id, version: 1 });
+    await expect(
+      repository.reviseProfilePhoto(profileId, draft("a-stale-profile"), 0, second.id),
+    ).rejects.toBeInstanceOf(ContentConflictError);
+    await expect(repository.findProfile(profileId)).resolves.toMatchObject({
+      photoAssetId: first.id,
+      version: 1,
+    });
+    await expect(repository.findAsset(first.id)).resolves.toMatchObject({
+      visibility: "publishable",
+    });
+
+    await expect(
+      repository.reviseProfilePhoto(profileId, draft("a-profile-v2"), 1, second.id),
+    ).resolves.toMatchObject({ photoAssetId: second.id, version: 2 });
+    await expect(repository.findAsset(first.id)).resolves.toMatchObject({ visibility: "private" });
+    await expect(repository.findAsset(second.id)).resolves.toMatchObject({
+      visibility: "publishable",
+    });
+
+    await expect(
+      repository.reviseProfilePhoto(profileId, draft("a-profile-v3"), 2, null),
+    ).resolves.toMatchObject({ version: 3 });
+    expect(await repository.findProfile(profileId)).not.toHaveProperty("photoAssetId");
+    await expect(repository.findAsset(second.id)).resolves.toMatchObject({ visibility: "private" });
   });
 
   /**
@@ -484,21 +536,13 @@ describe("D1ContentRepository revisions", () => {
       versionGroupId: headshotId,
     });
     const naming = new D1ContentRepository(
-      withWriterBeforeStatement(
-        database,
-        "UPDATE speaker_profiles SET photo_asset_id",
-        async () => {
-          await remove(
-            database,
-            "DELETE FROM speaker_assets WHERE speaker_profile_id=?",
-            strangerId,
-          );
-          await remove(database, "DELETE FROM speaker_profiles WHERE id=?", strangerId);
-        },
-      ),
+      withWriterBetweenReadAndWrite(database, async () => {
+        await remove(database, "DELETE FROM speaker_assets WHERE speaker_profile_id=?", strangerId);
+        await remove(database, "DELETE FROM speaker_profiles WHERE id=?", strangerId);
+      }),
     );
     await expect(
-      serviceOver(naming, "d").setProfilePhoto(organizer, strangerId, headshotId),
+      serviceOver(naming, "d").setProfilePhoto(organizer, strangerId, headshotId, 0),
     ).rejects.toBeInstanceOf(CapabilityDeniedError);
 
     // That profile is gone for the rest of this test, which is what the store-level assertions

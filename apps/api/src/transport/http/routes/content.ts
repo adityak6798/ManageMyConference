@@ -11,6 +11,7 @@ import {
   addContentCommentInputSchema,
   assignSpeakerChecklistInputSchema,
   bulkDownloadDeliverablesInputSchema,
+  clearSpeakerPhotoInputSchema,
   remindSpeakerTasksInputSchema,
   bulkRequestSpeakerTaskInputSchema,
   contentSessionParamsSchema,
@@ -152,7 +153,7 @@ export const contentRoutes: RouteModule = {
         );
       if (!content) throw new Error("Content service is unavailable");
       return context.json({
-        profile: await content.updateMyProfile(
+        profile: await content.updateProfile(
           context.get("actor"),
           params.data.profileId,
           parsed.data,
@@ -197,6 +198,7 @@ export const contentRoutes: RouteModule = {
           context.get("actor"),
           params.data.profileId,
           parsed.data.assetId,
+          parsed.data.expectedVersion,
         ),
       });
     });
@@ -210,8 +212,23 @@ export const contentRoutes: RouteModule = {
           400,
         );
       if (!content) throw new Error("Content service is unavailable");
+      const parsed = clearSpeakerPhotoInputSchema.safeParse(await readJson(context.req));
+      if (!parsed.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "That profile version is invalid.",
+            context.get("correlationId"),
+            validationFields(parsed.error.issues),
+          ),
+          400,
+        );
       return context.json({
-        profile: await content.clearProfilePhoto(context.get("actor"), params.data.profileId),
+        profile: await content.clearProfilePhoto(
+          context.get("actor"),
+          params.data.profileId,
+          parsed.data.expectedVersion,
+        ),
       });
     });
     app.post("/api/events/:eventId/tasks/:taskId/complete", async (context) => {

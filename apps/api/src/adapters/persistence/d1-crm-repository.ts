@@ -1,5 +1,6 @@
 import type {
   CrmRepository,
+  ProspectMove,
   ProspectFilters,
   StageMigration,
 } from "../../application/crm/crm-repository";
@@ -7,6 +8,7 @@ import {
   ContactAlreadySourcedError,
   ContactEmailTakenError,
   ContactNotFoundError,
+  PipelineStageInUseError,
   ProspectAlreadyConvertedError,
 } from "../../application/crm/errors";
 import type {
@@ -179,7 +181,7 @@ export class D1CrmRepository implements CrmRepository {
         .all<ContactRow>(),
       this.database
         .prepare(
-          `SELECT id, prospect_id, kind, summary, is_private, occurred_at, actor_id FROM crm_activities WHERE prospect_id IN (${placeholders}) ORDER BY prospect_id, occurred_at, id`,
+          `SELECT id, prospect_id, kind, summary, is_private, occurred_at, actor_id FROM crm_activities WHERE prospect_id IN (${placeholders}) ORDER BY prospect_id, occurred_at, CASE WHEN kind='stage-change' THEN 0 ELSE 1 END, id`,
         )
         .bind(...ids)
         .all<ActivityRow>(),
@@ -300,15 +302,63 @@ export class D1CrmRepository implements CrmRepository {
     prospect: Prospect,
     activities: readonly ProspectActivity[] = [],
     contact?: ProspectContact,
-    transition?: ProspectTransition,
+    move?: ProspectMove,
   ) {
-    const statements: D1Statement[] = [
+    const statements: D1Statement[] = [];
+    if (move) {
+      /*
+       * Both histories read `stage` before the UPDATE below. They therefore describe the row
+       * this batch actually found, not the stale stage the service saw before a concurrent move.
+       * SQL mints the ids because only SQL knows whether this predicate matched a row.
+       */
+      statements.push(
+        this.database
+          .prepare(
+            `INSERT INTO crm_prospect_transitions (id,event_id,prospect_id,from_stage,to_stage,actor_id,source,occurred_at)
+             SELECT ${D1CrmRepository.SQL_UUID}, event_id, id, stage, ?, ?, ?, ?
+               FROM crm_prospects
+              WHERE id=? AND event_id=? AND speaker_id IS NULL AND stage<>?`,
+          )
+          .bind(
+            move.toStage,
+            move.actorId,
+            move.source,
+            move.occurredAt,
+            prospect.id,
+            prospect.eventId,
+            move.toStage,
+          ),
+        this.database
+          .prepare(
+            `INSERT INTO crm_activities (id,prospect_id,kind,summary,is_private,occurred_at,actor_id)
+             SELECT ${D1CrmRepository.SQL_UUID}, p.id, 'stage-change',
+                    COALESCE(from_stage.label, p.stage) || ' → ' || COALESCE(to_stage.label, ?),
+                    0, ?, ?
+               FROM crm_prospects p
+               LEFT JOIN crm_pipeline_stages from_stage
+                 ON from_stage.event_id=p.event_id AND from_stage.key=p.stage
+               LEFT JOIN crm_pipeline_stages to_stage
+                 ON to_stage.event_id=p.event_id AND to_stage.key=?
+              WHERE p.id=? AND p.event_id=? AND p.speaker_id IS NULL AND p.stage<>?`,
+          )
+          .bind(
+            move.toStage,
+            move.occurredAt,
+            move.actorId,
+            move.toStage,
+            prospect.id,
+            prospect.eventId,
+            move.toStage,
+          ),
+      );
+    }
+    statements.push(
       this.database
         .prepare(
-          "UPDATE crm_prospects SET stage=?,owner_id=?,next_action=?,next_action_at=?,updated_at=? WHERE id=? AND event_id=? AND speaker_id IS NULL",
+          "UPDATE crm_prospects SET stage=COALESCE(?,stage),owner_id=?,next_action=?,next_action_at=?,updated_at=? WHERE id=? AND event_id=? AND speaker_id IS NULL",
         )
         .bind(
-          prospect.stage,
+          move?.toStage ?? null,
           prospect.ownerId,
           prospect.nextAction,
           prospect.nextActionAt,
@@ -316,13 +366,7 @@ export class D1CrmRepository implements CrmRepository {
           prospect.id,
           prospect.eventId,
         ),
-    ];
-    // The move's own history entry, guarded the same way the row update is: a prospect that
-    // converted under the caller is no longer movable, and its history must not say otherwise.
-    if (transition)
-      statements.push(
-        this.unconvertedTransitionStatement(transition, prospect.id, prospect.eventId),
-      );
+    );
     // Every activity this command produced rides the same batch as the row update, so a
     // stage-change entry can never survive a failed transition or be lost after a saved one.
     for (const activity of activities) {
@@ -372,8 +416,10 @@ export class D1CrmRepository implements CrmRepository {
     }
     await this.runBatch(statements, "update prospect atomically");
     const current = await this.findById(prospect.eventId, prospect.id);
+    if (!current) throw new Error("Prospect not found after update");
     if (current?.speakerId)
       throw new ProspectAlreadyConvertedError("Converted prospects cannot be updated");
+    return current;
   }
   private activityStatement(prospectId: string, activity: ProspectActivity) {
     if (activity.kind === "conversion") {
@@ -540,17 +586,15 @@ export class D1CrmRepository implements CrmRepository {
           ),
       ),
     ];
-    await this.runBatch(statements, "save the pipeline stages");
-  }
-
-  async countByStage(eventId: string) {
-    const result = await this.database
-      .prepare("SELECT stage, COUNT(*) AS total FROM crm_prospects WHERE event_id=? GROUP BY stage")
-      .bind(eventId)
-      .all<{ stage: string; total: number }>();
-    if (!result.success)
-      throw new Error(`D1 failed to count prospects by stage: ${result.error ?? "unknown error"}`);
-    return new Map((result.results ?? []).map((row) => [row.stage, Number(row.total)]));
+    try {
+      await this.runBatch(statements, "save the pipeline stages");
+    } catch (error) {
+      if (error instanceof Error && /pipeline stage still holds prospects/i.test(error.message))
+        throw new PipelineStageInUseError(
+          "A removed stage still holds prospects. Choose where they should move first.",
+        );
+      throw error;
+    }
   }
 
   /**

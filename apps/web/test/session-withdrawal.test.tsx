@@ -29,7 +29,9 @@ const speaker = {
   email: "alex.morgan@example.test",
   bio: "",
   pronouns: "",
+  jobTitle: "",
   organization: "Greenroom Labs",
+  version: 0,
 };
 
 const session = (schedule?: { startsAt: string; endsAt: string; location: string }) => ({

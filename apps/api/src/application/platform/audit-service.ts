@@ -45,6 +45,8 @@ export interface AuditRecordInput {
   readonly action: string;
   readonly targetType: string;
   readonly targetId: string;
+  /** Canonical entity version when the target is revisioned. */
+  readonly targetVersion?: number;
   /** Derived from the fact, never from the attempt. Unique within the organization. */
   readonly idempotencyKey: string;
   /** Overrides the request's own actor. Used only where the writer knows better. */
@@ -67,6 +69,7 @@ export interface AuditRecord {
   readonly action: string;
   readonly targetType: string;
   readonly targetId: string;
+  readonly targetVersion?: number;
   readonly correlationId: string | null;
   readonly idempotencyKey: string;
 }
@@ -275,6 +278,7 @@ export class AuditRecorder {
       action: input.action,
       targetType: input.targetType,
       targetId: input.targetId,
+      ...(input.targetVersion !== undefined ? { targetVersion: input.targetVersion } : {}),
       correlationId: this.dependencies.identity.correlationId(),
       idempotencyKey: input.idempotencyKey,
     };

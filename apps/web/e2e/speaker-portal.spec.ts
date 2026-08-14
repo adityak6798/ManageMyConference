@@ -29,7 +29,7 @@ const decoded = (image: HTMLImageElement | SVGElement) => (image as HTMLImageEle
 
 interface Workspace {
   tasks: { id: string; speakerProfileId: string; title: string; status: string }[];
-  speakers: { id: string; photoAssetId?: string }[];
+  speakers: { id: string; version: number; photoAssetId?: string }[];
   assets: {
     id: string;
     name: string;
@@ -62,7 +62,8 @@ async function restoreOnboardingChecklist(page: Page) {
   expect(workspace.ok(), `reading the content workspace failed: ${await workspace.text()}`).toBe(
     true,
   );
-  const open = ((await workspace.json()) as Workspace).tasks.filter(
+  const workspaceBody = (await workspace.json()) as Workspace;
+  const open = workspaceBody.tasks.filter(
     (task) => task.speakerProfileId === SAM && task.status === "open",
   );
 
@@ -90,10 +91,16 @@ async function restoreOnboardingChecklist(page: Page) {
   // run that ended between choosing one and handing it back is put right here rather than
   // leaving every later run starting from a state the seed never describes. This is also the
   // organizer half of the photo route: an organizer may remove a speaker's headshot.
-  const clearedPhoto = await page.request.delete(`/api/speaker-profiles/${SAM}/photo`);
-  expect(clearedPhoto.ok(), `clearing the seeded photo failed: ${await clearedPhoto.text()}`).toBe(
-    true,
-  );
+  const profile = workspaceBody.speakers.find(({ id }) => id === SAM);
+  if (profile?.photoAssetId) {
+    const clearedPhoto = await page.request.delete(`/api/speaker-profiles/${SAM}/photo`, {
+      data: { expectedVersion: profile.version },
+    });
+    expect(
+      clearedPhoto.ok(),
+      `clearing the seeded photo failed: ${await clearedPhoto.text()}`,
+    ).toBe(true);
+  }
 }
 
 /**
@@ -329,7 +336,11 @@ test("organizer tracks accepted content and speaker completes portal work", asyn
   const slidesId = ((await slides.json()) as { asset: { id: string } }).asset.id;
   await expect(uploads.locator("li").filter({ hasText: `slides-${run}.pdf` })).toHaveCount(0);
   const refusedPdf = await page.request.put(`/api/speaker-profiles/${SAM}/photo`, {
-    data: { assetId: slidesId },
+    data: {
+      assetId: slidesId,
+      expectedVersion: (await contentWorkspace(page)).speakers.find(({ id }) => id === SAM)
+        ?.version,
+    },
   });
   expect(refusedPdf.status()).toBe(400);
   expect(
@@ -454,11 +465,17 @@ test("reviewers cannot call the private content workspace", async ({ request }) 
   expect(
     (
       await request.put(`/api/speaker-profiles/${SAM}/photo`, {
-        data: { assetId: "90000000-0000-4000-8000-000000000001" },
+        data: { assetId: "90000000-0000-4000-8000-000000000001", expectedVersion: 0 },
       })
     ).status(),
   ).toBe(401);
-  expect((await request.delete(`/api/speaker-profiles/${SAM}/photo`)).status()).toBe(401);
+  expect(
+    (
+      await request.delete(`/api/speaker-profiles/${SAM}/photo`, {
+        data: { expectedVersion: 0 },
+      })
+    ).status(),
+  ).toBe(401);
 
   const session = await request.post("/api/demo-session", { data: { persona: "reviewer" } });
   expect(session.ok()).toBeTruthy();
@@ -469,11 +486,17 @@ test("reviewers cannot call the private content workspace", async ({ request }) 
   expect(
     (
       await request.put(`/api/speaker-profiles/${SAM}/photo`, {
-        data: { assetId: "90000000-0000-4000-8000-000000000001" },
+        data: { assetId: "90000000-0000-4000-8000-000000000001", expectedVersion: 0 },
       })
     ).status(),
   ).toBe(403);
-  expect((await request.delete(`/api/speaker-profiles/${SAM}/photo`)).status()).toBe(403);
+  expect(
+    (
+      await request.delete(`/api/speaker-profiles/${SAM}/photo`, {
+        data: { expectedVersion: 0 },
+      })
+    ).status(),
+  ).toBe(403);
 });
 
 /*
@@ -690,6 +713,12 @@ interface RosterSpeaker {
   id: string;
   name: string;
   email: string;
+  bio: string;
+  pronouns: string;
+  jobTitle: string;
+  organization: string;
+  version: number;
+  socialLinks?: Record<string, string>;
   /** Optional the way the contract declares it: a profile written before `1408` carries none. */
   invitationsSent?: number;
 }
@@ -746,6 +775,100 @@ async function invitationsFor(page: Page, profileId: string): Promise<Invitation
   }
   return found;
 }
+
+test("the organizer searches speakers without filtering sessions", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Continue as organizer" }).click();
+  await expect(page.getByRole("combobox", { name: "Event workspace" })).toBeVisible();
+  await page.goto(SESSIONS);
+
+  const roster = page.getByRole("region", { name: "Speakers", exact: true });
+  const sessions = page.getByRole("region", { name: "Accepted sessions", exact: true });
+  const speakerSearch = roster.getByLabel("Search speaker roster");
+  const sessionSearch = sessions.getByLabel("Search sessions");
+
+  await expect(roster.getByRole("row", { name: /Sam Speaker/ })).toBeVisible();
+  await expect(roster.getByRole("row", { name: /Jordan Bell/ })).toBeVisible();
+  await speakerSearch.fill("Northwind Access");
+  await expect(roster.getByRole("row", { name: /Jordan Bell/ })).toBeVisible();
+  await expect(roster.getByRole("row", { name: /Sam Speaker/ })).toHaveCount(0);
+  // The speaker query cannot silently become the session query: both accepted sessions remain.
+  await expect(sessions.getByRole("row", { name: /Designing the calm conference/ })).toBeVisible();
+  await expect(sessions.getByRole("row", { name: /Accessible by default/ })).toBeVisible();
+
+  await speakerSearch.fill("");
+  await sessionSearch.fill("Accessible by default");
+  await expect(sessions.getByRole("row", { name: /Accessible by default/ })).toBeVisible();
+  await expect(sessions.getByRole("row", { name: /Designing the calm conference/ })).toHaveCount(0);
+  // And the session query cannot silently narrow the speaker roster in the other direction.
+  await expect(roster.getByRole("row", { name: /Sam Speaker/ })).toBeVisible();
+  await expect(roster.getByRole("row", { name: /Jordan Bell/ })).toBeVisible();
+});
+
+test("an organizer edits the canonical profile the speaker and public programme read", async ({
+  page,
+}) => {
+  const stamp = Date.now();
+  const bio = `Organizer-managed biography ${stamp}.`;
+  const jobTitle = `Programme Director ${stamp}`;
+  const company = `Greenroom Cooperative ${stamp}`;
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Continue as organizer" }).click();
+  await expect(page.getByRole("combobox", { name: "Event workspace" })).toBeVisible();
+  const original = await rosterEntry(page, SAM);
+  await page.goto(SESSIONS);
+
+  const roster = page.getByRole("region", { name: "Speakers", exact: true });
+  await roster.getByRole("button", { name: "Edit profile for Sam Speaker" }).click();
+  const editor = page.getByRole("region", { name: "Edit Sam Speaker" });
+  await expect(editor).toContainText(`Version ${original.version}`);
+  await editor.getByLabel("Bio").fill(bio);
+  await editor.getByLabel("Job title").fill(jobTitle);
+  await editor.getByLabel("Company").fill(company);
+  await editor.getByRole("button", { name: "Save canonical profile" }).click();
+  await expect(editor.getByRole("status")).toContainText("canonical profile was saved");
+
+  // The speaker sees the organizer's write in the same controls they use to edit it.
+  await page.getByRole("combobox", { name: "Signed-in role" }).selectOption("speaker");
+  await page.goto(PORTAL);
+  const speakerProfile = page.getByRole("region", { name: "Your public profile" });
+  await expect(speakerProfile.getByLabel("Bio")).toHaveValue(bio);
+  await expect(speakerProfile.getByLabel("Job title")).toHaveValue(jobTitle);
+  await expect(speakerProfile.getByLabel("Company")).toHaveValue(company);
+
+  // Publication reads the same canonical row; no organizer-only copy is involved.
+  await page.request.post("/api/demo-session", { data: { persona: "organizer" } });
+  await publishEvent(page);
+  const response = await page.request.get(`/api/public/events/${SLUG}`);
+  expect(response.ok()).toBe(true);
+  const projection = (await response.json()) as {
+    projection: {
+      speakers: { name: string; bio: string; jobTitle?: string; organization: string }[];
+    };
+  };
+  expect(projection.projection.speakers.find(({ name }) => name === "Sam Speaker")).toMatchObject({
+    bio,
+    jobTitle,
+    organization: company,
+  });
+
+  // Restore both canonical and public state so a shared-fixture rerun starts where the seed does.
+  const changed = await rosterEntry(page, SAM);
+  const restored = await page.request.patch(`/api/speaker-profiles/${SAM}`, {
+    data: {
+      expectedVersion: changed.version,
+      name: original.name,
+      pronouns: original.pronouns,
+      jobTitle: original.jobTitle,
+      organization: original.organization,
+      bio: original.bio,
+      socialLinks: original.socialLinks ?? {},
+    },
+  });
+  expect(restored.ok(), `restoring Sam's profile failed: ${await restored.text()}`).toBe(true);
+  await publishEvent(page);
+});
 
 /*
  * The portal invitation an organizer sends on purpose (#189).

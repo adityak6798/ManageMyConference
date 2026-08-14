@@ -330,6 +330,7 @@ export class PublicationService {
         slug: speakerSlug(speaker.id),
         name: speaker.name,
         bio: speaker.bio,
+        jobTitle: speaker.jobTitle ?? "",
         organization: speaker.organization,
         // The gallery links the asset route the content domain actually serves; the
         // `/api/public/assets/:id` path this used to emit was never routed at all.

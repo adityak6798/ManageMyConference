@@ -99,6 +99,22 @@ function jsonResponse(body: unknown, status = 200) {
   return Promise.resolve(new Response(JSON.stringify(body), { status }));
 }
 
+function publicationSettingsResponse() {
+  const overview = workspaceBody("/overview") as {
+    publication: { data: unknown };
+  };
+  return jsonResponse({ publication: overview.publication.data });
+}
+
+async function fillNewEvent(name = "New Summit") {
+  fireEvent.change(await screen.findByLabelText("Event name"), { target: { value: name } });
+  fireEvent.change(screen.getByLabelText("Public address"), {
+    target: { value: "new-summit" },
+  });
+  fireEvent.change(screen.getByLabelText("Starts"), { target: { value: "2027-09-10" } });
+  fireEvent.change(screen.getByLabelText("Ends"), { target: { value: "2027-09-12" } });
+}
+
 describe("App", () => {
   beforeEach(() => {
     // Routing is real now, so each test must start from the app root.
@@ -388,6 +404,8 @@ describe("App", () => {
       if (url.endsWith("/api/session")) return jsonResponse(organizerSession);
       if (url.endsWith("/api/events") && init?.method === "POST")
         return jsonResponse({ event: created }, 201);
+      if (url.includes("/api/publishing/events/") && url.endsWith("/settings"))
+        return publicationSettingsResponse();
       const workspace = workspaceBody(url);
       if (workspace) return jsonResponse(workspace);
       return jsonResponse({
@@ -399,11 +417,9 @@ describe("App", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<App />);
 
-    // Event creation lives on its own route now, so navigate the way a user would.
-    fireEvent.click(await screen.findByRole("link", { name: /Event settings/ }));
-    fireEvent.change(await screen.findByLabelText("Event name"), {
-      target: { value: "New Summit" },
-    });
+    // The deliberate action sits beside the event switcher, not hidden below unrelated settings.
+    fireEvent.click(await screen.findByRole("link", { name: "Create another event" }));
+    await fillNewEvent();
     fireEvent.click(screen.getByRole("button", { name: "Create event" }));
 
     await waitFor(() =>
@@ -412,7 +428,101 @@ describe("App", () => {
     const createCall = fetchMock.mock.calls.find(([, options]) => options?.method === "POST");
     expect(JSON.parse(String(createCall?.[1]?.body))).toMatchObject({
       organizationId,
+      idempotencyKey: expect.any(String),
       name: "New Summit",
+    });
+    const settingsCall = fetchMock.mock.calls.find(
+      ([input, options]) =>
+        String(input).includes(`/api/publishing/events/${created.id}/settings`) &&
+        options?.method === "PATCH",
+    );
+    expect(JSON.parse(String(settingsCall?.[1]?.body))).toEqual({
+      slug: "new-summit",
+      startsOn: "2027-09-10",
+      endsOn: "2027-09-12",
+    });
+  });
+
+  it("applies only the template the organizer explicitly selected", async () => {
+    const created = { ...event, id: "223e4567-e89b-42d3-a456-426614174001", name: "Templated" };
+    const template = {
+      id: "323e4567-e89b-42d3-a456-426614174000",
+      organizationId,
+      name: "Conference starter",
+      state: "active" as const,
+      createdAt: "2026-08-09T12:00:00.000Z",
+      updatedAt: "2026-08-09T12:00:00.000Z",
+    };
+    const version = {
+      id: "423e4567-e89b-42d3-a456-426614174000",
+      version: 3,
+      sourceEventId: eventId,
+      sourceEventName: event.name,
+      createdAt: "2026-08-09T12:00:00.000Z",
+      createdBy: "seed-organizer",
+      createdByName: "Olivia Organizer",
+      slices: ["cfp", "agenda"],
+    };
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/session")) return jsonResponse(organizerSession);
+      if (url.endsWith(`/api/organizations/${organizationId}/event-templates`))
+        return jsonResponse({ templates: [template] });
+      if (url.endsWith(`/api/event-templates/${template.id}`))
+        return jsonResponse({ template, versions: [version] });
+      if (url.endsWith("/api/events") && init?.method === "POST")
+        return jsonResponse({ event: created }, 201);
+      if (url.includes("/api/publishing/events/") && url.endsWith("/settings"))
+        return publicationSettingsResponse();
+      if (url.endsWith(`/api/events/${created.id}/template-applications`))
+        return jsonResponse({
+          application: {
+            templateId: template.id,
+            templateName: template.name,
+            versionId: version.id,
+            version: version.version,
+            sourceEventId: eventId,
+            sourceEventName: event.name,
+            eventId: created.id,
+            destination: { startsOn: "2027-09-10", endsOn: "2027-09-12" },
+            appliedAt: "2026-08-14T12:00:00.000Z",
+            outcome: "applied",
+            slices: [],
+          },
+        });
+      const workspace = workspaceBody(url);
+      if (workspace) return jsonResponse(workspace);
+      return jsonResponse({
+        events: fetchMock.mock.calls.some(([, options]) => options?.method === "POST")
+          ? [event, created]
+          : [event],
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("link", { name: "Create another event" }));
+    await fillNewEvent("Templated");
+    fireEvent.click(screen.getByLabelText("Apply a selected template"));
+    await waitFor(() => expect(screen.getByLabelText("Template")).toHaveValue(template.id));
+    fireEvent.click(screen.getByRole("button", { name: "Create event" }));
+
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          ([input, options]) =>
+            String(input).endsWith(`/api/events/${created.id}/template-applications`) &&
+            options?.method === "POST",
+        ),
+      ).toBe(true),
+    );
+    const applyCall = fetchMock.mock.calls.find(([input]) =>
+      String(input).endsWith(`/api/events/${created.id}/template-applications`),
+    );
+    expect(JSON.parse(String(applyCall?.[1]?.body))).toEqual({
+      templateId: template.id,
+      version: 3,
+      destination: { startsOn: "2027-09-10", endsOn: "2027-09-12" },
     });
   });
 
@@ -459,6 +569,8 @@ describe("App", () => {
       if (url.endsWith("/api/session")) return jsonResponse(organizerSession);
       if (url.endsWith("/api/events") && init?.method === "POST")
         return jsonResponse({ event: created }, 201);
+      if (url.includes("/api/publishing/events/") && url.endsWith("/settings"))
+        return publicationSettingsResponse();
       const workspace = workspaceBody(url);
       if (workspace) return jsonResponse(workspace);
       return jsonResponse({
@@ -472,9 +584,7 @@ describe("App", () => {
 
     fireEvent.click(await screen.findByRole("link", { name: /Event settings/ }));
     await waitFor(() => expect(window.location.search).toBe(`?event=${eventId}`));
-    fireEvent.change(await screen.findByLabelText("Event name"), {
-      target: { value: "New Summit" },
-    });
+    await fillNewEvent();
     fireEvent.click(screen.getByRole("button", { name: "Create event" }));
 
     await waitFor(() => expect(window.location.search).toBe(`?event=${created.id}`));

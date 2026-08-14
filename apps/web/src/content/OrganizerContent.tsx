@@ -217,7 +217,9 @@ export function OrganizerView({
     if (busy) return;
     // ERROR-INTENT: handlers cannot await; the announcement below renders both outcomes.
     void run(() =>
-      asset ? setSpeakerProfilePhoto(speaker.id, asset.id) : clearSpeakerProfilePhoto(speaker.id),
+      asset
+        ? setSpeakerProfilePhoto(speaker.id, asset.id, speaker.version)
+        : clearSpeakerProfilePhoto(speaker.id, speaker.version),
     ).then((result) =>
       assetFeedback.announce(
         result.ok ? "success" : "error",

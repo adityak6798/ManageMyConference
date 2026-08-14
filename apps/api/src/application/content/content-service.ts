@@ -240,6 +240,16 @@ export class ContentNotFoundError extends Error {}
  */
 export class SpeakerRemindersUnavailableError extends Error {}
 
+/** The platform timeline sink for successful canonical profile revisions. */
+export interface ContentProfileAuditPort {
+  profileUpdated(input: {
+    actorId: string;
+    eventId: string;
+    profileId: string;
+    version: number;
+  }): Promise<void>;
+}
+
 export interface ContentServiceDependencies {
   repository: ContentRepository;
   /** Resolves the actor ids on revisions to the names an organizer recognises. */
@@ -291,6 +301,8 @@ export interface ContentServiceDependencies {
   reminders?: SpeakerReminderDispatchPort;
   /** Which organization runs an event. Events owns the answer; content asks rather than joins. */
   organizationOf?: (eventId: string) => Promise<string | null>;
+  /** Unified platform audit; the composition owns request source and correlation metadata. */
+  profileAudit?: ContentProfileAuditPort;
 }
 
 /** One task a reminder was asked for, and what happened to it. */
@@ -1254,7 +1266,7 @@ export class ContentService {
     return this.projectedForCalendarInvites(eventId);
   }
 
-  async updateMyProfile(
+  async updateProfile(
     actor: Actor | null,
     profileId: string,
     /*
@@ -1262,24 +1274,19 @@ export class ContentService {
      * sends only the text fields edits only the text, rather than silently clearing every link
      * the speaker had entered.
      */
-    input: Pick<SpeakerProfile, "name" | "bio" | "pronouns" | "organization"> &
-      Partial<Pick<SpeakerProfile, "socialLinks">>,
+    input: Pick<SpeakerProfile, "name" | "bio" | "pronouns" | "jobTitle" | "organization"> &
+      Partial<Pick<SpeakerProfile, "socialLinks">> & { expectedVersion: number },
   ): Promise<SpeakerProfile> {
-    const profile = await this.dependencies.repository.findProfile(profileId);
-    if (!profile) throw new CapabilityDeniedError("Speaker profile access denied");
-    const authorized = requireEventCapability(actor, profile.eventId, "content:read");
-    if (
-      !profile ||
-      !hasEventRole(authorized, profile.eventId, "speaker") ||
-      profile.userId !== authorized.id
-    )
-      throw new CapabilityDeniedError("Speaker profile access denied");
+    const { profile, authorized } = await this.requireProfileSteward(actor, profileId);
+    const { expectedVersion, ...changes } = input;
     const updated = await this.dependencies.repository.reviseProfile(
       profile.id,
       this.draftRevision(authorized, profile.eventId),
-      (current) => ({ ...current, ...input }),
+      (current) => ({ ...current, ...changes }),
+      expectedVersion,
     );
     if (!updated) throw new CapabilityDeniedError("Speaker profile access denied");
+    await this.recordProfileUpdate(authorized, updated);
     return updated;
   }
 
@@ -1306,8 +1313,9 @@ export class ContentService {
     actor: Actor | null,
     profileId: string,
     assetId: string,
+    expectedVersion: number,
   ): Promise<SpeakerProfile> {
-    const profile = await this.requireProfileSteward(actor, profileId);
+    const { profile, authorized } = await this.requireProfileSteward(actor, profileId);
     const asset = await this.dependencies.repository.findAsset(assetId);
     // Whoever gets this far already lists this profile's uploads through the workspace, so
     // naming the mismatch reveals nothing new; an asset belonging to another profile and one
@@ -1325,17 +1333,15 @@ export class ContentService {
     // existed is, because that is what it now is (`ARC-AUTH-001`) — and specifically not with
     // the object this method could construct, which is how a 200 came to report a headshot on
     // a deleted speaker (issue #202).
-    if (!(await this.dependencies.repository.updateProfilePhoto(profile.id, asset.id)))
-      throw new CapabilityDeniedError("Speaker profile access denied");
-    // Answered from the store rather than from the copy read a moment ago. Now that this writes
-    // one column, an organizer's edit landing alongside it survives — and a response assembled
-    // from the earlier read would report the bio it replaced as though it were still there.
-    return (
-      (await this.dependencies.repository.findProfile(profile.id)) ?? {
-        ...profile,
-        photoAssetId: asset.id,
-      }
+    const updated = await this.dependencies.repository.reviseProfilePhoto(
+      profile.id,
+      this.draftRevision(authorized, profile.eventId),
+      expectedVersion,
+      asset.id,
     );
+    if (!updated) throw new CapabilityDeniedError("Speaker profile access denied");
+    await this.recordProfileUpdate(authorized, updated);
+    return updated;
   }
 
   /**
@@ -1345,21 +1351,30 @@ export class ContentService {
    * more authority than making it. The upload survives — this is "not this picture", not
    * "delete my file", which is what `deleteAsset` is for.
    */
-  async clearProfilePhoto(actor: Actor | null, profileId: string): Promise<SpeakerProfile> {
-    const profile = await this.requireProfileSteward(actor, profileId);
-    const { photoAssetId: _removed, ...withoutPhoto } = profile;
+  async clearProfilePhoto(
+    actor: Actor | null,
+    profileId: string,
+    expectedVersion: number,
+  ): Promise<SpeakerProfile> {
+    const { profile, authorized } = await this.requireProfileSteward(actor, profileId);
     // As in `setProfilePhoto`: withdrawing a choice from a profile that has gone is refused
     // rather than reported as done.
-    if (!(await this.dependencies.repository.updateProfilePhoto(profile.id, null)))
-      throw new CapabilityDeniedError("Speaker profile access denied");
-    return (await this.dependencies.repository.findProfile(profile.id)) ?? withoutPhoto;
+    const updated = await this.dependencies.repository.reviseProfilePhoto(
+      profile.id,
+      this.draftRevision(authorized, profile.eventId),
+      expectedVersion,
+      null,
+    );
+    if (!updated) throw new CapabilityDeniedError("Speaker profile access denied");
+    await this.recordProfileUpdate(authorized, updated);
+    return updated;
   }
 
   /** The speaker whose profile it is, or an organizer of the event that profile belongs to. */
   private async requireProfileSteward(
     actor: Actor | null,
     profileId: string,
-  ): Promise<SpeakerProfile> {
+  ): Promise<{ profile: SpeakerProfile; authorized: Actor }> {
     const profile = await this.dependencies.repository.findProfile(profileId);
     if (!profile) throw new CapabilityDeniedError("Speaker profile access denied");
     const authorized = requireEventCapability(actor, profile.eventId, "content:read");
@@ -1368,7 +1383,16 @@ export class ContentService {
     );
     if (!isOwner && !hasEventRole(authorized, profile.eventId, "organizer"))
       throw new CapabilityDeniedError("Speaker profile access denied");
-    return profile;
+    return { profile, authorized };
+  }
+
+  private async recordProfileUpdate(actor: Actor, profile: SpeakerProfile) {
+    await this.dependencies.profileAudit?.profileUpdated({
+      actorId: actor.id,
+      eventId: profile.eventId,
+      profileId: profile.id,
+      version: profile.version ?? 0,
+    });
   }
 
   async completeTask(

@@ -500,11 +500,24 @@ describe("events HTTP transport", () => {
       headers,
       body: JSON.stringify({
         organizationId: "00000000-0000-4000-8000-000000000010",
+        idempotencyKey: "00000000-0000-4000-8000-000000000498",
         name: "Greenroom Summit",
         timezone: "America/Los_Angeles",
       }),
     });
     expect(created.status).toBe(201);
+    const replayed = await app.request("/api/events", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        organizationId: "00000000-0000-4000-8000-000000000010",
+        idempotencyKey: "00000000-0000-4000-8000-000000000498",
+        name: "Greenroom Summit",
+        timezone: "America/Los_Angeles",
+      }),
+    });
+    expect(replayed.status).toBe(201);
+    expect((await replayed.json()).event.id).toBe((await created.json()).event.id);
     const reloaded = await app.request("/api/events", { headers });
     await expect(reloaded.json()).resolves.toMatchObject({
       events: [{ name: "Greenroom Summit" }],

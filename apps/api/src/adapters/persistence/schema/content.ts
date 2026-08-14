@@ -76,6 +76,8 @@ export function defineContentSchema(references: {
        * compare-and-swap lose.
        */
       invitationsSent: integer("invitations_sent").notNull().default(0),
+      /** Added by `1409`; ALTER TABLE appends it after the earlier invitation counter. */
+      jobTitle: text("job_title").notNull().default(""),
     },
     (table) => [
       unique("speaker_profiles_event_id_source_person_id_unique").on(

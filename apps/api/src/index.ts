@@ -1056,6 +1056,7 @@ export default {
         action: string;
         targetType: string;
         targetId: string;
+        targetVersion?: number;
         occurrence?: string;
       },
     ): Promise<void> => {
@@ -1068,6 +1069,7 @@ export default {
           action: entry.action,
           targetType: entry.targetType,
           targetId: entry.targetId,
+          ...(entry.targetVersion !== undefined ? { targetVersion: entry.targetVersion } : {}),
           idempotencyKey: lifecycleAuditKey({ ...entry, eventId }),
         });
       } catch (error) {
@@ -1405,6 +1407,16 @@ export default {
       // Acceptance and task assignment now reach the speaker. Content states the fact; this
       // binding decides the template, the trigger and the idempotency key.
       speakerNotifications,
+      profileAudit: {
+        profileUpdated: async (fact) =>
+          recordLifecycle(fact.eventId, {
+            action: "content.speaker_profile_updated",
+            targetType: "speaker-profile",
+            targetId: fact.profileId,
+            targetVersion: fact.version,
+            occurrence: `v${fact.version}`,
+          }),
+      },
       assetStorage: new R2AssetStorage(environment.ASSETS),
       proposals: reviewService,
       // The agenda owns when a session happens; content asks rather than keeping a second copy,

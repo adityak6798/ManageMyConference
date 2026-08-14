@@ -101,7 +101,10 @@ export const speakerProfileSchema = z.object({
   email: z.string().email(),
   bio: z.string(),
   pronouns: z.string(),
+  jobTitle: z.string(),
   organization: z.string(),
+  /** Optimistic version of the canonical profile, derived from its attributed revisions. */
+  version: z.number().int().nonnegative(),
   photoAssetId: z.string().uuid().optional(),
   workflowStatus: z.enum(["invited", "onboarding", "ready", "blocked"]).optional(),
   logistics: z.record(z.string()).optional(),
@@ -217,9 +220,11 @@ export type ContentWorkspaceDto = z.infer<typeof contentWorkspaceSchema>;
 export const acceptContentInputSchema = z.object({ proposalId: z.string().uuid() });
 export type AcceptContentInput = z.infer<typeof acceptContentInputSchema>;
 export const updateSpeakerProfileInputSchema = z.object({
+  expectedVersion: z.number().int().nonnegative(),
   name: z.string().trim().min(1).max(120),
   bio: z.string().trim().max(2000),
   pronouns: z.string().trim().max(50),
+  jobTitle: z.string().trim().max(120),
   organization: z.string().trim().max(120),
   /*
    * Optional so an older client's save is a text edit rather than a silent wipe of every link.
@@ -239,8 +244,15 @@ export type UpdateSpeakerProfileInput = z.infer<typeof updateSpeakerProfileInput
  * private upload stays private and the public projection emits a `photoUrl` only for an asset
  * an organizer separately marked publishable. `DELETE` on the same address removes the choice.
  */
-export const setSpeakerPhotoInputSchema = z.object({ assetId: z.string().uuid() });
+export const setSpeakerPhotoInputSchema = z.object({
+  assetId: z.string().uuid(),
+  expectedVersion: z.number().int().nonnegative(),
+});
 export type SetSpeakerPhotoInput = z.infer<typeof setSpeakerPhotoInputSchema>;
+export const clearSpeakerPhotoInputSchema = z.object({
+  expectedVersion: z.number().int().nonnegative(),
+});
+export type ClearSpeakerPhotoInput = z.infer<typeof clearSpeakerPhotoInputSchema>;
 export const uploadSpeakerAssetInputSchema = z.object({
   profileId: z.string().uuid(),
   name: z.string().trim().min(1).max(160),

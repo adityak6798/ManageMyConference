@@ -22,6 +22,7 @@ const writers = [
     parse: (timezone: string) =>
       createEventInputSchema.safeParse({
         organizationId: "00000000-0000-4000-8000-000000000010",
+        idempotencyKey: "00000000-0000-4000-8000-000000000001",
         name: "Summit",
         timezone,
       }),
@@ -113,6 +114,7 @@ describe("event timezone", () => {
   it("defaults a create with no timezone rather than refusing it", () => {
     const parsed = createEventInputSchema.safeParse({
       organizationId: "00000000-0000-4000-8000-000000000010",
+      idempotencyKey: "00000000-0000-4000-8000-000000000001",
       name: "Summit",
     });
     expect(parsed.success).toBe(true);

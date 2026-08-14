@@ -57,7 +57,9 @@ function contentWorkspace(taskTitle = "Send your slides", schedule?: PublishedSc
         email: "sam@example.com",
         bio: "",
         pronouns: "",
+        jobTitle: "",
         organization: "Calm Co",
+        version: 0,
       },
     ],
     tasks: [

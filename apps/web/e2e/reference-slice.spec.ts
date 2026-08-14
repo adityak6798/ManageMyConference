@@ -1,8 +1,10 @@
 // @acceptance ACC-IDENTITY-EVENTS
 import { expect, test } from "@playwright/test";
+import { fillAdditionalEvent } from "./event-creation";
 
 test("signs in, switches events and roles, creates, and reloads an event", async ({ page }) => {
   const eventName = `Greenroom Browser Summit ${Date.now()}`;
+  const seededEventId = "00000000-0000-4000-8000-000000000001";
   // The correlation-aware refusal moved rather than went. `/` is now the marketing landing
   // page, and a visitor at the front door is not looking at an error — but a *deep link* while
   // signed out still reaches the console's own signed-out surface, which is where `PRD-IAM-002`
@@ -13,6 +15,10 @@ test("signs in, switches events and roles, creates, and reloads an event", async
 
   await page.goto("/");
   await page.getByRole("button", { name: "Continue as organizer" }).click();
+
+  const before = await page.request.get(`/api/events/${seededEventId}/cfp/proposals`);
+  expect(before.ok()).toBe(true);
+  const seededProposalCount = ((await before.json()).proposals as unknown[]).length;
 
   const switcher = page.getByRole("combobox", { name: "Event workspace" });
   await expect(switcher).toContainText("Greenroom Demo Summit");
@@ -38,11 +44,24 @@ test("signs in, switches events and roles, creates, and reloads an event", async
   await expect(
     page.getByText("Greenroom Workshop Day Renamed \u00b7 America/Chicago"),
   ).toBeVisible();
-  await page.getByLabel("Event name", { exact: true }).fill(eventName);
   // A new event gets its own zone rather than the constant every create used to send.
-  await page.getByLabel("New event timezone").selectOption("Europe/Berlin");
+  await fillAdditionalEvent(page, { name: eventName, timezone: "Europe/Berlin" });
   await page.getByRole("button", { name: "Create event" }).click();
   await expect(switcher).toContainText(eventName);
+  const createdEventId = new URL(page.url()).searchParams.get("event");
+  expect(createdEventId).toBeTruthy();
+
+  // No implicit clone: the existing event keeps every proposal it had and the new event has
+  // none. This reads both event-scoped APIs after the write, rather than inferring isolation from
+  // two switcher options that could still point at shared data.
+  const [createdProposals, seededProposals] = await Promise.all([
+    page.request.get(`/api/events/${createdEventId}/cfp/proposals`),
+    page.request.get(`/api/events/${seededEventId}/cfp/proposals`),
+  ]);
+  expect(createdProposals.ok()).toBe(true);
+  expect(seededProposals.ok()).toBe(true);
+  expect((await createdProposals.json()).proposals).toEqual([]);
+  expect(((await seededProposals.json()).proposals as unknown[]).length).toBe(seededProposalCount);
 
   await page.reload();
   await expect(page.getByRole("combobox", { name: "Event workspace" })).toContainText(eventName);

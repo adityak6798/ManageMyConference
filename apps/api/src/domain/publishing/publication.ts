@@ -3,6 +3,8 @@ export interface PublicSpeaker {
   readonly slug: string;
   readonly name: string;
   readonly bio: string;
+  /** Optional only when reading a pre-1409 stored snapshot; new projections always carry it. */
+  readonly jobTitle?: string;
   /**
    * The speaker's employer, copied from their profile. It was called `headline` while it
    * still held the organization, which made the gallery print an employer wherever a job
@@ -129,6 +131,7 @@ export const allowlistPublicProjection = (
     slug: speaker.slug,
     name: speaker.name,
     bio: speaker.bio,
+    jobTitle: speaker.jobTitle ?? "",
     organization: speaker.organization,
     ...(speaker.photoUrl ? { photoUrl: speaker.photoUrl } : {}),
     // Copied key by key, like everything else here: the allowlist is what stops a field an

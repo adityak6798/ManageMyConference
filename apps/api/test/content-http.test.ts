@@ -36,7 +36,9 @@ const samProfile = {
   email: "sam@example.test",
   bio: "",
   pronouns: "",
+  jobTitle: "",
   organization: "",
+  version: 0,
 };
 async function cookie(persona: "organizer" | "reviewer" | "speaker") {
   return {
@@ -445,11 +447,15 @@ describe("content HTTP transport", () => {
       ).asset;
     const headshot = await upload("headshot.png", "image/png");
     const slides = await upload("slides.pdf", "application/pdf");
-    const choose = (headers: Record<string, string>, assetId: string) =>
-      api.request(photo, { method: "PUT", headers, body: JSON.stringify({ assetId }) });
+    const choose = (headers: Record<string, string>, assetId: string, expectedVersion: number) =>
+      api.request(photo, {
+        method: "PUT",
+        headers,
+        body: JSON.stringify({ assetId, expectedVersion }),
+      });
 
     // The speaker's own action, which is the whole point of the portal.
-    const chosen = await choose(speaker, headshot.id);
+    const chosen = await choose(speaker, headshot.id, 0);
     expect(chosen.status).toBe(200);
     await expect(chosen.json()).resolves.toMatchObject({
       profile: { id: profileId, photoAssetId: headshot.id },
@@ -461,14 +467,14 @@ describe("content HTTP transport", () => {
     ).resolves.toMatchObject({ assets: expect.arrayContaining([{ ...headshot }]) });
 
     // A slide deck is refused with the offending field named, not with a bare 400.
-    const refused = await choose(speaker, slides.id);
+    const refused = await choose(speaker, slides.id, 1);
     expect(refused.status).toBe(400);
     await expect(refused.json()).resolves.toMatchObject({
       error: { code: "VALIDATION_FAILED", fieldErrors: { assetId: [expect.any(String)] } },
     });
     // As is a file that is not this speaker's, and a body that names no asset at all.
-    expect((await choose(organizer, "00000000-0000-4000-8000-0000000000ff")).status).toBe(400);
-    expect((await choose(organizer, "not-a-uuid")).status).toBe(400);
+    expect((await choose(organizer, "00000000-0000-4000-8000-0000000000ff", 1)).status).toBe(400);
+    expect((await choose(organizer, "not-a-uuid", 1)).status).toBe(400);
     expect(
       (await api.request(photo, { method: "PUT", headers: organizer, body: "{" })).status,
     ).toBe(400);
@@ -477,25 +483,38 @@ describe("content HTTP transport", () => {
         await api.request(`/api/speaker-profiles/not-a-uuid/photo`, {
           method: "PUT",
           headers: organizer,
-          body: JSON.stringify({ assetId: headshot.id }),
+          body: JSON.stringify({ assetId: headshot.id, expectedVersion: 1 }),
         })
       ).status,
     ).toBe(400);
 
     // A reviewer may not choose one, and an anonymous caller is not even authenticated.
-    expect((await choose(await cookie("reviewer"), headshot.id)).status).toBe(403);
+    expect((await choose(await cookie("reviewer"), headshot.id, 1)).status).toBe(403);
     expect(
       (
         await api.request(photo, {
           method: "PUT",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ assetId: headshot.id }),
+          body: JSON.stringify({ assetId: headshot.id, expectedVersion: 1 }),
         })
       ).status,
     ).toBe(401);
-    expect((await api.request(photo, { method: "DELETE" })).status).toBe(401);
     expect(
-      (await api.request(photo, { method: "DELETE", headers: await cookie("reviewer") })).status,
+      (
+        await api.request(photo, {
+          method: "DELETE",
+          body: JSON.stringify({ expectedVersion: 1 }),
+        })
+      ).status,
+    ).toBe(401);
+    expect(
+      (
+        await api.request(photo, {
+          method: "DELETE",
+          headers: await cookie("reviewer"),
+          body: JSON.stringify({ expectedVersion: 1 }),
+        })
+      ).status,
     ).toBe(403);
     // None of those refusals moved the choice.
     await expect(
@@ -503,12 +522,20 @@ describe("content HTTP transport", () => {
     ).resolves.toMatchObject({ speakers: [{ photoAssetId: headshot.id }] });
 
     // An organizer may set and remove it on the speaker's behalf.
-    expect((await api.request(photo, { method: "DELETE", headers: organizer })).status).toBe(200);
+    expect(
+      (
+        await api.request(photo, {
+          method: "DELETE",
+          headers: organizer,
+          body: JSON.stringify({ expectedVersion: 1 }),
+        })
+      ).status,
+    ).toBe(200);
     const cleared = await (
       await api.request(`/api/events/${eventId}/content`, { headers: speaker })
     ).json();
     expect(cleared.speakers[0]).not.toHaveProperty("photoAssetId");
-    expect((await choose(organizer, headshot.id)).status).toBe(200);
+    expect((await choose(organizer, headshot.id, 2)).status).toBe(200);
 
     // Publishing the file is the separate decision that finally makes the face public.
     expect(
@@ -1047,10 +1074,17 @@ describe("content HTTP transport", () => {
     };
     const api = app(undefined, undefined, undefined, contended);
 
-    const response = await api.request(`/api/speaker-profiles/${samProfile.id}/workflow`, {
+    const response = await api.request(`/api/speaker-profiles/${samProfile.id}`, {
       method: "PATCH",
       headers: await cookie("organizer"),
-      body: JSON.stringify({ workflowStatus: "ready", logistics: {}, customFields: {} }),
+      body: JSON.stringify({
+        expectedVersion: 0,
+        name: "Sam Speaker",
+        pronouns: "",
+        jobTitle: "Programme Director",
+        organization: "Greenroom",
+        bio: "Updated elsewhere",
+      }),
     });
 
     expect(response.status).toBe(409);

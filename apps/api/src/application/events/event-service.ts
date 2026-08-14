@@ -10,9 +10,12 @@ import type { EventRepository } from "./event-repository";
 
 export interface CreateEventCommand {
   readonly organizationId: string;
+  readonly idempotencyKey: string;
   readonly name: string;
   readonly timezone: string;
 }
+
+type ProvisionEventCommand = Omit<CreateEventCommand, "idempotencyKey">;
 
 export interface UpdateEventCommand {
   readonly name: string;
@@ -43,6 +46,8 @@ export interface EventServiceDependencies {
  * observe the difference; that is stated rather than dressed up as a guard.
  */
 export const firstEventProvisioningKey = (userId: string) => `self-serve-first-event:${userId}`;
+export const additionalEventProvisioningKey = (userId: string, idempotencyKey: string) =>
+  `organizer-additional-event:${userId}:${idempotencyKey}`;
 
 // @spec PRD-EVT-001
 export class EventService {
@@ -78,11 +83,19 @@ export class EventService {
 
   async create(actor: Actor | null, command: CreateEventCommand): Promise<Event> {
     const authorized = this.authorizeCreate(actor, command.organizationId);
-    const created = await this.write(command, authorized.roleGrantSubjectId ?? authorized.id, {});
-    if (created === null)
-      // Unreachable: only a provisioning key can be taken, and `create` passes none.
-      throw new Error("Creating an event without a provisioning key cannot be refused as taken");
-    return created;
+    const subject = authorized.roleGrantSubjectId ?? authorized.id;
+    const key = additionalEventProvisioningKey(subject, command.idempotencyKey);
+    const created = await this.write(command, subject, { provisioningKey: key });
+    if (created) return created;
+    const adopted = await this.dependencies.repository.findByProvisioningKey(
+      command.organizationId,
+      key,
+    );
+    if (!adopted)
+      throw new Error(
+        `Event creation for organization ${command.organizationId} was refused as a replay, but no created event exists`,
+      );
+    return adopted;
   }
 
   /**
@@ -97,7 +110,7 @@ export class EventService {
    * `null` means the provisioning key was already taken; the caller adopts the winner.
    */
   private async write(
-    command: CreateEventCommand,
+    command: ProvisionEventCommand,
     organizerUserId: string | undefined,
     options: { readonly provisioningKey?: string },
   ): Promise<Event | null> {
@@ -131,7 +144,7 @@ export class EventService {
    * insert — so the caller grants it, exactly as it does for an event it finds by reading. That
    * grant is `INSERT OR IGNORE` on identity's side, so it is free when the role is already held.
    */
-  async provisionFirstEvent(actor: Actor | null, command: CreateEventCommand): Promise<Event> {
+  async provisionFirstEvent(actor: Actor | null, command: ProvisionEventCommand): Promise<Event> {
     const authorized = this.authorizeCreate(actor, command.organizationId);
     const subject = authorized.roleGrantSubjectId ?? authorized.id;
     const created = await this.write(command, subject, {

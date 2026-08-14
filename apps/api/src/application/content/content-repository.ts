@@ -97,6 +97,16 @@ export interface ContentRepository {
    */
   updateProfilePhoto(profileId: string, assetId: string | null): Promise<boolean>;
   /**
+   * Revise the canonical headshot choice and retire the previous choice in one operation.
+   * `expectedVersion` refuses a stale form rather than layering it onto somebody else's edit.
+   */
+  reviseProfilePhoto(
+    profileId: string,
+    draft: ContentRevisionDraft,
+    expectedVersion: number,
+    assetId: string | null,
+  ): Promise<SpeakerProfile | null>;
+  /**
    * Take the next portal-invitation occurrence for one profile, and answer the number it took.
    *
    * The number is allocated *inside* the write, never read and then written back. Two organizers
@@ -221,6 +231,7 @@ export interface ContentRepository {
     profileId: string,
     draft: ContentRevisionDraft,
     edit: ContentEdit<SpeakerProfile>,
+    expectedVersion?: number,
   ): Promise<SpeakerProfile | null>;
   /** `reviseProfile` for a session: the same single-operation guarantee. */
   reviseSession(

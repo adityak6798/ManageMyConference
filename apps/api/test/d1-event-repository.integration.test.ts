@@ -9,6 +9,7 @@ import {
   D1IdentityDirectory,
   preparedOrganizerGrant,
 } from "../src/adapters/persistence/d1-identity-directory";
+import { EventService } from "../src/application/events/event-service";
 import { applyMigrations, applySeedData, createMigratedDatabase } from "./support/seeded-d1";
 
 describe("D1EventRepository", () => {
@@ -159,6 +160,44 @@ describe("D1EventRepository", () => {
         { organizerUserId: "seed-organizer" },
       ),
     ).rejects.toThrow(/organizer grant writer/);
+  });
+
+  it("converges concurrent deliberate-create retries on one event", async () => {
+    const migrated = await createMigratedDatabase({
+      label: "greenroom-event-create-replay",
+      seed: true,
+    });
+    runtime = migrated.runtime;
+    const database = migrated.database;
+    const repository = new D1EventRepository(database as D1DatabasePort, preparedOrganizerGrant);
+    const directory = new D1IdentityDirectory(
+      database as ConstructorParameters<typeof D1IdentityDirectory>[0],
+    );
+    const organizer = await directory.findByPersona("organizer");
+    let id = 0;
+    const service = new EventService({
+      repository,
+      newId: () => `60000000-0000-4000-8000-${String(++id).padStart(12, "0")}`,
+      now: () => new Date("2026-08-14T12:00:00.000Z"),
+    });
+    const command = {
+      organizationId: "00000000-0000-4000-8000-000000000010",
+      idempotencyKey: "70000000-0000-4000-8000-000000000001",
+      name: "Deliberate second event",
+      timezone: "UTC",
+    };
+
+    const [first, replay] = await Promise.all([
+      service.create(organizer, command),
+      service.create(organizer, command),
+    ]);
+    expect(replay.id).toBe(first.id);
+    await expect(repository.listAllIdsInOrganization(command.organizationId)).resolves.toHaveLength(
+      3,
+    );
+    await expect(directory.listAssignableOwnersForEvent(first.id)).resolves.toEqual([
+      { id: "seed-organizer", name: "Olivia Organizer" },
+    ]);
   });
 
   it("discards an organization nothing references, and keeps one that is in use", async () => {

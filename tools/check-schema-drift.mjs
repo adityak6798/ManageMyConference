@@ -80,6 +80,9 @@ export const UNMODELLED_OBJECTS = [
   // they are the whole reason the table is evidence rather than a log somebody can rewrite.
   "trigger:platform_audit_records_no_update",
   "trigger:platform_audit_records_no_delete",
+  // Prevent a stage-list replacement from deleting a column that acquired a card after the
+  // service read it. The explicit migrate-and-delete command empties the stage first (#226).
+  "trigger:crm_pipeline_stage_no_stranded_prospects",
   // The pair that makes drift in `agenda_session_schedules` detectable rather than silent. They
   // belong to the database rather than to the application on purpose: a writer of
   // `agenda_publications` that knows nothing about the derived table — the old Worker during a
