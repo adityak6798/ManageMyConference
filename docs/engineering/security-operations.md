@@ -44,8 +44,10 @@ four are operator actions, because two of them carry credentials:
    two of the three. See [local development](local-development.md#google-sign-in-configuration).
 4. **Put the secret, immediately.** `cd apps/api && npx wrangler secret put GOOGLE_CLIENT_SECRET`.
    Then check `/api/auth/config` reports `google: true` and complete one real sign-in. That
-   sign-in is the observation `GAP-020` is waiting for — record its date, commit and client id
-   there and in the `ACC-IDENTITY-EVENTS` scorecard row.
+   sign-in is what proves the client: `GAP-020` recorded that no request had ever reached Google
+   and was closed on 2026-08-14 by the first one. A rotation does not reopen it; a client that
+   cannot complete a sign-in is the thing this step exists to catch, and the reason is in the
+   Worker log as `auth.google.failed` with a correlation id rather than on screen.
 
 **Steps 3 and 4 are one operation, and the deployment is down in between.** All three bindings are
 one unit, `resolveGoogleConfiguration` refuses a partial configuration by name, and it runs inside

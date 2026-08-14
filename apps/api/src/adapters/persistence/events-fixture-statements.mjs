@@ -44,14 +44,26 @@ export const EVENTS_MIGRATION_PLANTED_IDS = Object.freeze({
 });
 
 /**
- * One scalar subquery per table, counting the rows the fixture's own identifiers do not name.
+ * One scalar subquery per table, counting the rows that are somebody's work rather than the demo's.
  *
- * `idList` is already-quoted SQL, supplied by the caller from the seed file it parsed. The column
+ * `idLists` is already-quoted SQL, supplied by the caller from the seed file it parsed. The column
  * alias is the table name, so the caller can report a count per table without learning the query.
+ *
+ * **An organization is real if the seed did not create it**, full stop: nothing but self-serve
+ * signup writes one, so there is no demo path that produces a row here.
+ *
+ * **An event is real only if it is also outside every seeded organization**, and that second
+ * condition is the whole of this refinement. A demo visitor holds `events:create` on the seeded
+ * organization through the organizer persona's membership, so "create an event" is an ordinary
+ * thing to click in the demo — and the resulting row is demo state that the next reset is meant to
+ * clear, not a workspace somebody built. Counting it made the restore refuse over the demo having
+ * been *used*, which pushes an operator toward `--destroy-real-data` for a teardown that destroys
+ * nothing real. That habit is what the flag exists to prevent, so the false positive is worth
+ * removing rather than tolerating.
  */
 export function unseededEventsCountExpressions(idLists) {
   return [
     `(SELECT COUNT(*) FROM organizations WHERE id NOT IN (${idLists.organizations})) AS organizations`,
-    `(SELECT COUNT(*) FROM events WHERE id NOT IN (${idLists.events})) AS events`,
+    `(SELECT COUNT(*) FROM events WHERE id NOT IN (${idLists.events}) AND organization_id NOT IN (${idLists.organizations})) AS events`,
   ];
 }
