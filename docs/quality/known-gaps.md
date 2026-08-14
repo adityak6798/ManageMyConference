@@ -94,9 +94,10 @@ feature-by-feature verdict.
 
 - `GAP-026` **The trusted webhook egress service is specified but not deployed or live-verified.**
   The Worker adapter fails closed and can communicate only with an authenticated enforcement
-  origin, while executable fixtures prove mixed DNS answers and send-time rebinding are refused.
-  This repository does not contain the separately operated resolver-and-pinned-connection service,
-  and no production endpoint has been exercised. Impact: webhook routes correctly return
+  origin. `apps/webhook-egress` now contains the separately operated Node implementation,
+  executable mixed-answer and rebinding checks, a live-probe command, hourly monitor definition,
+  and bearer-rotation procedure. It has not been durably deployed; the only hosted experiment was
+  an anonymous expiring preview and is not evidence. Impact: webhook routes correctly return
   `503 WEBHOOK_UNAVAILABLE` without configuration, but production webhook delivery cannot be
   claimed. Owner: communications-integrations. Governing ID: `PRD-INT-001`, `ACC-INTEGRATION`.
   Closure: [issue #194](https://github.com/adityak6798/ManageMyConference/issues/194) deploys the

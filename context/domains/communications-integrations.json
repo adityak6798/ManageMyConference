@@ -17,6 +17,7 @@
     "apps/api/src/adapters/persistence/d1-webhooks.ts",
     "apps/api/src/adapters/persistence/webhook-secret-protector.ts",
     "apps/api/src/adapters/providers/trusted-webhook-egress.ts",
+    "apps/webhook-egress",
     "apps/api/src/adapters/persistence/memory-communications-repository.ts",
     "apps/api/test/communications-http.test.ts",
     "apps/api/test/communications-public.test.ts",

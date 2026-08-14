@@ -224,6 +224,10 @@
       "transport": [
         "apps/api/src/transport"
       ],
+      "egress": [
+        "apps/webhook-egress/src",
+        "apps/webhook-egress/api"
+      ],
       "ui": [
         "apps/web/src"
       ],
@@ -255,6 +259,9 @@
       ],
       "contracts": [
         "contracts"
+      ],
+      "egress": [
+        "egress"
       ]
     },
     "externalPackagesByLayer": {
@@ -283,6 +290,13 @@
       ],
       "contracts": [
         "zod"
+      ],
+      "egress": [
+        "node:crypto",
+        "node:dns",
+        "node:dns/promises",
+        "node:https",
+        "node:net"
       ]
     },
     "resources": [
@@ -860,6 +874,7 @@
         "apps/api/src/adapters/persistence/d1-webhooks.ts",
         "apps/api/src/adapters/persistence/webhook-secret-protector.ts",
         "apps/api/src/adapters/providers/trusted-webhook-egress.ts",
+        "apps/webhook-egress",
         "apps/api/src/adapters/persistence/memory-communications-repository.ts",
         "apps/api/test/communications-http.test.ts",
         "apps/api/test/communications-public.test.ts",

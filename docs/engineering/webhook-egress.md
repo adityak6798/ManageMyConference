@@ -16,8 +16,10 @@ No bindings means the feature is locally unavailable: declared webhook routes re
 configuration fails composition by naming the missing/invalid binding. Unrelated routes remain
 available when no webhook binding is present.
 
-The separately operated enforcement service is the DNS and network trust boundary; its deployment
-and live verification remain tracked in [issue #194](https://github.com/adityak6798/ManageMyConference/issues/194),
+The separately operated enforcement service is the DNS and network trust boundary. A Node
+implementation foundation, tests, probes and rotation procedure now live in
+`apps/webhook-egress`; no durable endpoint has been provisioned or live-verified. Deployment and
+closure remain tracked in [issue #194](https://github.com/adityak6798/ManageMyConference/issues/194),
 so this repository does not claim that boundary is deployed. For both `validate` and `dispatch`
 it must resolve every A and AAAA answer, reject the entire set when any answer is loopback,
 link-local, private, reserved, multicast or otherwise non-global, and reject an empty set. Dispatch
@@ -32,6 +34,12 @@ timeout, discards the target body, and returns JSON only: `{result:"delivered",t
 `{result:"retryable|terminal",code:"NORMALIZED_CODE",targetStatus?:3xx-5xx}`. Greenroom rejects
 redirects or malformed/incoherent responses from the service, and normalizes service network
 failures into its bounded webhook retry policy.
+
+The checked-in implementation accepts a current egress bearer and, only during rotation, one
+previous bearer. The complete deployment, probe, rotation, emergency-revocation and rollback
+procedure is in `apps/webhook-egress/README.md`. The hourly monitor is inert until a durable
+endpoint, repository secret and probe-target variable are configured; an anonymous or expiring
+serverless preview is not acceptable evidence.
 
 Wrapping-key rotation adds a new version/key, deploys it alongside every old version still present
 in stored envelopes, changes `WEBHOOK_WRAPPING_KEY_VERSION`, and only removes an old key after all

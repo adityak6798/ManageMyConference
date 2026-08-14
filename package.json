@@ -34,6 +34,7 @@
     "lint": "biome lint . && node tools/check-errors.mjs && uv run ruff check tools",
     "openapi:check": "npm run openapi:check --workspace @greenroom/contracts",
     "openapi:generate": "npm run openapi:generate --workspace @greenroom/contracts",
+    "probe:webhook-egress": "node tools/probe-webhook-egress.mjs",
     "reset": "node tools/local-wrangler.mjs reset",
     "reset:demo": "node tools/remote-demo-reset.mjs",
     "seed:check": "node tools/compose-seed.mjs --check",
