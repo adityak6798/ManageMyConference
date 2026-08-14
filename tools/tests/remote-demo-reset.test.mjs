@@ -103,6 +103,11 @@ test("the seeded identifiers are read from the fixture rather than guessed", () 
   assert.deepEqual(ids.users, [
     "seed-organizer",
     "seed-reviewer",
+    // The event's second reviewer (issue #191). She is a seeded *user* and deliberately not a
+    // demo persona: a round's pool, a two-reviewer aggregate and a reminder list are not
+    // demonstrable with one reviewer in the directory, but `seed-<persona>` is the only shape the
+    // demo door resolves and adding a fifth would be an identity-domain product change.
+    "review-nina-alvarez",
     "seed-speaker",
     "speaker-jordan-bell",
     "seed-public",
