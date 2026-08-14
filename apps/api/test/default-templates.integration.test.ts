@@ -18,7 +18,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import { D1CommunicationsRepository } from "../src/adapters/persistence/d1-communications-repository";
 import { CommunicationsService } from "../src/application/communications/communications-service";
 import { DEFAULT_TEMPLATES } from "../src/domain/communications/default-templates";
-import { applyMigrations, createMigratedDatabase, type MigratedDatabase } from "./support/seeded-d1";
+import {
+  applyMigrations,
+  createMigratedDatabase,
+  type MigratedDatabase,
+} from "./support/seeded-d1";
 
 const SEEDED_ORGANIZATION = "00000000-0000-4000-8000-000000000010";
 const SECOND_ORGANIZATION = "20000000-0000-4000-8000-0000000000aa";

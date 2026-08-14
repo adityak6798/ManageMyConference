@@ -77,8 +77,67 @@ export async function composeSeed() {
   return SEED_HEADER + fragments.map(normalize).join("\n");
 }
 
+/**
+ * Every `DELETE` in the composed seed has to name what it is deleting.
+ *
+ * The demo and a real conference share one deployment, so an unscoped `DELETE FROM <table>` in
+ * this file is a loaded gun: it reads as "restore the demo" and means "empty the table". Scoping
+ * every cleanup to the ids the seed inserts is what makes the restore safe to run beside somebody
+ * else's workspace, and this is what keeps it scoped — a fragment that gains a bare delete fails
+ * `npm run schema:check` rather than being discovered by a restore that destroyed something.
+ *
+ * A table that genuinely is demo-only, where emptying it is right, says so in the fragment with
+ * `-- SEED-SCOPE-EXEMPT: <reason>` on the line before. There are none today; the marker exists so
+ * that the answer is written down rather than argued at review time.
+ */
+export function unscopedDeletes(sql) {
+  const found = [];
+  const lines = sql.split("\n");
+  let exempt = false;
+  let pending = null;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("-- SEED-SCOPE-EXEMPT:")) {
+      exempt = true;
+      continue;
+    }
+    if (pending) {
+      // The `WHERE` may sit on the line after `DELETE FROM <table>`, which is how every scoped
+      // statement in this repository is written.
+      if (/^WHERE\b/i.test(trimmed)) pending = null;
+      else {
+        found.push(pending);
+        pending = null;
+      }
+    }
+    const match = /^DELETE\s+FROM\s+([a-z_]+)(.*)$/i.exec(trimmed);
+    if (!match) {
+      if (trimmed && !trimmed.startsWith("--")) exempt = false;
+      continue;
+    }
+    if (exempt) {
+      exempt = false;
+      continue;
+    }
+    if (/\bWHERE\b/i.test(match[2])) continue;
+    pending = match[1];
+  }
+  if (pending) found.push(pending);
+  return found;
+}
+
 async function main() {
   const composed = await composeSeed();
+  const unscoped = unscopedDeletes(composed);
+  if (unscoped.length) {
+    process.stderr.write(
+      `Seed cleanup is unscoped for ${unscoped.join(", ")}. The demo shares a deployment with ` +
+        "real conferences, so every DELETE must name the ids the seed inserts — or carry " +
+        "`-- SEED-SCOPE-EXEMPT: <reason>` on the line before it.\n",
+    );
+    process.exitCode = 1;
+    return;
+  }
   if (process.argv.includes("--check")) {
     const current = await readFile(output, "utf8");
     if (current !== composed) {
@@ -86,7 +145,9 @@ async function main() {
       process.exitCode = 1;
       return;
     }
-    process.stdout.write(`Seed aggregate matches ${seedFragments.length} domain fragments.\n`);
+    process.stdout.write(
+      `Seed aggregate matches ${seedFragments.length} domain fragments, and every cleanup is scoped.\n`,
+    );
     return;
   }
   await writeFile(output, composed);

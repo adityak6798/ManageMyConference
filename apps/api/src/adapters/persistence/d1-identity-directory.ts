@@ -358,7 +358,9 @@ export class D1IdentityDirectory implements IdentityDirectory {
     ]);
     const failed = results.find((result) => !result.success);
     if (failed)
-      throw new Error(`D1 failed to record organization membership: ${failed.error ?? "unknown error"}`);
+      throw new Error(
+        `D1 failed to record organization membership: ${failed.error ?? "unknown error"}`,
+      );
   }
 
   async findByEmail(email: string): Promise<Actor | null> {

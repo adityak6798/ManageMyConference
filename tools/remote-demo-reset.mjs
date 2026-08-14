@@ -10,12 +10,20 @@
  * statement about *configuration*, and each of them can be true of a database holding real
  * accounts.
  *
- * `assertOnlySeededData` reads the **data**, because `seed/reset.sql` is a full teardown: it
- * `DELETE`s every row of `users`, `organizations` and `events` — not the seeded ones, all of
- * them — before inserting the fixture back. That is exactly right for a database holding nothing
- * but seed data and catastrophic for one holding an organization somebody signed up for, since
- * there is no backup and no export. So the reset asks the database what it contains first, and
- * refuses if it finds anything the seed does not name.
+ * `assertOnlySeededData` reads the **data**. It was written when `seed/reset.sql` was a full
+ * teardown — `DELETE FROM users`, `organizations`, `events`, unscoped — which was exactly right
+ * for a database holding nothing but seed data and catastrophic for one holding an organization
+ * somebody signed up for, since there is no backup and no export. So the reset asks the database
+ * what it contains first, and refuses if it finds anything the seed does not name.
+ *
+ * **The seed is no longer a full teardown, and this guard is deliberately unchanged.** Every
+ * cleanup in it is now scoped to the ids the seed inserts, so a restore rebuilds the demo beside
+ * a real conference instead of in place of it — `apps/api/test/demo-reset-guard.integration
+ * .test.ts` runs one against a live signup and asserts the signup survives. What that changes is
+ * the *cost* of proceeding, not whether a real organization on this deployment is worth stopping
+ * for, and a guard relaxed on the strength of SQL somebody could edit tomorrow is not a guard. So
+ * the refusal stands, and the override below is still how an operator gets past it — it now
+ * overstates what it destroys, which is a residual recorded in `GAP-019` rather than fixed here.
  *
  * **It fails closed.** An unreachable database, a query that errors, output that does not parse,
  * a column missing from the answer: each of those is a refusal, never a proceed. A guard that

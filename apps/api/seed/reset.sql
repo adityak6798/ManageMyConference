@@ -7,119 +7,667 @@
 -- cleanup below fail with a foreign key violation rather than with anything that names
 -- this table. A reset is also the right moment to drop them — they are attendee state
 -- against a demo snapshot, and no seeded itinerary exists to restore.
-DELETE FROM attendee_itineraries;
-DELETE FROM public_event_projections;
+--
+-- Scoped to the seeded events, which is the whole point of the scoping pass: an itinerary an
+-- attendee built against a *real* conference sharing this deployment is not demo state and is not
+-- the reset's to destroy. The reasoning above holds exactly as far as the demo's own events.
+DELETE FROM attendee_itineraries
+WHERE event_id IN (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000002',
+  '00000000-0000-4000-8000-000000000099'
+);
+DELETE FROM public_event_projections
+WHERE event_id IN (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000002',
+  '00000000-0000-4000-8000-000000000099'
+);
 
 -- Last-sync state is product-written, not seeded, so nothing here recreates it — but it holds a
 -- foreign key to `events`, and the reset deletes events. Without this line one applied Accelevents
 -- sync makes every later `npm run reset` fail with FOREIGN KEY constraint failed, and the demo the
 -- reset exists to restore stays broken until someone deletes the row by hand.
-DELETE FROM accelevents_sync_runs;
-DELETE FROM webhook_delivery_attempts;
-DELETE FROM webhook_idempotency_records;
-DELETE FROM webhook_deliveries;
-DELETE FROM webhook_subscription_event_types;
-DELETE FROM webhook_subscriptions;
-DELETE FROM calendar_invite_states;
-DELETE FROM outbound_projection_state;
-DELETE FROM communication_attempts;
-DELETE FROM communication_deliveries;
-DELETE FROM message_templates;
+DELETE FROM accelevents_sync_runs
+WHERE event_id IN (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000002',
+  '00000000-0000-4000-8000-000000000099'
+);
 
-DELETE FROM agenda_session_schedules;
+-- Webhook state is organization-scoped, and the three child tables are scoped **through their own
+-- parent** rather than by repeating the organization list. That is not tidiness: `webhook_deliveries`
+-- and `webhook_subscription_event_types` have no organization of their own to compare, and a child
+-- left behind when its parent goes is the bare `FOREIGN KEY constraint failed` this file exists to
+-- prevent. Each subquery therefore names exactly the parent rows the statement below it deletes.
+DELETE FROM webhook_delivery_attempts
+WHERE delivery_id IN (
+  SELECT id FROM webhook_deliveries
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
+);
+DELETE FROM webhook_idempotency_records
+WHERE organization_id IN (
+  '00000000-0000-4000-8000-000000000010',
+  '00000000-0000-4000-8000-000000000020'
+);
+DELETE FROM webhook_deliveries
+WHERE organization_id IN (
+  '00000000-0000-4000-8000-000000000010',
+  '00000000-0000-4000-8000-000000000020'
+);
+DELETE FROM webhook_subscription_event_types
+WHERE subscription_id IN (
+  SELECT id FROM webhook_subscriptions
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
+);
+DELETE FROM webhook_subscriptions
+WHERE organization_id IN (
+  '00000000-0000-4000-8000-000000000010',
+  '00000000-0000-4000-8000-000000000020'
+);
+
+DELETE FROM calendar_invite_states
+WHERE organization_id IN (
+  '00000000-0000-4000-8000-000000000010',
+  '00000000-0000-4000-8000-000000000020'
+);
+DELETE FROM outbound_projection_state
+WHERE event_id IN (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000002',
+  '00000000-0000-4000-8000-000000000099'
+);
+DELETE FROM communication_attempts
+WHERE delivery_id IN (
+  SELECT id FROM communication_deliveries
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
+);
+DELETE FROM communication_deliveries
+WHERE organization_id IN (
+  '00000000-0000-4000-8000-000000000010',
+  '00000000-0000-4000-8000-000000000020'
+);
+
+-- Templates are organization-scoped, and scoping this one matters more than it looks: migration
+-- `1706` provisions the nine lifecycle defaults for **every** organization, so an unscoped delete
+-- here would silently strip a real conference of every message it can send (issue #217) and leave
+-- nothing to put them back — `data.sql` below restores the demo organization's copies only.
+DELETE FROM message_templates
+WHERE organization_id IN (
+  '00000000-0000-4000-8000-000000000010',
+  '00000000-0000-4000-8000-000000000020'
+);
+
+DELETE FROM agenda_session_schedules
+WHERE event_id IN (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000002',
+  '00000000-0000-4000-8000-000000000099'
+);
 -- Before the publications, so the delete trigger `1602` declares has nothing left to invalidate.
 -- It also has to be before the events cleanup below: this table references events(id) and does not
 -- cascade, so leaving a row behind fails the reset with a bare FOREIGN KEY constraint failure that
 -- names no table.
-DELETE FROM agenda_schedule_materializations;
-DELETE FROM agenda_publications;
-DELETE FROM agenda_drafts;
+DELETE FROM agenda_schedule_materializations
+WHERE event_id IN (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000002',
+  '00000000-0000-4000-8000-000000000099'
+);
+DELETE FROM agenda_publications
+WHERE event_id IN (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000002',
+  '00000000-0000-4000-8000-000000000099'
+);
+DELETE FROM agenda_drafts
+WHERE event_id IN (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000002',
+  '00000000-0000-4000-8000-000000000099'
+);
 
-DELETE FROM crm_contact_activities;
-DELETE FROM crm_contact_aliases;
-DELETE FROM crm_contact_events;
-DELETE FROM crm_contact_fields;
-DELETE FROM crm_contact_tags;
-DELETE FROM crm_contact_segments;
-DELETE FROM crm_contact_imports;
-DELETE FROM crm_organization_contacts;
-DELETE FROM crm_activities;
-DELETE FROM crm_contacts;
-DELETE FROM crm_prospect_transitions;
-DELETE FROM crm_prospects;
-DELETE FROM crm_pipeline_stages;
+-- CRM has two roots and they are scoped differently, which is why this file is longer than the
+-- rest: `crm_prospects` belongs to an **event** and `crm_organization_contacts` belongs to an
+-- **organization**. Every table below reaches one of those two, and each is scoped through the
+-- parent whose rows this reset actually deletes — so a row belonging to a real conference on the
+-- same deployment is left where it is, and no child outlives the parent it points at.
+DELETE FROM crm_contact_activities
+WHERE contact_id IN (
+  SELECT id FROM crm_organization_contacts
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
+);
+DELETE FROM crm_contact_aliases
+WHERE contact_id IN (
+  SELECT id FROM crm_organization_contacts
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
+);
+-- Three foreign keys, and the row has to go when **any** of them is being deleted: it points at a
+-- contact, an event and a prospect, and surviving the loss of any one of them is the foreign-key
+-- failure this file exists to prevent.
+DELETE FROM crm_contact_events
+WHERE event_id IN (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000002',
+  '00000000-0000-4000-8000-000000000099'
+)
+  OR contact_id IN (
+    SELECT id FROM crm_organization_contacts
+    WHERE organization_id IN (
+      '00000000-0000-4000-8000-000000000010',
+      '00000000-0000-4000-8000-000000000020'
+    )
+  )
+  OR prospect_id IN (
+    SELECT id FROM crm_prospects
+    WHERE event_id IN (
+      '00000000-0000-4000-8000-000000000001',
+      '00000000-0000-4000-8000-000000000002',
+      '00000000-0000-4000-8000-000000000099'
+    )
+  );
+DELETE FROM crm_contact_fields
+WHERE contact_id IN (
+  SELECT id FROM crm_organization_contacts
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
+);
+DELETE FROM crm_contact_tags
+WHERE contact_id IN (
+  SELECT id FROM crm_organization_contacts
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
+);
+DELETE FROM crm_contact_segments
+WHERE organization_id IN (
+  '00000000-0000-4000-8000-000000000010',
+  '00000000-0000-4000-8000-000000000020'
+);
+DELETE FROM crm_contact_imports
+WHERE organization_id IN (
+  '00000000-0000-4000-8000-000000000010',
+  '00000000-0000-4000-8000-000000000020'
+);
+DELETE FROM crm_organization_contacts
+WHERE organization_id IN (
+  '00000000-0000-4000-8000-000000000010',
+  '00000000-0000-4000-8000-000000000020'
+);
+DELETE FROM crm_activities
+WHERE prospect_id IN (
+  SELECT id FROM crm_prospects
+  WHERE event_id IN (
+    '00000000-0000-4000-8000-000000000001',
+    '00000000-0000-4000-8000-000000000002',
+    '00000000-0000-4000-8000-000000000099'
+  )
+);
+DELETE FROM crm_contacts
+WHERE prospect_id IN (
+  SELECT id FROM crm_prospects
+  WHERE event_id IN (
+    '00000000-0000-4000-8000-000000000001',
+    '00000000-0000-4000-8000-000000000002',
+    '00000000-0000-4000-8000-000000000099'
+  )
+);
+-- The pipeline pair from migration `1501`, both event-scoped, in the order that file's own
+-- references require: a transition before the prospect it describes, and the stage list after the
+-- prospects that name a stage.
+DELETE FROM crm_prospect_transitions
+WHERE event_id IN (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000002',
+  '00000000-0000-4000-8000-000000000099'
+);
+DELETE FROM crm_prospects
+WHERE event_id IN (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000002',
+  '00000000-0000-4000-8000-000000000099'
+);
+DELETE FROM crm_pipeline_stages
+WHERE event_id IN (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000002',
+  '00000000-0000-4000-8000-000000000099'
+);
 
-DELETE FROM speaker_resources;
-DELETE FROM speaker_task_templates;
-DELETE FROM content_asset_comments;
-DELETE FROM content_revisions;
-DELETE FROM content_speaker_import_rows;
-DELETE FROM speaker_conversion_sources;
-DELETE FROM speaker_conversion_claims;
-DELETE FROM speaker_email_claims;
-DELETE FROM speaker_messages;
-DELETE FROM speaker_assets;
-DELETE FROM speaker_tasks;
-DELETE FROM content_sessions;
-DELETE FROM speaker_profiles;
+-- Every content table is event-scoped, so every statement here carries the same three seeded event
+-- ids and the ordering is unchanged: children before the `speaker_profiles` and `content_sessions`
+-- they reference, all of them before the events cleanup further down.
+DELETE FROM speaker_resources
+WHERE event_id IN (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000002',
+  '00000000-0000-4000-8000-000000000099'
+);
+DELETE FROM speaker_task_templates
+WHERE event_id IN (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000002',
+  '00000000-0000-4000-8000-000000000099'
+);
+DELETE FROM content_asset_comments
+WHERE event_id IN (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000002',
+  '00000000-0000-4000-8000-000000000099'
+);
+DELETE FROM content_revisions
+WHERE event_id IN (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000002',
+  '00000000-0000-4000-8000-000000000099'
+);
+DELETE FROM content_speaker_import_rows
+WHERE event_id IN (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000002',
+  '00000000-0000-4000-8000-000000000099'
+);
+DELETE FROM speaker_conversion_sources
+WHERE event_id IN (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000002',
+  '00000000-0000-4000-8000-000000000099'
+);
+DELETE FROM speaker_conversion_claims
+WHERE event_id IN (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000002',
+  '00000000-0000-4000-8000-000000000099'
+);
+DELETE FROM speaker_email_claims
+WHERE event_id IN (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000002',
+  '00000000-0000-4000-8000-000000000099'
+);
+DELETE FROM speaker_messages
+WHERE event_id IN (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000002',
+  '00000000-0000-4000-8000-000000000099'
+);
+DELETE FROM speaker_assets
+WHERE event_id IN (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000002',
+  '00000000-0000-4000-8000-000000000099'
+);
+DELETE FROM speaker_tasks
+WHERE event_id IN (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000002',
+  '00000000-0000-4000-8000-000000000099'
+);
+DELETE FROM content_sessions
+WHERE event_id IN (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000002',
+  '00000000-0000-4000-8000-000000000099'
+);
+DELETE FROM speaker_profiles
+WHERE event_id IN (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000002',
+  '00000000-0000-4000-8000-000000000099'
+);
 
-DELETE FROM review_events;
-DELETE FROM review_decisions;
-DELETE FROM review_outcomes;
+DELETE FROM review_events
+WHERE event_id IN (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000002',
+  '00000000-0000-4000-8000-000000000099'
+);
+DELETE FROM review_decisions
+WHERE event_id IN (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000002',
+  '00000000-0000-4000-8000-000000000099'
+);
+DELETE FROM review_outcomes
+WHERE event_id IN (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000002',
+  '00000000-0000-4000-8000-000000000099'
+);
 -- `review_suggestions` sits between two foreign keys and has to be deleted between them:
 -- `review_evaluations.suggestion_id` points *at* it, so evaluations go first, and
 -- `review_suggestions.assignment_id` points at `review_assignments`, so it goes before those.
 -- Left out of this list entirely, a reset after any run that drafted a suggestion fails with a
 -- bare `FOREIGN KEY constraint failed` from `wrangler d1` that names no table — which is how the
 -- ordering was found.
-DELETE FROM review_evaluations;
-DELETE FROM review_suggestions;
-DELETE FROM review_conflicts;
-DELETE FROM review_assignments;
-DELETE FROM review_plans;
+--
+-- Evaluations and conflicts carry no event of their own, so they are scoped through the
+-- assignments they belong to — the same rows the statement four lines below deletes.
+DELETE FROM review_evaluations
+WHERE assignment_id IN (
+  SELECT id FROM review_assignments
+  WHERE event_id IN (
+    '00000000-0000-4000-8000-000000000001',
+    '00000000-0000-4000-8000-000000000002',
+    '00000000-0000-4000-8000-000000000099'
+  )
+);
+DELETE FROM review_suggestions
+WHERE event_id IN (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000002',
+  '00000000-0000-4000-8000-000000000099'
+);
+DELETE FROM review_conflicts
+WHERE assignment_id IN (
+  SELECT id FROM review_assignments
+  WHERE event_id IN (
+    '00000000-0000-4000-8000-000000000001',
+    '00000000-0000-4000-8000-000000000002',
+    '00000000-0000-4000-8000-000000000099'
+  )
+);
+DELETE FROM review_assignments
+WHERE event_id IN (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000002',
+  '00000000-0000-4000-8000-000000000099'
+);
+DELETE FROM review_plans
+WHERE event_id IN (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000002',
+  '00000000-0000-4000-8000-000000000099'
+);
 
-DELETE FROM cfp_status_audit;
-DELETE FROM cfp_submissions;
-DELETE FROM cfp_statuses;
-DELETE FROM cfp_forms;
+DELETE FROM cfp_status_audit
+WHERE event_id IN (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000002',
+  '00000000-0000-4000-8000-000000000099'
+);
+-- Every submission on a seeded event goes, seeded or not. A proposal somebody submitted to the
+-- demo call *is* demo state — its event is about to be replaced — and no scoping by submitter
+-- would be right here: an account-bound proposal from a real person against the demo event still
+-- points at a row this reset deletes.
+DELETE FROM cfp_submissions
+WHERE event_id IN (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000002',
+  '00000000-0000-4000-8000-000000000099'
+);
+DELETE FROM cfp_statuses
+WHERE event_id IN (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000002',
+  '00000000-0000-4000-8000-000000000099'
+);
+DELETE FROM cfp_forms
+WHERE event_id IN (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000002',
+  '00000000-0000-4000-8000-000000000099'
+);
 
 -- Before `events` and `organizations`, which this references, and for the reason the users
 -- fragment gives: D1 does not honour `PRAGMA foreign_keys` between statements, so a cascade
 -- cannot be relied on and a row left behind is a live acceptance link pointing at an
 -- organization the next reset has already replaced.
-DELETE FROM identity_invitations;
-DELETE FROM api_client_events;
-DELETE FROM api_client_scopes;
-DELETE FROM api_clients;
-DELETE FROM event_roles;
-DELETE FROM organization_memberships;
+DELETE FROM identity_invitations
+WHERE organization_id IN (
+  '00000000-0000-4000-8000-000000000010',
+  '00000000-0000-4000-8000-000000000020'
+);
+DELETE FROM api_client_events
+WHERE client_id IN (
+  SELECT id FROM api_clients
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
+)
+  OR event_id IN (
+    '00000000-0000-4000-8000-000000000001',
+    '00000000-0000-4000-8000-000000000002',
+    '00000000-0000-4000-8000-000000000099'
+  );
+DELETE FROM api_client_scopes
+WHERE client_id IN (
+  SELECT id FROM api_clients
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
+);
+DELETE FROM api_clients
+WHERE organization_id IN (
+  '00000000-0000-4000-8000-000000000010',
+  '00000000-0000-4000-8000-000000000020'
+);
+-- Scoped by event **and** by user, and both halves are load-bearing.
+--
+-- By event: a role is a row about an event that is being replaced, whoever holds it. A real
+-- person granted a role on the demo event loses it — the event they held it on is gone — while
+-- their roles on their own conference are untouched.
+--
+-- By user: every seeded persona is deleted from `users` further down, so every role they hold
+-- has to go first, wherever it is. Migration `0002` plants exactly such a row — `seed-organizer`
+-- as organizer of every pre-organization event — and the same migration plants the membership
+-- below. Leaving either behind makes `DELETE FROM users` fail with a bare `FOREIGN KEY constraint
+-- failed`, which is how this pass found them.
+DELETE FROM event_roles
+WHERE event_id IN (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000002',
+  '00000000-0000-4000-8000-000000000099'
+)
+  OR user_id IN (
+    'seed-organizer',
+    'seed-reviewer',
+    'seed-speaker',
+    'speaker-jordan-bell',
+    'seed-public'
+  );
+-- Including `00000000-0000-4000-8000-000000000000`'s membership, which migration `0002` plants
+-- for `seed-organizer` in the "Imported organization" the seed never re-inserts.
+DELETE FROM organization_memberships
+WHERE organization_id IN (
+  '00000000-0000-4000-8000-000000000010',
+  '00000000-0000-4000-8000-000000000020'
+)
+  OR user_id IN (
+    'seed-organizer',
+    'seed-reviewer',
+    'seed-speaker',
+    'speaker-jordan-bell',
+    'seed-public'
+  );
 
 -- Applications reference versions, versions reference templates and events, so they go first.
-DELETE FROM event_template_applications;
-DELETE FROM event_template_versions;
-DELETE FROM event_templates;
+-- Scoped through the templates the last statement deletes, plus the events the applications point
+-- at: an application recorded against a demo event has to go even if its template belongs to a
+-- real organization, or the events cleanup below fails on it.
+DELETE FROM event_template_applications
+WHERE event_id IN (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000002',
+  '00000000-0000-4000-8000-000000000099'
+)
+  OR template_version_id IN (
+    SELECT id FROM event_template_versions
+    WHERE template_id IN (
+      SELECT id FROM event_templates
+      WHERE organization_id IN (
+        '00000000-0000-4000-8000-000000000010',
+        '00000000-0000-4000-8000-000000000020'
+      )
+    )
+  );
+DELETE FROM event_template_versions
+WHERE template_id IN (
+  SELECT id FROM event_templates
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
+)
+  OR source_event_id IN (
+    '00000000-0000-4000-8000-000000000001',
+    '00000000-0000-4000-8000-000000000002',
+    '00000000-0000-4000-8000-000000000099'
+  );
+DELETE FROM event_templates
+WHERE organization_id IN (
+  '00000000-0000-4000-8000-000000000010',
+  '00000000-0000-4000-8000-000000000020'
+);
 
-DELETE FROM events;
+-- The three events the seed inserts, by id. An event a real conference created — including one
+-- created inside a seeded organization — is not the demo's to delete, which is why this scopes on
+-- the event ids rather than on their organization.
+DELETE FROM events
+WHERE id IN (
+  '00000000-0000-4000-8000-000000000001',
+  '00000000-0000-4000-8000-000000000002',
+  '00000000-0000-4000-8000-000000000099'
+);
 
-DELETE FROM identity_login_challenges;
--- In-flight sign-in attempts hold no foreign key, but a reset that leaves them behind leaves a
--- callback able to complete against a database whose users have just been replaced.
-DELETE FROM identity_oauth_attempts;
--- Issued sessions are demo state: a reset that left them behind would leave a cookie minted
--- against the previous fixture resolving against the new one. Before `users` for the same
--- reason as the rows below it.
-DELETE FROM identity_sessions;
+-- Emailed-code challenges are keyed by address, so they are scoped to the seeded personas'
+-- addresses — the only ones `users.sql` below re-creates. `DEMO_MODE=true` turns this door off
+-- entirely on the demo deployment, so in practice this deletes nothing; it is here because the
+-- reset must be applicable on a deployment where the door *is* open, and there a real person's
+-- in-flight code is not the demo's to cancel.
+DELETE FROM identity_login_challenges
+WHERE email IN (
+  'organizer@greenroom.test',
+  'reviewer@greenroom.test',
+  'speaker@greenroom.test'
+);
+
+-- **`identity_oauth_attempts` is deliberately no longer cleared, and that is a scoping decision
+-- rather than an omission.**
+--
+-- An attempt row has no owner: no organization, no event, no user — it is minted before anybody
+-- is identified. There is therefore no way to scope it, and the unscoped delete that used to be
+-- here aborts the Google sign-in of whoever happens to be mid-redirect when a demo restore runs,
+-- on a deployment the demo now shares with a real conference. The reason it was cleared no longer
+-- holds either: it was "a callback able to complete against a database whose users have just been
+-- replaced", and a reset that replaces only the seeded users leaves such a callback completing
+-- into an ordinary self-serve signup. Rows expire ten minutes after they are minted
+-- (`ATTEMPT_LIFETIME_MS`) and `saveOauthAttempt` sweeps the expired ones on every start, so this
+-- table cleans itself.
+
+-- Sessions belong to a user, so they go with the seeded users and nobody else's. Before `users`
+-- for the same reason as the rows below it. An unscoped delete here signed every real person on
+-- the deployment out, which is exactly the collateral this pass removes.
+DELETE FROM identity_sessions
+WHERE user_id IN (
+  'seed-organizer',
+  'seed-reviewer',
+  'seed-speaker',
+  'speaker-jordan-bell',
+  'seed-public'
+);
+
 -- The audit spine is append-only in the application and cleared only here, because a
 -- deterministic reset that kept the previous run's rows would report actions against users that
--- no longer exist. It holds no foreign key; the position is for readability.
-DELETE FROM identity_audit_events;
--- Before `users`: this references it, and D1 does not honour `PRAGMA foreign_keys` between
--- statements, so relying on the cascade would leave rows that make the next reset fail.
-DELETE FROM identity_provider_accounts;
-DELETE FROM identity_emails;
-DELETE FROM users;
+-- no longer exist. It holds no foreign key; the position is for readability. Scoped by every
+-- identifier it carries, so a record about a seeded actor, a seeded subject, a seeded
+-- organization or a seeded event goes and a record about a real one stays.
+DELETE FROM identity_audit_events
+WHERE actor_user_id IN (
+  'seed-organizer',
+  'seed-reviewer',
+  'seed-speaker',
+  'speaker-jordan-bell',
+  'seed-public'
+)
+  OR subject_user_id IN (
+    'seed-organizer',
+    'seed-reviewer',
+    'seed-speaker',
+    'speaker-jordan-bell',
+    'seed-public'
+  )
+  OR organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
+  OR event_id IN (
+    '00000000-0000-4000-8000-000000000001',
+    '00000000-0000-4000-8000-000000000002',
+    '00000000-0000-4000-8000-000000000099'
+  );
 
-DELETE FROM organizations;
+-- Before `users`: these reference it, and D1 does not honour `PRAGMA foreign_keys` between
+-- statements, so relying on the cascade would leave rows that make the next reset fail.
+DELETE FROM identity_provider_accounts
+WHERE user_id IN (
+  'seed-organizer',
+  'seed-reviewer',
+  'seed-speaker',
+  'speaker-jordan-bell',
+  'seed-public'
+);
+DELETE FROM identity_emails
+WHERE user_id IN (
+  'seed-organizer',
+  'seed-reviewer',
+  'seed-speaker',
+  'speaker-jordan-bell',
+  'seed-public'
+);
+
+-- **Only the five the seed names.**
+--
+-- The demo can also *produce* a user: converting a CRM prospect to a speaker writes one through
+-- `provisionSpeaker`, with a generated id and the contact's own address. Those are deliberately
+-- left alone. Deleting a row in `users` that the seed does not name is precisely what `#208`'s
+-- guard refuses to let a restore do, and the identity is real — it holds an address somebody
+-- reads. Nothing depends on their removal: every row that referenced them through a seeded event
+-- has already gone above, and `provisionSpeaker` is `INSERT OR IGNORE`, so re-running the demo
+-- conversion adopts the existing user rather than failing. The residual, stated: a deployment
+-- that has run the speaker conversion accumulates one user row per converted contact across
+-- resets.
+DELETE FROM users
+WHERE id IN (
+  'seed-organizer',
+  'seed-reviewer',
+  'seed-speaker',
+  'speaker-jordan-bell',
+  'seed-public'
+);
+
+-- The two organizations the seed inserts, by id. Last, because everything above references them.
+--
+-- If a real conference has been created inside one of these — an event of its own, an API client,
+-- a webhook subscription — this statement fails on the foreign key rather than removing it, and
+-- that failure is the correct outcome: it says the demo organization is no longer only the
+-- demo's. `tools/remote-demo-reset.mjs` refuses before reaching here in that case (`#208`), and
+-- this is the second line of the same defence.
+DELETE FROM organizations
+WHERE id IN (
+  '00000000-0000-4000-8000-000000000010',
+  '00000000-0000-4000-8000-000000000020'
+);
 
 INSERT INTO organizations (id, name, created_at) VALUES
   ('00000000-0000-4000-8000-000000000010', 'Greenroom Labs', '2026-08-09T12:00:00.000Z'),

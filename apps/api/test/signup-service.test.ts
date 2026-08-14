@@ -154,8 +154,7 @@ class FakeDirectory implements SignupDirectory {
   async joinOrganization(organizationId: string, userId: string): Promise<void> {
     this.calls.push("joinOrganization");
     const held = this.memberships.get(userId) ?? [];
-    if (!held.includes(organizationId))
-      this.memberships.set(userId, [...held, organizationId]);
+    if (!held.includes(organizationId)) this.memberships.set(userId, [...held, organizationId]);
     const user = this.users.get(userId);
     if (user?.persona === "public") this.users.set(userId, { ...user, persona: "organizer" });
   }
