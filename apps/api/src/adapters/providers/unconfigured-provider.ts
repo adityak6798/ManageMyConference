@@ -6,13 +6,13 @@ import type { Delivery } from "../../domain/communications/delivery";
  *
  * `COMMUNICATIONS_PROVIDERS` used to be one switch over three channels, so a deployment that
  * wanted real email had to hold Airtable and Accelevents credentials it did not have. The switch
- * is per channel now, and an unconfigured channel ordinarily falls back to
- * `DeterministicProvider` — which is what keeps the demo's projections working on a deployment
- * whose mail is live.
+ * is per channel now, and an unconfigured channel falls back to `DeterministicProvider` where
+ * `ENVIRONMENT` names a development deployment — which is what keeps the demo's projections
+ * working beside mail that is live.
  *
- * That fallback is exactly what `resolveProviders` refuses where `ENVIRONMENT` names production:
- * a deployment that believes it is live must not report `fake:` references for a channel nobody
- * configured. This is what it gets instead. Every delivery is refused, terminally, naming the
+ * Everywhere else, including an environment name nobody recognizes, `resolveProviders` refuses
+ * that fallback: a deployment nobody has said is a development one must not report `fake:`
+ * references for a channel nobody configured. This is what it gets instead. Every delivery is refused, terminally, naming the
  * bindings that would make the channel real — so the failure is in the delivery history where an
  * organizer sees it, and an operator who then sets the bindings can retry the row.
  *

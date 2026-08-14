@@ -97,6 +97,13 @@ configured. The two questions are deliberately different: refusing a whole deplo
 unrecognized name would take `fixture` down for anybody who spelled their environment unusually,
 while refusing one unconfigured channel there costs nothing that was working.
 
+**The inbound roster asks the `live` question the same way**, and it throws rather than refusing
+per delivery because it runs on the request an organizer made. A `live` deployment with none of the
+inbound bindings set keeps the fixture roster only where `ENVIRONMENT` names a development one;
+anywhere else Preview and Apply are refused outright. That matters more here than in the drain: a
+sync that answers from the in-repository roster while the panel reports the mode as `live` does not
+merely fail to send — an Apply writes invented people into a real event's content.
+
 **Where that throw happens, precisely.** `resolveProviders` is called from `drainOutbox`, which
 the one-minute scheduled trigger invokes — **not** at module load and **not** on the request path.
 So a misconfigured deployment does not fail to deploy and does not fail `/health`. What happens is:

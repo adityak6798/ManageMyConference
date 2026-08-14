@@ -398,13 +398,28 @@ export function PublicCfpView({
      * newer one in the list: an applicant who has typed nothing while another tab saved has no
      * unsaved changes to keep, and telling them they had would strand them on stale text. So they
      * take the reload path exactly as before, and it costs them nothing.
+     *
+     * **And the form bound to nothing is the third sibling**, found by the review pass that
+     * followed the second. `editing === null` with text on screen is an applicant part-way
+     * through a *new* proposal — the state this page is in after every submit, and the one
+     * `Start another proposal` leaves — and measuring against `editing` made `unsaved` false
+     * there, so opening anything from the list wiped a whole unsent abstract with the same
+     * cheerful "Editing …" the first repair existed to remove. It is refused on the same terms
+     * as a switch between two stored proposals, because it is the same loss.
      */
+    const typedIntoNewProposal =
+      editing === null && Object.values(answers).some((value) => value.trim() !== "");
     const unsaved =
-      editing !== null && !sameAnswers(answers, answersTheFormStillAccepts(editing.answers));
+      typedIntoNewProposal ||
+      (editing !== null && !sameAnswers(answers, answersTheFormStillAccepts(editing.answers)));
     if (unsaved && editing?.id !== proposal.id) {
       setNotice({
         tone: "error",
-        text: `You have unsaved changes to ${editing?.title ?? "the proposal you are editing"}. Save or submit it before opening ${proposal.title ?? "another proposal"}, or press Start another proposal to leave it as it was.`,
+        text: typedIntoNewProposal
+          ? // Reachable only from the list, which only a signed-in applicant is shown, so "save
+            // it as a draft" is always an option here.
+            `You have unsaved answers on a new proposal. Save or submit it before opening ${proposal.title ?? "another proposal"}, or press Start another proposal to discard what is on the form.`
+          : `You have unsaved changes to ${editing?.title ?? "the proposal you are editing"}. Save or submit it before opening ${proposal.title ?? "another proposal"}, or press Start another proposal to leave it as it was.`,
       });
       return;
     }
@@ -446,6 +461,7 @@ export function PublicCfpView({
    * above names this control as the way out for exactly that reason.
    */
   const startFresh = () => {
+    const typed = Object.values(answers).some((value) => value.trim() !== "");
     const abandoned =
       editing !== null && !sameAnswers(answers, answersTheFormStillAccepts(editing.answers))
         ? editing
@@ -459,7 +475,15 @@ export function PublicCfpView({
             tone: "ok",
             text: `Started a new proposal. Your unsaved changes to ${abandoned.title ?? "the previous proposal"} were not saved; it is unchanged, and you can open it again from the list.`,
           }
-        : null,
+        : // The same statement for the form bound to no proposal at all: what is cleared there
+          // was never stored anywhere, so "it is unchanged and you can open it again" would be a
+          // lie, and saying nothing at all is what this control did before issue #211.
+          typed
+          ? {
+              tone: "ok",
+              text: "Started a new proposal. The answers that were on the form were not saved anywhere and are gone.",
+            }
+          : null,
     );
   };
 
@@ -502,6 +526,8 @@ export function PublicCfpView({
         : null
     : null;
   const formOpen = liveCfp !== null && status === "open";
+  /** Whether anything is on the form at all, bound to a stored proposal or not. */
+  const formHasAnswers = Object.values(answers).some((value) => value.trim() !== "");
 
   return (
     <article className="pub-detail">
@@ -538,7 +564,13 @@ export function PublicCfpView({
               whole new proposal was typed and then written over the previous one as a `PUT`,
               with no create issued at all.
             */}
-            {formOpen && editing ? (
+            {/*
+              Offered whenever there is something on the form to leave, which is not the same as
+              "a stored proposal is open". A new proposal that has been typed into is exactly the
+              state the switch refusal points *at* this control from, and gating it on `editing`
+              meant that refusal named a button the page was not rendering.
+            */}
+            {formOpen && (editing !== null || formHasAnswers) ? (
               <button
                 type="button"
                 className="pub-button"

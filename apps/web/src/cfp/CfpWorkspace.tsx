@@ -358,11 +358,22 @@ export function CfpWorkspace({
         await refreshLive();
         announce(
           "success",
-          // Phrased from the effective state the server just computed rather than from the
-          // timestamps that were sent, so a deadline saved in the past is never announced as a
-          // date applicants will "see on the public form" while the call is already shut.
+          /*
+           * Phrased from the effective state the server just computed rather than from the
+           * timestamps that were sent, so a deadline saved in the past is never announced as a
+           * date applicants will "see on the public form" while the call is already shut.
+           *
+           * `closed` has two causes and they are not the same sentence. `cfpEffectiveState`
+           * answers `closed` for a call the organizer closed by hand *before* it looks at the
+           * deadline at all, so blaming the deadline for every closure told an organizer who had
+           * closed the call and then scheduled an opening date that a deadline had passed — on
+           * the surface this whole change exists to stop saying false things. The deadline is
+           * named only when there is one and it is behind us.
+           */
           saved.effectiveStatus === "closed"
-            ? "Submission window saved. That deadline has already passed, so the call is closed to new submissions."
+            ? saved.closesAt && Date.parse(saved.closesAt) <= Date.now()
+              ? "Submission window saved. That deadline has already passed, so the call is closed to new submissions."
+              : "Submission window saved. The call is closed to new submissions until you reopen it, so the window changes nothing for applicants yet."
             : saved.effectiveStatus === "scheduled"
               ? "Submission window saved. The call is not open yet and opens at the time you set."
               : window.closesAt

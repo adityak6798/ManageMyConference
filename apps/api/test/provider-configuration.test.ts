@@ -210,7 +210,11 @@ describe("provider selection", () => {
        * coupling this split exists to remove.
        */
       expect(() => resolveProviders(LIVE)).not.toThrow();
-      expect(resolveRegistrationSource(LIVE)).toBeInstanceOf(FixtureAccelEventsRegistrations);
+      // Named as a development deployment, because the roster it keeps is a fake and an
+      // unnamed environment is refused one — which is the point of the case below this block.
+      expect(resolveRegistrationSource({ ...LIVE, ENVIRONMENT: "development" })).toBeInstanceOf(
+        FixtureAccelEventsRegistrations,
+      );
     });
 
     it("refuses every delivery on an unconfigured channel where ENVIRONMENT names production", async () => {
@@ -247,6 +251,30 @@ describe("provider selection", () => {
       expect(() => resolveRegistrationSource({ ...EMAIL_ONLY, ENVIRONMENT: "production" })).toThrow(
         ProviderConfigurationError,
       );
+    });
+
+    it.each(["production-eu", "prod-us", "staging", "", undefined])(
+      "refuses the fixture roster under live on ENVIRONMENT=%s, which no production name matches",
+      (value) => {
+        /*
+         * The inbound half of the same fail-open the outbound `it.each` above covers, and the one
+         * that was left behind by the first repair. Under `live` with none of the inbound bindings
+         * set, a deny-list on production names let `production-eu` answer a Preview — and an Apply
+         * — from the in-repository roster, while the organizer's panel reported the mode as
+         * `live`. An unrecognized environment now gets the refusal.
+         */
+        expect(() =>
+          resolveRegistrationSource({ ...EMAIL_ONLY, ENVIRONMENT: value as string }),
+        ).toThrow(ProviderConfigurationError);
+      },
+    );
+
+    it("still keeps the fixture roster where the deployment says it is a development one", () => {
+      // The property the refusal must not cost: this deployment runs the demo's inbound sync
+      // beside real mail, and it says so in one word.
+      expect(
+        resolveRegistrationSource({ ...EMAIL_ONLY, ENVIRONMENT: "development" }),
+      ).toBeInstanceOf(FixtureAccelEventsRegistrations);
     });
   });
 

@@ -111,59 +111,80 @@ test("a deadline saved in one tab closes and reopens the public call in another,
   await expect(publicPage.getByRole("button", { name: "Submit proposal" })).toBeVisible();
   await expect(publicPage.getByText(/^Submissions clos/)).toHaveCount(0);
 
-  // ---- open → closed ----------------------------------------------------------
-  await page.bringToFront();
-  const past = zonedInput(new Date(Date.now() - 2 * DAY), EVENT_ZONE);
-  await page.getByLabel("Deadline").fill(past);
-  await page.getByRole("button", { name: "Save window" }).click();
+  try {
+    // ---- open → closed ----------------------------------------------------------
+    await page.bringToFront();
+    const past = zonedInput(new Date(Date.now() - 2 * DAY), EVENT_ZONE);
+    await page.getByLabel("Deadline").fill(past);
+    await page.getByRole("button", { name: "Save window" }).click();
 
-  /*
-   * The announcement is phrased from the state the server computed, not from the timestamp that
-   * was sent. Saving a past deadline used to be announced as a date "applicants see on the public
-   * form" while the call it described was already shut.
-   */
-  await expect(page.getByRole("status")).toContainText(
-    "That deadline has already passed, so the call is closed to new submissions.",
-  );
-  await expect(
-    page.getByText(
-      "The deadline has passed, so applicants cannot submit even though the call is marked open.",
-    ),
-  ).toBeVisible();
-  // And the tab that has been sitting there all along, on being looked at again. No reload, no
-  // navigation: this is the assertion the whole file exists for.
-  await returnToTab(publicPage);
-  await expect(
-    publicPage.getByText("This call is closed and is no longer accepting submissions."),
-  ).toBeVisible();
-  await expect(publicPage.getByText(/^Submissions closed /)).toBeVisible();
-  await expect(publicPage.getByRole("button", { name: "Submit proposal" })).toHaveCount(0);
+    /*
+     * The announcement is phrased from the state the server computed, not from the timestamp that
+     * was sent. Saving a past deadline used to be announced as a date "applicants see on the public
+     * form" while the call it described was already shut.
+     */
+    await expect(page.getByRole("status")).toContainText(
+      "That deadline has already passed, so the call is closed to new submissions.",
+    );
+    await expect(
+      page.getByText(
+        "The deadline has passed, so applicants cannot submit even though the call is marked open.",
+      ),
+    ).toBeVisible();
+    // And the tab that has been sitting there all along, on being looked at again. No reload, no
+    // navigation: this is the assertion the whole file exists for.
+    await returnToTab(publicPage);
+    await expect(
+      publicPage.getByText("This call is closed and is no longer accepting submissions."),
+    ).toBeVisible();
+    await expect(publicPage.getByText(/^Submissions closed /)).toBeVisible();
+    await expect(publicPage.getByRole("button", { name: "Submit proposal" })).toHaveCount(0);
 
-  // ---- closed → open ----------------------------------------------------------
-  await page.bringToFront();
-  const future = zonedInput(new Date(Date.now() + 30 * DAY), EVENT_ZONE);
-  await page.getByLabel("Deadline").fill(future);
-  await page.getByRole("button", { name: "Save window" }).click();
-  await expect(page.getByRole("status")).toContainText(
-    "Submission window saved. Applicants see the deadline on the public form.",
-  );
-  await expect(page.getByText("Applicants can submit now.")).toBeVisible();
+    // ---- closed → open ----------------------------------------------------------
+    await page.bringToFront();
+    const future = zonedInput(new Date(Date.now() + 30 * DAY), EVENT_ZONE);
+    await page.getByLabel("Deadline").fill(future);
+    await page.getByRole("button", { name: "Save window" }).click();
+    await expect(page.getByRole("status")).toContainText(
+      "Submission window saved. Applicants see the deadline on the public form.",
+    );
+    await expect(page.getByText("Applicants can submit now.")).toBeVisible();
 
-  await returnToTab(publicPage);
-  await expect(publicPage.getByRole("button", { name: "Submit proposal" })).toBeVisible();
-  await expect(publicPage.getByText(/^Submissions close /)).toBeVisible();
-  await expect(
-    publicPage.getByText("This call is closed and is no longer accepting submissions."),
-  ).toHaveCount(0);
+    await returnToTab(publicPage);
+    await expect(publicPage.getByRole("button", { name: "Submit proposal" })).toBeVisible();
+    await expect(publicPage.getByText(/^Submissions close /)).toBeVisible();
+    await expect(
+      publicPage.getByText("This call is closed and is no longer accepting submissions."),
+    ).toHaveCount(0);
 
-  // ---- and the fixture goes back to the state every other spec expects ---------
-  await page.bringToFront();
-  await page.getByRole("button", { name: "Clear window" }).click();
-  await expect(page.getByRole("status")).toContainText(
-    "Submission window cleared. The call is bounded only by the open and closed controls.",
-  );
-  await expect(page.getByText("Applicants can submit now.")).toBeVisible();
-  await returnToTab(publicPage);
-  await expect(publicPage.getByText(/^Submissions clos/)).toHaveCount(0);
-  await publicPage.close();
+    // ---- and the fixture goes back to the state every other spec expects -------
+    // Through the control, because "Clear window" is part of what this spec covers. The `finally`
+    // below is the safety net rather than the mechanism, and it is deliberately not the only
+    // restore: a `finally` that silently repaired the fixture would let this assertion rot.
+    await page.bringToFront();
+    await page.getByRole("button", { name: "Clear window" }).click();
+    await expect(page.getByRole("status")).toContainText(
+      "Submission window cleared. The call is bounded only by the open and closed controls.",
+    );
+    await expect(page.getByText("Applicants can submit now.")).toBeVisible();
+    await returnToTab(publicPage);
+    await expect(publicPage.getByText(/^Submissions clos/)).toHaveCount(0);
+  } finally {
+    /*
+     * The deadline goes back even when an assertion above failed.
+     *
+     * Without this, one failing assertion between the two saves leaves `closes_at` two days in
+     * the past — and `00-seed-state.spec.ts`, which runs first on the *next* run and does no
+     * normalization of its own, submits through the public form expecting 201 and gets a closed
+     * call. One failing spec would become a failing seed canary, which reads as fixture
+     * corruption rather than as the failure it was. `cfp-submitter.spec.ts` says the same thing
+     * about its own deadline test.
+     */
+    // ERROR-INTENT: this runs while a failure may already be propagating, and a restore that threw
+    // would replace the assertion failure with a network error and hide what actually broke.
+    await page.request
+      .put(`/api/events/${EVENT_ID}/cfp/window`, { data: { opensAt: null, closesAt: null } })
+      .catch(() => undefined);
+    await publicPage.close();
+  }
 });

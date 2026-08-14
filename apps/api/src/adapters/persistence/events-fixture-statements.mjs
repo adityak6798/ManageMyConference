@@ -16,9 +16,12 @@
  * that with a pattern, and its test covers the attempts — because refusing is checkable and
  * escaping is what people get wrong.
  *
- * `GAP-019` is why this exists at all: `seed/reset.sql` deletes every row of these two tables
- * before reinserting the fixture, which is right for a database holding only seed data and
- * destroys a real workspace on any other.
+ * `GAP-019` is why this exists at all. The restore used to remove every row of these two tables
+ * before reinserting the fixture — right for a database holding only seed data and fatal on any
+ * other — and each cleanup is scoped to the seeded ids now. The count this file supports is still
+ * the guard worth having: it answers "does this database hold somebody's workspace", which is a
+ * question about the deployment rather than about the SQL, and the answer must not depend on a
+ * fragment staying scoped.
  */
 
 /** This domain's tables whose rows a demo restore would delete, in the order it reports them. */

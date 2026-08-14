@@ -187,6 +187,47 @@ describe("lifecycle templates for every organization", () => {
     expect(seeded.results).toEqual([{ id: "template-speaker-v1", version: 1 }]);
   });
 
+  it("seeds the demo organization every template the catalogue provisions, with the same words", async () => {
+    /*
+     * The seed's copies were compared to migration `1706` and to nothing else, so the pair that
+     * matters most could drift silently: what a *reset* leaves the demo holding versus what every
+     * other organization is given. It already had — the two deadline messages (issue #210) reached
+     * the catalogue and the migration and not `data.sql`, so a reset quietly left the demo two
+     * templates short of every workspace beside it.
+     *
+     * Asserted on the applied seed rather than on the file, because the file is composed from
+     * fragments and the applied rows are what an organizer actually gets.
+     */
+    const migrated = await createMigratedDatabase({ label: "templates-seed-parity", seed: true });
+    runtime = migrated.runtime;
+
+    type SeededTemplateRow = {
+      template_key: string;
+      channel: string;
+      subject: string;
+      body: string;
+    };
+    const seeded = await migrated.database
+      .prepare(
+        "SELECT template_key, channel, subject, body FROM message_templates WHERE organization_id = ? ORDER BY template_key",
+      )
+      .bind(SEEDED_ORGANIZATION)
+      .all<SeededTemplateRow>();
+
+    expect(
+      ((seeded.results ?? []) as SeededTemplateRow[]).map((row) => ({
+        key: row.template_key,
+        channel: row.channel,
+        subject: row.subject,
+        body: row.body,
+      })),
+    ).toEqual(
+      [...DEFAULT_TEMPLATES]
+        .map(({ key, channel, subject, body }) => ({ key, channel, subject, body }))
+        .sort((left, right) => left.key.localeCompare(right.key)),
+    );
+  });
+
   it("never overwrites a version the organization published for itself", async () => {
     /*
      * "Editable afterwards" is the half of this that a provisioning fix can quietly break. An

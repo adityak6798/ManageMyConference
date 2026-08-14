@@ -148,7 +148,13 @@ export interface CfpDeadlineDependencies {
 }
 
 export interface CfpDeadlineResult {
-  /** Calls inside the window this tick, whether or not anything was sent about them. */
+  /**
+   * Calls this tick actually looked at.
+   *
+   * Not "calls inside the window": the recipient budget stops the loop, so a tick that ran out of
+   * budget reports fewer than the read returned and the next tick continues from there. Reading it
+   * as a window count would make a busy hour look like a shrinking one.
+   */
   readonly considered: number;
   /** Reminders written this tick. Zero on every tick after the first, which is correct. */
   readonly reminded: number;
@@ -194,6 +200,15 @@ export const deadlineInZone = (instant: string, timeZone: string): string => {
  * runs every sixty seconds for the whole lead window. It is also what makes the recipient budget
  * advance — a budget spent on people who were already told would stop the tick at the same
  * holders for ever, and the rest of the call would never be reached.
+ *
+ * **The starting point rotates, and that is not decoration.** A holder whose account holds no
+ * address never gets a delivery row, so `alreadyEnqueued` says "no" about them on every tick for
+ * ever. Reading in list order therefore lets a run of unreachable accounts at the front of a call
+ * hold the whole budget permanently, and every holder behind them — and every call after this one
+ * — is never reached at all. The offset is the hour, so it is stable within a tick and across the
+ * retries of one, and it moves often enough that a 48-hour lead window covers everybody many
+ * times over. Nothing here decides *whether* a message is sent, only in which order candidates
+ * are considered, so a rotation cannot send twice: the key is what prevents that.
  */
 async function pendingHolders(
   dependencies: CfpDeadlineDependencies,
@@ -204,10 +219,15 @@ async function pendingHolders(
     readonly draftHolders: readonly { readonly userId: string; readonly draftCount: number }[];
   },
   budget: number,
+  now: Date,
 ): Promise<readonly { readonly userId: string; readonly draftCount: number }[]> {
+  const holders = call.draftHolders;
   const pending: { readonly userId: string; readonly draftCount: number }[] = [];
-  for (const holder of call.draftHolders) {
+  if (holders.length === 0) return pending;
+  const offset = Math.floor(now.getTime() / 3_600_000) % holders.length;
+  for (let step = 0; step < holders.length; step += 1) {
     if (pending.length >= budget) break;
+    const holder = holders[(offset + step) % holders.length] as (typeof holders)[number];
     const key = `cfp-deadline:${call.eventId}:${holder.userId}:${call.closesAt}`;
     if (!(await dependencies.alreadyEnqueued(organizationId, key))) pending.push(holder);
   }
@@ -283,6 +303,7 @@ export async function enqueueCfpDeadlineNotices(
                 event.organizationId,
                 call,
                 recipientLimit - resolved,
+                now,
               )
             ).map(async (holder) => {
               const recipient = await dependencies.findRecipient(holder.userId);

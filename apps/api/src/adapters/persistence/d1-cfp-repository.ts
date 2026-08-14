@@ -299,6 +299,11 @@ export class D1CfpRepository implements CfpRepository {
    * organizer is ever told about that deadline again. `OPEN_WINDOW_GUARD` above already reads the
    * snapshot for the same reason.
    *
+   * It reads the snapshot's **status**, not merely its presence, and that is the same clause the
+   * submission guard uses. A call the organizer closed by hand with a future deadline still on it
+   * would otherwise reach every draft holder with "the call closes {date} … press Submit" — an
+   * instruction the server refuses, from a product that had already stopped taking submissions.
+   *
    * The second statement counts **drafts only** — `lifecycle = 'draft'` — so an account that has
    * submitted everything it wrote is absent rather than reminded, which is half of the acceptance
    * this exists for.
@@ -314,7 +319,7 @@ export class D1CfpRepository implements CfpRepository {
     const capped = Math.min(limit, D1CfpRepository.DEADLINE_CHUNK);
     const calls = await this.database
       .prepare(
-        "SELECT event_id, closes_at FROM cfp_forms WHERE published_json IS NOT NULL AND closes_at IS NOT NULL AND closes_at >= ? AND closes_at < ? ORDER BY closes_at, event_id LIMIT ?",
+        "SELECT event_id, closes_at FROM cfp_forms WHERE json_extract(published_json, '$.status') = 'open' AND closes_at IS NOT NULL AND closes_at >= ? AND closes_at < ? ORDER BY closes_at, event_id LIMIT ?",
       )
       .bind(window.from, window.to, capped)
       .all<{ event_id: string; closes_at: string }>();

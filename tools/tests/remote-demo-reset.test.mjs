@@ -168,7 +168,9 @@ test("a database holding one real organization refuses, and says what and why", 
       // What it found.
       assert.match(error.message, /1 organization, 1 event, 1 user/);
       // What proceeding costs, in the words an operator needs: permanent, and unrecoverable.
-      assert.match(error.message, /destroys them permanently/);
+      // Not "every row is deleted" any more — the cleanups are scoped to the seeded ids now, and
+      // a warning that overstates what it is warning about teaches an operator to discount it.
+      assert.match(error.message, /still not undoable/);
       assert.match(error.message, /no backup and no export/);
       // And what to do, including the override that cannot be typed from habit.
       assert.match(error.message, /--destroy-real-data 1\/1\/1/);

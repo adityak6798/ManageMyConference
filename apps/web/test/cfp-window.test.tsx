@@ -329,6 +329,35 @@ describe("a saved window converges on the state the server computed", () => {
     expect(screen.queryByText(/deadline has passed, so applicants cannot submit/)).toBeNull();
   });
 
+  it("does not blame a deadline for a closure the organizer made by hand", async () => {
+    /*
+     * `cfpEffectiveState` answers `closed` for a manually closed call before it looks at the
+     * window at all, so reading `effectiveStatus === "closed"` as "the deadline has passed" told
+     * an organizer who had closed the call and then scheduled an opening date that a deadline
+     * they never set had gone by.
+     */
+    composer({
+      initial: { publishedStatus: "closed", effectiveStatus: "closed" },
+      afterSave: {
+        opensAt: "2027-01-01T00:00:00.000Z",
+        closesAt: null,
+        publishedStatus: "closed",
+        effectiveStatus: "closed",
+      },
+    });
+
+    const opens = await screen.findByLabelText("Opens");
+    await waitFor(() => expect(screen.getByLabelText("Deadline")).toHaveValue(""));
+    fireEvent.change(opens, { target: { value: "2026-12-31T16:00" } });
+    await waitFor(() => expect(opens).toHaveValue("2026-12-31T16:00"));
+    fireEvent.click(screen.getByRole("button", { name: "Save window" }));
+
+    expect(
+      await screen.findByText(/closed to new submissions until you reopen it/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/already passed/)).toBeNull();
+  });
+
   it("leaves the previous state intact when the save is refused", async () => {
     /*
      * No optimistic close. The composer must not claim a state the server never accepted — an

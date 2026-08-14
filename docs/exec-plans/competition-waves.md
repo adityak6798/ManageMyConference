@@ -1663,8 +1663,12 @@ reason to change it is CFP's.
   is a repair: the first version asked whether `ENVIRONMENT` named production, so `production-eu` —
   or any value nobody anticipated — handed an unconfigured channel a provider that reports `fake:`
   success and writes projection state. A deployment that has not said which environment it is gets
-  the safe answer. Refusing at *resolution* rather than per delivery was the other option and is
-  worse: it takes the whole drain down, so the channel the operator did configure stops sending too.
+  the safe answer. The **inbound** registration roster asks the same question and throws instead of
+  refusing per delivery, because it runs on the request an organizer made — and it is the more
+  costly half to get wrong: a sync answering from the in-repository roster while the panel reports
+  `live` writes invented people into a real event on Apply. Refusing at *resolution* in the drain
+  was the other option there and is worse: it takes the whole drain down, so the channel the
+  operator did configure stops sending too.
 - **The reset scoping.** Every cleanup names the ids the seed inserts, and `tools/compose-seed.mjs`
   now refuses a bare `DELETE` in any fragment. `#208`'s guard is deliberately untouched — it reads
   what the database holds, and a real organization on this deployment is still worth stopping for.
@@ -1697,6 +1701,13 @@ the previous answer until the visitor acts; the server refuses the submission ei
 is at stake is the wording rather than the enforcement. The browser spec that proves it states its
 own limit: headless Chromium keeps a background tab `visible`, so `bringToFront` fires no
 `visibilitychange` and the spec dispatches the event on the real document.
+
+**Two review passes, and what the second one was for.** Pass 1 found a blocker and five majors;
+pass 2 ran against the repaired state and found that three of those repairs were incomplete —
+the provider question was inverted in the drain and left as it was in the inbound sibling, the
+cap's SQL and its domain twin disagreed for a local part beginning with `+`, and #211's rule was
+applied to two of its three siblings. That is the shape a repair pass usually has, and it is the
+argument for reviewing the repairs rather than the original diff.
 
 **What is still not proven.** No mail has ever left this codebase. Every provider test stubs
 `fetch`, and this lane adds none that do not — the per-channel split is verified against stubs and

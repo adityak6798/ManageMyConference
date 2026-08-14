@@ -226,10 +226,19 @@ export const lifecycleRecipient = (subject: {
  * the caller supplied; nothing here rewrites a recipient. A non-address reference — `session:99`,
  * a projection's resource ref — has no `@` and is returned lower-cased and otherwise untouched,
  * which is correct because those are never `declared` in the first place.
+ *
+ * **Every operation here has an exact SQLite counterpart**, because the count is a `WHERE` over
+ * stored rows and the two have to agree on every input rather than on the ones somebody thought
+ * of. `indexOf` rather than `lastIndexOf` for the `@` is that agreement and not a preference:
+ * `instr` finds the first occurrence, and asking the two sides different questions made
+ * `a+b@x@y` normalize two ways. A leading `+` is likewise **not** a tag — an empty local part is
+ * a different address, and `substr(x, 1, 0)` in SQL is `''`, so the guard is "after the first
+ * character" on both sides. Neither input is reachable through `CfpService`'s validator today;
+ * the point is that the pair cannot disagree if one ever becomes reachable.
  */
 export const recipientCapKey = (recipientRef: string): string => {
   const address = recipientRef.trim().toLowerCase();
-  const at = address.lastIndexOf("@");
+  const at = address.indexOf("@");
   if (at <= 0) return address;
   const plus = address.indexOf("+");
   return plus > 0 && plus < at ? address.slice(0, plus) + address.slice(at) : address;

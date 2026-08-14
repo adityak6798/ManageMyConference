@@ -240,6 +240,29 @@ const mustNotFake = (environment: ProviderEnvironment, what: string) => {
     );
 };
 
+/** Whether this deployment has said, in a word the allow-list contains, that it is not real. */
+const namesDevelopment = (environment: ProviderEnvironment) =>
+  DEVELOPMENT_NAMES.has((environment.ENVIRONMENT ?? "").trim().toLowerCase());
+
+/**
+ * The same refusal as `mustNotFake`, asked the safe way round, for the `live` paths.
+ *
+ * `mustNotFake` is the whole-deployment question and stays a production deny-list on purpose: it
+ * refuses `fixture` mode outright, and refusing a whole deployment on a name nobody recognized
+ * would take the demo down for anybody who spelled their environment unusually. Under `live` the
+ * question is per channel and the cost of the strict answer is one channel refusing, so an
+ * unrecognized name gets the safe answer here instead.
+ */
+const mustBeDevelopment = (environment: ProviderEnvironment, what: string) => {
+  if (!namesDevelopment(environment))
+    throw new ProviderConfigurationError(
+      `${what} are refused under COMMUNICATIONS_PROVIDERS=live unless ENVIRONMENT names a ` +
+        `development deployment (got "${environment.ENVIRONMENT ?? ""}"). Configure the real ` +
+        "bindings, or set ENVIRONMENT to one of: " +
+        `${[...DEVELOPMENT_NAMES].join(", ")}.`,
+    );
+};
+
 /**
  * What a channel nobody configured gets under `live`.
  *
@@ -253,7 +276,7 @@ const unconfiguredChannel = (
   environment: ProviderEnvironment,
   spec: ChannelBindings,
 ): DeliveryProvider =>
-  DEVELOPMENT_NAMES.has((environment.ENVIRONMENT ?? "").trim().toLowerCase())
+  namesDevelopment(environment)
     ? new DeterministicProvider()
     : new UnconfiguredProvider(spec.channel, spec.required);
 
@@ -311,11 +334,19 @@ export function resolveProviders(environment: ProviderEnvironment): DeliveryProv
  * deployment that has not configured *any* of them keeps the fixture roster, because it is a
  * channel nobody asked for rather than one half set up.
  *
- * The one refusal that never softens is the fake on a deployment that names itself production. A
- * sync reporting "3 registrants" from an in-repository list while the operator believes it read
- * their registration platform is the failure this exists to prevent — and here, unlike in the
+ * The one refusal that never softens is the fake on a deployment nobody has said is a development
+ * one. A sync reporting "3 registrants" from an in-repository list while the operator believes it
+ * read their registration platform is the failure this exists to prevent — and here, unlike in the
  * drain, throwing is exactly right: this runs on a request, so the refusal reaches the organizer
  * who pressed the button instead of taking a scheduled job down.
+ *
+ * **The `live` branch asks `mustBeDevelopment`, and that is a repair.** It used to ask the
+ * production deny-list, so `ENVIRONMENT=production-eu` with `live` and no inbound bindings
+ * answered from the fixture roster while `index.ts` reported the mode as `live` to the organizer
+ * — and an apply then wrote an invented roster into a real event's content. On the code the
+ * per-channel split replaced, `live` demanded all four bindings unconditionally and threw, so this
+ * was one configuration the split made quietly worse. `fixture` keeps the deny-list, because that
+ * refusal takes a whole deployment down and an unrecognized name must not do that.
  */
 export function resolveRegistrationSource(
   environment: ProviderEnvironment,
@@ -327,7 +358,8 @@ export function resolveRegistrationSource(
     );
   if (mode === "live") demand(environment, [REGISTRATIONS]);
   if (mode === "fixture" || !isConfigured(environment, REGISTRATIONS)) {
-    mustNotFake(environment, "The Accelevents fixture roster");
+    if (mode === "live") mustBeDevelopment(environment, "The Accelevents fixture roster");
+    else mustNotFake(environment, "The Accelevents fixture roster");
     return new FixtureAccelEventsRegistrations();
   }
   demandHttpsUrl("ACCELEVENTS_API_ORIGIN", environment.ACCELEVENTS_API_ORIGIN as string);

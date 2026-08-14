@@ -54,6 +54,7 @@ async function populate(
   options: {
     closesAt: string | null;
     published: boolean;
+    closedByHand?: boolean;
     drafts: readonly (string | null)[];
     submittedBy: readonly string[];
   },
@@ -125,6 +126,16 @@ async function populate(
     });
   }
   await cfp.saveWindow(eventId, { opensAt: null, closesAt: options.closesAt });
+  /*
+   * Closing by hand happens *after* the drafts exist, because that is the only order the product
+   * can produce: a draft can only be written while the call is taking submissions.
+   */
+  if (options.closedByHand)
+    await cfp.savePublished(
+      { ...form(options.closesAt), status: "closed", publishedStatus: "closed" } as never,
+      true,
+      3,
+    );
 }
 
 /**
@@ -135,6 +146,7 @@ async function harness(
   options: {
     closesAt?: string | null;
     published?: boolean;
+    closedByHand?: boolean;
     drafts?: readonly (string | null)[];
     submittedBy?: readonly string[];
     addresses?: Record<string, string | null>;
@@ -146,6 +158,7 @@ async function harness(
   await populate(cfp, {
     closesAt: options.closesAt === undefined ? "2026-09-02T06:59:00.000Z" : options.closesAt,
     published: options.published !== false,
+    closedByHand: options.closedByHand ?? false,
     drafts: options.drafts ?? [],
     submittedBy: options.submittedBy ?? [],
   });
@@ -379,11 +392,67 @@ describe("the scheduled CFP deadline messages", () => {
 
     expect(await run()).toMatchObject({ reminded: 2 });
     // Two identity reads, not three: the budget is spent before the third holder is resolved.
-    expect(resolvedFor).toEqual(["user-a", "user-b"]);
+    // Which two is deliberately not asserted — `pendingHolders` rotates its starting point, and a
+    // test that pinned the order would be asserting the rotation's phase rather than the budget.
+    expect(resolvedFor).toHaveLength(2);
+    expect(new Set(resolvedFor).size).toBe(2);
 
-    // The next tick finishes the job, and re-reading the first two writes nothing further.
+    // The next tick finishes the job, and re-reading the ones already written writes nothing more.
     expect(await run()).toMatchObject({ reminded: 1 });
     expect(await repository.list(organizationId, eventId)).toHaveLength(3);
+  });
+
+  it("does not let unreachable accounts at the front hold the budget for ever", async () => {
+    /*
+     * A holder identity has no address for never gets a delivery row, so the cheap key read says
+     * "not yet written to" about them on every tick, for ever. Reading holders in list order then
+     * spends the whole budget on the same unreachable accounts every minute — nobody behind them
+     * is ever reminded, and no later call in the window is reached at all.
+     *
+     * The starting point rotates by the hour for that reason, so this drives two ticks an hour
+     * apart and asserts the second one looked somewhere else.
+     */
+    const cfp = new MemoryCfpRepository();
+    await populate(cfp, {
+      closesAt: "2026-09-02T06:59:00.000Z",
+      published: true,
+      drafts: ["user-a", "user-b", "user-c"],
+      submittedBy: [],
+    });
+    const repository = new MemoryCommunicationsRepository();
+    let id = 0;
+    const service = new CommunicationsService({
+      repository,
+      eventDirectory: { belongsToOrganization: async () => true },
+      newId: () => `id-${++id}`,
+      now: () => NOW,
+    });
+    const resolvedFor: string[] = [];
+    const tickAt = (now: Date) =>
+      enqueueCfpDeadlineNotices({
+        calls: cfp,
+        enqueue: service,
+        alreadyEnqueued: (organizationId, key) => service.alreadyEnqueued(organizationId, key),
+        eventOf: async () => ({ organizationId, name: "Greenroom Demo Summit", timezone: LA }),
+        // Nobody is reachable, so nothing is ever enqueued and every holder stays "pending".
+        findRecipient: async (userId) => {
+          resolvedFor.push(userId);
+          return { id: userId, name: "Pat", email: null };
+        },
+        organizersOf: async () => [],
+        now: () => now,
+        recipientLimit: 1,
+      });
+
+    await tickAt(NOW);
+    await tickAt(new Date(NOW.getTime() + 3_600_000));
+    await tickAt(new Date(NOW.getTime() + 2 * 3_600_000));
+
+    // One read per tick, and three different people across the three — rather than the same
+    // unreachable account three times.
+    expect(resolvedFor).toHaveLength(3);
+    expect(new Set(resolvedFor).size).toBe(3);
+    expect(await repository.list(organizationId, eventId)).toHaveLength(0);
   });
 
   it("says nothing about a call nobody published", async () => {
@@ -392,6 +461,21 @@ describe("the scheduled CFP deadline messages", () => {
     const test = await harness({ published: false });
 
     expect(await test.run()).toMatchObject({ considered: 0, reminded: 0, announced: 0 });
+  });
+
+  it("says nothing about a call the organizer already closed by hand", async () => {
+    /*
+     * A deadline that is still set on a call somebody has closed early. Reminding a draft holder
+     * that "the call closes {date} … Open it and press Submit" is an instruction the application
+     * boundary refuses — `cfpEffectiveState` reads a manual close before it reads the window — so
+     * the message would be the product telling somebody to do a thing it has already stopped
+     * allowing. The filter is the published snapshot's own status, which is the same clause the
+     * submission guard uses.
+     */
+    const test = await harness({ drafts: ["user-pat"], closedByHand: true });
+
+    expect(await test.run()).toMatchObject({ considered: 0, reminded: 0, announced: 0 });
+    expect(await sent(test.repository)).toEqual([]);
   });
 
   it("reports an account identity holds no address for, rather than mailing an empty string", async () => {

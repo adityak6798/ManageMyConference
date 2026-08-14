@@ -813,6 +813,47 @@ describe("the signed-in applicant's proposals", () => {
     expect(test.calls.filter(({ method }) => method !== "GET")).toHaveLength(0);
   });
 
+  it("refuses to open a stored proposal over a new one that has been typed into", async () => {
+    /*
+     * The third sibling, found by the review pass that followed the one above. `unsaved` was
+     * measured against `editing`, so a form bound to *nothing* — an applicant part-way through a
+     * new proposal, which is the state after every submit and after `Start another proposal` —
+     * measured as having nothing to lose. Opening anything from the list wiped a whole unsent
+     * abstract and announced "Editing …. Change what you need", which is the exact sentence issue
+     * #211 exists to have removed.
+     */
+    const test = mount({ proposals: [proposal({ title: "Alpha" })] });
+
+    // No proposal is open: the form is the empty new-proposal form.
+    await screen.findByRole("button", { name: /Continue Alpha/ });
+    fireEvent.change(screen.getByLabelText(/Proposal title/), {
+      target: { value: "A brand new idea" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Continue Alpha/ }));
+
+    expect(screen.getByLabelText(/Proposal title/)).toHaveValue("A brand new idea");
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "You have unsaved answers on a new proposal",
+    );
+    expect(test.calls.filter(({ method }) => method !== "GET")).toHaveLength(0);
+  });
+
+  it("says what an empty form discarded even when no proposal was open", async () => {
+    // The same statement for the deliberate discard on a form bound to nothing. It cannot claim
+    // the previous proposal is unchanged, because there was no previous proposal — what was on
+    // screen was never stored anywhere.
+    mount({ proposals: [proposal({ title: "Alpha" })] });
+
+    await screen.findByRole("button", { name: /Continue Alpha/ });
+    fireEvent.change(screen.getByLabelText(/Proposal title/), { target: { value: "Unsent" } });
+    fireEvent.click(screen.getByRole("button", { name: "Start another proposal" }));
+
+    expect(screen.getByLabelText(/Proposal title/)).toHaveValue("");
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "were not saved anywhere and are gone",
+    );
+  });
+
   it("says what it discarded when the applicant chooses an empty form", async () => {
     // `Start another proposal` is the one control that is *meant* to discard. It still says so,
     // because the applicant choosing the loss is not a reason to leave them guessing whether the

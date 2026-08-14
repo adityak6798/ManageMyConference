@@ -330,7 +330,7 @@ export function assertOnlySeededData(counts, override) {
       (counts.organizations > 0
         ? `${countOf(counts.organizations, "organizations")} means ${counts.organizations === 1 ? "a workspace somebody" : "workspaces people"} signed up for and made things in.\n`
         : "") +
-      "`seed/reset.sql` DELETEs every row of organizations, users and events before reinserting the fixture, so proceeding destroys them permanently: there is no backup and no export, and nothing re-creates them.\n" +
+      "`seed/reset.sql` now scopes every cleanup to the ids the seed inserts, so a workspace somebody signed up for survives the restore itself — but this guard is about what the *whole* command does, and the reset also empties the demo's object storage and restores fixture rows over anything sharing an id with them. Proceeding is still not undoable: there is no backup and no export.\n" +
       (override === undefined
         ? `If that is genuinely what you intend, re-run with --destroy-real-data ${token} alongside --confirm ${DEMO_TARGET.worker}. The counts are part of the flag on purpose: they change as the data does, so this cannot be pasted from an earlier run.`
         : `--destroy-real-data ${override} does not match what is there now (${token}), so nothing was deleted. Re-read the counts above before repeating it.`),

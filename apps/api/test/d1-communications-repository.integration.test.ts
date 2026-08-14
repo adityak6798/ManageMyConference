@@ -466,6 +466,33 @@ describe("D1CommunicationsRepository", () => {
         "victim@example.test",
       ),
     ).resolves.toBe(0);
+
+    /*
+     * The two inputs on which the first version of this pair disagreed, kept as cases because
+     * "the validator does not allow it today" is a property of another file.
+     *
+     * A leading `+` is an empty local part, so it is a different address rather than a tag —
+     * `substr(x, 1, 0)` is `''` in SQLite, so the stored row normalized to `@example.test` while
+     * the bound key stayed `+a@example.test` and the cap never bound for it at all. And a second
+     * `@` made the domain read the last one while the SQL read the first.
+     */
+    await write("cap-6", "+a@example.test", "declared");
+    await write("cap-7", "+a@example.test", "declared");
+    await expect(
+      repository.countDeliveriesTo(organizationId, eventId, "+a@example.test"),
+    ).resolves.toBe(2);
+    // Not the same mailbox as the tagged spelling, and not the same as the bare one either.
+    await expect(
+      repository.countDeliveriesTo(organizationId, eventId, "a@example.test"),
+    ).resolves.toBe(0);
+
+    await write("cap-8", "a+b@x@example.test", "declared");
+    await expect(
+      repository.countDeliveriesTo(organizationId, eventId, "a+b@x@example.test"),
+    ).resolves.toBe(1);
+    await expect(
+      repository.countDeliveriesTo(organizationId, eventId, "a@x@example.test"),
+    ).resolves.toBe(1);
   });
 });
 

@@ -398,6 +398,19 @@ describe("D1CfpRepository", () => {
         50,
       ),
     ).resolves.toEqual([]);
+
+    /*
+     * And a call the organizer closed by hand drops out, deadline or no deadline. The reminder
+     * tells a draft holder to press Submit, which the submission guard refuses on a closed call —
+     * the filter here is `json_extract(published_json, '$.status')`, the same clause that guard
+     * uses, so the two cannot disagree about who may still submit.
+     */
+    await repository.savePublished(
+      { ...published, status: "closed", publishedStatus: "closed", version: 4 },
+      true,
+      3,
+    );
+    await expect(repository.listDeadlineNotices(window, 50)).resolves.toEqual([]);
   });
 });
 

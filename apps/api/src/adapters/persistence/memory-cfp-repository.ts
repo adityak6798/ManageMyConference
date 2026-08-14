@@ -114,7 +114,10 @@ export class MemoryCfpRepository implements CfpRepository {
       .map((form) => ({ ...form, ...this.windowOf(form.eventId) }))
       .filter(
         (form) =>
-          this.published.has(form.eventId) &&
+          // The published snapshot's own status, matching the D1 statement's
+          // `json_extract(published_json, '$.status') = 'open'`: a call closed by hand is not one
+          // whose draft holders should be told to press Submit.
+          this.published.get(form.eventId)?.status === "open" &&
           form.closesAt !== null &&
           form.closesAt >= window.from &&
           form.closesAt < window.to,

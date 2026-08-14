@@ -195,6 +195,30 @@ const isTemplateVersionTaken = (error: unknown): boolean => {
   );
 };
 
+/**
+ * `recipientCapKey`, expressed over the stored column (issue #132).
+ *
+ * The cap is a `WHERE` over rows that were written with whatever string the caller supplied, so
+ * the comparison has to normalize *both* sides — and the two statements of the rule have to agree
+ * on every input rather than on the ones somebody happened to test. Three details carry that:
+ *
+ * - `instr` is 1-based and returns 0 when the character is absent, so an absent `+` fails
+ *   `> 1` and an absent `@` makes the ordering test false. Both fall to the `ELSE`.
+ * - The `+` guard is `> 1`, not `> 0`. At position 1 the local part is empty, and
+ *   `substr(address, 1, 0)` is `''` — so `+a@x` normalized to `@x` here while `recipientCapKey`
+ *   left it alone, and the two never matched: the cap silently never bound for that address.
+ * - `trim` and `lower` mirror the domain's first line, so a stored value with stray whitespace
+ *   cannot become a second budget.
+ *
+ * `d1-communications-repository.integration.test.ts` drives real rows through both statements.
+ */
+const RECIPIENT_CAP_KEY_SQL =
+  "CASE WHEN instr(trim(lower(recipient_ref)), '+') > 1 " +
+  "AND instr(trim(lower(recipient_ref)), '+') < instr(trim(lower(recipient_ref)), '@') " +
+  "THEN substr(trim(lower(recipient_ref)), 1, instr(trim(lower(recipient_ref)), '+') - 1) || " +
+  "substr(trim(lower(recipient_ref)), instr(trim(lower(recipient_ref)), '@')) " +
+  "ELSE trim(lower(recipient_ref)) END";
+
 export class D1CommunicationsRepository implements CommunicationsRepository {
   constructor(private readonly database: Database) {}
   private ensure(result: { success: boolean; error?: string }, operation: string) {
@@ -309,14 +333,7 @@ export class D1CommunicationsRepository implements CommunicationsRepository {
       .prepare(
         "SELECT COUNT(*) AS tally FROM communication_deliveries " +
           "WHERE organization_id = ? AND event_id = ? AND recipient_trust = 'declared' AND " +
-          // The stored address, lower-cased, with any `+tag` removed from the local part. `instr`
-          // returns 0 when the character is absent, which is why each branch is guarded on `> 0`
-          // rather than compared against the `@` position alone.
-          "CASE WHEN instr(lower(recipient_ref), '+') > 0 " +
-          "AND instr(lower(recipient_ref), '+') < instr(lower(recipient_ref), '@') " +
-          "THEN substr(lower(recipient_ref), 1, instr(lower(recipient_ref), '+') - 1) || " +
-          "substr(lower(recipient_ref), instr(lower(recipient_ref), '@')) " +
-          "ELSE lower(recipient_ref) END = ?",
+          `${RECIPIENT_CAP_KEY_SQL} = ?`,
       )
       .bind(organizationId, eventId, recipientCapKey(recipientRef))
       .all<{ tally: number }>();
