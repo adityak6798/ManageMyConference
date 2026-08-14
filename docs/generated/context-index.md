@@ -67,6 +67,7 @@
 - `test` / `repository-fact`: [apps/web/test/crm-directory.test.tsx](../../apps/web/test/crm-directory.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/crm-owner-assignment.test.tsx](../../apps/web/test/crm-owner-assignment.test.tsx)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
+- `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 
 ### `ACC-DEMO-SMOKE`
@@ -267,6 +268,7 @@
 - `test` / `repository-fact`: [apps/web/test/speaker-checklist.test.tsx](../../apps/web/test/speaker-checklist.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/speaker-photo.test.tsx](../../apps/web/test/speaker-photo.test.tsx)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
+- `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 
 ### `ARC-001`
@@ -372,6 +374,7 @@
 ### `JNY-008`
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/product/personas-and-journeys.md](../../docs/product/personas-and-journeys.md)
+- `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 
 ### `JNY-009`
@@ -525,6 +528,7 @@
 - `code` / `repository-fact`: [apps/web/src/workspaces/crm.tsx](../../apps/web/src/workspaces/crm.tsx)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
+- `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `code` / `repository-fact`: [packages/contracts/src/domains/crm.ts](../../packages/contracts/src/domains/crm.ts)
 
 ### `PRD-EVT-001`
