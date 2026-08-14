@@ -8,7 +8,7 @@ import {
   ContactEmailTakenError,
   ContactNotFoundError,
 } from "../src/application/crm/errors";
-import { createMigratedDatabase } from "./support/seeded-d1";
+import { applyMigrationFile, createMigratedDatabase } from "./support/seeded-d1";
 
 const eventId = "00000000-0000-4000-8000-000000000001";
 const otherEventId = "00000000-0000-4000-8000-000000000002";
@@ -1271,5 +1271,84 @@ describe("D1 CRM organization directory", () => {
     await expect(
       repository.listContacts(organizationId, byName.get("Corrupt") ?? {}),
     ).resolves.toHaveLength(4);
+  });
+});
+
+/**
+ * `1502` drops the stage CHECK by rebuilding `crm_prospects`, which has three children.
+ *
+ * The hazard `d1-migration-rebuild.integration.test.ts` records for `1703`, one table wider:
+ * `crm_contacts`, `crm_activities` and `crm_contact_events` all carry a foreign key to the
+ * prospect being dropped, and D1 checks the DROP with foreign keys on however the migration asks.
+ *
+ * `createMigratedDatabase` applies the migrations and *then* the seed, so the rebuild the suite
+ * already ran copied empty tables. Replaying it over the seeded fixture is the only arrangement
+ * where the copy and the drop meet rows in all four tables — the arrangement #134 asked for, and
+ * the reason `1501` and `1502` are separate files: a migration that also creates tables cannot be
+ * applied twice to check.
+ */
+describe("crm_prospects rebuild", () => {
+  let runtime: Miniflare | undefined;
+  afterEach(async () => runtime?.dispose());
+
+  it("replays over a database already holding prospects, contacts, activities and links", async () => {
+    const migrated = await createMigratedDatabase({ label: "rebuild-crm-pipeline", seed: true });
+    runtime = migrated.runtime;
+
+    const counts = async () =>
+      (
+        await migrated.database
+          .prepare(
+            `SELECT (SELECT COUNT(*) FROM crm_prospects) AS prospects,
+                    (SELECT COUNT(*) FROM crm_contacts) AS contacts,
+                    (SELECT COUNT(*) FROM crm_activities) AS activities,
+                    (SELECT COUNT(*) FROM crm_contact_events) AS links,
+                    (SELECT COUNT(*) FROM crm_contacts c
+                       JOIN crm_prospects p ON p.id = c.prospect_id) AS joinedContacts,
+                    (SELECT COUNT(*) FROM crm_contact_events e
+                       JOIN crm_prospects p ON p.id = e.prospect_id) AS joinedLinks`,
+          )
+          .all<{
+            prospects: number;
+            contacts: number;
+            activities: number;
+            links: number;
+            joinedContacts: number;
+            joinedLinks: number;
+          }>()
+      ).results?.[0];
+
+    // If the fixture were empty this would prove nothing, so it is asserted rather than assumed.
+    const before = await counts();
+    expect(before?.prospects).toBeGreaterThan(0);
+    expect(before?.contacts).toBeGreaterThan(0);
+    expect(before?.activities).toBeGreaterThan(0);
+    expect(before?.links).toBeGreaterThan(0);
+
+    await applyMigrationFile(migrated.database, "1502_crm_prospect_stage_rebuild.sql");
+
+    // Every row survives, and every child still points at the prospect it did.
+    const after = await counts();
+    expect(after?.prospects).toBe(before?.prospects);
+    expect(after?.contacts).toBe(before?.contacts);
+    expect(after?.activities).toBe(before?.activities);
+    expect(after?.links).toBe(before?.links);
+    expect(after?.joinedContacts).toBe(before?.contacts);
+    expect(after?.joinedLinks).toBe(before?.links);
+
+    // The CHECK is gone, which is the whole point: a stage key `0015` did not know is storable.
+    const custom = await migrated.database
+      .prepare("UPDATE crm_prospects SET stage = ? WHERE id = ?")
+      .bind("future-fit", "50000000-0000-4000-8000-000000000001")
+      .run();
+    expect(custom.success).toBe(true);
+
+    // And the stage set the rebuild copied around is untouched by it, which is what says the two
+    // migrations are separable rather than merely separate.
+    const stages = await migrated.database
+      .prepare("SELECT COUNT(*) AS total FROM crm_pipeline_stages WHERE event_id = ?")
+      .bind("00000000-0000-4000-8000-000000000001")
+      .all<{ total: number }>();
+    expect(stages.results?.[0]?.total).toBe(8);
   });
 });

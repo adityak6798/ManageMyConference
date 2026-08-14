@@ -30,7 +30,16 @@ const decoded = (image: HTMLImageElement | SVGElement) => (image as HTMLImageEle
 interface Workspace {
   tasks: { id: string; speakerProfileId: string; title: string; status: string }[];
   speakers: { id: string; photoAssetId?: string }[];
-  assets: { id: string; name: string; visibility: string }[];
+  assets: {
+    id: string;
+    name: string;
+    visibility: string;
+    // Optional the way the contract declares them: a row written before versioning existed
+    // carries none, and the journeys below assert what the current writer stores.
+    versionNumber?: number;
+    isLatest?: boolean;
+    versionGroupId?: string;
+  }[];
 }
 
 /**
@@ -532,16 +541,7 @@ test("a speaker re-uploads one deliverable and gets a second version, not a twin
   expect(await prior.text()).toContain("% first");
 
   // And the storage agrees with the screen.
-  const stored = (
-    (await contentWorkspace(page)) as Workspace & {
-      assets: {
-        name: string;
-        versionNumber?: number;
-        isLatest?: boolean;
-        versionGroupId?: string;
-      }[];
-    }
-  ).assets.filter((asset) => asset.name === name);
+  const stored = (await contentWorkspace(page)).assets.filter((asset) => asset.name === name);
   expect(stored).toHaveLength(2);
   expect(new Set(stored.map(({ versionGroupId }) => versionGroupId)).size).toBe(1);
   expect(stored.filter(({ isLatest }) => isLatest !== false)).toHaveLength(1);
