@@ -586,7 +586,7 @@ feature-by-feature verdict.
 
 - `GAP-027` **The submission window has no operator surface for a call that closes while nobody is watching, and the account door is narrower than the product implies.** Issue #190 made the CFP lifecycle account-bound: a scheduled window, owned proposals, drafts, revisions, a submitter dashboard, a confirmation whose recipient comes from the session, and a decision message addressed to the owning account rather than to a form answer. Five limits survive it, and they are stated together because they share a cause — the surrounding deployment rather than the domain. One further limit belongs to `#132` rather than here: a *guest* proposal has no account, so its decision is still addressed to an unverified form answer.
 
-  **Nothing announces the deadline before it passes.** The window is enforced at the application boundary and displayed on both surfaces, but no reminder reaches anybody: an organizer who set a deadline and forgot it discovers the call closed from a quiet inbox, and a submitter with an unsubmitted draft is never told it is about to become unsubmittable. Both would be `proposal.submitted`-shaped deliveries with a scheduled trigger, which is a communications-owned decision (which trigger, whose cadence, and whether a draft holder has consented to be reminded) rather than a CFP one.
+  **Nothing announces the deadline before it passes** (issue #210). The window is enforced at the application boundary and displayed on both surfaces, but no reminder reaches anybody: an organizer who set a deadline and forgot it discovers the call closed from a quiet inbox, and a submitter with an unsubmitted draft is never told it is about to become unsubmittable. Both would be `proposal.submitted`-shaped deliveries with a scheduled trigger, which is a communications-owned decision (which trigger, whose cadence, and whether a draft holder has consented to be reminded) rather than a CFP one.
 
   **A submitter can only sign in through a door this deployment offers, and it offers one.** `DEMO_MODE=true` turns emailed-code sign-in off and no Google client is configured (`GAP-019`, `GAP-020`), so the only identities that exist here are the four seeded personas — which is what the public call's sign-in card offers, and why the browser journey signs in as `Sam Speaker`. A real submitter creating a *new* account is the Identity lane's outcome-3 path (`SignupService.signInWithGoogle`), which today provisions an organization and a "Your first event" alongside the person's proposals. Nothing in this lane makes that worse and nothing in it fixes it.
 
@@ -594,13 +594,12 @@ feature-by-feature verdict.
 
   **An anonymous caller can squat one account's proposal key.** A proposal an account owns is stored under `proposal:<userId>:<clientKey>`, which makes a collision between two accounts impossible; the anonymous path keeps the bare key it has always used, because narrowing `submitProposalInputSchema` to forbid the separator would be a breaking input change under [api-compatibility](../interfaces/api-compatibility.md). So an anonymous submission *could* spell a prefixed key and take it, costing that account a refused create — not a disclosure, since the convergence read is owner-scoped either way — and requiring the caller to guess both a user id and the client's UUID. Recorded rather than closed because the fix is a contract change with a 180-day deprecation, for a residual nobody can reach by accident.
 
-  **Two smaller residuals on the applicant's own screen, both found by the fifteenth review pass
-  and both left deliberately.** Pressing `Continue` on the proposal already being edited reloads
+  **One smaller residual on the applicant's own screen, found by the fifteenth review pass and left deliberately.** Pressing `Continue` on the proposal already being edited reloads
   its stored answers over anything typed and unsaved, saying only "Editing …" — silent loss of the
   applicant's work on a surface whose spec is otherwise emphatic that drops are announced. Nothing
   wrong is persisted and the loss is visible on screen; it is recorded rather than repaired because
   the five repair commits before it each introduced the defect the next review pass found, and it
-  is not worth that risk on this branch. Owner: cfp.
+  is not worth that risk on this branch. Tracked by issue #211. Owner: cfp.
 
   **A second one was recorded here and then withdrawn**, which is worth leaving written down. The
   claim was that `CfpWorkspace` seeds its window inputs in a passive effect and so an organizer
