@@ -5839,6 +5839,12 @@
                             "additionalProperties": {
                               "type": "string"
                             }
+                          },
+                          "socialLinks": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "string"
+                            }
                           }
                         },
                         "required": [
@@ -7167,6 +7173,12 @@
                             }
                           },
                           "customFields": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "string"
+                            }
+                          },
+                          "socialLinks": {
                             "type": "object",
                             "additionalProperties": {
                               "type": "string"
@@ -21427,6 +21439,12 @@
                             "additionalProperties": {
                               "type": "string"
                             }
+                          },
+                          "socialLinks": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "string"
+                            }
                           }
                         },
                         "required": [
@@ -22222,6 +22240,12 @@
                             }
                           },
                           "customFields": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "string"
+                            }
+                          },
+                          "socialLinks": {
                             "type": "object",
                             "additionalProperties": {
                               "type": "string"
@@ -25790,6 +25814,12 @@
                                         "additionalProperties": {
                                           "type": "string"
                                         }
+                                      },
+                                      "socialLinks": {
+                                        "type": "object",
+                                        "additionalProperties": {
+                                          "type": "string"
+                                        }
                                       }
                                     },
                                     "required": [
@@ -27368,6 +27398,12 @@
                                           },
                                           "photoUrl": {
                                             "type": "string"
+                                          },
+                                          "socialLinks": {
+                                            "type": "object",
+                                            "additionalProperties": {
+                                              "type": "string"
+                                            }
                                           }
                                         },
                                         "required": [
@@ -27534,6 +27570,12 @@
                                           },
                                           "photoUrl": {
                                             "type": "string"
+                                          },
+                                          "socialLinks": {
+                                            "type": "object",
+                                            "additionalProperties": {
+                                              "type": "string"
+                                            }
                                           }
                                         },
                                         "required": [
@@ -41717,6 +41759,12 @@
                             }
                           },
                           "customFields": {
+                            "type": "object",
+                            "additionalProperties": {
+                              "type": "string"
+                            }
+                          },
+                          "socialLinks": {
                             "type": "object",
                             "additionalProperties": {
                               "type": "string"
@@ -61232,6 +61280,12 @@
                               },
                               "photoUrl": {
                                 "type": "string"
+                              },
+                              "socialLinks": {
+                                "type": "object",
+                                "additionalProperties": {
+                                  "type": "string"
+                                }
                               }
                             },
                             "required": [
@@ -62656,6 +62710,12 @@
                                   },
                                   "photoUrl": {
                                     "type": "string"
+                                  },
+                                  "socialLinks": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                      "type": "string"
+                                    }
                                   }
                                 },
                                 "required": [
@@ -62822,6 +62882,12 @@
                                   },
                                   "photoUrl": {
                                     "type": "string"
+                                  },
+                                  "socialLinks": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                      "type": "string"
+                                    }
                                   }
                                 },
                                 "required": [
@@ -63418,6 +63484,12 @@
                                   },
                                   "photoUrl": {
                                     "type": "string"
+                                  },
+                                  "socialLinks": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                      "type": "string"
+                                    }
                                   }
                                 },
                                 "required": [
@@ -63584,6 +63656,12 @@
                                   },
                                   "photoUrl": {
                                     "type": "string"
+                                  },
+                                  "socialLinks": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                      "type": "string"
+                                    }
                                   }
                                 },
                                 "required": [
@@ -64233,6 +64311,12 @@
                                   },
                                   "photoUrl": {
                                     "type": "string"
+                                  },
+                                  "socialLinks": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                      "type": "string"
+                                    }
                                   }
                                 },
                                 "required": [
@@ -64399,6 +64483,12 @@
                                   },
                                   "photoUrl": {
                                     "type": "string"
+                                  },
+                                  "socialLinks": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                      "type": "string"
+                                    }
                                   }
                                 },
                                 "required": [
@@ -65055,6 +65145,12 @@
                                   },
                                   "photoUrl": {
                                     "type": "string"
+                                  },
+                                  "socialLinks": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                      "type": "string"
+                                    }
                                   }
                                 },
                                 "required": [
@@ -65221,6 +65317,12 @@
                                   },
                                   "photoUrl": {
                                     "type": "string"
+                                  },
+                                  "socialLinks": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                      "type": "string"
+                                    }
                                   }
                                 },
                                 "required": [
@@ -68224,6 +68326,39 @@
                   "organization": {
                     "type": "string",
                     "maxLength": 120
+                  },
+                  "socialLinks": {
+                    "type": "object",
+                    "properties": {
+                      "website": {
+                        "type": "string",
+                        "maxLength": 300
+                      },
+                      "mastodon": {
+                        "type": "string",
+                        "maxLength": 300
+                      },
+                      "bluesky": {
+                        "type": "string",
+                        "maxLength": 300
+                      },
+                      "linkedin": {
+                        "type": "string",
+                        "maxLength": 300
+                      },
+                      "github": {
+                        "type": "string",
+                        "maxLength": 300
+                      },
+                      "x": {
+                        "type": "string",
+                        "maxLength": 300
+                      },
+                      "youtube": {
+                        "type": "string",
+                        "maxLength": 300
+                      }
+                    }
                   }
                 },
                 "required": [
@@ -68297,6 +68432,12 @@
                           }
                         },
                         "customFields": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "string"
+                          }
+                        },
+                        "socialLinks": {
                           "type": "object",
                           "additionalProperties": {
                             "type": "string"
@@ -68737,6 +68878,12 @@
                           "additionalProperties": {
                             "type": "string"
                           }
+                        },
+                        "socialLinks": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "string"
+                          }
                         }
                       },
                       "required": [
@@ -69088,6 +69235,12 @@
                           }
                         },
                         "customFields": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "string"
+                          }
+                        },
+                        "socialLinks": {
                           "type": "object",
                           "additionalProperties": {
                             "type": "string"
@@ -69484,6 +69637,12 @@
                           }
                         },
                         "customFields": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "string"
+                          }
+                        },
+                        "socialLinks": {
                           "type": "object",
                           "additionalProperties": {
                             "type": "string"

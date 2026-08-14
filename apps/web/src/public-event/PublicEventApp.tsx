@@ -30,6 +30,7 @@ import {
   SessionCard,
   SpeakerCard,
   SpeakerHeadline,
+  SpeakerLinks,
   TimeRange,
 } from "./cards";
 import { itineraryCalendar, StarButton, useItinerary } from "./itinerary";
@@ -1041,6 +1042,7 @@ export function PublicEventApp() {
               </div>
             </div>
             <p className="lede">{speaker.bio}</p>
+            <SpeakerLinks speaker={speaker} />
             {(model.sessionsBySpeaker.get(speaker.slug) ?? []).length > 0 && (
               <section aria-labelledby="speaker-sessions" className="pub-section">
                 <div className="pub-section-head">

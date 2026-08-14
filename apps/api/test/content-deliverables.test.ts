@@ -1,5 +1,6 @@
 // @acceptance ACC-SPEAKER
 
+import { updateSpeakerProfileInputSchema } from "@greenroom/contracts";
 import { unzipSync } from "fflate";
 import { describe, expect, it } from "vitest";
 import { createDeliverablesZip } from "../src/adapters/content/create-deliverables-zip";
@@ -277,5 +278,109 @@ describe("versioned and discussable deliverables", () => {
       userId: speaker.id,
       eventId,
     });
+  });
+});
+
+/**
+ * Structured social links, and the reason they are validated rather than merely stored.
+ *
+ * The public programme renders each one into an `href`. `z.string().url()` accepts
+ * `javascript:alert(1)` — it is a valid URL — so a schema that only asked "is this a URL" would
+ * have let a speaker publish script that every visitor's browser is invited to run. The rule is
+ * therefore the *scheme*, and it is asserted here rather than left to the form (#189).
+ */
+describe("speaker social links", () => {
+  const links = (input: unknown) =>
+    updateSpeakerProfileInputSchema.safeParse({
+      name: "Sam",
+      bio: "",
+      pronouns: "",
+      organization: "",
+      socialLinks: input,
+    });
+
+  it.each([
+    "javascript:alert(1)",
+    "JavaScript:alert(1)",
+    "  javascript:alert(1)  ",
+    "data:text/html,<script>alert(1)</script>",
+    "vbscript:msgbox(1)",
+    "mailto:sam@example.test",
+    "not a url at all",
+    "//scheme-relative.example",
+  ])("refuses %s, naming the platform", (website) => {
+    const parsed = links({ website });
+    expect(parsed.success).toBe(false);
+    if (!parsed.success)
+      expect(parsed.error.issues.map(({ path }) => path.join("."))).toContain(
+        "socialLinks.website",
+      );
+  });
+
+  it.each(["https://sam.example", "http://sam.example/path?q=1"])("accepts %s", (website) => {
+    const parsed = links({ website });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(parsed.data.socialLinks).toEqual({ website });
+  });
+
+  it("drops a blank entry rather than storing an empty string", () => {
+    const parsed = links({ website: "", github: "https://github.com/sam" });
+    expect(parsed.success).toBe(true);
+    if (parsed.success)
+      expect(parsed.data.socialLinks).toEqual({ github: "https://github.com/sam" });
+  });
+
+  it("leaves links alone when the field is absent", () => {
+    const parsed = updateSpeakerProfileInputSchema.safeParse({
+      name: "Sam",
+      bio: "",
+      pronouns: "",
+      organization: "",
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(parsed.data.socialLinks).toBeUndefined();
+  });
+
+  it("refuses a platform the closed set does not carry", () => {
+    // Not a security rule — an unknown key would simply be dropped — but a surface that cannot
+    // name or label a platform should not be asked to render one.
+    const parsed = links({ myspace: "https://myspace.example" });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(parsed.data.socialLinks).toEqual({});
+  });
+
+  it("round-trips through the service and reaches the published projection", async () => {
+    const { repository, service } = fixture();
+    const saved = await service.updateMyProfile(speaker, profileId, {
+      name: "Sam",
+      bio: "old",
+      pronouns: "",
+      organization: "",
+      socialLinks: { github: "https://github.com/sam" },
+    });
+    expect(saved.socialLinks).toEqual({ github: "https://github.com/sam" });
+    // The organizer reads the same values from the same projection the portal wrote.
+    const stored = (await repository.workspace(eventId)).speakers[0];
+    expect(stored?.socialLinks).toEqual({ github: "https://github.com/sam" });
+  });
+
+  it("restores a revision taken before links existed as no links, not as undefined", async () => {
+    const { repository, service } = fixture();
+    await service.updateMyProfile(speaker, profileId, {
+      name: "Sam",
+      bio: "first",
+      pronouns: "",
+      organization: "",
+    });
+    const revision = (await repository.workspace(eventId)).revisions?.[0];
+    await service.updateMyProfile(speaker, profileId, {
+      name: "Sam",
+      bio: "second",
+      pronouns: "",
+      organization: "",
+      socialLinks: { github: "https://github.com/sam" },
+    });
+    await service.restoreRevision(organizer, revision?.id ?? "");
+    expect((await repository.findProfile(profileId))?.socialLinks).toEqual({});
   });
 });

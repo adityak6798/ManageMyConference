@@ -192,6 +192,23 @@ function commaList(value: string) {
 }
 
 /**
+ * The platforms a speaker can record a link for, with the label each surface uses.
+ *
+ * The set is closed on the server too. Rendering it from one list here means the portal, the
+ * organizer view and the public page all name a platform the same way rather than each
+ * capitalizing a key on its own.
+ */
+const SOCIAL_PLATFORMS = [
+  { key: "website", label: "Website" },
+  { key: "mastodon", label: "Mastodon" },
+  { key: "bluesky", label: "Bluesky" },
+  { key: "linkedin", label: "LinkedIn" },
+  { key: "github", label: "GitHub" },
+  { key: "x", label: "X" },
+  { key: "youtube", label: "YouTube" },
+] as const;
+
+/**
  * One logical deliverable and every version of it, newest first.
  *
  * Both views listed `workspace.assets` flat, so a deck uploaded twice rendered as two rows with
@@ -364,6 +381,7 @@ export function outlookCalendarUrl(session: CalendarLinkSession): string | null 
 
 export {
   assetVersionGroups,
+  SOCIAL_PLATFORMS,
   commaList,
   DueStatus,
   daysUntil,

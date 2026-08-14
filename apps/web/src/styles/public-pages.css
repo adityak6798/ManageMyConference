@@ -586,6 +586,21 @@
   font-size: var(--text-sm);
   font-weight: 620;
 }
+
+/* A speaker's own links, on their detail page. A row of platform names rather than URLs:
+   the address is the destination, not the label. */
+.pub-speaker-links ul {
+  list-style: none;
+  display: flex;
+  gap: var(--s-4);
+  flex-wrap: wrap;
+  margin: var(--s-4) 0 0;
+  padding: 0;
+}
+.pub-speaker-links a {
+  font-size: var(--text-sm);
+  font-weight: 620;
+}
 .pub-speaker-sessions {
   display: grid;
   gap: var(--s-1);

@@ -98,6 +98,56 @@ function SpeakerHeadline({ speaker }: { speaker: PublicSpeaker }) {
   );
 }
 
+/**
+ * The order links are shown in, and the name each one is announced by.
+ *
+ * Fixed rather than derived from the stored object's key order, so two speakers' links read in
+ * the same sequence and a re-save that happened to reorder the JSON cannot reorder the page.
+ * A platform the projection carries but this list does not know is still rendered, under its
+ * own key — dropping it would hide something the speaker deliberately published.
+ */
+const SOCIAL_LABELS: Readonly<Record<string, string>> = {
+  website: "Website",
+  mastodon: "Mastodon",
+  bluesky: "Bluesky",
+  linkedin: "LinkedIn",
+  github: "GitHub",
+  x: "X",
+  youtube: "YouTube",
+};
+
+/*
+ * A speaker's own links.
+ *
+ * `rel="noreferrer noopener"` on every one: these are speaker-supplied destinations, and a page
+ * opened from here must not be handed a reference to the programme's window. The link text is
+ * the platform rather than the URL, and the speaker's name is in the accessible name too — a
+ * gallery of "Website, Website, Website" tells a screen-reader user nothing about whose it is.
+ */
+function SpeakerLinks({ speaker }: { speaker: PublicSpeaker }) {
+  const links = Object.entries(speaker.socialLinks ?? {}).filter(([, url]) => Boolean(url));
+  if (links.length === 0) return null;
+  const ordered = links.toSorted(([left], [right]) => {
+    const keys = Object.keys(SOCIAL_LABELS);
+    const rank = (key: string) => (keys.includes(key) ? keys.indexOf(key) : keys.length);
+    return rank(left) - rank(right) || left.localeCompare(right);
+  });
+  return (
+    <nav className="pub-speaker-links" aria-label={`Links for ${speaker.name}`}>
+      <ul>
+        {ordered.map(([platform, url]) => (
+          <li key={platform}>
+            <a href={url} rel="noreferrer noopener" target="_blank">
+              {SOCIAL_LABELS[platform] ?? platform}
+              <span className="pub-sr"> — {speaker.name}</span>
+            </a>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  );
+}
+
 /** Start–end in the event's zone; the zone itself is stated once per page, not per row. */
 function TimeRange({
   startsAt,
@@ -333,6 +383,7 @@ export {
   SessionCard,
   SpeakerCard,
   SpeakerHeadline,
+  SpeakerLinks,
   TimeRange,
   toneIndex,
 };

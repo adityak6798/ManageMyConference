@@ -27,6 +27,27 @@ export interface ContentSession {
   readonly publicationState: PublicationState;
 }
 
+/**
+ * The platforms a speaker profile can carry a link for.
+ *
+ * Closed, and closed on purpose. An open map would let the portal store `{"myspace": "..."}` and
+ * leave the public programme deciding at render time what that is and how to label it; a closed
+ * set means every surface can name the platform, pick its icon, and write an accessible link
+ * text without guessing. `website` is the escape hatch for everything not listed.
+ */
+export const SPEAKER_SOCIAL_PLATFORMS = [
+  "website",
+  "mastodon",
+  "bluesky",
+  "linkedin",
+  "github",
+  "x",
+  "youtube",
+] as const;
+export type SpeakerSocialPlatform = (typeof SPEAKER_SOCIAL_PLATFORMS)[number];
+/** Absent and empty mean the same thing — no link — so a blank value is dropped on write. */
+export type SpeakerSocialLinks = Partial<Readonly<Record<SpeakerSocialPlatform, string>>>;
+
 export interface SpeakerProfile {
   readonly id: string;
   readonly eventId: string;
@@ -41,6 +62,7 @@ export interface SpeakerProfile {
   readonly workflowStatus?: SpeakerWorkflowStatus | undefined;
   readonly logistics?: Readonly<Record<string, string>> | undefined;
   readonly customFields?: Readonly<Record<string, string>> | undefined;
+  readonly socialLinks?: SpeakerSocialLinks | undefined;
 }
 
 export interface SpeakerTask {

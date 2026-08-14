@@ -24,7 +24,7 @@ import { EmptyState, Notice, useActionFeedback } from "../ui/primitives";
 import { AccelEventsSync } from "./AccelEventsSync";
 import { ChecklistEditor } from "./ChecklistEditor";
 import { ResourceEditor } from "./ResourceEditor";
-import { memberName, type Run, shortDateTime, type Workspace } from "./shared";
+import { memberName, type Run, SOCIAL_PLATFORMS, shortDateTime, type Workspace } from "./shared";
 
 /**
  * One collapsed job.
@@ -262,48 +262,96 @@ export function ContentOperations({
           ) : null}
         </div>
         {workflowSpeaker ? (
-          <form
-            // Remounted per speaker so the uncontrolled fields below reload from the speaker
-            // chosen, instead of keeping the previous one's logistics on screen.
-            key={workflowSpeaker.id}
-            className="form-stack"
-            onSubmit={(event) => saveWorkflow(event, workflowSpeaker.id)}
-          >
-            <label>
-              Status
-              <select
-                name="workflowStatus"
-                defaultValue={workflowSpeaker.workflowStatus ?? "onboarding"}
-              >
-                <option value="invited">Invited</option>
-                <option value="onboarding">Onboarding</option>
-                <option value="ready">Ready</option>
-                <option value="blocked">Blocked</option>
-              </select>
-            </label>
-            <label>
-              Logistics (one key=value per line)
-              <textarea
-                name="logistics"
-                defaultValue={Object.entries(workflowSpeaker.logistics ?? {})
-                  .map(([key, value]) => `${key}=${value}`)
-                  .join("\n")}
-              />
-            </label>
-            <label>
-              Custom fields (one key=value per line)
-              <textarea
-                name="customFields"
-                defaultValue={Object.entries(workflowSpeaker.customFields ?? {})
-                  .map(([key, value]) => `${key}=${value}`)
-                  .join("\n")}
-              />
-            </label>
-            <button type="submit" disabled={busy}>
-              Save workflow
-              <span className="visually-hidden"> for {workflowSpeaker.name}</span>
-            </button>
-          </form>
+          <>
+            {/*
+             * What the speaker wrote, read-only, beside the workflow an organizer maintains.
+             *
+             * These four fields are the speaker's to write — the portal is the only surface that
+             * may change them — but "the organizer sees exactly the same values" is only
+             * checkable if the organizer can see them at all, and until now this panel showed
+             * logistics and status and nothing the speaker had actually entered.
+             */}
+            <dl className="speaker-entered">
+              <div>
+                <dt>Pronouns</dt>
+                <dd>{workflowSpeaker.pronouns || "—"}</dd>
+              </div>
+              <div>
+                <dt>Organization</dt>
+                <dd>{workflowSpeaker.organization || "—"}</dd>
+              </div>
+              <div className="speaker-entered-wide">
+                <dt>Bio</dt>
+                <dd>{workflowSpeaker.bio || "—"}</dd>
+              </div>
+              <div className="speaker-entered-wide">
+                <dt>Links</dt>
+                <dd>
+                  {Object.keys(workflowSpeaker.socialLinks ?? {}).length ? (
+                    <ul className="speaker-links">
+                      {SOCIAL_PLATFORMS.filter(({ key }) => workflowSpeaker.socialLinks?.[key]).map(
+                        ({ key, label }) => (
+                          <li key={key}>
+                            <a
+                              href={workflowSpeaker.socialLinks?.[key] ?? ""}
+                              rel="noreferrer noopener"
+                              target="_blank"
+                            >
+                              {label}
+                            </a>
+                          </li>
+                        ),
+                      )}
+                    </ul>
+                  ) : (
+                    "—"
+                  )}
+                </dd>
+              </div>
+            </dl>
+            <form
+              // Remounted per speaker so the uncontrolled fields below reload from the speaker
+              // chosen, instead of keeping the previous one's logistics on screen.
+              key={workflowSpeaker.id}
+              className="form-stack"
+              onSubmit={(event) => saveWorkflow(event, workflowSpeaker.id)}
+            >
+              <label>
+                Status
+                <select
+                  name="workflowStatus"
+                  defaultValue={workflowSpeaker.workflowStatus ?? "onboarding"}
+                >
+                  <option value="invited">Invited</option>
+                  <option value="onboarding">Onboarding</option>
+                  <option value="ready">Ready</option>
+                  <option value="blocked">Blocked</option>
+                </select>
+              </label>
+              <label>
+                Logistics (one key=value per line)
+                <textarea
+                  name="logistics"
+                  defaultValue={Object.entries(workflowSpeaker.logistics ?? {})
+                    .map(([key, value]) => `${key}=${value}`)
+                    .join("\n")}
+                />
+              </label>
+              <label>
+                Custom fields (one key=value per line)
+                <textarea
+                  name="customFields"
+                  defaultValue={Object.entries(workflowSpeaker.customFields ?? {})
+                    .map(([key, value]) => `${key}=${value}`)
+                    .join("\n")}
+                />
+              </label>
+              <button type="submit" disabled={busy}>
+                Save workflow
+                <span className="visually-hidden"> for {workflowSpeaker.name}</span>
+              </button>
+            </form>
+          </>
         ) : workspace.speakers.length ? (
           <EmptyState title="No speakers match">
             Choose another progress filter to see the rest of the roster.

@@ -36,6 +36,7 @@ import { Card, EmptyState, Notice, Pill, Stat, useActionFeedback } from "../ui/p
 
 import {
   assetVersionGroups,
+  SOCIAL_PLATFORMS,
   bytesToBase64,
   type CalendarLinkSession,
   googleCalendarUrl,
@@ -63,6 +64,7 @@ type ProfileDraft = {
   pronouns: string;
   organization: string;
   bio: string;
+  socialLinks: Record<string, string>;
 };
 
 /** The session as the add-to-calendar builders read it; unscheduled leaves every field absent. */
@@ -81,6 +83,12 @@ function profileDraft(profile: SpeakerProfile): ProfileDraft {
     pronouns: profile.pronouns,
     organization: profile.organization,
     bio: profile.bio,
+    // Every platform is a controlled input, so an absent link is "" here and is dropped again
+    // on the way out. Leaving them undefined made the boxes uncontrolled on first paint and
+    // React then warned on the first keystroke.
+    socialLinks: Object.fromEntries(
+      SOCIAL_PLATFORMS.map(({ key }) => [key, profile.socialLinks?.[key] ?? ""]),
+    ),
   };
 }
 
@@ -111,6 +119,8 @@ export function SpeakerView({
   const saved = useMemo(() => profileDraft(profile), [profile]);
   const savedSignature = JSON.stringify(saved);
   const [draft, setDraft] = useState<ProfileDraft>(saved);
+  /** Per-platform refusals from the server, keyed the way the field errors arrive. */
+  const [socialErrors, setSocialErrors] = useState<Record<string, string[]>>({});
   const [syncedTo, setSyncedTo] = useState(savedSignature);
   if (syncedTo !== savedSignature) {
     setSyncedTo(savedSignature);
@@ -152,15 +162,33 @@ export function SpeakerView({
   function saveProfile(formEvent: FormEvent<HTMLFormElement>) {
     formEvent.preventDefault();
     if (busy) return;
+    setSocialErrors({});
+    // Blank means "no link", so an emptied box is sent as an absence rather than as "".
+    const socialLinks = Object.fromEntries(
+      Object.entries(draft.socialLinks).filter(([, value]) => value.trim()),
+    );
     // ERROR-INTENT: handlers cannot await; the announcement below renders both outcomes.
-    void run(() => updateSpeakerProfile(profile.id, draft)).then((result) =>
+    void run(() => updateSpeakerProfile(profile.id, { ...draft, socialLinks })).then((result) => {
+      if (!result.ok) {
+        // The server names the platform it refused, so the message lands on that box rather
+        // than as one sentence over a form with seven inputs in it.
+        const fields = contentFieldErrors(result.error);
+        setSocialErrors(
+          Object.fromEntries(
+            SOCIAL_PLATFORMS.flatMap(({ key }) => {
+              const messages = fields[`socialLinks.${key}`];
+              return messages ? [[key, messages] as const] : [];
+            }),
+          ),
+        );
+      }
       profileFeedback.announce(
         result.ok ? "success" : "error",
         result.ok
           ? "Profile saved. Organizers see this version."
           : withReference("Your profile could not be saved.", result.error),
-      ),
-    );
+      );
+    });
   }
 
   /**
@@ -408,6 +436,44 @@ export function SpeakerView({
                 {draft.bio.length} of 2000 characters.
               </p>
             </div>
+            {/* Structured rather than a line in the bio: the published programme turns each of
+                these into a link with the platform as its accessible name, which it cannot do
+                with "@sam on Mastodon" written in prose. */}
+            <fieldset className="field profile-form-wide profile-social">
+              <legend>Links</legend>
+              <p className="hint" id="profile-social-hint">
+                Shown on the published programme once an organizer publishes. Leave a box blank to
+                remove that link.
+              </p>
+              {SOCIAL_PLATFORMS.map(({ key, label }) => (
+                <div className="field" key={key}>
+                  <label htmlFor={`profile-social-${key}`}>{label}</label>
+                  <input
+                    id={`profile-social-${key}`}
+                    type="url"
+                    inputMode="url"
+                    placeholder="https://"
+                    value={draft.socialLinks[key] ?? ""}
+                    onChange={(changeEvent) =>
+                      setDraft({
+                        ...draft,
+                        socialLinks: { ...draft.socialLinks, [key]: changeEvent.target.value },
+                      })
+                    }
+                    maxLength={300}
+                    aria-describedby={
+                      socialErrors[key] ? `profile-social-${key}-error` : "profile-social-hint"
+                    }
+                    aria-invalid={socialErrors[key] ? true : undefined}
+                  />
+                  {socialErrors[key] ? (
+                    <p className="error-text" id={`profile-social-${key}-error`}>
+                      {socialErrors[key]?.join(" ")}
+                    </p>
+                  ) : null}
+                </div>
+              ))}
+            </fieldset>
             <div className="profile-form-actions profile-form-wide">
               <button type="submit" aria-disabled={busy}>
                 {busy ? "Saving…" : "Save profile"}

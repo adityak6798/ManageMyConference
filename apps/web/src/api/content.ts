@@ -15,7 +15,7 @@ import {
   updateContentSessionInputSchema,
   updateSpeakerProfileInputSchema,
 } from "@greenroom/contracts";
-import type { z } from "zod";
+import { ZodError, type z } from "zod";
 import { decodeResponse, apiFetch as fetch } from "./config";
 
 export class ContentApiError extends Error {
@@ -56,9 +56,29 @@ export async function acceptContent(
   );
 }
 
-/** Field-level detail from a handled API failure, keyed by the input path the server named. */
+/**
+ * Field-level detail from a refused write, keyed by the input path that carried it.
+ *
+ * Two refusals reach a form and they used to be told apart by accident. The server's arrives as
+ * a `ContentApiError` carrying `fieldErrors`; the *client's* arrives as a `ZodError`, because
+ * every writer in this module validates before sending — which is a real early guard and also
+ * means the request never happens, so there is no envelope to read. Reading only the first left
+ * the second as a bare "could not be saved" with nothing beside the box that caused it.
+ *
+ * Both are keyed the same way — `issue.path.join(".")` is exactly what `validationFields` builds
+ * on the server — so one reader serves both and a form cannot tell which side refused it.
+ */
 export function contentFieldErrors(error: unknown): Record<string, string[]> {
-  return error instanceof ContentApiError ? (error.envelope.error.fieldErrors ?? {}) : {};
+  if (error instanceof ContentApiError) return error.envelope.error.fieldErrors ?? {};
+  if (error instanceof ZodError) {
+    const fields: Record<string, string[]> = {};
+    for (const issue of error.issues) {
+      const key = issue.path.join(".") || "request";
+      fields[key] = [...(fields[key] ?? []), issue.message];
+    }
+    return fields;
+  }
+  return {};
 }
 
 export async function updateSpeakerProfile(

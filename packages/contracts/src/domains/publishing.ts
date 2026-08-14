@@ -19,6 +19,16 @@ export const publicSpeakerSchema = z.object({
   // which promised a job title and delivered an employer.
   organization: z.string(),
   photoUrl: z.string().optional(),
+  /*
+   * The links the speaker entered, by platform. Frozen into the snapshot like everything else
+   * here: a speaker editing their profile does not change a published page until the organizer
+   * publishes again.
+   *
+   * Absent rather than empty for a speaker with no links, so two publishes of an unchanged
+   * programme are identical bytes. Content narrows every value to `http`/`https` before storing
+   * it, which is the property that lets the page render one into an `href`.
+   */
+  socialLinks: z.record(z.string()).optional(),
 });
 export const publicSessionSchema = z.object({
   slug: routeSlugSchema,

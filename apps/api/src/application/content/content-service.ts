@@ -1191,7 +1191,13 @@ export class ContentService {
   async updateMyProfile(
     actor: Actor | null,
     profileId: string,
-    input: Pick<SpeakerProfile, "name" | "bio" | "pronouns" | "organization">,
+    /*
+     * `socialLinks` is optional and replaces the whole set when present. An older client that
+     * sends only the text fields edits only the text, rather than silently clearing every link
+     * the speaker had entered.
+     */
+    input: Pick<SpeakerProfile, "name" | "bio" | "pronouns" | "organization"> &
+      Partial<Pick<SpeakerProfile, "socialLinks">>,
   ): Promise<SpeakerProfile> {
     const profile = await this.dependencies.repository.findProfile(profileId);
     if (!profile) throw new CapabilityDeniedError("Speaker profile access denied");
@@ -1750,6 +1756,9 @@ export class ContentService {
           workflowStatus: snapshot.workflowStatus,
           logistics: snapshot.logistics,
           customFields: snapshot.customFields,
+          // A revision taken before `1407` carries no links, which restores as "none recorded" —
+          // the same reading the migration's default gives every profile that predates it.
+          socialLinks: snapshot.socialLinks ?? {},
         }),
       );
       if (!restored) throw new CapabilityDeniedError();

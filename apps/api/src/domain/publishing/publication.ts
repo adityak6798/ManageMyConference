@@ -10,6 +10,14 @@ export interface PublicSpeaker {
    */
   readonly organization: string;
   readonly photoUrl?: string;
+  /**
+   * The speaker's own links, by platform, frozen into the snapshot like everything else here.
+   *
+   * Content narrows every value to `http`/`https` before storing it, which is the property the
+   * public page relies on to render one into an `href`. Absent for a speaker who recorded none,
+   * so an unchanged programme publishes to identical bytes twice.
+   */
+  readonly socialLinks?: Readonly<Record<string, string>>;
 }
 
 export interface PublicSession {
@@ -123,6 +131,16 @@ export const allowlistPublicProjection = (
     bio: speaker.bio,
     organization: speaker.organization,
     ...(speaker.photoUrl ? { photoUrl: speaker.photoUrl } : {}),
+    // Copied key by key, like everything else here: the allowlist is what stops a field an
+    // older writer left in a stored snapshot from being republished, so spreading the object
+    // would defeat the whole function. Omitted entirely when the speaker recorded none.
+    ...(speaker.socialLinks && Object.keys(speaker.socialLinks).length > 0
+      ? {
+          socialLinks: Object.fromEntries(
+            Object.entries(speaker.socialLinks).map(([platform, url]) => [platform, url]),
+          ),
+        }
+      : {}),
   })),
 });
 

@@ -224,13 +224,14 @@ export class MemoryContentRepository
       sessions,
       speakers: workspace.speakers
         .filter(({ id }) => speakerIds.has(id))
-        .map(({ id, name, bio, pronouns, organization, photoAssetId }) => ({
+        .map(({ id, name, bio, pronouns, organization, photoAssetId, socialLinks }) => ({
           id,
           name,
           bio,
           pronouns,
           organization,
           ...(photoAssetId ? { photoAssetId } : {}),
+          ...(socialLinks && Object.keys(socialLinks).length > 0 ? { socialLinks } : {}),
         })),
       assets: workspace.assets
         .filter(

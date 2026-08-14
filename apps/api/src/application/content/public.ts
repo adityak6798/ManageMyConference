@@ -42,6 +42,12 @@ export interface PublishingContentQuery {
       pronouns: string;
       organization: string;
       photoAssetId?: string;
+      /**
+       * The links the speaker entered, by platform, already narrowed to `http`/`https` at the
+       * boundary that stored them. Publishing renders each into an `href`, so anything else
+       * reaching here would be a script the public page invites every visitor to run.
+       */
+      socialLinks?: Readonly<Record<string, string>>;
     }[];
     assets: readonly { id: string; speakerProfileId: string; name: string; contentType: string }[];
   }>;

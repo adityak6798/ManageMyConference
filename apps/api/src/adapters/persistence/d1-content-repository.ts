@@ -18,6 +18,7 @@ import {
   type ContentWorkspace,
   logicalAssetKey,
   type SpeakerAsset,
+  type SpeakerSocialLinks,
   type SpeakerMessage,
   type SpeakerProfile,
   type SpeakerResource,
@@ -63,6 +64,7 @@ const PROFILE_WRITTEN_COLUMNS = [
   "workflow_status",
   "logistics_json",
   "custom_fields_json",
+  "social_links_json",
 ] as const;
 const SESSION_WRITTEN_COLUMNS = [
   "title",
@@ -181,13 +183,16 @@ export class D1ContentRepository
       sessions,
       speakers: workspace.speakers
         .filter(({ id }) => speakerIds.has(id))
-        .map(({ id, name, bio, pronouns, organization, photoAssetId }) => ({
+        .map(({ id, name, bio, pronouns, organization, photoAssetId, socialLinks }) => ({
           id,
           name,
           bio,
           pronouns,
           organization,
           ...(photoAssetId ? { photoAssetId } : {}),
+          // Omitted rather than sent empty, so a speaker with no links adds no key to the
+          // published snapshot and two publishes of the same programme stay identical bytes.
+          ...(socialLinks && Object.keys(socialLinks).length > 0 ? { socialLinks } : {}),
         })),
       assets: workspace.assets
         .filter(
@@ -308,7 +313,7 @@ export class D1ContentRepository
       ...content.speakers.map((profile) =>
         this.database
           .prepare(
-            "INSERT INTO speaker_profiles (id,event_id,user_id,source_person_id,name,email,bio,pronouns,organization,photo_asset_id,workflow_status,logistics_json,custom_fields_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO speaker_profiles (id,event_id,user_id,source_person_id,name,email,bio,pronouns,organization,photo_asset_id,workflow_status,logistics_json,custom_fields_json,social_links_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
           )
           .bind(
             profile.id,
@@ -324,6 +329,7 @@ export class D1ContentRepository
             profile.workflowStatus ?? "onboarding",
             JSON.stringify(profile.logistics ?? {}),
             JSON.stringify(profile.customFields ?? {}),
+            JSON.stringify(profile.socialLinks ?? {}),
           ),
       ),
       ...content.tasks.map((task) =>
@@ -480,7 +486,7 @@ export class D1ContentRepository
   private profileWrite(profile: SpeakerProfile, where?: RowGuard): D1Statement {
     return this.database
       .prepare(
-        `UPDATE speaker_profiles SET name=?,bio=?,pronouns=?,organization=?,photo_asset_id=?,workflow_status=?,logistics_json=?,custom_fields_json=? WHERE ${where?.sql ?? "id=?"}`,
+        `UPDATE speaker_profiles SET name=?,bio=?,pronouns=?,organization=?,photo_asset_id=?,workflow_status=?,logistics_json=?,custom_fields_json=?,social_links_json=? WHERE ${where?.sql ?? "id=?"}`,
       )
       .bind(
         profile.name,
@@ -491,6 +497,7 @@ export class D1ContentRepository
         profile.workflowStatus ?? "onboarding",
         JSON.stringify(profile.logistics ?? {}),
         JSON.stringify(profile.customFields ?? {}),
+        JSON.stringify(profile.socialLinks ?? {}),
         ...(where?.values ?? [profile.id]),
       );
   }
@@ -1125,6 +1132,7 @@ export class D1ContentRepository
       workflowStatus: (row.workflow_status ?? "onboarding") as SpeakerProfile["workflowStatus"],
       logistics: parse<Record<string, string>>(row.logistics_json ?? "{}"),
       customFields: parse<Record<string, string>>(row.custom_fields_json ?? "{}"),
+      socialLinks: parse<SpeakerSocialLinks>(row.social_links_json ?? "{}"),
     };
   }
   private task(row: Row): SpeakerTask {

@@ -64,6 +64,8 @@ export function defineContentSchema(references: {
       workflowStatus: text("workflow_status").notNull().default("onboarding"),
       logisticsJson: text("logistics_json").notNull().default("{}"),
       customFieldsJson: text("custom_fields_json").notNull().default("{}"),
+      /** A closed set of platform keys the application validates (`1407`). */
+      socialLinksJson: text("social_links_json").notNull().default("{}"),
     },
     (table) => [
       unique("speaker_profiles_event_id_source_person_id_unique").on(

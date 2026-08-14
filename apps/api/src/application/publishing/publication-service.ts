@@ -336,6 +336,11 @@ export class PublicationService {
         ...(speaker.photoAssetId && publishableAssets.has(speaker.photoAssetId)
           ? { photoUrl: `/api/speaker-assets/${speaker.photoAssetId}` }
           : {}),
+        // Absent for a speaker with no links, so an unchanged programme publishes to the
+        // same bytes twice.
+        ...(speaker.socialLinks && Object.keys(speaker.socialLinks).length > 0
+          ? { socialLinks: speaker.socialLinks }
+          : {}),
       })),
     });
     return {
