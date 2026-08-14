@@ -12,7 +12,7 @@
  * or refused by the fixture provider because its recipient is genuinely unaddressable. No
  * assertion here depends on a seeded delivery.
  */
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import { resolveWorktreeEnvironment } from "../../../tools/worktree-env.mjs";
 
 const EVENT_ID = "00000000-0000-4000-8000-000000000001";
@@ -64,6 +64,29 @@ async function openOutbox(page: Page) {
   await expect(page.getByRole("combobox", { name: "Event workspace" })).toBeVisible();
   await page.goto(COMMUNICATIONS);
   await expect(page.getByRole("heading", { name: "Communications", level: 1 })).toBeVisible();
+}
+
+/** Follow the real history pagination until the named delivery is on screen. */
+async function findDeliveryRow(page: Page, recipient: string): Promise<Locator> {
+  await expect(page.getByRole("region", { name: "Delivery history" })).toContainText(
+    /\d+ deliver(?:y|ies) loaded/,
+  );
+  const rows = page.getByRole("table").locator("tbody tr");
+  const row = rows.filter({ hasText: recipient });
+  for (let pageNumber = 0; pageNumber < 10 && (await row.count()) === 0; pageNumber += 1) {
+    const more = page.getByRole("button", { name: "Load more history" });
+    expect(await more.count(), `${recipient} was not present in delivery history`).toBe(1);
+    const before = await rows.count();
+    const loaded = page.waitForResponse(
+      (response) =>
+        response.url().includes("/api/communications/history") &&
+        response.request().method() === "GET",
+    );
+    await more.click();
+    expect((await loaded).ok(), "loading more delivery history failed").toBe(true);
+    await expect.poll(() => rows.count()).toBeGreaterThan(before);
+  }
+  return row;
 }
 
 /**
@@ -177,10 +200,25 @@ test("an organizer recovers a delivery the provider refused, by clicking Retry",
   expect(enqueued.status(), await enqueued.text()).toBe(202);
 
   await drain(page);
-  await page.reload();
+  await expect
+    .poll(async () => {
+      const delivery = (await outbox(page)).find(
+        ({ delivery: candidate }) => candidate.recipientRef === recipient,
+      )?.delivery;
+      return delivery?.state;
+    })
+    .toBe("terminal");
+  // Refresh through the organizer's control so the row is read after the scheduled handler's
+  // transaction is visible, instead of racing a document reload against the outbox drain.
+  const refreshed = page.waitForResponse(
+    (response) =>
+      response.url().includes("/api/communications/history") &&
+      response.request().method() === "GET",
+  );
+  await page.getByRole("button", { name: "Refresh outbox" }).click();
+  expect((await refreshed).ok(), "refreshing the outbox failed").toBe(true);
 
-  const rows = page.getByRole("table").locator("tbody tr");
-  const row = rows.filter({ hasText: recipient });
+  const row = await findDeliveryRow(page, recipient);
   await expect(row.locator(".delivery-state.state-terminal")).toBeVisible();
   await expect(row).toContainText("PROVIDER_REJECTED");
 
@@ -188,18 +226,20 @@ test("an organizer recovers a delivery the provider refused, by clicking Retry",
   // and called that "explicit recovery".
   await row.getByRole("button", { name: `Retry ${recipient}` }).click();
   await expect(page.getByText(`Retry queued for ${recipient}`)).toBeVisible();
-  await expect(row.locator(".delivery-state.state-queued")).toBeVisible();
-
-  const recovered = (await outbox(page)).find(
-    ({ delivery }) => delivery.recipientRef === recipient,
-  );
-  expect(recovered?.delivery.state).toBe("queued");
+  await expect
+    .poll(
+      async () =>
+        (await outbox(page)).find(({ delivery }) => delivery.recipientRef === recipient)?.delivery
+          .state,
+    )
+    .toBe("queued");
 
   // Recovery does not rewrite history: the failed attempt is still there, and draining again
   // adds a second one rather than replacing the first.
   await drain(page);
   await page.reload();
-  await page.getByRole("button", { name: `Show attempt history for ${recipient}` }).click();
+  const recoveredRow = await findDeliveryRow(page, recipient);
+  await recoveredRow.getByRole("button", { name: `Show attempt history for ${recipient}` }).click();
   await expect(page.getByText("Attempt 1: terminal_failure — PROVIDER_REJECTED")).toBeVisible();
   await expect(page.getByText("Attempt 2: terminal_failure — PROVIDER_REJECTED")).toBeVisible();
 });

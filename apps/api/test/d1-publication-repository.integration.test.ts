@@ -1,4 +1,4 @@
-// @acceptance ACC-PUBLIC
+// @acceptance ACC-PUBLIC ACC-AGENDA
 import { Miniflare } from "miniflare";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { D1AgendaRepository } from "../src/adapters/persistence/d1-agenda-repository";
@@ -21,6 +21,7 @@ import { ContentService } from "../src/application/content/content-service";
 import { EventService } from "../src/application/events/event-service";
 import { ReviewService } from "../src/application/review/review-service";
 import {
+  PublicationProjectionConflictError,
   PublicationService,
   PublicationSlugTakenError,
 } from "../src/application/publishing/publication-service";
@@ -74,13 +75,21 @@ function publishingFor(database: never) {
     () => crypto.randomUUID(),
     () => new Date(),
   );
-  const agenda = new AgendaService(
-    new D1AgendaRepository(database, () => new Date("2026-08-10T20:00:00.000Z")),
+  const publicationRepository = new D1PublicationRepository(database);
+  let publishing: PublicationService;
+  const agenda: AgendaService = new AgendaService(
+    new D1AgendaRepository(
+      database,
+      () => new Date("2026-08-10T20:00:00.000Z"),
+      async (_database, event, schedule) => {
+        const refresh = await publishing.prepareScheduleRefresh(event, schedule);
+        return refresh ? publicationRepository.prepareRefreshStatements(refresh) : [];
+      },
+    ),
     () => new Date("2026-08-10T20:00:00.000Z"),
     contentRepository,
   );
-  const publicationRepository = new D1PublicationRepository(database);
-  const publishing = new PublicationService(
+  publishing = new PublicationService(
     publicationRepository,
     {
       event: async (actor, eventId) => {
@@ -91,6 +100,7 @@ function publishingFor(database: never) {
         try {
           const form = await cfpService.getPublished(eventId);
           return {
+            version: form.version,
             title: form.title,
             description: form.description,
             status: form.status === "closed" ? ("closed" as const) : ("open" as const),
@@ -119,6 +129,41 @@ function publishingFor(database: never) {
 describe("D1PublicationRepository", () => {
   let runtime: Miniflare | undefined;
   afterEach(async () => runtime?.dispose());
+
+  it("refuses a refresh result whose driver omits the affected-row count", async () => {
+    const statement = {
+      bind() {
+        return this;
+      },
+      async run() {
+        return { success: true, meta: { changes: 1 } };
+      },
+      async all() {
+        return { success: true, results: [] };
+      },
+    };
+    const repository = new D1PublicationRepository({
+      prepare: () => statement,
+      batch: async () => [{ success: true }, { success: true, meta: { changes: 1 } }],
+    } as never);
+
+    await expect(
+      repository.refreshPublished({
+        eventId: DEMO_EVENT,
+        expectedProjectionVersion: 1,
+        activatedAt: "2026-08-10T20:00:00.000Z",
+        projection: safeProjection,
+        provenance: {
+          agendaVersion: 2,
+          agendaPublishedAt: "2026-08-10T20:00:00.000Z",
+          cfpVersion: 1,
+          cfpPublishedAt: "2026-08-09T12:00:00.000Z",
+          contentDigest: "fnv1a32:12345678",
+          cause: "source-reconciled",
+        },
+      }),
+    ).rejects.toThrow("D1 reported no row count while attempting to refresh public projection");
+  });
 
   it("reports only the writer that actually transitions a published projection", async () => {
     runtime = new Miniflare({
@@ -301,17 +346,6 @@ describe("D1PublicationRepository", () => {
       event: { name: "Safe Event" },
       speakers: [{ name: "Speaker" }],
     });
-
-    await database
-      .prepare("DELETE FROM public_event_projections WHERE event_id = ?")
-      .bind(DEMO_EVENT)
-      .run();
-    const repository = new D1PublicationRepository(database);
-    await repository.publish(DEMO_EVENT, "2026-08-11T00:00:00.000Z", safeProjection);
-    await expect(repository.findByEventId(DEMO_EVENT)).resolves.toMatchObject({
-      state: "published",
-      slug: "safe-event",
-    });
   });
 
   /*
@@ -406,6 +440,264 @@ describe("D1PublicationRepository", () => {
       timezone: "America/New_York",
       slug: DEMO_SLUG,
     });
+  });
+
+  it("publishes an agenda and advances the live projection in the same durable write", async () => {
+    runtime = new Miniflare({
+      modules: true,
+      script: "export default { fetch() {} }",
+      d1Databases: { DB: "publishing-agenda-refresh" },
+    });
+    const database = await runtime.getD1Database("DB");
+    await applySeed(database);
+    const { agenda, events, publicationRepository, publishing } = publishingFor(database as never);
+    const organizer = await resolveSeededDemoActor("organizer");
+    const app = createHttpApp(
+      events,
+      { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      { demoMode: false },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      agenda,
+      undefined,
+      publishing,
+    );
+
+    // Read the seeded live snapshot, then move the second day's session to a later hour.
+    expect((await app.request(`/api/public/events/${DEMO_SLUG}`)).status).toBe(200);
+    const draft = await agenda.draft(organizer, DEMO_EVENT);
+    await agenda.configure(organizer, DEMO_EVENT, {
+      rooms: draft.rooms,
+      tracks: draft.tracks,
+      slots: draft.slots.map((slot) =>
+        slot.id === "slot-day-two"
+          ? {
+              ...slot,
+              startsAt: "2026-09-02T19:00:00.000Z",
+              endsAt: "2026-09-02T20:00:00.000Z",
+            }
+          : slot,
+      ),
+    });
+    await agenda.publish(organizer, DEMO_EVENT, "projection-refresh-v2");
+
+    const hub = await app.request(`/api/public/events/${DEMO_SLUG}`);
+    expect(hub.status).toBe(200);
+    const hubBody = (await hub.json()) as {
+      projection: { sessions: Array<Record<string, unknown>> };
+      publication: { version: number; provenance: { agendaVersion: number } };
+    };
+    expect(
+      hubBody.projection.sessions.find(({ title }) => title === "Accessible by default"),
+    ).toMatchObject({
+      startsAt: "2026-09-02T19:00:00.000Z",
+      endsAt: "2026-09-02T20:00:00.000Z",
+      room: "Workshop lab",
+      track: "Practice",
+    });
+    expect(hubBody.publication).toMatchObject({
+      provenance: { agendaVersion: 2 },
+    });
+
+    const schedule = await app.request(`/api/public/events/${DEMO_SLUG}/schedule`);
+    expect(schedule.status).toBe(200);
+    const scheduleBody = (await schedule.json()) as {
+      schedule: { version: number; sessions: Array<Record<string, unknown>> };
+    };
+    expect(scheduleBody.schedule.version).toBe(2);
+    expect(
+      [...scheduleBody.schedule.sessions].sort((left, right) =>
+        String(left.title).localeCompare(String(right.title)),
+      ),
+    ).toEqual(
+      hubBody.projection.sessions
+        .filter(({ startsAt }) => Boolean(startsAt))
+        .sort((left, right) => String(left.title).localeCompare(String(right.title))),
+    );
+
+    const history = await database
+      .prepare(
+        "SELECT version, agenda_version, activation_cause FROM public_event_projection_versions WHERE event_id = ? ORDER BY version",
+      )
+      .bind(DEMO_EVENT)
+      .all<{ version: number; agenda_version: number | null; activation_cause: string }>();
+    expect(history.results?.at(-1)).toMatchObject({
+      agenda_version: 2,
+      activation_cause: "schedule-published",
+    });
+    expect(new Set(history.results?.map(({ version }: { version: number }) => version)).size).toBe(
+      history.results?.length,
+    );
+    expect((await publicationRepository.findByEventId(DEMO_EVENT))?.projectionVersion).toBe(
+      history.results?.at(-1)?.version,
+    );
+  });
+
+  it("refuses a stale recomposition without overwriting a concurrent site publication", async () => {
+    runtime = new Miniflare({
+      modules: true,
+      script: "export default { fetch() {} }",
+      d1Databases: { DB: "publishing-projection-cas" },
+    });
+    const database = await runtime.getD1Database("DB");
+    await applySeed(database);
+    const { publicationRepository: repository, publishing } = publishingFor(database as never);
+    await publishing.publicBySlug(DEMO_SLUG);
+    const before = await repository.findByEventId(DEMO_EVENT);
+    expect(before?.published).not.toBeNull();
+    const expected = before?.projectionVersion ?? 0;
+    const provenance = before?.provenance;
+    expect(provenance).not.toBeNull();
+
+    const explicit = {
+      ...(before?.published ?? safeProjection),
+      event: { ...(before?.published ?? safeProjection).event, summary: "Concurrent site edit" },
+    };
+    await repository.publish(
+      DEMO_EVENT,
+      "2026-08-10T21:00:00.000Z",
+      explicit,
+      provenance ?? undefined,
+      expected,
+    );
+
+    await expect(
+      repository.refreshPublished({
+        eventId: DEMO_EVENT,
+        expectedProjectionVersion: expected,
+        activatedAt: "2026-08-10T21:01:00.000Z",
+        projection: {
+          ...(before?.published ?? safeProjection),
+          event: { ...(before?.published ?? safeProjection).event, summary: "Stale bytes" },
+        },
+        provenance: provenance ?? {
+          agendaVersion: null,
+          agendaPublishedAt: null,
+          cfpVersion: null,
+          cfpPublishedAt: null,
+          contentDigest: "legacy:unknown",
+          cause: "source-reconciled",
+        },
+      }),
+    ).rejects.toBeInstanceOf(PublicationProjectionConflictError);
+    expect((await repository.findByEventId(DEMO_EVENT))?.published?.event.summary).toBe(
+      "Concurrent site edit",
+    );
+  });
+
+  it("classifies a second identical refresh as retryable contention", async () => {
+    runtime = new Miniflare({
+      modules: true,
+      script: "export default { fetch() {} }",
+      d1Databases: { DB: "publishing-projection-convergent-cas" },
+    });
+    const database = await runtime.getD1Database("DB");
+    await applySeed(database);
+    const { publicationRepository: repository, publishing } = publishingFor(database as never);
+    await publishing.publicBySlug(DEMO_SLUG);
+    const before = await repository.findByEventId(DEMO_EVENT);
+    const expected = before?.projectionVersion ?? 0;
+    const provenance = before?.provenance;
+    expect(before?.published).not.toBeNull();
+    expect(provenance).not.toBeNull();
+
+    // Two anonymous readers can both compose these bytes from version N. Only one may activate
+    // N+1; the other must become a retryable CAS conflict, never a history uniqueness fault.
+    const refresh = {
+      eventId: DEMO_EVENT,
+      expectedProjectionVersion: expected,
+      activatedAt: "2026-08-10T21:02:00.000Z",
+      projection: {
+        ...(before?.published ?? safeProjection),
+        event: { ...(before?.published ?? safeProjection).event, summary: "Converged refresh" },
+      },
+      provenance: {
+        ...(provenance ?? {
+          agendaVersion: null,
+          agendaPublishedAt: null,
+          cfpVersion: null,
+          cfpPublishedAt: null,
+          contentDigest: "legacy:unknown",
+          cause: "source-reconciled" as const,
+        }),
+        contentDigest: "fnv1a32:converged",
+        cause: "source-reconciled" as const,
+      },
+    };
+    const results = await Promise.allSettled([
+      repository.refreshPublished(refresh),
+      repository.refreshPublished(refresh),
+    ]);
+    expect(results.filter(({ status }) => status === "fulfilled")).toHaveLength(1);
+    const loser = results.find(({ status }) => status === "rejected");
+    expect(loser).toMatchObject({
+      status: "rejected",
+      reason: expect.any(PublicationProjectionConflictError),
+    });
+
+    const active = await repository.findByEventId(DEMO_EVENT);
+    expect(active?.projectionVersion).toBe(expected + 1);
+    expect(active?.published?.event.summary).toBe("Converged refresh");
+    const history = await database
+      .prepare(
+        "SELECT COUNT(*) AS count FROM public_event_projection_versions WHERE event_id = ? AND version = ?",
+      )
+      .bind(DEMO_EVENT, expected + 1)
+      .first<{ count: number }>();
+    expect(history?.count).toBe(1);
+  });
+
+  it("enforces immutable projection history in storage", async () => {
+    runtime = new Miniflare({
+      modules: true,
+      script: "export default { fetch() {} }",
+      d1Databases: { DB: "publishing-projection-history-immutable" },
+    });
+    const database = await runtime.getD1Database("DB");
+    await applySeed(database);
+    await publishingFor(database as never).publishing.publicBySlug(DEMO_SLUG);
+    await expect(
+      database
+        .prepare("UPDATE public_event_projection_versions SET activated_at = ? WHERE event_id = ?")
+        .bind("2026-08-11T00:00:00.000Z", DEMO_EVENT)
+        .run(),
+    ).rejects.toThrow("public projection history is immutable");
+    await expect(
+      database
+        .prepare("DELETE FROM public_event_projection_versions WHERE event_id = ?")
+        .bind(DEMO_EVENT)
+        .run(),
+    ).rejects.toThrow("public projection history is immutable");
+  });
+
+  it("does not create a public projection when an unpublished event publishes its agenda", async () => {
+    runtime = new Miniflare({
+      modules: true,
+      script: "export default { fetch() {} }",
+      d1Databases: { DB: "publishing-agenda-private-event" },
+    });
+    const database = await runtime.getD1Database("DB");
+    await applySeed(database);
+    const { agenda, publicationRepository, publishing } = publishingFor(database as never);
+    const organizer = await resolveSeededDemoActor("organizer");
+    await publishing.publicBySlug(DEMO_SLUG);
+    const before = await database
+      .prepare("SELECT COUNT(*) AS count FROM public_event_projection_versions WHERE event_id = ?")
+      .bind(DEMO_EVENT)
+      .first<{ count: number }>();
+    await publicationRepository.unpublish(DEMO_EVENT);
+
+    await agenda.publish(organizer, DEMO_EVENT, "private-agenda-v2");
+
+    await expect(publicationRepository.findPublicBySlug(DEMO_SLUG)).resolves.toBeNull();
+    const history = await database
+      .prepare("SELECT COUNT(*) AS count FROM public_event_projection_versions WHERE event_id = ?")
+      .bind(DEMO_EVENT)
+      .first<{ count: number }>();
+    expect(history?.count).toBe(before?.count);
+    expect(history?.count).toBeGreaterThan(0);
   });
 
   it("serves the seeded headshot to an anonymous reader and withdraws it on unpublish", async () => {
@@ -504,6 +796,18 @@ describe("D1PublicationRepository", () => {
             startsAt: "2026-09-01T16:00:00.000Z",
             endsAt: "2026-09-01T17:00:00.000Z",
             room: "Main stage",
+          },
+          {
+            slug: "accessible-by-default",
+            title: "Accessible by default",
+            abstract:
+              "A hands-on guide to making conference experiences work for more attendees from the first sketch.",
+            format: "60-minute workshop",
+            track: "Practice",
+            speakerSlugs: ["jordan-bell"],
+            startsAt: "2026-09-02T17:00:00.000Z",
+            endsAt: "2026-09-02T18:00:00.000Z",
+            room: "Workshop lab",
           },
         ],
       },

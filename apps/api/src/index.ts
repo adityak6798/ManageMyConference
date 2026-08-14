@@ -101,7 +101,7 @@ import {
   PlatformOperationsService,
 } from "./application/platform/public";
 import { ItineraryService } from "./application/publishing/itinerary-service";
-import { publishingTemplateSlice } from "./application/publishing/public";
+import { type ProjectionRefresh, publishingTemplateSlice } from "./application/publishing/public";
 import { PublicationService } from "./application/publishing/publication-service";
 import { reviewTemplateSlice } from "./application/review/public";
 import type { ReviewNotificationPort } from "./application/review/review-service";
@@ -515,10 +515,11 @@ export async function reconcileScheduleMaterializations(
 }
 
 export function pruneItineraries(environment: Environment): Promise<void> {
-  return new ItineraryService(
-    new D1ItineraryRepository(environment.DB),
-    new D1PublicationRepository(environment.DB),
-  ).prune();
+  const repository = new D1PublicationRepository(environment.DB);
+  return new ItineraryService(new D1ItineraryRepository(environment.DB), {
+    currentPublicBySlug: (slug) => repository.findPublicBySlug(slug),
+    currentPublicByEventId: (eventId) => repository.findByEventId(eventId),
+  }).prune();
 }
 
 export function runtimeAuth(
@@ -691,8 +692,13 @@ export default {
     const writePublicationEvent = preparedDeliveryWriter(
       environment.DB as Parameters<typeof preparedDeliveryWriter>[0],
     );
-    const agenda = new AgendaService(
-      agendaRepository(environment, now, async (_database, event) => {
+    // The two services meet only through closures invoked after this composition is complete:
+    // publishing reads agenda's public snapshot, while agenda's durable event writer asks
+    // publishing for opaque statements. Explicit declarations make that runtime cycle visible
+    // without creating a module dependency in either direction.
+    let publishing: PublicationService;
+    const agenda: AgendaService = new AgendaService(
+      agendaRepository(environment, now, async (_database, event, schedule) => {
         const organizationId = await service.organizationOf(event.eventId);
         // A publication whose event has no owning organization cannot be announced to anyone.
         // Throwing fails the batch, so the publication does not commit either — which is the
@@ -708,7 +714,14 @@ export default {
          * derived id, so a retried publish converges on one record and republishing after an
          * edit allocates a new version, a new key, and a new record.
          */
+        const projectionRefresh: ProjectionRefresh | null = await publishing.prepareScheduleRefresh(
+          event,
+          schedule,
+        );
         return [
+          ...(projectionRefresh
+            ? publicationRepository.prepareRefreshStatements(projectionRefresh)
+            : []),
           ...writePublicationEvent(
             await communications.prepareEnqueue({
               organizationId,
@@ -1331,7 +1344,7 @@ export default {
       newId: () => crypto.randomUUID(),
       now: () => new Date(),
     });
-    const publishing = new PublicationService(
+    publishing = new PublicationService(
       publicationRepository,
       {
         event: async (actor, eventId) => {
@@ -1347,6 +1360,7 @@ export default {
             throw error;
           }
           return {
+            version: form.version,
             title: form.title,
             description: form.description,
             status: form.status === "closed" ? "closed" : "open",
@@ -1383,10 +1397,7 @@ export default {
           }),
       },
     );
-    const itineraries = new ItineraryService(
-      new D1ItineraryRepository(environment.DB),
-      publicationRepository,
-    );
+    const itineraries = new ItineraryService(new D1ItineraryRepository(environment.DB), publishing);
     // --- events (issue #102) ---
     /*
      * The orchestration seam for reusable event templates.

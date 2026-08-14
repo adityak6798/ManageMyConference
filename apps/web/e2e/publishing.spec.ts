@@ -119,7 +119,7 @@ test("creates an event, previews without publishing, publishes, and takes it dow
   // ---- publish -------------------------------------------------------------
   await page.getByRole("button", { name: "Publish", exact: true }).click();
   await expect(publicationStatus).toContainText(
-    "Published. Visitors see this snapshot; later draft edits stay invisible until you publish again.",
+    "Published. Accepted schedule, content, and CFP publications now refresh every public surface automatically.",
   );
   await expect(page.getByText("Published", { exact: true })).toBeVisible();
   await expect(page.getByText("Snapshot matches the draft")).toBeVisible();
@@ -149,9 +149,8 @@ test("creates an event, previews without publishing, publishes, and takes it dow
   const snippet = await page.evaluate(() => navigator.clipboard.readText());
   expect(snippet).toContain(`/embed/events/${slug}/schedule`);
   expect(snippet).toMatch(/^<iframe src="http/);
-  // Both views render a live frame of the real embed once the event is live.
-  // Four widget types since #95: schedule, sessions, speakers and the gallery.
-  await expect(page.locator(".publishing-frame iframe")).toHaveCount(4);
+  // Every widget renders a live frame of the real embed once the event is live.
+  await expect(page.locator(".publishing-frame iframe")).toHaveCount(5);
 
   // ---- the public routes serve it ------------------------------------------
   const published = await page.request.get(`/api/public/events/${slug}`);
@@ -185,7 +184,7 @@ test("creates an event, previews without publishing, publishes, and takes it dow
   );
   await page.getByRole("button", { name: "Unpublish" }).click();
   await expect(publicationStatus).toContainText(
-    "Unpublished. The public page and both embeds now return the not-published response.",
+    "Unpublished. The public page, feed, and embeds now return the not-published response.",
   );
   await expect(page.getByText("Taken down")).toBeVisible();
   await expect(page.getByRole("button", { name: "Unpublish" })).toBeDisabled();

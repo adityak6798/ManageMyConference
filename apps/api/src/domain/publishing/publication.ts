@@ -46,6 +46,22 @@ export interface PublicEventProjection {
   readonly speakers: readonly PublicSpeaker[];
 }
 
+/**
+ * Which upstream public facts were composed into one immutable projection version.
+ *
+ * Publishing owns the snapshot, while these values make the inputs it used observable without
+ * copying another domain's storage identifiers into the public contract. Content has no single
+ * version row, so its public application projection is represented by a deterministic digest.
+ */
+export interface PublicationProvenance {
+  readonly agendaVersion: number | null;
+  readonly agendaPublishedAt: string | null;
+  readonly cfpVersion: number | null;
+  readonly cfpPublishedAt: string | null;
+  readonly contentDigest: string;
+  readonly cause: "site-published" | "schedule-published" | "source-reconciled";
+}
+
 export interface Publication {
   readonly eventId: string;
   readonly slug: string;
@@ -53,6 +69,19 @@ export interface Publication {
   readonly draft: PublicEventProjection;
   readonly published: PublicEventProjection | null;
   readonly publishedAt: string | null;
+  /** Monotonic within one event; zero means the event has never had a live snapshot. */
+  readonly projectionVersion?: number;
+  readonly provenance?: PublicationProvenance | null;
+}
+
+/** A fully composed snapshot ready for the publishing repository to activate. */
+export interface ProjectionRefresh {
+  readonly eventId: string;
+  /** Compare-and-swap guard for the active composition this refresh was derived from. */
+  readonly expectedProjectionVersion: number;
+  readonly activatedAt: string;
+  readonly projection: PublicEventProjection;
+  readonly provenance: PublicationProvenance;
 }
 
 // Publication snapshots deliberately copy only public contract fields. This is the privacy

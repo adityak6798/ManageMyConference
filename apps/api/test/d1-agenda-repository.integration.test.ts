@@ -260,7 +260,14 @@ describe("D1AgendaRepository publication transaction", () => {
         new Map([
           [
             eventId,
-            [{ id: "20000000-0000-4000-8000-000000000001", title: "Opening", speakerIds: [] }],
+            [
+              { id: "20000000-0000-4000-8000-000000000001", title: "Opening", speakerIds: [] },
+              {
+                id: "20000000-0000-4000-8000-000000000002",
+                title: "Accessible by default",
+                speakerIds: [],
+              },
+            ],
           ],
         ]),
       ),
@@ -316,6 +323,11 @@ describe("D1AgendaRepository publication transaction", () => {
     const repository = new D1AgendaRepository(migrated.database, () => new Date());
     const sessions = [
       { id: "20000000-0000-4000-8000-000000000001", title: "Opening", speakerIds: [] },
+      {
+        id: "20000000-0000-4000-8000-000000000002",
+        title: "Accessible by default",
+        speakerIds: [],
+      },
       { id: "rival-session", title: "Rival", speakerIds: [] },
     ];
     const service = new AgendaService(
@@ -805,24 +817,18 @@ describe("D1AgendaRepository session schedule revisions", () => {
     expect(await repository.driftedEvents(10)).toEqual([eventId]);
     expect((await repository.reconcileSessionSchedules(eventId, { repair: false })).drift).toEqual({
       missing: [],
-      phantom: [sessionA],
+      phantom: [sessionA, sessionB],
       divergent: [],
     });
     // Still stale: a read-only check is a question, not an action.
-    expect(await storedRevisions(migrated.database)).toEqual(
-      new Map([
-        [
-          sessionA,
-          {
-            startsAt: slot0900.startsAt,
-            endsAt: slot0900.endsAt,
-            location: mainStage.name,
-            revision: 1,
-            revisedAt: "2026-08-10T20:00:00.000Z",
-          },
-        ],
-      ]),
-    );
+    const stale = await storedRevisions(migrated.database);
+    expect([...stale.keys()]).toEqual([sessionA, sessionB]);
+    expect(stale.get(sessionA)).toMatchObject({
+      startsAt: slot0900.startsAt,
+      endsAt: slot0900.endsAt,
+      location: mainStage.name,
+      revision: 1,
+    });
 
     // Nothing had to be asked. Reading the schedule is what repairs it.
     expect([...(await repository.sessionScheduleRevisions(eventId)).keys()]).toEqual([]);
@@ -1017,9 +1023,9 @@ describe("D1AgendaRepository session schedule revisions", () => {
     expect([...(await repository.sessionScheduleRevisions(eventId)).keys()]).toEqual([]);
 
     const report = await repository.reconcileSessionSchedules(eventId, { repair: true });
-    expect(report.drift.missing).toEqual([sessionA]);
+    expect(report.drift.missing).toEqual([sessionA, sessionB]);
     expect(report.repaired).toBe(true);
-    expect(repairs).toEqual([`${eventId}:1`]);
+    expect(repairs).toEqual([`${eventId}:2`]);
     expect(await storedRevisions(migrated.database)).toEqual(before);
   });
 
@@ -1206,7 +1212,7 @@ describe("D1AgendaRepository session schedule revisions", () => {
       publication(2, board([at("place-b", sessionB, workshopLab.id, slot1000.id)])),
     ]);
     const before = await storedRevisions(migrated.database);
-    expect([...before.keys()]).toEqual([sessionA]);
+    expect([...before.keys()]).toEqual([sessionA, sessionB]);
 
     const report = await repository.reconcileSessionSchedules(eventId, { repair: true });
     expect(report.repaired).toBe(false);
@@ -1314,8 +1320,8 @@ describe("D1AgendaRepository session schedule revisions", () => {
     await insertHistory(migrated.database, [
       publication(2, board([at("place-b", sessionB, workshopLab.id, slot1000.id)])),
     ]);
-    // The stored table still holds session A, which the history stopped placing at version 2.
-    expect([...(await storedRevisions(migrated.database)).keys()]).toEqual([sessionA]);
+    // The stored table still holds both seeded sessions; version 2 retains only session B.
+    expect([...(await storedRevisions(migrated.database)).keys()]).toEqual([sessionA, sessionB]);
 
     const served = await repository.sessionScheduleRevisions(eventId);
     // The phantom row is not in the answer, even though nothing could be written.
@@ -1339,7 +1345,7 @@ describe("D1AgendaRepository session schedule revisions", () => {
     await insertHistory(migrated.database, [publication(2, board([]))]);
     await repository.sessionScheduleRevisions(eventId);
 
-    expect(repairs).toEqual([`${eventId}:1`]);
+    expect(repairs).toEqual([`${eventId}:2`]);
     // And not again once it is sound, so the line means something when it appears.
     await repository.sessionScheduleRevisions(eventId);
     expect(repairs).toHaveLength(1);

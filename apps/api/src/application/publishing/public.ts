@@ -7,7 +7,9 @@
 
 export type { AttendeeItinerary } from "../../domain/publishing/itinerary";
 export type {
+  ProjectionRefresh,
   PublicationSettings,
+  PublicationProvenance,
   PublicEventProjection,
   PublicScheduleProjection,
   PublicScheduleSession,

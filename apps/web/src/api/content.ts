@@ -179,8 +179,8 @@ export async function updateContentSession(
  * Organizer-only, and the reverse of accepting the proposal: the session goes, and with it
  * every agenda placement holding it, so the board is not left with a slot for a session that
  * no longer exists. The speaker profile and their tasks and uploads stay — the same person may
- * be speaking elsewhere — and the public page keeps the session until the organizer publishes
- * again, because a published snapshot is immutable.
+ * be speaking elsewhere — and an already-live page appends a reconciled immutable projection
+ * version on its next public read, so the withdrawn session cannot remain visible.
  */
 export async function withdrawContentSession(
   sessionId: string,
@@ -341,8 +341,8 @@ export async function publishSpeakerAsset(
  * Return a published asset to private.
  *
  * The reverse of `publishSpeakerAsset`, and organizer-only for the same reason. A headshot
- * withdrawn this way leaves the public gallery at the next publish, and its bytes stop being
- * served anonymously immediately.
+ * withdrawn this way leaves the public gallery on its next reconciled read, and its bytes stop
+ * being served anonymously immediately.
  */
 export async function unpublishSpeakerAsset(
   assetId: string,

@@ -1,4 +1,9 @@
-import type { Publication, PublicEventProjection } from "../../domain/publishing/publication";
+import type {
+  ProjectionRefresh,
+  Publication,
+  PublicationProvenance,
+  PublicEventProjection,
+} from "../../domain/publishing/publication";
 
 // @spec PRD-PUB-001
 export interface PublicationRepository {
@@ -28,6 +33,16 @@ export interface PublicationRepository {
     eventId: string,
     publishedAt: string,
     projection: PublicEventProjection,
+    provenance?: PublicationProvenance,
+    expectedProjectionVersion?: number,
   ): Promise<Publication | null>;
+  /**
+   * Activate a newly composed source-driven snapshot only while the event is already live.
+   *
+   * Optional for small in-memory compositions that exercise only explicit site publication.
+   * Production storage implements it, and public reads refuse to serve a known-stale source
+   * projection when no implementation is available.
+   */
+  refreshPublished?(refresh: ProjectionRefresh): Promise<Publication | null>;
   unpublish(eventId: string): Promise<Publication | null>;
 }

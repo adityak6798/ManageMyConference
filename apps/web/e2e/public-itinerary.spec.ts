@@ -161,10 +161,10 @@ test("keeps a two-session itinerary across a reload and downloads it as a calend
   expect(calendar).toContain("BEGIN:VCALENDAR");
   expect(calendar).toContain("END:VCALENDAR");
   expect(calendar).toContain("VERSION:2.0");
-  // Only the scheduled one becomes a calendar entry; the unscheduled session has no time
-  // to put on anybody's calendar.
+  // Both seed sessions are scheduled, on different days, so both become calendar entries.
   expect(calendar).toContain("SUMMARY:Designing the calm conference");
-  expect(calendar.match(/BEGIN:VEVENT/g) ?? []).toHaveLength(1);
+  expect(calendar).toContain("SUMMARY:Accessible by default");
+  expect(calendar.match(/BEGIN:VEVENT/g) ?? []).toHaveLength(2);
   for (const line of calendar.split("\r\n")) expect(line.length).toBeLessThanOrEqual(75);
 });
 
@@ -184,6 +184,12 @@ test("hands an itinerary to another browser through its link alone", async ({ pa
   await expect(other).toHaveURL(new RegExp(`/events/${SLUG}/itinerary\\?plan=`));
   await expect(other.getByRole("heading", { level: 1, name: "My itinerary" })).toBeVisible();
   await expect(other.getByRole("link", { name: "Accessible by default" })).toBeVisible();
+
+  const plan = new URL(other.url()).search;
+  await other.goto(`/embed/events/${SLUG}/itinerary${plan}`);
+  await expect(other.getByRole("heading", { level: 1, name: "My itinerary" })).toBeVisible();
+  await expect(other.getByRole("link", { name: "Accessible by default" })).toBeVisible();
+  await expect(other.getByRole("button", { name: /to my itinerary/ })).toHaveCount(0);
   await second.close();
 });
 
@@ -234,5 +240,5 @@ test("says the same thing about one session on every surface that names it", asy
   await expect(page.getByRole("heading", { level: 1, name: title })).toBeVisible();
   await expect(page.getByText("Main stage", { exact: false }).first()).toBeVisible();
   // And the page states the freshness boundary rather than implying it is live.
-  await expect(page.getByText(/shows the programme as last published/)).toBeVisible();
+  await expect(page.getByText(/shows the current published programme/)).toBeVisible();
 });

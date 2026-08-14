@@ -53,6 +53,8 @@ interface AgendaDatabase {
 export type PublicationEventWriter = (
   database: AgendaDatabase,
   event: SchedulePublishedEvent,
+  /** The immutable snapshot that produced the event, exposed through agenda's public type. */
+  schedule: PublishedSchedule,
 ) => readonly D1Statement[] | Promise<readonly D1Statement[]>;
 
 interface DraftRow {
@@ -189,7 +191,18 @@ function uniquenessFailureOn(error: unknown, column: string): boolean {
  * command key must never be. Matching the table alone would make a replayed command retry
  * until it exhausted its attempts and then report contention that does not exist.
  */
-const isVersionTaken = (error: unknown) => uniquenessFailureOn(error, "version");
+const isVersionTaken = (error: unknown) => {
+  const text =
+    error instanceof Error ? `${error.message} ${String(error.cause ?? "")}` : String(error ?? "");
+  /*
+   * An opaque publication-event writer may protect its own active snapshot with this named
+   * compare-and-swap constraint. Agenda knows only that the event-side write lost a race and
+   * should retry its whole batch; it does not learn the writer's tables or representation.
+   */
+  return (
+    uniquenessFailureOn(error, "version") || text.includes("projection_refresh_version_changed")
+  );
+};
 /** This exact command already committed a publication. */
 const isCommandReplayed = (error: unknown) => uniquenessFailureOn(error, "command_key");
 
@@ -420,8 +433,11 @@ export class D1AgendaRepository implements AgendaRepository {
         .bind(schedule.eventId),
       ...this.insertSessionSchedules(schedule.eventId, revisions),
       this.claimWatermark(schedule.eventId, (current.watermark ?? 0) + 1, schedule.publishedAt),
-      ...((await this.writePublicationEvent?.(this.database, schedulePublishedEvent(schedule))) ??
-        []),
+      ...((await this.writePublicationEvent?.(
+        this.database,
+        schedulePublishedEvent(schedule),
+        schedule,
+      )) ?? []),
     ];
     let results: Array<D1WriteResult & { results?: unknown[] }>;
     try {

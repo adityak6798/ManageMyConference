@@ -170,7 +170,7 @@ export function OrganizerView({
       sessionFeedback.announce(
         result.ok ? "success" : "error",
         result.ok
-          ? `“${title}” was withdrawn, along with any agenda placement holding it. It leaves the public page the next time you publish.`
+          ? `“${title}” was withdrawn, along with any agenda placement holding it. A live public page reconciles on its next read.`
           : withReference("That session could not be withdrawn.", result.error),
       );
     });
@@ -179,7 +179,7 @@ export function OrganizerView({
   /**
    * Publication is reversible, so this control is a toggle rather than a one-way switch.
    * Returning a file to private closes the public door on the very next read, and a headshot
-   * withdrawn this way leaves the public gallery at the next publish.
+   * withdrawn this way leaves the public gallery on its next reconciled read.
    */
   function setAssetVisibility(asset: SpeakerAsset) {
     if (busy) return;
@@ -429,7 +429,7 @@ export function OrganizerView({
                                     {session.speakerProfileIds.length
                                       ? "The speaker keeps their profile, tasks, and uploads."
                                       : "No speaker profile is removed."}{" "}
-                                    It stays on the published public page until you publish again.
+                                    A live public page removes it on its next read.
                                   </span>
                                 </Notice>
                                 <div className="session-editor-actions">

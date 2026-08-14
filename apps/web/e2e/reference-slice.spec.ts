@@ -70,6 +70,17 @@ test("publishes a clean agenda, explains draft conflicts, and keeps publication 
   // that a version was published rather than pinning the number.
   await expect(page.getByRole("status")).toContainText(/Published version \d+/);
 
+  // Start the experiment by moving the seeded day-two session into Unscheduled. The
+  // browser journey restores that exact placement before it exits, so other specs still
+  // receive the two-day demo the reset established.
+  await page.getByRole("tab", { name: /^List/ }).click();
+  await page
+    .getByRole("row", { name: /Accessible by default/ })
+    .getByRole("button", { name: "Unschedule" })
+    .click();
+  await expect(page.getByRole("status")).toContainText("moved back to Unscheduled");
+  await page.getByRole("tab", { name: /^Room/ }).click();
+
   // The conflict is made the way an organizer would make one: the second session is
   // dropped into the cell the opening keynote already holds. It used to be forged with a
   // `page.request.put` against the placements route, which proved the rule and nothing
@@ -91,11 +102,15 @@ test("publishes a clean agenda, explains draft conflicts, and keeps publication 
   expect(publicResponse.ok()).toBeTruthy();
   const body = await publicResponse.json();
   expect(body.schedule.version).toBeGreaterThanOrEqual(2);
-  // The draft now places a second session on the main stage at the published session's
-  // time, so a draft that reached the public route would arrive here as a second entry.
-  expect(body.schedule.sessions).toHaveLength(1);
-  expect(body.schedule.sessions[0].slug).toBe("designing-the-calm-conference");
-  expect(body.schedule.sessions[0].room).toBe("Main stage");
+  // The draft now moves the second session onto the main stage at the first session's
+  // time. The published answer must retain both original placements instead.
+  expect(body.schedule.sessions).toHaveLength(2);
+  expect(body.schedule.sessions).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ slug: "designing-the-calm-conference", room: "Main stage" }),
+      expect.objectContaining({ slug: "accessible-by-default", room: "Workshop lab" }),
+    ]),
+  );
   // The public schedule is composed from the published projection, so it carries readable
   // identifiers only — never the internal room/track/slot/placement keys the board uses.
   expect(JSON.stringify(body)).not.toMatch(/room-main|track-platform|slot-0900|placement-/);
@@ -110,4 +125,19 @@ test("publishes a clean agenda, explains draft conflicts, and keeps publication 
   await expect(page.getByRole("status")).toContainText("moved back to Unscheduled");
   await expect(page.getByText("No conflicts. This draft is ready to publish.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Publish schedule" })).toBeEnabled();
+
+  // Put the session back on its seeded second day with the same keyboard path used above.
+  await page.getByRole("tab", { name: /^Room/ }).click();
+  await page
+    .getByRole("combobox", { name: "Day", exact: true })
+    .selectOption({ label: "Wed, Sep 2" });
+  const restore = page.getByRole("button", { name: /Accessible by default\. Not scheduled/ });
+  await restore.focus();
+  await restore.press("Enter");
+  await page
+    .getByRole("button", { name: /Place .* in Workshop lab at 10:00–11:00/ })
+    .press("Enter");
+  await expect(page.getByRole("status")).toContainText(
+    "“Accessible by default” placed in Workshop lab at 10:00–11:00.",
+  );
 });

@@ -68,20 +68,17 @@ export class ResourceEmbedDeniedError extends Error {}
  * is recomputed on every read. Nothing writes it, which is the whole point: there is one copy
  * of a session's time, so nothing here can go stale against the agenda that owns it.
  *
- * Which of the three clocks this is matters, and `PRD-PUB-001` keeps them apart deliberately:
+ * Which of the three clocks this is matters:
  *
  * - the agenda **draft** — the organizer's board, moved by every drag. Never read here. A
  *   session dropped into a slot has no `schedule` until the agenda is published.
  * - the agenda **publication** — the numbered immutable snapshot the organizer committed to.
  *   This is what `schedule` is, read live through `ContentAgendaInterface` on every request.
- * - the **site** publication — the public projection frozen when the organizer published the
- *   event page, which is what `/api/public/events/{slug}/schedule` and the event hub serve.
+ * - the **site** publication — the active versioned public projection served by
+ *   `/api/public/events/{slug}/schedule` and the event hub.
  *
- * Publishing the agenda moves the second immediately and leaves the third where it was, so
- * the speaker portal and the `.ics` can be one site publication ahead of the public programme
- * until the organizer publishes the site as well. That window is the rule, not a defect: a
- * speaker is told the time their organizer committed to, and the public surface only ever
- * changes when somebody deliberately republishes it.
+ * Publishing the agenda moves the second and, for an already-live site, activates the third in
+ * the same D1 batch through `EVT-SCHEDULE-PUBLISHED`. A site that is not live remains private.
  */
 export interface ScheduledContentSession extends ContentSession {
   readonly schedule?: SessionSchedule;
@@ -1318,8 +1315,8 @@ export class ContentService {
    *
    * The speaker profile, its tasks, and its uploads all survive: the person may be speaking in
    * another session, and deleting their work because one talk was withdrawn would be a second
-   * destructive surprise. Publication snapshots are immutable, so the session leaves the public
-   * page at the next publish, which is what the confirmation says.
+   * destructive surprise. A live public projection drops the session on its next reconciled read,
+   * which is what the confirmation says.
    */
   async withdrawSession(actor: Actor | null, sessionId: string): Promise<ContentWorkspaceView> {
     const session = await this.dependencies.repository.findSession(sessionId);
@@ -1673,13 +1670,10 @@ export class ContentService {
    * one is not — and a speaker with no placed session gets no document, which the route answers
    * as a 404.
    *
-   * This file is *not* the public programme, and the two can legitimately disagree. It tracks
-   * the agenda publication live; `/api/public/events/{slug}/schedule` serves the site snapshot
-   * frozen at the last site publication (see `ScheduledContentSession` above and `PRD-PUB-001`).
-   * Republishing the agenda alone therefore moves a speaker's calendar entry before the public
-   * page agrees, and the two reconverge when the organizer publishes the site. Nobody may write
-   * code — or a comment — that assumes these two are the same bytes; the invariant that does
-   * hold is that this document always equals the agenda publication in force at read time.
+   * This file is not the public programme: it follows the agenda publication and includes only
+   * the speaker's sessions, while publishing owns public content allowlisting. For a live site the
+   * two activate together, but callers still use the owning interface for the representation they
+   * need. This document always equals the agenda publication in force at read time.
    *
    * VCALENDAR carries the two REQUIRED properties, PRODID (3.7.3) and VERSION (3.7.4), plus
    * CALSCALE (3.7.1) stated explicitly even though GREGORIAN is its default. METHOD (3.7.2) is

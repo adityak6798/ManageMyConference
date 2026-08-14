@@ -18,12 +18,10 @@ export const contentSessionSchema = z.object({
    * while that publication does not place this session (including before any schedule is
    * published at all).
    *
-   * It follows the **agenda** publication, which is not the same clock as
-   * `/api/public/events/{slug}/schedule`: that serves the **site** publication, frozen when the
-   * organizer last published the event page. Publishing the agenda alone moves this field and
-   * leaves the public page where it was, so the two disagree until the site is republished.
-   * That window is the rule (`PRD-PUB-001`), not a defect — but they are not interchangeable,
-   * and an earlier version of this comment claimed they always agree.
+   * It follows the **agenda** publication. For a live site, `EVT-SCHEDULE-PUBLISHED` activates a
+   * new publishing projection in the same transaction, so this field and the public programme
+   * move together. An unpublished site's content projection may still carry this organizer-only
+   * field, but no public schedule exists there (`PRD-PUB-001`).
    */
   schedule: z
     .object({

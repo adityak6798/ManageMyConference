@@ -3,6 +3,8 @@ import {
   type AnySQLiteColumn,
   check,
   index,
+  integer,
+  primaryKey,
   sqliteTable,
   text,
   uniqueIndex,
@@ -22,6 +24,13 @@ export function definePublishingSchema(references: { eventsId: AnySQLiteColumn }
       draftJson: text("draft_json").notNull(),
       publishedJson: text("published_json"),
       publishedAt: text("published_at"),
+      projectionVersion: integer("projection_version").notNull().default(0),
+      agendaVersion: integer("agenda_version"),
+      agendaPublishedAt: text("agenda_published_at"),
+      cfpVersion: integer("cfp_version"),
+      cfpPublishedAt: text("cfp_published_at"),
+      contentDigest: text("content_digest"),
+      activationCause: text("activation_cause"),
     },
     (table) => [
       check("public_event_projections_slug_length", sql`length(${table.slug}) BETWEEN 1 AND 120`),
@@ -34,10 +43,44 @@ export function definePublishingSchema(references: { eventsId: AnySQLiteColumn }
         "public_event_projections_published_json",
         sql`${table.publishedJson} IS NULL OR json_valid(${table.publishedJson})`,
       ),
+      check("public_event_projections_version", sql`${table.projectionVersion} >= 0`),
+      check(
+        "public_event_projections_activation_cause",
+        sql`${table.activationCause} IS NULL OR ${table.activationCause} IN ('site-published', 'schedule-published', 'source-reconciled')`,
+      ),
       index("public_event_projections_slug_state_idx").on(table.slug, table.state),
       uniqueIndex("public_event_projections_draft_slug_idx").on(
         sql`json_extract(${table.draftJson}, '$.event.slug')`,
       ),
+    ],
+  );
+
+  // @spec PRD-PUB-001
+  const publicEventProjectionVersions = sqliteTable(
+    "public_event_projection_versions",
+    {
+      eventId: text("event_id")
+        .notNull()
+        .references(() => references.eventsId, { onDelete: "cascade" }),
+      version: integer("version").notNull(),
+      activatedAt: text("activated_at").notNull(),
+      projectionJson: text("projection_json").notNull(),
+      agendaVersion: integer("agenda_version"),
+      agendaPublishedAt: text("agenda_published_at"),
+      cfpVersion: integer("cfp_version"),
+      cfpPublishedAt: text("cfp_published_at"),
+      contentDigest: text("content_digest"),
+      activationCause: text("activation_cause").notNull(),
+    },
+    (table) => [
+      primaryKey({ columns: [table.eventId, table.version] }),
+      check("public_event_projection_versions_version", sql`${table.version} > 0`),
+      check("public_event_projection_versions_json", sql`json_valid(${table.projectionJson})`),
+      check(
+        "public_event_projection_versions_activation_cause",
+        sql`${table.activationCause} IN ('site-published', 'schedule-published', 'source-reconciled')`,
+      ),
+      index("public_event_projection_versions_activated_idx").on(table.eventId, table.activatedAt),
     ],
   );
 
@@ -72,5 +115,5 @@ export function definePublishingSchema(references: { eventsId: AnySQLiteColumn }
     ],
   );
 
-  return { publicEventProjections, attendeeItineraries };
+  return { publicEventProjections, publicEventProjectionVersions, attendeeItineraries };
 }

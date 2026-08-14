@@ -94,7 +94,7 @@ GitHub Actions job is now the sole repository-triggered deployment path.
 
 A deploy exit code is not release verification. After a main deployment, follow the request-based
 smoke in the [deployed demo runbook](../demo-runbook.md): health, organizer demo session, public
-event/schedule/speakers, both embeds, and the R2-served headshot.
+event/schedule/speakers, the configured embed matrix and JSON feed, and the R2-served headshot.
 
 ### What sharing the bootstrap did and did not buy
 

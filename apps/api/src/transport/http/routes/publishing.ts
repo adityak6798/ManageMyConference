@@ -70,15 +70,23 @@ export const publishingRoutes: RouteModule = {
           envelope("NOT_FOUND", "This event is not published.", context.get("correlationId")),
           404,
         );
-      const parsed = publicEventProjectionSchema.safeParse(await publishing.publicBySlug(slug));
-      if (!parsed.success)
+      const snapshot = await publishing.publicSnapshotBySlug(slug);
+      const parsed = publicEventProjectionSchema.safeParse(snapshot?.projection);
+      if (!snapshot || !parsed.success)
         return context.json(
           envelope("NOT_FOUND", "This event is not published.", context.get("correlationId")),
           404,
         );
       // Cache policy for this namespace belongs to the `/api/public/*` middleware above, which
       // gives every public representation the same bounded lifetime and an ETag.
-      return context.json({ projection: parsed.data });
+      return context.json({
+        projection: parsed.data,
+        publication: {
+          version: snapshot.version,
+          publishedAt: snapshot.publishedAt,
+          provenance: snapshot.provenance,
+        },
+      });
     });
     app.get("/api/publishing/events/:eventId/preview", async (context) => {
       const parsed = eventIdParamsSchema.safeParse(context.req.param());
@@ -171,15 +179,29 @@ export const publishingRoutes: RouteModule = {
       const parsed = publicEventSlugParamsSchema.safeParse(context.req.param());
       // An unknown slug, a malformed slug, an unpublished event and an unpublished agenda
       // are one indistinguishable response, so the route cannot be used to enumerate events.
-      if (!parsed.success || !agenda || !publishing) return notPublished();
-      const projection = await publishing.publicBySlug(parsed.data.slug);
-      if (!projection) return notPublished();
-      const publication = await agenda.published(projection.event.eventId);
-      if (!publication) return notPublished();
+      if (!parsed.success || !publishing) return notPublished();
+      const snapshot = await publishing.publicSnapshotBySlug(parsed.data.slug);
+      if (!snapshot) return notPublished();
+      let agendaVersion = snapshot.provenance?.agendaVersion;
+      let agendaPublishedAt = snapshot.provenance?.agendaPublishedAt;
+      /*
+       * Rows composed before migration 1803 have no provenance. A public read through the D1
+       * repository reconciles and fills it before reaching here; this fallback is for legacy
+       * in-memory compositions only, and can disappear once every test adapter versions snapshots.
+       */
+      if ((!agendaVersion || !agendaPublishedAt) && agenda) {
+        const legacy = await agenda.published(snapshot.projection.event.eventId);
+        agendaVersion = legacy?.version;
+        agendaPublishedAt = legacy?.publishedAt;
+      }
+      if (!agendaVersion || !agendaPublishedAt) return notPublished();
       // Parsed, not merely composed: the contract is what leaves the process, and a stored
       // snapshot that cannot satisfy it is withheld exactly like an unpublished one.
       const schedule = publicScheduleSchema.safeParse(
-        composePublicSchedule(projection, publication),
+        composePublicSchedule(snapshot.projection, {
+          version: agendaVersion,
+          publishedAt: agendaPublishedAt,
+        }),
       );
       if (!schedule.success) return notPublished();
       return context.json({ schedule: schedule.data });

@@ -16,7 +16,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CfpApiError, type CfpFormDto, loadCfp } from "../api/cfp";
-import { getPublicEvent, PublicApiError } from "../api/publication";
+import { getPublicEventSnapshot, PublicApiError } from "../api/publication";
 import "../public-event.css";
 import "../styles/public-pages.css";
 import { useLoad } from "../ui/primitives";
@@ -61,19 +61,22 @@ import { PublicCfpView } from "./PublicCfpView";
 // presentational fragments. Reused cards, formatting, and routing live in cards.tsx/model.tsx.
 export function PublicEventApp() {
   const { embedded, slug, section, detail } = usePublicRoute();
-  const fetchProjection = useCallback((eventSlug: string) => getPublicEvent(eventSlug), []);
+  const fetchProjection = useCallback((eventSlug: string) => getPublicEventSnapshot(eventSlug), []);
   const describeProjectionFailure = useCallback(
     (reason: unknown) =>
       reason instanceof PublicApiError ? reason.message : "The event could not be loaded.",
     [],
   );
-  const { data: projection, error } = useLoad(slug, fetchProjection, describeProjectionFailure);
+  const { data: snapshot, error } = useLoad(slug, fetchProjection, describeProjectionFailure);
+  const projection = snapshot?.projection;
   const [liveCfp, setLiveCfp] = useState<CfpFormDto | null>(null);
   // Kept apart from `submissionNotice`: "we could not read the call" is not "your
   // proposal was not submitted", and it can now happen on a page that has no form.
   const [cfpUnavailable, setCfpUnavailable] = useState<string | null>(null);
   const [sessionQuery, setSessionQuery] = useState("");
   const [trackFilter, setTrackFilter] = useState("all");
+  const [formatFilter, setFormatFilter] = useState("all");
+  const [locationFilter, setLocationFilter] = useState("all");
   const [speakerQuery, setSpeakerQuery] = useState("");
   // A grouping is a reading preference, not a filter: it survives a trip to a session
   // and back, and it never triggers a fetch.
@@ -94,7 +97,11 @@ export function PublicEventApp() {
    */
   // Keyed on the event id, which a slug change cannot move; the slug is still needed for the
   // routable share URL and the mint call. Idle until the projection supplies the id.
-  const itinerary = useItinerary(slug, projection?.event.eventId ?? "", !embedded);
+  const itinerary = useItinerary(
+    slug,
+    projection?.event.eventId ?? "",
+    !embedded || section === "itinerary",
+  );
   const viewKey = `${section}/${detail ?? ""}`;
   const landedOn = useRef(viewKey);
   const [filteredView, setFilteredView] = useState(section);
@@ -107,22 +114,15 @@ export function PublicEventApp() {
     setFilteredView(section);
     setSessionQuery("");
     setTrackFilter("all");
+    setFormatFilter("all");
+    setLocationFilter("all");
     setSpeakerQuery("");
   }
 
   /*
-   * The projection is a snapshot frozen at publish time; whether the call is accepting
-   * submissions is live state that the CFP domain enforces on submit. The two disagree
-   * from the moment an organizer closes or reopens the call, so the live form is loaded
-   * for the whole public surface rather than only for the CFP page — the home page used
-   * to offer “Submit a proposal” one click away from a CFP page reporting the call closed.
-   *
-   * A call that cannot be read leaves every view saying nothing about open or closed,
-   * rather than falling back to a snapshot that may contradict the form itself.
-   *
-   * It is read on entering either view that mentions the call — not once per visit and
-   * not on the schedule or the gallery, which never speak for it — so a visitor who
-   * arrives on the home page and clicks through later is told the state as it is then.
+   * The live CFP read supplies submission fields, not display metadata. The title, description,
+   * and status all stay on the active publishing version; below, the form is admitted only when
+   * its CFP version is the same one recorded by that snapshot.
    */
   useEffect(() => {
     setLiveCfp(null);
@@ -188,23 +188,19 @@ export function PublicEventApp() {
         : `Speakers · ${projection.event.name}`,
       gallery: `Speaker gallery · ${projection.event.name}`,
       itinerary: `My itinerary · ${projection.event.name}`,
-      // The tab, the heading, and the meta description all name the live call once it
-      // has loaded, so a republished title cannot show up in one place and not another.
-      cfp: `${liveCfp?.title ?? projection.cfp.title} · ${projection.event.name}`,
+      cfp: `${projection.cfp.title} · ${projection.event.name}`,
     } satisfies Record<View, string>;
     document.title = titles[section];
     description.content =
       session?.abstract ??
       speaker?.bio ??
-      (section === "cfp"
-        ? (liveCfp?.description ?? projection.cfp.description)
-        : projection.event.summary);
+      (section === "cfp" ? projection.cfp.description : projection.event.summary);
     return () => {
       document.title = originalTitle;
       if (existingDescription) description.content = originalDescription ?? "";
       else description.remove();
     };
-  }, [detail, liveCfp, projection, section]);
+  }, [detail, projection, section]);
 
   const model = useMemo(() => {
     if (!projection) return null;
@@ -326,29 +322,47 @@ export function PublicEventApp() {
    * the snapshot only supplies wording until it arrives. "unknown" is a real state and is
    * rendered as one: no pill, and a link that promises reading rather than submitting.
    */
-  const cfpStatus: "open" | "closed" | "unknown" = liveCfp
-    ? liveCfp.status === "open"
-      ? "open"
-      : "closed"
-    : "unknown";
-  const cfpTitle = liveCfp?.title ?? projection.cfp.title;
-  const cfpDescription = liveCfp?.description ?? projection.cfp.description;
+  // Display only facts from the active publication. The separately loaded form supplies
+  // fields for submission, but may have advanced after this projection response was read.
+  const cfpVersionMatches =
+    liveCfp !== null &&
+    liveCfp.version === snapshot?.publication?.provenance?.cfpVersion &&
+    liveCfp.title === projection.cfp.title &&
+    liveCfp.description === projection.cfp.description &&
+    (liveCfp.status === "closed" ? "closed" : "open") === projection.cfp.status;
+  const versionedCfp = cfpVersionMatches ? liveCfp : null;
+  const cfpStatus: "open" | "closed" = projection.cfp.status;
+  const cfpTitle = projection.cfp.title;
+  const cfpDescription = projection.cfp.description;
   const cfpStatusLine =
-    cfpStatus === "open"
-      ? "Open for submissions."
-      : cfpStatus === "closed"
-        ? "Submissions closed."
-        : cfpUnavailable
-          ? "Whether this call is accepting submissions could not be checked."
-          : "Checking whether submissions are open…";
+    cfpStatus === "closed"
+      ? "Submissions closed."
+      : versionedCfp?.status === "open"
+        ? "Open for submissions."
+        : cfpUnavailable || liveCfp
+          ? "Submission form unavailable."
+          : "Checking submission availability…";
   const needle = sessionQuery.trim().toLowerCase();
   const visibleSessions = model.ordered.filter((item) => {
     if (trackFilter !== "all" && item.track !== trackFilter) return false;
+    if (formatFilter !== "all" && item.format !== formatFilter) return false;
+    if (locationFilter !== "all" && (item.room || "To be announced") !== locationFilter)
+      return false;
     if (!needle) return true;
-    return `${item.title} ${item.abstract} ${item.track} ${item.format}`
+    const speakerNames = model
+      .speakersOf(item)
+      .map((speakerItem) => speakerItem.name)
+      .join(" ");
+    return `${item.title} ${item.abstract} ${item.track} ${item.format} ${item.room} ${speakerNames}`
       .toLowerCase()
       .includes(needle);
   });
+  const formats = [
+    ...new Set(projection.sessions.map((item) => item.format).filter(Boolean)),
+  ].sort();
+  const locations = [
+    ...new Set(projection.sessions.map((item) => item.room || "To be announced")),
+  ].sort();
   const speakerNeedle = speakerQuery.trim().toLowerCase();
   const visibleSpeakers = model.bySurname.filter((item) =>
     speakerNeedle
@@ -361,6 +375,18 @@ export function PublicEventApp() {
    * that — which is what makes the page readable as a day plan.
    */
   const itinerarySessions = model.ordered.filter((item) => itinerary.has(item.slug));
+  const itineraryDays = model.days
+    .map((day) => ({
+      ...day,
+      slots: day.slots
+        .map((slot) => ({
+          ...slot,
+          items: slot.items.filter((item) => itinerary.has(item.slug)),
+        }))
+        .filter((slot) => slot.items.length > 0),
+    }))
+    .filter((day) => day.slots.length > 0);
+  const untimedItinerary = model.untimed.filter((item) => itinerary.has(item.slug));
   const downloadCalendar = () => {
     const calendar = itineraryCalendar(
       projection.event.name,
@@ -565,15 +591,12 @@ export function PublicEventApp() {
                 <h2 id="home-cfp">{cfpTitle}</h2>
                 <p>{cfpDescription}</p>
               </div>
-              {/* The invitation is only extended when the call can actually take it: this
-                  block reads the live form, the same source the CFP page and the submit
-                  endpoint read, so the two can no longer contradict each other. */}
+              {/* The invitation and status come from the same active publication version as
+                  every other fact on this page. */}
               <div className="pub-cta-side">
-                {cfpStatus === "unknown" ? null : (
-                  <Pill tone={cfpStatus === "open" ? "ok" : "neutral"}>
-                    {cfpStatus === "open" ? "Open" : "Closed"}
-                  </Pill>
-                )}
+                <Pill tone={cfpStatus === "open" ? "ok" : "neutral"}>
+                  {cfpStatus === "open" ? "Open" : "Closed"}
+                </Pill>
                 <a className="pub-button" {...linkProps(`${base}/cfp`)}>
                   {cfpStatus === "open" ? "Submit a proposal" : "Read the CFP"}
                 </a>
@@ -761,7 +784,7 @@ export function PublicEventApp() {
                       id="pub-session-search"
                       type="search"
                       value={sessionQuery}
-                      placeholder="Title, topic, or format"
+                      placeholder="Session or speaker"
                       onChange={(changeEvent) => setSessionQuery(changeEvent.target.value)}
                     />
                   </div>
@@ -780,6 +803,36 @@ export function PublicEventApp() {
                       ))}
                     </select>
                   </div>
+                  <div className="pub-field">
+                    <label htmlFor="pub-format-filter">Format</label>
+                    <select
+                      id="pub-format-filter"
+                      value={formatFilter}
+                      onChange={(changeEvent) => setFormatFilter(changeEvent.target.value)}
+                    >
+                      <option value="all">All formats</option>
+                      {formats.map((format) => (
+                        <option key={format} value={format}>
+                          {format}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="pub-field">
+                    <label htmlFor="pub-location-filter">Location</label>
+                    <select
+                      id="pub-location-filter"
+                      value={locationFilter}
+                      onChange={(changeEvent) => setLocationFilter(changeEvent.target.value)}
+                    >
+                      <option value="all">All locations</option>
+                      {locations.map((location) => (
+                        <option key={location} value={location}>
+                          {location}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                   <p className="pub-count" role="status">
                     Showing {visibleSessions.length} of{" "}
                     {countLabel(projection.sessions.length, "session")}
@@ -787,7 +840,7 @@ export function PublicEventApp() {
                 </div>
                 {visibleSessions.length === 0 ? (
                   <Empty level={2} title="No sessions match that filter">
-                    Try a different search term or choose “All tracks”.
+                    Try a different search term or reset the track, format, and location filters.
                   </Empty>
                 ) : (
                   // The card titles are h3s, so the flat grid needs an h2 above them or
@@ -1047,19 +1100,50 @@ export function PublicEventApp() {
                   <h2 className="pub-sr" id="pub-itinerary-list">
                     Starred sessions
                   </h2>
-                  <div className="pub-grid">
-                    {itinerarySessions.map((item) => (
-                      <SessionCard
-                        key={item.slug}
-                        session={item}
-                        base={base}
-                        timezone={model.timezone}
-                        speakers={model.speakersOf(item)}
-                        showTime
-                        action={<StarButton session={item} itinerary={itinerary} />}
-                      />
-                    ))}
-                  </div>
+                  {itineraryDays.map((day) => (
+                    <ScheduleGroup key={day.key} id={`itinerary-${day.key}`} title={day.label}>
+                      <div className="pub-grid">
+                        {day.slots.flatMap((slot) =>
+                          slot.items.map((item) => (
+                            <SessionCard
+                              key={item.slug}
+                              session={item}
+                              base={base}
+                              timezone={model.timezone}
+                              speakers={model.speakersOf(item)}
+                              showTime
+                              action={
+                                embedded ? undefined : (
+                                  <StarButton session={item} itinerary={itinerary} />
+                                )
+                              }
+                            />
+                          )),
+                        )}
+                      </div>
+                    </ScheduleGroup>
+                  ))}
+                  {untimedItinerary.length > 0 && (
+                    <ScheduleGroup id="itinerary-unscheduled" title="Time to be announced">
+                      <div className="pub-grid">
+                        {untimedItinerary.map((item) => (
+                          <SessionCard
+                            key={item.slug}
+                            session={item}
+                            base={base}
+                            timezone={model.timezone}
+                            speakers={model.speakersOf(item)}
+                            showTime
+                            action={
+                              embedded ? undefined : (
+                                <StarButton session={item} itinerary={itinerary} />
+                              )
+                            }
+                          />
+                        ))}
+                      </div>
+                    </ScheduleGroup>
+                  )}
                 </section>
               </>
             )}
@@ -1070,8 +1154,13 @@ export function PublicEventApp() {
           <PublicCfpView
             key={projection.event.eventId}
             eventId={projection.event.eventId}
-            liveCfp={liveCfp}
-            unavailable={cfpUnavailable}
+            liveCfp={versionedCfp}
+            unavailable={
+              cfpUnavailable ??
+              (liveCfp && !cfpVersionMatches
+                ? "The call changed while this programme loaded. Reload to use its latest form."
+                : null)
+            }
             status={cfpStatus}
             statusLine={cfpStatusLine}
             title={cfpTitle}
@@ -1099,14 +1188,12 @@ export function PublicEventApp() {
         <p>Published by Project Greenroom</p>
         {/*
           The freshness boundary, stated rather than left to be discovered. Every surface
-          on this page reads one immutable snapshot, so an organizer's edit is invisible
-          here until they publish again — which is the property that lets two of these
-          pages be compared against each other and against an embed and agree, and the
-          one thing a visitor cannot infer from a page that looks live.
+          reads one active immutable version. Accepted source publications refresh that version;
+          event/site draft fields still wait for an explicit site publish.
         */}
         <p className="pub-note">
-          This page shows the programme as last published. Changes an organizer makes afterwards
-          appear here only when they publish again.
+          This page shows the current published programme. Draft changes remain private until their
+          owning publication action succeeds.
         </p>
       </footer>
     </div>

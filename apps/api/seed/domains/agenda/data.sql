@@ -1,21 +1,27 @@
 
 INSERT INTO agenda_drafts (event_id, draft_json, updated_at) VALUES (
   '00000000-0000-4000-8000-000000000001',
-  '{"eventId":"00000000-0000-4000-8000-000000000001","rooms":[{"id":"room-main","name":"Main stage"},{"id":"room-lab","name":"Workshop lab"}],"tracks":[{"id":"track-platform","name":"Platform","color":"#6257d9"},{"id":"track-practice","name":"Practice","color":"#16866b"}],"slots":[{"id":"slot-0900","startsAt":"2026-09-01T16:00:00.000Z","endsAt":"2026-09-01T17:00:00.000Z"},{"id":"slot-1000","startsAt":"2026-09-01T17:00:00.000Z","endsAt":"2026-09-01T18:00:00.000Z"}],"sessions":[],"placements":[{"id":"placement-opening","sessionId":"20000000-0000-4000-8000-000000000001","roomId":"room-main","trackId":"track-platform","slotId":"slot-0900"}]}',
+  '{"eventId":"00000000-0000-4000-8000-000000000001","rooms":[{"id":"room-main","name":"Main stage"},{"id":"room-lab","name":"Workshop lab"}],"tracks":[{"id":"track-platform","name":"Platform","color":"#6257d9"},{"id":"track-practice","name":"Practice","color":"#16866b"}],"slots":[{"id":"slot-0900","startsAt":"2026-09-01T16:00:00.000Z","endsAt":"2026-09-01T17:00:00.000Z"},{"id":"slot-1000","startsAt":"2026-09-01T17:00:00.000Z","endsAt":"2026-09-01T18:00:00.000Z"},{"id":"slot-day-two","startsAt":"2026-09-02T17:00:00.000Z","endsAt":"2026-09-02T18:00:00.000Z"}],"sessions":[],"placements":[{"id":"placement-opening","sessionId":"20000000-0000-4000-8000-000000000001","roomId":"room-main","trackId":"track-platform","slotId":"slot-0900"},{"id":"placement-accessible","sessionId":"20000000-0000-4000-8000-000000000002","roomId":"room-lab","trackId":"track-practice","slotId":"slot-day-two"}]}',
   '2026-08-10T20:00:00.000Z'
 );
 INSERT INTO agenda_publications (event_id, version, published_at, published_by, schedule_json) VALUES (
   '00000000-0000-4000-8000-000000000001', 1, '2026-08-10T20:00:00.000Z', 'seed-organizer',
-  '{"eventId":"00000000-0000-4000-8000-000000000001","rooms":[{"id":"room-main","name":"Main stage"},{"id":"room-lab","name":"Workshop lab"}],"tracks":[{"id":"track-platform","name":"Platform","color":"#6257d9"}],"slots":[{"id":"slot-0900","startsAt":"2026-09-01T16:00:00.000Z","endsAt":"2026-09-01T17:00:00.000Z"}],"sessions":[{"id":"20000000-0000-4000-8000-000000000001","title":"Designing the calm conference","speakerIds":["10000000-0000-4000-8000-000000000001"]}],"placements":[{"id":"placement-opening","sessionId":"20000000-0000-4000-8000-000000000001","roomId":"room-main","trackId":"track-platform","slotId":"slot-0900"}]}'
+  '{"eventId":"00000000-0000-4000-8000-000000000001","rooms":[{"id":"room-main","name":"Main stage"},{"id":"room-lab","name":"Workshop lab"}],"tracks":[{"id":"track-platform","name":"Platform","color":"#6257d9"},{"id":"track-practice","name":"Practice","color":"#16866b"}],"slots":[{"id":"slot-0900","startsAt":"2026-09-01T16:00:00.000Z","endsAt":"2026-09-01T17:00:00.000Z"},{"id":"slot-day-two","startsAt":"2026-09-02T17:00:00.000Z","endsAt":"2026-09-02T18:00:00.000Z"}],"sessions":[{"id":"20000000-0000-4000-8000-000000000001","title":"Designing the calm conference","speakerIds":["10000000-0000-4000-8000-000000000001"]},{"id":"20000000-0000-4000-8000-000000000002","title":"Accessible by default","speakerIds":["10000000-0000-4000-8000-000000000002"]}],"placements":[{"id":"placement-opening","sessionId":"20000000-0000-4000-8000-000000000001","roomId":"room-main","trackId":"track-platform","slotId":"slot-0900"},{"id":"placement-accessible","sessionId":"20000000-0000-4000-8000-000000000002","roomId":"room-lab","trackId":"track-practice","slotId":"slot-day-two"}]}'
 );
 -- What version 1 above places, materialized. The seed writes `agenda_publications` directly
 -- rather than through `D1AgendaRepository.publish`, so nothing else would maintain this row, and
--- a reset would leave the seeded publication with no schedule in force for its one session.
+-- a reset would leave the seeded publication with no schedule in force for its two sessions.
 INSERT INTO agenda_session_schedules (
   event_id, session_id, starts_at, ends_at, location, revision, revised_at
-) VALUES (
+) VALUES
+(
   '00000000-0000-4000-8000-000000000001', '20000000-0000-4000-8000-000000000001',
   '2026-09-01T16:00:00.000Z', '2026-09-01T17:00:00.000Z', 'Main stage',
+  1, '2026-08-10T20:00:00.000Z'
+),
+(
+  '00000000-0000-4000-8000-000000000001', '20000000-0000-4000-8000-000000000002',
+  '2026-09-02T17:00:00.000Z', '2026-09-02T18:00:00.000Z', 'Workshop lab',
   1, '2026-08-10T20:00:00.000Z'
 );
 

@@ -19,7 +19,7 @@ export const publishingWorkspace: WorkspaceModule = {
   header: () => ({
     eyebrow: "Audience",
     title: "Publishing",
-    subtitle: "Compose the public projection, publish it as an immutable snapshot, and embed it.",
+    subtitle: "Publish one versioned programme across the site, JSON feed, and configured embeds.",
   }),
   render: ({ event, session, capabilities, onPublicationChange }) => (
     <PublishingWorkspace

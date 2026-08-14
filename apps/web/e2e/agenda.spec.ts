@@ -6,6 +6,7 @@ const openingSession = "20000000-0000-4000-8000-000000000001";
 const secondSessionId = "20000000-0000-4000-8000-000000000002";
 const secondSession = "Accessible by default";
 const openingPlacement = "placement-opening";
+const accessiblePlacement = "placement-accessible";
 // Assisted placement derives a placement's id from the session it seats, so a card the pass
 // created is addressable without reading it back off the board.
 const assistedSecondPlacement = `assisted-${secondSessionId}`;
@@ -25,22 +26,39 @@ async function restoreSeedPlacement(page: Page) {
   if (board.ok()) {
     const { agenda } = (await board.json()) as { agenda: { placements: { id: string }[] } };
     for (const { id } of agenda.placements)
-      if (id !== openingPlacement)
+      if (id !== openingPlacement && id !== accessiblePlacement)
         await page.request.delete(`/api/events/${demoEventId}/agenda/placements/${id}`);
   }
-  const restored = await page.request.put(
-    `/api/events/${demoEventId}/agenda/placements/${openingPlacement}`,
+  for (const placement of [
     {
-      data: {
-        id: openingPlacement,
-        sessionId: openingSession,
-        roomId: "room-main",
-        trackId: "track-platform",
-        slotId: "slot-0900",
-      },
+      id: openingPlacement,
+      sessionId: openingSession,
+      roomId: "room-main",
+      trackId: "track-platform",
+      slotId: "slot-0900",
     },
-  );
-  expect(restored.ok()).toBeTruthy();
+    {
+      id: accessiblePlacement,
+      sessionId: secondSessionId,
+      roomId: "room-lab",
+      trackId: "track-practice",
+      slotId: "slot-day-two",
+    },
+  ]) {
+    const restored = await page.request.put(
+      `/api/events/${demoEventId}/agenda/placements/${placement.id}`,
+      {
+        data: {
+          ...placement,
+        },
+      },
+    );
+    expect(restored.ok()).toBeTruthy();
+  }
+  // Agenda publication now advances an already-live public programme. Hand both the draft and
+  // that programme back to the next spec, rather than restoring only the private board.
+  const published = await page.request.post(`/api/events/${demoEventId}/agenda/publications`);
+  expect(published.ok()).toBeTruthy();
 }
 
 async function openAgenda(page: Page) {
@@ -82,12 +100,11 @@ test("schedules a session with the keyboard alone", async ({ page }) => {
   await page.getByRole("tab", { name: /^List/ }).click();
   const listPanel = page.getByRole("tabpanel", { name: /^List/ });
   const listBounds = await listPanel.boundingBox();
-  const railBounds = await page.getByRole("region", { name: "Unscheduled" }).boundingBox();
   const unscheduleBounds = await listPanel
+    .getByRole("row", { name: /Designing the calm conference/ })
     .getByRole("button", { name: "Unschedule" })
     .boundingBox();
   expect(listBounds).not.toBeNull();
-  expect(railBounds?.y).toBeGreaterThanOrEqual((listBounds?.y ?? 0) + (listBounds?.height ?? 0));
   expect(unscheduleBounds?.x).toBeGreaterThanOrEqual(listBounds?.x ?? 0);
   expect((unscheduleBounds?.x ?? 0) + (unscheduleBounds?.width ?? 0)).toBeLessThanOrEqual(
     (listBounds?.x ?? 0) + (listBounds?.width ?? 0),
@@ -97,6 +114,15 @@ test("schedules a session with the keyboard alone", async ({ page }) => {
     .getByRole("button", { name: "Unschedule" })
     .click();
   await expect(page.getByRole("status")).toContainText("moved back to Unscheduled");
+  const unscheduledRail = page.getByRole("region", { name: "Unscheduled" });
+  await expect(unscheduledRail).toBeVisible();
+  // Unscheduling removes a row and changes the panel's height, so compare both boxes from the
+  // settled layout rather than comparing the new rail with the panel's pre-mutation bounds.
+  const stackedListBounds = await listPanel.boundingBox();
+  const railBounds = await unscheduledRail.boundingBox();
+  expect(railBounds?.y).toBeGreaterThanOrEqual(
+    (stackedListBounds?.y ?? 0) + (stackedListBounds?.height ?? 0),
+  );
 
   await page.getByRole("tab", { name: /^Room/ }).click();
   const card = page.getByRole("button", { name: /Designing the calm conference\. Not scheduled/ });
@@ -231,6 +257,14 @@ test("reaches a conflict from the board, explains it, and blocks publication unt
   await returnToAgenda(page);
 
   // ---- one click on an occupied cell is all it takes ------------------------
+  // Wave 5 gives the seed a real second day, so this session starts placed there. Move it
+  // back to the rail before deliberately creating the overlap on day one.
+  await page.getByRole("tab", { name: /^List/ }).click();
+  await page
+    .getByRole("row", { name: new RegExp(secondSession) })
+    .getByRole("button", { name: "Unschedule" })
+    .click();
+  await page.getByRole("tab", { name: /^Room/ }).click();
   const card = page.getByRole("button", { name: new RegExp(`${secondSession}\\. Not scheduled`) });
   await card.focus();
   await card.press("Enter");
@@ -441,6 +475,14 @@ test("switches views and keeps the chosen view in a shareable URL", async ({ pag
 test("generates a conflict-free draft in one action and keeps it editable", async ({ page }) => {
   await openAgenda(page);
 
+  // The two-day seed starts complete. Free one session so generating a draft still exercises
+  // a persisted placement instead of asserting against a correctly disabled no-op control.
+  await page.getByRole("tab", { name: /^List/ }).click();
+  await page
+    .getByRole("row", { name: new RegExp(secondSession) })
+    .getByRole("button", { name: "Unschedule" })
+    .click();
+  await page.getByRole("tab", { name: /^Room/ }).click();
   const scheduledBefore = await page.getByText(/\d+ of \d+ scheduled/).innerText();
   await page.getByRole("button", { name: "Generate draft" }).click();
 
@@ -487,6 +529,11 @@ test("places only the sessions ticked in the rail, chosen with the keyboard", as
   await page.getByRole("tab", { name: /^List/ }).click();
   await page
     .getByRole("row", { name: /Designing the calm conference/ })
+    .getByRole("button", { name: "Unschedule" })
+    .click();
+  await expect(page.getByRole("status")).toContainText("moved back to Unscheduled");
+  await page
+    .getByRole("row", { name: new RegExp(secondSession) })
     .getByRole("button", { name: "Unschedule" })
     .click();
   await expect(page.getByRole("status")).toContainText("moved back to Unscheduled");

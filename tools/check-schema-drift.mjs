@@ -61,6 +61,10 @@ export const UNMODELLED_OBJECTS = [
   "trigger:review_evaluation_source_update",
   "trigger:public_event_projections_slug_reservation_insert",
   "trigger:public_event_projections_slug_reservation_update",
+  // Published projection history is immutable while its owning event exists. The delete guard
+  // deliberately permits the parent row's foreign-key cascade so deterministic reset still works.
+  "trigger:public_event_projection_versions_no_update",
+  "trigger:public_event_projection_versions_no_delete",
   // The two guards that make the audit timeline append-only. Drizzle cannot declare either, and
   // they are the whole reason the table is evidence rather than a log somebody can rewrite.
   "trigger:platform_audit_records_no_update",
