@@ -20,6 +20,7 @@ import {
   CfpProposalStateConflictError,
   CfpService,
   CfpStateError,
+  CfpUnavailableError,
   CfpValidationError,
 } from "../src/application/cfp/cfp-service";
 import type { Actor } from "../src/application/identity/actor";
@@ -130,9 +131,14 @@ describe("the scheduled submission window", () => {
     await expect(service.getPublished(eventId)).resolves.toMatchObject({
       effectiveStatus: "scheduled",
     });
-    await expect(service.submit(eventId, "too-early", complete)).rejects.toMatchObject({
-      effectiveState: "scheduled",
-    });
+    // The anonymous door answers 404 `CFP_UNAVAILABLE` whichever way the call is shut, which is
+    // the code it documented before this issue. The distinction between "come back on the 1st" and
+    // "you have missed it" is carried on the *read* asserted above, which every public surface
+    // makes before it renders the form — and on the account-bound routes, which are new and so
+    // free to answer 409 with the state attached.
+    await expect(service.submit(eventId, "too-early", complete)).rejects.toBeInstanceOf(
+      CfpUnavailableError,
+    );
 
     at("2026-09-15T09:00:00.000Z");
     await expect(service.getPublished(eventId)).resolves.toMatchObject({
@@ -146,9 +152,11 @@ describe("the scheduled submission window", () => {
     await expect(service.getPublished(eventId)).resolves.toMatchObject({
       effectiveStatus: "closed",
     });
-    await expect(service.submit(eventId, "too-late", complete)).rejects.toMatchObject({
-      effectiveState: "closed",
-    });
+    // 404 on the anonymous door, which is the code it documented before this issue: see
+    // `cfp-service.test.ts` for why the better 409 is not taken here.
+    await expect(service.submit(eventId, "too-late", complete)).rejects.toBeInstanceOf(
+      CfpUnavailableError,
+    );
   });
 
   it("normalises whatever instant it is given, because storage compares these as text", async () => {
@@ -642,8 +650,13 @@ describe("a proposal that belongs to an account", () => {
       () => null,
       (error: unknown) => error,
     );
-    expect(refusal).toBeInstanceOf(CfpClosedError);
-    expect(refusal).toMatchObject({ effectiveState: "open" });
+    /*
+     * `CfpStateError` — 400 — because that is what this endpoint documented, not because 400 is
+     * right. Every cause of this miss is a conflict with the resource's state, so 409 is the
+     * better code and the account-bound routes give it; changing this one is breaking under
+     * `api-compatibility.md` and needs its 180-day window.
+     */
+    expect(refusal).toBeInstanceOf(CfpStateError);
     /*
      * The sentence is asserted, because it is the whole of what the guest is given.
      *

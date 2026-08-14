@@ -126,6 +126,43 @@ afterEach(() => {
 });
 
 describe("the signed-in applicant's proposals", () => {
+  it("submits even when the list read that follows the draft fails", async () => {
+    /*
+     * A view must not gate the action.
+     *
+     * Adopting the created draft before the submit fixed silent data loss, and refreshing the
+     * dashboard with it stops the page contradicting itself ("Nothing yet." above a form editing a
+     * draft). But awaiting that refresh inside the same guarded action meant a failed *list* read
+     * — a decorative request — prevented the submit from being attempted at all, and told the
+     * applicant their proposal could not be submitted when nothing had tried to submit it.
+     */
+    let listReads = 0;
+    const test = mount({
+      write: (url, init) =>
+        url === proposalsPath && init.method === "POST"
+          ? jsonResponse({ proposal: proposal() }, 201)
+          : undefined,
+    });
+    // The dashboard read fails from here on; the writes still answer.
+    const original = globalThis.fetch as typeof fetch;
+    vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === proposalsPath && !init?.method) {
+        listReads += 1;
+        if (listReads > 1)
+          return jsonResponse(
+            { error: { code: "INTERNAL_ERROR", message: "no", correlationId: "x" } },
+            500,
+          );
+      }
+      return original(input, init);
+    });
+
+    fireEvent.change(await screen.findByLabelText(/Proposal title/), { target: { value: "A" } });
+    fireEvent.click(screen.getByRole("button", { name: "Submit proposal" }));
+
+    await waitFor(() => expect(test.calls.some(({ url }) => url.endsWith("/submit"))).toBe(true));
+  });
+
   it("does not tell an applicant a submission failed when what failed was signing out", async () => {
     /*
      * This notice used to serve one action, so a blanket "Not submitted — " prefix was always

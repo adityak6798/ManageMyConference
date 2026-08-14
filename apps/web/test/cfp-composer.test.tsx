@@ -156,7 +156,7 @@ describe("publishing what is on screen", () => {
         return errorResponse(
           409,
           "CONFLICT",
-          "This draft changed elsewhere. Reload the latest draft before saving again.",
+          "This CFP draft changed in another editor. Reload the latest draft before saving again.",
         );
       if (url.startsWith("/api/events/")) {
         organizerLoads += 1;
@@ -176,7 +176,7 @@ describe("publishing what is on screen", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("changed elsewhere");
+    expect(await screen.findByRole("alert")).toHaveTextContent("changed in another editor");
     expect(screen.getByLabelText("Form title")).toHaveValue("My unsaved edit");
     expect(writes(calls)[0]?.body.expectedVersion).toBe(4);
     fireEvent.click(screen.getByRole("button", { name: "Reload latest draft" }));

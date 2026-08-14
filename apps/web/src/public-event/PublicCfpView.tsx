@@ -226,9 +226,18 @@ export function PublicCfpView({
         target = await createProposalDraft(eventId, answers, submissionKey);
         setEditing(target);
         setSubmissionKey(crypto.randomUUID());
-        // And the list, or a failing submit leaves "Nothing yet." above a form that says it is
-        // editing a draft — the row exists, and the two halves of the page disagree about it.
-        await refreshProposals();
+        /*
+         * The list catches up too, or a failing submit leaves "Nothing yet." above a form that
+         * says it is editing a draft — the row exists and the two halves of the page disagree.
+         *
+         * Deliberately not awaited into this action's failure. The list is a view; the submit
+         * below is the thing the applicant pressed. Awaiting it meant a failed list read
+         * prevented the submit from being attempted at all — a decorative request gating the
+         * primary one.
+         */
+        // ERROR-INTENT: a failed refresh of a list leaves the list stale and nothing else; the
+        // submit that follows is what this action is for, and the next render re-reads anyway.
+        void refreshProposals().catch(() => undefined);
       }
       const submitted = await submitOwnedProposal(eventId, target.id, answers, target.revision);
       setEditing(null);

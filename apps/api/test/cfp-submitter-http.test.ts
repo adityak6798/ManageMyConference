@@ -387,7 +387,15 @@ describe("the submitter's proposal routes", () => {
     ).toBe(200);
     const stale = await write({ answers: { title: "Loser" }, expectedRevision: draft.revision });
     expect(stale.status).toBe(409);
-    await expect(stale.json()).resolves.toMatchObject({ error: { code: "CONFLICT" } });
+    await expect(stale.json()).resolves.toMatchObject({
+      error: {
+        code: "CONFLICT",
+        // The *applicant's* sentence, which the transport used to overwrite with a fixed one
+        // about reloading a draft — said to people whose proposal is not a draft. Asserted here
+        // because this is the only layer that shows what the caller is actually handed.
+        message: "This proposal changed in another tab or window. Reload it before saving again.",
+      },
+    });
 
     // A closed call is a 409 too, and for the same reason: the request is well formed and the
     // resource exists — its state is what refuses. A 404 would read as "your form is broken".
@@ -524,12 +532,22 @@ describe("the submitter's proposal routes", () => {
     await expect((await app.request(publicPath)).json()).resolves.toMatchObject({
       cfp: { effectiveStatus: "closed" },
     });
-    // And the anonymous door is shut by the schedule as well, with the same 409.
+    /*
+     * And the anonymous door is shut by the schedule as well — with its own **404**, not the 409
+     * the account-bound routes give.
+     *
+     * The schedule is new; this endpoint is not. It documented `404 CFP_UNAVAILABLE` for a closed
+     * call, and `api-compatibility.md` makes repurposing a status code a breaking change that
+     * ships additively and waits 180 days. So the *reason* a call is shut has grown a new member
+     * and the *answer* has not, which is the compatible half of that pair. The status is asserted
+     * here rather than left to the service test because this is the only layer that shows it.
+     */
     const late = await app.request(`/api/public/events/${eventId}/submissions`, {
       method: "POST",
       headers: { "content-type": "application/json", "cf-connecting-ip": "203.0.113.9" },
       body: JSON.stringify({ idempotencyKey: "late-guest", answers: complete }),
     });
-    expect(late.status).toBe(409);
+    expect(late.status).toBe(404);
+    await expect(late.json()).resolves.toMatchObject({ error: { code: "NOT_FOUND" } });
   });
 });

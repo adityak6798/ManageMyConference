@@ -1368,6 +1368,30 @@ draft, so the list refreshes with it. And the transport threw away the sentence 
 for a revision conflict, telling somebody who lost a race on a *submitted* proposal to "reload the
 latest draft".
 
+**A tenth pass found that the window had quietly rewritten an existing endpoint's status codes,
+and that is the one finding of this issue that changed a decision rather than a line.**
+`POST /api/public/events/{eventId}/submissions` answered `404 CFP_UNAVAILABLE` for a closed call
+and `400` when its insert lost a race. Routing it through `openForm` moved the first to `409`, and
+a repair earlier in this issue moved the second there too — both improvements, and both breaking:
+`api-compatibility.md` classes "repurposing a status or error code" as a change that ships
+additively and waits 180 days, a procedure no endpoint here has completed. Worse, the same branch
+had written into `docs/interfaces/README.md` that this endpoint was *unchanged*.
+
+So the codes are put back and the endpoint keeps what it documented, with the reasoning at the
+translation and in the interfaces document: the **reasons** a call can be shut have grown a member
+and the **answers** have not. 409 is still the right code and the five new routes give it — they
+are new, so they are free to. Two lessons worth keeping. A refusal that travels through a shared
+helper inherits that helper's status, so adding a state to one domain silently repriced a public
+contract nobody was looking at. And "this endpoint is unchanged" is exactly the sentence to check
+against the code rather than against intent.
+
+Also from that pass: the refresh added the round before to stop the dashboard contradicting the
+form was awaited *inside* the submit's guarded action, so a failed list read — a decorative request
+— prevented the submit from being attempted at all and reported that the proposal could not be
+submitted. It is now fire-and-forget with an `ERROR-INTENT`, and a test drives a failing list read
+through a successful submit. It was also, like two repairs before it, untested: deleting it left
+all 350 web tests green.
+
 **One request from that pass was refused, and the refusal is the interesting part.** A reviewer
 asked for migration `1201`'s backfill to be replayed over rows rather than only asserted through
 its end state. It was written, and it works — it catches a deleted backfill. But `cfp_submissions`

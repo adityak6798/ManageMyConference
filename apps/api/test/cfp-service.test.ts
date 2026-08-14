@@ -2,7 +2,6 @@
 import { describe, expect, it } from "vitest";
 import { MemoryCfpRepository } from "../src/adapters/persistence/memory-cfp-repository";
 import {
-  CfpClosedError,
   CfpDraftConflictError,
   CfpService,
   CfpUnavailableError,
@@ -316,18 +315,18 @@ describe("CFP service", () => {
       title: "Typo fixed",
       status: "closed",
     });
-    // The applicant-facing consequence, which is the whole point: no late submissions.
-    //
-    // `CfpClosedError` rather than `CfpUnavailableError` since issue #190: a closed call is a
-    // resource whose *state* refuses the write (409), not one that is missing (404), and the
-    // distinction is what lets the applicant surface say "the deadline passed" instead of
-    // "something is wrong with your form". It carries which closure it was, too.
+    /*
+     * The applicant-facing consequence, which is the whole point: no late submissions.
+     *
+     * Still `CfpUnavailableError` — 404 `CFP_UNAVAILABLE` — on this door, and deliberately.
+     * A closed call is a resource whose *state* refuses the write, so 409 is the better answer and
+     * it is what the account-bound routes issue #190 added give. This endpoint is not new: it
+     * documented 404, and `api-compatibility.md` makes repurposing a status code a breaking change
+     * that ships additively and waits 180 days. The improvement is filed, not smuggled in.
+     */
     await expect(
       service.submit(eventId, "after-republish", { title: "Late", email: "a@example.com" }),
-    ).rejects.toMatchObject({ effectiveState: "closed" });
-    await expect(
-      service.submit(eventId, "after-republish-2", { title: "Late", email: "a@example.com" }),
-    ).rejects.toBeInstanceOf(CfpClosedError);
+    ).rejects.toBeInstanceOf(CfpUnavailableError);
 
     // Reopening is still one explicit click, and it still works on the republished form.
     await service.changeState(actor, eventId, "reopen");

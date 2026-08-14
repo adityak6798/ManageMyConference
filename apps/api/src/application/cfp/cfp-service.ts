@@ -393,7 +393,7 @@ export class CfpService {
    */
   async getPublished(eventId: string): Promise<CfpForm & { effectiveStatus: CfpEffectiveState }> {
     const form = await this.repository.findPublished(eventId);
-    if (!form) throw new CfpUnavailableError("The CFP is not published");
+    if (!form) throw new CfpUnavailableError("The CFP is not published.");
     // A published snapshot's own `status` is the live one, which is why it is passed rather than
     // `publishedStatus` — a snapshot written before that field existed carries no such key.
     return this.withEffectiveStatus(form, form.status);
@@ -429,7 +429,25 @@ export class CfpService {
     // draft, handed back as a confirmation identifier for something nobody submitted.
     const prior = await this.repository.findAnonymousSubmission(eventId, idempotencyKey);
     if (prior) return prior;
-    const form = await this.openForm(eventId);
+    /*
+     * This door keeps the status codes it already documented, and that is a deliberate refusal.
+     *
+     * `openForm` refuses a closed call with `CfpClosedError`, which the transport answers `409` —
+     * and 409 is the better answer, which is why the account-bound routes added by this issue use
+     * it. But this endpoint is **not** new: `POST /api/public/events/{eventId}/submissions`
+     * answered `404 CFP_UNAVAILABLE` for a closed call before, its OpenAPI fragment says so, and
+     * `api-compatibility.md` classes "repurposing a status or error code" as a breaking change
+     * that first ships additively and waits 180 days. Silently improving it would break exactly
+     * the client that read the document.
+     *
+     * So the refusal is translated back on the way out. Changing it properly is platform's
+     * decision and its deprecation window, recorded rather than taken here.
+     */
+    const form = await this.openForm(eventId).catch((error: unknown) => {
+      if (error instanceof CfpClosedError)
+        throw new CfpUnavailableError("This call for proposals is closed.");
+      throw error;
+    });
     const fieldErrors = validateAnswers(form.fields, answers);
     if (Object.keys(fieldErrors).length) throw new CfpValidationError(fieldErrors);
     const resolvedRoute = resolveRoute(form.routing ?? [], answers);
@@ -448,37 +466,25 @@ export class CfpService {
       submitterUserId: null,
     });
     /*
-     * The same 409 the owned writes answer, and for the same reason.
+     * `400`, as this endpoint has always answered — with a sentence that does not blame the form.
      *
-     * Several things make this insert match nothing — the storage guard saw a call that is no
-     * longer open, the published version moved between the read above and the write, or the
-     * idempotency key is held by a row this caller cannot converge on — and every one of them is
-     * a conflict with the resource's state rather than a fault in the request. The refusal below
-     * says which of those is *not* worth guessing at. A `CfpStateError`
-     * here reached the transport as a 400 `VALIDATION_FAILED`, so a guest who submitted as the
-     * organizer closed the call was told their form answers were wrong. `createDraft` was
-     * repaired for exactly this; the anonymous door is its sibling.
+     * This insert misses for at least three reasons: the call closed, the organizer republished
+     * (it carries a version predicate the owned writes do not), or the idempotency key is held by
+     * a row this caller cannot converge on — the squatting residual `GAP-027` records. Every one
+     * of them is a conflict with the resource's state, so `409` is the right code and it is what
+     * the account-bound routes give. This one keeps `400` for the same compatibility reason as the
+     * closed-call refusal above: the code is documented and changing it is a breaking change with
+     * a 180-day procedure behind it.
+     *
+     * What *was* wrong here is the wording. `createDraft`'s sentence was borrowed for a while, so
+     * a guest who raced a republish was told the call had closed while it was open. Nothing here
+     * can tell the causes apart without a second read that would be racing too, so this describes
+     * the shape of the answer rather than guessing at which.
      */
-    if (!created) {
-      const live = await this.getPublished(eventId);
-      /*
-       * Says what is true of every cause rather than naming one, unlike `createDraft`'s, which
-       * genuinely has one.
-       *
-       * This insert misses for at least three reasons: the call closed, the organizer republished
-       * (it carries a version predicate the owned writes do not), or the idempotency key is
-       * already held by a row this caller cannot converge on — an owned proposal or a draft, the
-       * squatting residual `GAP-027` records. Borrowing `createDraft`'s sentence told a guest who
-       * raced a republish that the call was closed while it was open. Enumerating instead would
-       * be the same mistake with a longer list, and nothing here can tell which happened without
-       * a second read that would be racing too — so the message describes the shape of the answer
-       * (something moved, reload) and the status code carries the rest.
-       */
-      throw new CfpClosedError(
+    if (!created)
+      throw new CfpStateError(
         "This call for proposals changed before the proposal was saved. Reload the form and try again.",
-        live.effectiveStatus,
       );
-    }
     return created;
   }
 
