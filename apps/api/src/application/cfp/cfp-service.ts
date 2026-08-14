@@ -70,7 +70,7 @@ const organizerFor = (actor: Actor | null, eventId: string) => {
  * Recorded here because it is the place a later reader will look for the missing capability
  * check and conclude one was forgotten.
  */
-const submitterFor = (actor: Actor | null): Actor => {
+export const submitterFor = (actor: Actor | null): Actor => {
   if (!actor)
     throw new AuthenticationRequiredError("Sign in to keep a proposal against your account");
   return actor;
@@ -432,7 +432,23 @@ export class CfpService {
       lifecycle: "submitted",
       submitterUserId: null,
     });
-    if (!created) throw new CfpStateError("The CFP changed before this proposal was saved");
+    /*
+     * The same 409 the owned writes answer, and for the same reason.
+     *
+     * Two things make this insert match nothing, and both are conflicts with the resource's
+     * state rather than faults in the request: the storage guard saw a call that is no longer
+     * open, or the published version moved between the read above and the write. A `CfpStateError`
+     * here reached the transport as a 400 `VALIDATION_FAILED`, so a guest who submitted as the
+     * organizer closed the call was told their form answers were wrong. `createDraft` was
+     * repaired for exactly this; the anonymous door is its sibling.
+     */
+    if (!created) {
+      const live = await this.getPublished(eventId);
+      throw new CfpClosedError(
+        "This call for proposals closed before the proposal was saved.",
+        live.effectiveStatus,
+      );
+    }
     return created;
   }
 
@@ -561,6 +577,10 @@ export class CfpService {
       expectedRevision,
       updatedAt: at,
       at,
+      // The form these answers were just validated against, stored with them. `openForm` reads
+      // the *published* form, so a revision made after a republish carries the new snapshot.
+      cfpVersion: form.version,
+      fields: form.fields,
     };
     if (!(await this.repository.saveProposalAnswers(write)))
       await this.explainRefusedWrite(eventId, proposalId, submitter.id, expectedRevision);
@@ -609,8 +629,22 @@ export class CfpService {
     };
     if (!(await this.repository.submitProposal(write)))
       await this.explainRefusedWrite(eventId, proposalId, submitter.id, expectedRevision);
+    /*
+     * Announced from the write, and *before* the read-back.
+     *
+     * Everything the confirmation needs is already here — this is the write that just committed —
+     * so making the announcement wait on a second read put a fallible step between a one-way
+     * action and the message that tells somebody it happened. A transient read failure there
+     * answered 500 over a submission that had committed, and the applicant's retry is then
+     * refused with "already submitted", so no confirmation would ever have been queued. That is
+     * the same shape the composition root's `recipientFor` exists to prevent, reproduced one
+     * layer up. The read-back below is now only for the view that is returned.
+     */
+    await this.announce(
+      { ...write, id: proposalId, fields: write.fields, answers: write.answers },
+      submitter.id,
+    );
     const submitted = await this.owned(eventId, proposalId, submitter.id);
-    await this.announce(submitted, submitter.id);
     return viewOf(submitted, form.fields);
   }
   async proposalReference(
@@ -663,7 +697,22 @@ export class CfpService {
       form.effectiveStatus,
     );
   }
-  private async announce(proposal: ProposalSubmission, submitterUserId: string) {
+  /**
+   * Ask communications to confirm one submission.
+   *
+   * The parameter is the four fields this actually reads rather than a whole `ProposalSubmission`,
+   * so it can be called with the write that just committed instead of requiring a read-back —
+   * which is what keeps a fallible read out from between a one-way action and its confirmation.
+   */
+  private async announce(
+    proposal: {
+      readonly eventId: string;
+      readonly id: string;
+      readonly fields: readonly CfpField[];
+      readonly answers: Readonly<Record<string, string>>;
+    },
+    submitterUserId: string,
+  ) {
     await this.notifications?.proposalSubmitted({
       eventId: proposal.eventId,
       proposalId: proposal.id,
@@ -692,10 +741,18 @@ const ownedProposalKey = (submitterUserId: string, clientKey: string): string =>
 /**
  * An instant, or a refusal — never a re-interpretation.
  *
- * The schema at the transport boundary already requires an ISO-8601 date-time, so this is not
- * validation so much as *normalisation*: `2026-09-30T23:59:00+02:00` and
- * `2026-09-30T21:59:00.000Z` are the same instant, and only the second shape may be stored,
- * because the storage guards compare these columns as text (migration `1201`).
+ * The storage guards compare these columns as text (migration `1201`), so two spellings of one
+ * instant are two different deadlines to SQLite. Everything stored here is therefore put through
+ * `Date` and re-emitted in the single shape `toISOString` produces.
+ *
+ * At the HTTP boundary that is currently belt and braces rather than the load-bearing step: the
+ * window contract uses `z.string().datetime()` without `{ offset: true }`, which refuses an offset
+ * spelling like `2026-09-30T23:59:00+02:00` outright, and refuses an expanded year too. This is
+ * not written for that caller. It is written for the *next* one — a contract change, an internal
+ * command, a fixture — because a normalisation that only holds while a schema elsewhere stays
+ * strict is not a property of this function. An earlier version of this comment claimed the offset
+ * spelling arrives on the wire, which was wrong about the contract while being right about the
+ * need; a review pass caught it.
  */
 function normalizeInstant(value: string | null, field: string): string | null {
   if (value === null) return null;

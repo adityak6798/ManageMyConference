@@ -248,6 +248,11 @@ export function CfpWorkspace({
     () => routingStatuses.filter((status) => !DECISION_STATUSES.includes(status.key)),
     [routingStatuses],
   );
+  /** So a rule holding a status this control no longer offers can still be named, not left blank. */
+  const statusLabels = useMemo(
+    () => new Map(routingStatuses.map(({ key, label }) => [key, label])),
+    [routingStatuses],
+  );
   const deadlinePassed = effective === "closed" && liveStatus === "open";
   const divergesFromLive = publishedShape !== null && publishedShape !== draftShape;
   const absoluteUrl = publicUrl ? new URL(publicUrl, window.location.origin).toString() : null;
@@ -1217,6 +1222,21 @@ export function CfpWorkspace({
                               {status.label}
                             </option>
                           ))}
+                          {/*
+                            A form saved before that rule existed can still hold such a route, and
+                            a `select` whose value matches no option renders *blank* — so the
+                            organizer would see an empty control, an unexplained 400 on save, and
+                            no way to tell which of their rules was the problem. The stored value
+                            is shown, named as no longer allowed, and cannot be chosen again.
+                          */}
+                          {routableStatuses.some(
+                            ({ key }) => key === rule.routeTo.status,
+                          ) ? null : (
+                            <option value={rule.routeTo.status} disabled>
+                              {statusLabels.get(rule.routeTo.status) ?? rule.routeTo.status} — no
+                              longer a routing destination, choose another or remove this rule
+                            </option>
+                          )}
                         </select>
                       </label>
                     </div>

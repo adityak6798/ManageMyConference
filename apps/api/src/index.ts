@@ -56,6 +56,7 @@ import {
   CommunicationsInputError,
   CommunicationsNotFoundError,
   CommunicationsService,
+  lifecycleRecipient,
 } from "./application/communications/public";
 import { SchedulePublishedConsumer } from "./application/communications/schedule-published-consumer";
 import { enqueueDueTaskReminders } from "./application/communications/task-reminders";
@@ -1193,7 +1194,34 @@ export default {
           targetId: fact.proposalId,
           occurrence: `r${fact.revision}`,
         });
-        if (!fact.submitterEmail) {
+        /*
+         * Prefer the address identity holds for the owning account over the one the form
+         * collected (issue #132).
+         *
+         * A decision is the most sensitive thing this system mails an applicant, and until
+         * issue #190 its only possible recipient was an `email`-typed form answer that nobody
+         * verified — so anyone could have a stranger's decision delivered to them by typing that
+         * stranger's address. For an account-bound proposal the owner proved control of their
+         * mailbox to sign in, and the trigger in `1201` makes the owner immutable, so this is a
+         * strictly better address for exactly the same message.
+         *
+         * A guest submission still falls back to the form answer, which is why this **narrows**
+         * #132 rather than closing it: the per-(event, recipient) cap or double opt-in that
+         * anonymous path needs is a product decision with storage behind it, and is not taken
+         * here. When the owner's account has no address, the fallback is the form answer rather
+         * than silence — the proposal is still theirs, and the decision is still theirs to hear.
+         */
+        const owner = fact.submitterUserId
+          ? await recipientFor(fact.submitterUserId, {
+              eventId: fact.eventId,
+              proposalId: fact.proposalId,
+            })
+          : null;
+        const recipient = lifecycleRecipient({
+          accountEmail: owner?.email,
+          declaredEmail: fact.submitterEmail,
+        });
+        if (!recipient) {
           logger.warn(
             { eventId: fact.eventId, proposalId: fact.proposalId },
             "lifecycle.notification.unaddressable",
@@ -1207,7 +1235,7 @@ export default {
           idempotencyKey: `decision:${fact.eventId}:${fact.proposalId}:${fact.outcome}:r${fact.revision}`,
           triggerType: "decision.recorded",
           channel: "email",
-          recipientRef: fact.submitterEmail as string,
+          recipientRef: recipient,
           payload: { submitterName: fact.submitterName, proposalTitle: fact.proposalTitle },
           templateKey: fact.outcome === "accepted" ? "decision-accepted" : "decision-declined",
         }));

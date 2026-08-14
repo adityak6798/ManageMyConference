@@ -304,6 +304,60 @@ describe("building the question list", () => {
     ]);
   });
 
+  it("names a stored route to a decision rather than rendering a blank control", async () => {
+    /*
+     * The case the dropdown filter creates rather than the one it prevents.
+     *
+     * `accepted` and `declined` stopped being offered as destinations, but a form saved before
+     * that rule can still hold one — and a `select` whose value matches no option renders empty.
+     * The organizer would have seen a blank control, an unexplained 400 on save, and nothing
+     * saying which of their rules was the problem. This is the template slice's repair applied to
+     * the surface an organizer actually edits on.
+     */
+    const legacyForm = form({
+      fields: [
+        field({ id: "track", type: "select", label: "Track", options: ["Workshop", "Keynote"] }),
+      ],
+      routing: [
+        {
+          id: "legacy",
+          when: { fieldId: "track", operator: "in", values: ["Keynote"] },
+          routeTo: { status: "accepted" },
+        },
+      ],
+    });
+    stubApi((url) => {
+      if (url.endsWith("/cfp/routing-statuses"))
+        return jsonResponse({
+          statuses: [
+            { key: "under_review", label: "Under review" },
+            { key: "accepted", label: "Accepted" },
+            { key: "declined", label: "Declined" },
+          ],
+        });
+      if (url.startsWith("/api/events/")) return jsonResponse({ cfp: legacyForm });
+      return undefined;
+    });
+    render(<CfpWorkspace eventId={eventId} organizer timezone={TIMEZONE} />);
+
+    const routingCard = await screen.findByRole("region", { name: "Submission routing" });
+    const destination = within(routingCard).getByLabelText("Triage status");
+    // The stored value is still the control's value, so the organizer sees which rule is wrong.
+    expect(destination).toHaveValue("accepted");
+    const shown = within(destination as HTMLSelectElement).getByRole("option", {
+      name: /Accepted — no longer a routing destination/,
+    });
+    // Named, and unchoosable: the option exists to explain the current value, not to offer it.
+    expect(shown).toBeDisabled();
+    // And it is the only way `accepted` appears — it is not back in the list of destinations.
+    expect(
+      within(destination as HTMLSelectElement).queryByRole("option", { name: "Accepted" }),
+    ).toBeNull();
+    expect(
+      within(destination as HTMLSelectElement).queryByRole("option", { name: "Declined" }),
+    ).toBeNull();
+  });
+
   it("refuses an empty equals condition before sending the draft", async () => {
     const conditionalForm = form({
       fields: [field(), field({ id: "abstract", label: "Session abstract" })],

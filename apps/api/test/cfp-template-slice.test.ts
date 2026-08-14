@@ -109,6 +109,7 @@ async function setup(options: { readonly destinationProposalStatus?: string } = 
             title: "An abstract the destination already holds",
             abstract: "",
             submitterName: "Applicant",
+            submitterUserId: null,
             submitter: null,
             answers: [],
             status: options.destinationProposalStatus,

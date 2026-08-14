@@ -19,8 +19,13 @@ nothing the request carries reaches the recipient field. That is the whole diffe
 message and the one decision `D5` refused to ship, and it is why `#132` narrows here: the
 unauthenticated form can still be filled in with somebody else's address, but no send is directed by
 it, and a decision is now readable on the submitter's own dashboard without any mail at all. A
-decision notification still addresses the form-supplied address for an anonymous proposal, and still
-carries only the fact of a decision (`D6`).
+decision notification follows the same preference through one rule stated in the communications
+domain, `lifecycleRecipient`: the address identity holds for the owning account wins whenever there
+is one, and the form-supplied address is the fallback. Review reports both `submitterUserId` and
+`submitterEmail` and resolves neither — an address is identity's to answer for — so the composition
+root, where a lifecycle fact meets identity's answer about the same person, is where the choice is
+made. A *guest* proposal has no account, so its decision still addresses the form-supplied address
+and still carries only the fact of a decision (`D6`).
 
 ## Speaker work (`ARC-FLOW-002`)
 

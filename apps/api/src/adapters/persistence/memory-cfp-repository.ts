@@ -144,6 +144,11 @@ export class MemoryCfpRepository implements CfpRepository {
     this.submissions.set(entry.key, {
       ...entry.proposal,
       answers: { ...write.answers },
+      // The fake carried only the answers while D1's statement did the same, so the divergence a
+      // fake exists to catch was in both. Both now store the snapshot the answers were validated
+      // against — see `ProposalOwnerWrite`.
+      fields: write.fields,
+      cfpVersion: write.cfpVersion,
       revision: (entry.proposal.revision ?? 1) + 1,
       updatedAt: write.updatedAt,
     });

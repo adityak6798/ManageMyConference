@@ -109,6 +109,14 @@ END;
 
 -- A proposal's owner is fixed at creation. Reassigning one would move somebody else's submission
 -- onto this account's dashboard, which is the isolation property the dashboard exists to keep.
+--
+-- Both of these guard UPDATE, and that is the whole of what they cover. `INSERT OR REPLACE`
+-- resolves a UNIQUE conflict as delete-then-insert, so no BEFORE UPDATE trigger fires and a
+-- REPLACE could rewrite a submitted, owned row as another account's draft. Nothing in this system
+-- writes `cfp_submissions` that way — every insert is `INSERT OR IGNORE` followed by a scoped
+-- read — but the property is "no UPDATE can do this" rather than "the database cannot reach that
+-- state", and stating the weaker true thing is the point: a header claiming a guarantee it does
+-- not have stops the next reader from looking.
 CREATE TRIGGER cfp_submission_owner_is_immutable
 BEFORE UPDATE OF submitter_user_id ON cfp_submissions
 WHEN COALESCE(OLD.submitter_user_id, '') <> COALESCE(NEW.submitter_user_id, '')

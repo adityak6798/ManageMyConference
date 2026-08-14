@@ -22,7 +22,11 @@ import {
   enqueueDueTaskReminders,
 } from "../src/application/communications/task-reminders";
 import { CommunicationsConflictError } from "../src/application/communications/errors";
-import { REQUESTABLE_TRIGGERS, TRIGGER_CHANNELS } from "../src/domain/communications/delivery";
+import {
+  lifecycleRecipient,
+  REQUESTABLE_TRIGGERS,
+  TRIGGER_CHANNELS,
+} from "../src/domain/communications/delivery";
 import type { Actor } from "../src/application/identity/actor";
 import { requestTriggerTypeSchema, triggerChannels } from "@greenroom/contracts";
 
@@ -148,6 +152,38 @@ describe("the trigger and channel vocabulary", () => {
      * set while the contract deliberately withheld it, and nothing failed.
      */
     expect([...REQUESTABLE_TRIGGERS].sort()).toEqual([...requestTriggerTypeSchema.options].sort());
+  });
+
+  it("prefers the address an account proved over the one a form collected", () => {
+    /*
+     * The rule issue #190 narrowed #132 with, stated once here rather than at each call site.
+     *
+     * The order is the whole of it: an account address wins whenever there is one, because the
+     * person proved control of that mailbox to sign in, while a form address is whatever
+     * somebody typed. A decision notice is the message where that difference is worst — it names
+     * an outcome the organizer has published nowhere else.
+     */
+    expect(
+      lifecycleRecipient({
+        accountEmail: "owner@example.test",
+        declaredEmail: "typed@example.test",
+      }),
+    ).toBe("owner@example.test");
+    // The fallback is why #132 stays open rather than closing here: a guest submission is a
+    // supported way to apply, and refusing to write to it would mean telling nobody.
+    expect(lifecycleRecipient({ accountEmail: null, declaredEmail: "typed@example.test" })).toBe(
+      "typed@example.test",
+    );
+    // An account with no linked address falls back rather than going silent.
+    expect(lifecycleRecipient({ declaredEmail: "typed@example.test" })).toBe("typed@example.test");
+    // An empty string is not an address. `||` is load-bearing here and `??` would not be.
+    expect(lifecycleRecipient({ accountEmail: "", declaredEmail: "typed@example.test" })).toBe(
+      "typed@example.test",
+    );
+    // Nobody to write to, reported as such rather than as an empty recipient a provider would
+    // refuse with a message about its own syntax.
+    expect(lifecycleRecipient({ accountEmail: null, declaredEmail: null })).toBeNull();
+    expect(lifecycleRecipient({})).toBeNull();
   });
 });
 

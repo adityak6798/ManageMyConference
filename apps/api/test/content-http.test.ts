@@ -77,6 +77,7 @@ function app(
       title: "Designing the calm conference",
       abstract: "A practical guide to reducing operational noise.",
       submitterName: "Sam Speaker",
+      submitterUserId: null,
       submitter: { name: "Sam Speaker", email: "sam@example.test" },
       answers: [
         { fieldId: "format", label: "Session format", type: "select", value: "45-minute talk" },
@@ -89,6 +90,7 @@ function app(
       title: "A proposal with no contact address",
       abstract: "The published form never asked for an email.",
       submitterName: "Applicant",
+      submitterUserId: null,
       submitter: null,
       answers: [],
       status: "submitted",
@@ -99,6 +101,7 @@ function app(
       title: "Private outside proposal",
       abstract: "This proposal must never cross event boundaries.",
       submitterName: "Outside Author",
+      submitterUserId: null,
       submitter: { name: "Outside Author", email: "outside@example.test" },
       answers: [],
       status: "submitted",

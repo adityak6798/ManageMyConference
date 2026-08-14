@@ -89,6 +89,11 @@ export interface ReviewNotificationPort {
    *
    * `submitterEmail` is null when the published form collected no contact address — a real
    * state, and one this domain reports rather than guesses at.
+   *
+   * `submitterUserId` is the account that owns the proposal, or null for a guest submission. Both
+   * are reported because this domain does not decide *which* to write to: that is a delivery
+   * question, and the composition root answers it by preferring the address identity holds for
+   * the owner over the one a form collected (issue #132).
    */
   decisionRecorded(fact: {
     readonly eventId: string;
@@ -96,6 +101,7 @@ export interface ReviewNotificationPort {
     readonly outcome: DecisionOutcome;
     readonly submitterName: string;
     readonly submitterEmail: string | null;
+    readonly submitterUserId: string | null;
     readonly proposalTitle: string;
     /**
      * How many times this proposal has been decided, storage-allocated.
@@ -150,6 +156,10 @@ const withoutSubmitter = (proposal: SubmittedProposal): SubmittedProposal => ({
   ...proposal,
   submitterName: MASKED_SUBMITTER_NAME,
   submitter: null,
+  // The owning account goes with the name and the address: it is a stable identifier for one
+  // person across every event, so leaving it on a blind queue would let a reviewer join two
+  // masked proposals to the same applicant.
+  submitterUserId: null,
 });
 
 const withCoAuthors = (proposal: SubmittedProposal) => {
@@ -817,6 +827,7 @@ export class ReviewService implements AcceptedProposalQuery {
         // Null rather than a guess: a form that collected no address leaves nobody to write to,
         // and inventing one would send somebody else's decision to somebody else.
         submitterEmail: proposal.submitter?.email ?? null,
+        submitterUserId: proposal.submitterUserId,
         proposalTitle: proposal.title,
         revision,
       });

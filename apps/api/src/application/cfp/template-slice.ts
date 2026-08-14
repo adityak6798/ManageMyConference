@@ -213,7 +213,13 @@ export function cfpTemplateSlice(service: CfpTemplateCommands): EventConfigurati
       return {
         outcome: "applied",
         reason: refused.length
-          ? "Copied as a draft. Routing rules naming statuses the destination does not configure were left out."
+          ? // Two different things get refused here — a status this event does not configure, and a
+            // status that is a *decision* and so is never routed to — and each refused rule already
+            // carries its own reason in `incompatible`. This sentence used to name only the first,
+            // so an organizer whose template routed to `accepted` was told the destination does not
+            // configure it, directly beside a line saying the opposite. It now points at the list
+            // rather than paraphrasing half of it.
+            "Copied as a draft. Some routing rules were left out; each is listed with its reason."
           : "Copied as a draft.",
         applied: appliedEntries(payload, usable),
         incompatible: refused,

@@ -27,6 +27,7 @@ import {
   CfpStateError,
   CfpUnavailableError,
   CfpValidationError,
+  submitterFor,
 } from "../../../application/cfp/public";
 import { clientAddress, submissionThrottle } from "../throttle";
 import { envelope, type HttpContext, validationFields, readJson } from "../runtime";
@@ -182,7 +183,16 @@ export const cfpRoutes: RouteModule = {
         403,
       );
     };
-    app.use("/api/events/:eventId/cfp/proposals", refuseMachineCredentials);
+    /*
+     * One mount, not two. Hono's `/*` matches zero trailing segments, so this covers the
+     * collection path as well — a review pass proved it by deleting the separate collection mount
+     * and watching all eight tests stay green, which is also what showed that the second mount was
+     * carrying no assertion of its own.
+     *
+     * It stays in `register` rather than `registerRequestScope`: the contract in `contract.ts`
+     * reserves that hook for middleware that must precede *other* domains' handlers, and this is
+     * scoped to this module's own prefix.
+     */
     app.use("/api/events/:eventId/cfp/proposals/*", refuseMachineCredentials);
 
     app.get("/api/events/:eventId/cfp/proposals", async (context) => {
@@ -215,6 +225,11 @@ export const cfpRoutes: RouteModule = {
           envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
           400,
         );
+      // Authorization before an attacker-controlled body is parsed, as on every write here.
+      // `submitterFor` establishes only that there is an account; ownership of the row is
+      // asserted inside the write itself, and the service runs this again rather than
+      // trusting that the transport did.
+      submitterFor(context.get("actor"));
       const parsed = createProposalDraftInputSchema.safeParse(await readJson(context.req));
       if (!parsed.success)
         return context.json(
@@ -265,6 +280,11 @@ export const cfpRoutes: RouteModule = {
           envelope("VALIDATION_FAILED", "Proposal ID is malformed.", context.get("correlationId")),
           400,
         );
+      // Authorization before an attacker-controlled body is parsed, as on every write here.
+      // `submitterFor` establishes only that there is an account; ownership of the row is
+      // asserted inside the write itself, and the service runs this again rather than
+      // trusting that the transport did.
+      submitterFor(context.get("actor"));
       const parsed = saveProposalInputSchema.safeParse(await readJson(context.req));
       if (!parsed.success)
         return context.json(
@@ -296,6 +316,11 @@ export const cfpRoutes: RouteModule = {
           envelope("VALIDATION_FAILED", "Proposal ID is malformed.", context.get("correlationId")),
           400,
         );
+      // Authorization before an attacker-controlled body is parsed, as on every write here.
+      // `submitterFor` establishes only that there is an account; ownership of the row is
+      // asserted inside the write itself, and the service runs this again rather than
+      // trusting that the transport did.
+      submitterFor(context.get("actor"));
       const parsed = saveProposalInputSchema.safeParse(await readJson(context.req));
       if (!parsed.success)
         return context.json(

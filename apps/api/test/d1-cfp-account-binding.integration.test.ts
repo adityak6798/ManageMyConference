@@ -20,8 +20,8 @@ import {
   type D1ProposalDatabasePort,
   D1SubmittedProposalAdapter,
 } from "../src/adapters/persistence/d1-submitted-proposal-adapter";
-import type { CfpForm } from "../src/domain/cfp/cfp";
-import { applyMigrationFile, createMigratedDatabase } from "./support/seeded-d1";
+import type { CfpField, CfpForm } from "../src/domain/cfp/cfp";
+import { createMigratedDatabase } from "./support/seeded-d1";
 
 const eventId = "00000000-0000-4000-8000-000000000001";
 const PAT = "seed-public";
@@ -167,13 +167,13 @@ describe("D1: the submission window in SQL", () => {
       expectedRevision: 1,
       updatedAt: AT,
       at: AT,
+      cfpVersion: form.version,
+      fields: form.fields,
     };
     await expect(repository.saveProposalAnswers(write)).resolves.toBe(false);
     await expect(
       repository.submitProposal({
         ...write,
-        cfpVersion: form.version,
-        fields: form.fields,
         resolvedRoute: null,
         status: "submitted",
         submittedAt: AT,
@@ -249,6 +249,8 @@ describe("D1: the submission window in SQL", () => {
         expectedRevision: 1,
         updatedAt: AT,
         at: AT,
+        cfpVersion: form.version,
+        fields: form.fields,
       }),
     ).resolves.toBe(false);
     await expect(
@@ -260,6 +262,8 @@ describe("D1: the submission window in SQL", () => {
         expectedRevision: 7,
         updatedAt: AT,
         at: AT,
+        cfpVersion: form.version,
+        fields: form.fields,
       }),
     ).resolves.toBe(false);
     await expect(repository.findProposalForOwner(eventId, id, SAM)).resolves.toBeNull();
@@ -273,12 +277,21 @@ describe("D1: the submission window in SQL", () => {
         expectedRevision: 1,
         updatedAt: "2026-08-10T13:00:00.000Z",
         at: AT,
+        // A later form than the row was created against. The statement has to move the snapshot
+        // with the answers, or the stored keys stop matching the stored fields and every
+        // projection that reads an answer through them renders an empty proposal.
+        cfpVersion: form.version + 1,
+        fields: [{ ...(form.fields[0] as CfpField), id: "renamed", label: "Renamed" }],
       }),
     ).resolves.toBe(true);
     await expect(repository.findProposalForOwner(eventId, id, PAT)).resolves.toMatchObject({
       answers: { title: "Mine" },
       revision: 2,
       updatedAt: "2026-08-10T13:00:00.000Z",
+      // The snapshot travelled with the answers rather than staying on the form the row was
+      // created against.
+      cfpVersion: form.version + 1,
+      fields: [{ id: "renamed", label: "Renamed" }],
     });
   });
 });
@@ -353,6 +366,46 @@ describe("D1: a draft is not a submission", () => {
     // The one-way door: a submitted proposal cannot revert to a draft and vanish from review.
     await expect(repository.createDraft(draftOf(id, PAT, AT, "pat-draft"))).resolves.toMatchObject({
       lifecycle: "submitted",
+    });
+  });
+
+  it("carries the owning account into every projection review reads", async () => {
+    /*
+     * Because a decision message is addressed from it.
+     *
+     * `decisionRecorded` reports `submitterUserId` so the composition root can prefer the address
+     * identity holds for that account over the `email`-typed form answer nobody verified — the
+     * exposure issue #132 describes. That preference is only as good as this column arriving,
+     * and it arrives through three separate statements: `list` feeds triage, `findMany` feeds the
+     * bulk decide, and `find` feeds the single one. A `SELECT` that forgot the column on one of
+     * them would silently send that path's decisions to the unverified address, and every other
+     * assertion in this file would still pass.
+     */
+    const { repository, proposals, id } = await withDraft();
+    await expect(
+      repository.submitProposal({
+        eventId,
+        proposalId: id,
+        submitterUserId: PAT,
+        answers: { title: "Owned all the way through" },
+        expectedRevision: 1,
+        updatedAt: AT,
+        at: AT,
+        cfpVersion: form.version,
+        fields: form.fields,
+        resolvedRoute: null,
+        status: "submitted",
+        submittedAt: AT,
+      }),
+    ).resolves.toBe(true);
+
+    await expect(proposals.find(eventId, id)).resolves.toMatchObject({ submitterUserId: PAT });
+    await expect(proposals.findMany(eventId, [id])).resolves.toMatchObject([
+      { submitterUserId: PAT },
+    ]);
+    // The seeded event holds other proposals, so this names the row rather than the position.
+    expect((await proposals.list(eventId)).find((row) => row.id === id)).toMatchObject({
+      submitterUserId: PAT,
     });
   });
 
@@ -574,6 +627,17 @@ describe("D1: migration 1201's guards", () => {
    * database on every run, so the statement is executed; what is untested is only its effect on
    * rows, and the effect is one `UPDATE … WHERE updated_at IS NULL` whose failure mode is a NULL
    * the readers already `COALESCE`.
+   *
+   * A review pass asked for the replay anyway, so it was written, and it is worth recording what
+   * happened rather than only the conclusion. `createMigratedDatabase({ through: "1200_…" })`
+   * plus two pre-`1201` rows works and does catch a deleted backfill — but D1 enforces
+   * `cfp_submissions`' foreign key to `events`, so it needs an `events` and an `organizations`
+   * row, and `npm run context -- check` then reports *Domain 'cfp' reads table 'events' owned by
+   * 'events'*. Moving those two inserts into the platform-owned harness only moves the same
+   * finding to `platform`. The remaining way through is to put the fixture in a `.sql` file so
+   * the table names stop appearing in scanned source, which is defeating the check rather than
+   * satisfying it. So the replay was reverted: the gate is right that a CFP file must not depend
+   * on the events schema, and the coverage it costs is the one `UPDATE` described above.
    */
   it("leaves every stored proposal with a history and no owner it did not earn", async () => {
     const migrated = await createMigratedDatabase({ label: "cfp-seeded", seed: true });

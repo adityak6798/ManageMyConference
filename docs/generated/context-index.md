@@ -440,6 +440,7 @@
 - `code` / `repository-fact`: [apps/api/src/transport/http/routes/cfp.ts](../../apps/api/src/transport/http/routes/cfp.ts)
 - `code` / `repository-fact`: [apps/web/src/public-event/PublicCfpView.tsx](../../apps/web/src/public-event/PublicCfpView.tsx)
 - `code` / `repository-fact`: [apps/web/src/workspaces/cfp.tsx](../../apps/web/src/workspaces/cfp.tsx)
+- `specification` / `normative`: [docs/exec-plans/competition-waves.md](../../docs/exec-plans/competition-waves.md)
 - `specification` / `normative`: [docs/exec-plans/tech-debt.md](../../docs/exec-plans/tech-debt.md)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)

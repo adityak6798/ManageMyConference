@@ -209,6 +209,9 @@ describe("D1CfpRepository", () => {
       abstract: "Custom session content",
       submitterName: "private@example.com",
       submitter: { name: "private@example.com", email: "private@example.com" },
+      // Anonymous: an address typed into a public form owns nothing, which is what keeps a
+      // decision message for this proposal on the guest path rather than on the account one.
+      submitterUserId: null,
       status: "submitted",
       answers: [
         { fieldId: "level", label: "Experience level", type: "select", value: "Advanced" },

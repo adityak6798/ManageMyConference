@@ -98,6 +98,32 @@ export const REQUESTABLE_TRIGGERS = (Object.keys(TRIGGER_CHANNELS) as TriggerTyp
     trigger !== "proposal.submitted",
 );
 
+/**
+ * Which of a subject's two possible addresses a lifecycle message is sent to.
+ *
+ * Some subjects have both: an address they proved control of by signing in, and an address they
+ * typed into a public form. The two are not equally trustworthy, and the difference matters most
+ * for the messages that carry something private — an accept or a decline names a decision the
+ * organizer has not announced anywhere else.
+ *
+ * The rule is one line and it is stated here rather than at each call site: **an account address
+ * wins whenever there is one.** The form address remains the fallback rather than being refused,
+ * because a guest submission is a supported way to apply (`PRD-CFP-002`) and the alternative is
+ * telling nobody. That fallback is the residue of issue #132, which stays open: closing it needs
+ * a per-(event, recipient) cap or a double opt-in, which is a product decision with storage
+ * behind it.
+ *
+ * `null` means there is nobody to write to, which callers report rather than paper over — a
+ * delivery to a non-address burns an attempt and fails with the provider's refusal instead of
+ * the reason.
+ */
+export const lifecycleRecipient = (subject: {
+  /** The address identity holds for the owning account, if the subject has one. */
+  readonly accountEmail?: string | null | undefined;
+  /** The address a public form collected. Unverified by construction. */
+  readonly declaredEmail?: string | null | undefined;
+}): string | null => subject.accountEmail || subject.declaredEmail || null;
+
 export interface MessageTemplate {
   readonly id: string;
   readonly organizationId: string;

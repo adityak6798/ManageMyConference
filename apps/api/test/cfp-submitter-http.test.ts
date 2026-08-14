@@ -263,6 +263,34 @@ describe("the submitter's proposal routes", () => {
     }
   });
 
+  it("answers 401 for a malformed body too, rather than describing its fields", async () => {
+    /*
+     * What makes the test above true of the *order* rather than only of the outcome.
+     *
+     * Sending valid bodies proves nothing about where authorization sits: it passes with the
+     * check anywhere in the handler. A body the schema rejects separates the two — if parsing
+     * runs first, an unauthenticated caller is handed a 400 naming which fields were wrong, which
+     * is a description of the API's shape given to somebody who has not signed in, and it is the
+     * body of an unauthenticated request being parsed at all.
+     */
+    const { app, publish } = await setup();
+    await publish();
+    for (const [method, path] of [
+      ["POST", proposals],
+      ["PUT", `${proposals}/${unknownProposal}`],
+      ["POST", `${proposals}/${unknownProposal}/submit`],
+    ] as const) {
+      const response = await app.request(path, {
+        method,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ answers: 12, expectedRevision: "not a number" }),
+      });
+      expect({ path, method, status: response.status }).toEqual({ path, method, status: 401 });
+      const body = (await response.json()) as { error?: { fields?: unknown } };
+      expect(body.error?.fields).toBeUndefined();
+    }
+  });
+
   it("creates, resumes, revises and submits one proposal for its owner", async () => {
     const { app, pat, publish } = await setup();
     await publish();

@@ -38,6 +38,7 @@ type ProposalRow = {
   answers_json: string;
   form_fields_json: string;
   status: ProposalStatus;
+  submitter_user_id: string | null;
 };
 type SnapshotField = {
   id: string;
@@ -155,6 +156,7 @@ const proposal = (row: ProposalRow): SubmittedProposal => {
     abstract: abstract?.value || "See submitted answers.",
     submitterName: submitter?.name ?? MASKED_SUBMITTER_NAME,
     submitter,
+    submitterUserId: row.submitter_user_id,
     answers: visibleAnswers,
     status: row.status,
   };
@@ -195,7 +197,7 @@ export class D1SubmittedProposalAdapter implements SubmittedProposalInterface {
   async list(eventId: string, status?: ProposalStatus) {
     const result = await this.database
       .prepare(
-        `SELECT id, event_id, answers_json, form_fields_json, status FROM cfp_submissions WHERE event_id = ? AND ${SUBMITTED_ONLY}${status ? " AND status = ?" : ""} ORDER BY submitted_at, id`,
+        `SELECT id, event_id, answers_json, form_fields_json, status, submitter_user_id FROM cfp_submissions WHERE event_id = ? AND ${SUBMITTED_ONLY}${status ? " AND status = ?" : ""} ORDER BY submitted_at, id`,
       )
       .bind(eventId, ...(status ? [status] : []))
       .all<ProposalRow>();
@@ -206,7 +208,7 @@ export class D1SubmittedProposalAdapter implements SubmittedProposalInterface {
   async find(eventId: string, proposalId: string) {
     const result = await this.database
       .prepare(
-        `SELECT id, event_id, answers_json, form_fields_json, status FROM cfp_submissions WHERE event_id = ? AND id = ? AND ${SUBMITTED_ONLY} LIMIT 1`,
+        `SELECT id, event_id, answers_json, form_fields_json, status, submitter_user_id FROM cfp_submissions WHERE event_id = ? AND id = ? AND ${SUBMITTED_ONLY} LIMIT 1`,
       )
       .bind(eventId, proposalId)
       .all<ProposalRow>();
@@ -219,7 +221,7 @@ export class D1SubmittedProposalAdapter implements SubmittedProposalInterface {
     const placeholders = proposalIds.map(() => "?").join(", ");
     const result = await this.database
       .prepare(
-        `SELECT id, event_id, answers_json, form_fields_json, status FROM cfp_submissions WHERE event_id = ? AND id IN (${placeholders}) AND ${SUBMITTED_ONLY} ORDER BY submitted_at, id`,
+        `SELECT id, event_id, answers_json, form_fields_json, status, submitter_user_id FROM cfp_submissions WHERE event_id = ? AND id IN (${placeholders}) AND ${SUBMITTED_ONLY} ORDER BY submitted_at, id`,
       )
       .bind(eventId, ...proposalIds)
       .all<ProposalRow>();

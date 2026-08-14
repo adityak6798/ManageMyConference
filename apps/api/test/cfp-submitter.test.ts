@@ -109,6 +109,7 @@ async function open(options: { notifications?: CfpNotificationPort } = {}) {
   await service.changeState(organizer, eventId, "publish");
   return {
     service,
+    repository,
     at: (instant: string) => {
       clock = new Date(instant);
     },
@@ -619,6 +620,31 @@ describe("a proposal that belongs to an account", () => {
     }
   });
 
+  it("answers a guest whose call closed mid-request with a conflict, not a validation failure", async () => {
+    /*
+     * The anonymous door's version of the refusal `createDraft` was repaired for.
+     *
+     * `createSubmission` returns null for two reasons and both are conflicts with the resource's
+     * state rather than faults in the request: the storage guard saw a call that is no longer
+     * open, or the published version moved between the read and the write. It threw
+     * `CfpStateError`, which the transport answers as a **400 `VALIDATION_FAILED`** — so a guest
+     * who pressed Submit as the organizer closed the call was told their form answers were wrong,
+     * and had nothing to act on. Both causes are modelled by the write matching nothing, which is
+     * what the repository reports either way.
+     */
+    const { service, repository } = await open();
+    vi.spyOn(repository, "createSubmission").mockResolvedValue(null);
+
+    const refusal = await service.submit(eventId, "guest-key", complete).then(
+      () => null,
+      (error: unknown) => error,
+    );
+    expect(refusal).toBeInstanceOf(CfpClosedError);
+    // And it names the state, so the surface can say *which* — a call that closed reads
+    // differently from one that never opened.
+    expect(refusal).toMatchObject({ effectiveState: "open" });
+  });
+
   it("keeps naming a submitted proposal after the form moves on beneath it", async () => {
     const { service } = await open();
     const draft = await service.createDraft(pat, eventId, "k1", complete);
@@ -645,5 +671,67 @@ describe("a proposal that belongs to an account", () => {
     await expect(service.myProposals(pat, eventId)).resolves.toMatchObject([
       { title: complete.title },
     ]);
+  });
+
+  it("moves the field snapshot with a revision, so a republished form does not empty the proposal", async () => {
+    /*
+     * The half of the case above that the snapshot alone does not cover.
+     *
+     * A revision is validated against the form as published *now* — `validateAnswers` refuses any
+     * key the current form does not name — so after a republish the applicant *must* send the new
+     * keys. Writing those answers under the old snapshot leaves a row whose keys match nothing in
+     * its own `form_fields_json`, and every projection reads an answer by looking its field up
+     * there. The proposal then reads as `Proposal <uuid>` / "See submitted answers." with no
+     * answers and no submitter in triage and in every reviewer's queue, and the decision
+     * notification resolves no address at all.
+     *
+     * `submitProposal` always carried both; `saveProposalAnswers` did not, which is the sibling
+     * defect.
+     */
+    const { service, repository } = await open();
+    const draft = await service.createDraft(pat, eventId, "k1", complete);
+    await service.submitProposal(pat, eventId, draft.id, complete, draft.revision);
+
+    // A routine edit: the same question, renamed. Version 1 → 2.
+    await service.save(organizer, {
+      eventId,
+      title: "Speak",
+      description: "",
+      fields: [
+        {
+          id: "headline",
+          type: "short_text",
+          label: "Headline",
+          guidance: "",
+          required: true,
+          options: [],
+        },
+      ],
+      expectedVersion: 1,
+    });
+    await service.changeState(organizer, eventId, "publish");
+
+    const [before] = await service.myProposals(pat, eventId);
+    await service.saveProposal(
+      pat,
+      eventId,
+      draft.id,
+      { headline: "Answered against the new form" },
+      before?.revision as number,
+    );
+
+    // The dashboard names it from the snapshot, so a stale one shows the old question's answer.
+    await expect(service.myProposals(pat, eventId)).resolves.toMatchObject([
+      { title: "Answered against the new form" },
+    ]);
+    // And the stored row itself, which is what the organizer and reviewer projections read: the
+    // snapshot names the question the stored answer key belongs to, and records the version.
+    await expect(repository.findProposalForOwner(eventId, draft.id, pat.id)).resolves.toMatchObject(
+      {
+        cfpVersion: 2,
+        fields: [{ id: "headline" }],
+        answers: { headline: "Answered against the new form" },
+      },
+    );
   });
 });

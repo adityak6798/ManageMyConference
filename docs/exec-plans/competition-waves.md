@@ -1112,9 +1112,12 @@ states why, because that is where the next reader will look for the missing capa
 
 **A draft is separated by `lifecycle`, and the `status` value is defence in depth.** `lifecycle` is
 what all four read paths of `D1SubmittedProposalAdapter` filter on. A draft row *additionally* carries
-`status = 'draft'`, which no event configures — so a status-keyed triage read cannot reach one even if
-a fifth read path is added later without the predicate, and a draft cannot pin a configured status
-against deletion through `cfp_status_delete_rejects_in_use`. The two are held in agreement by a
+`status = 'cfp:draft'`, a value **no event can configure** because `proposalStatusSchema` matches
+`^[a-z0-9_-]+$` and so cannot express the colon — so a status-keyed triage read cannot reach one even
+if a fifth read path is added later without the predicate, and a draft cannot pin a configured status
+against deletion through `cfp_status_delete_rejects_in_use`. It read `'draft'` when this paragraph was
+first written, which a review pass caught: that *is* a legal triage key, and the paragraph was
+asserting an invariant nothing enforced. See "what the review passes changed" below. The two are held in agreement by a
 trigger pair rather than by convention, and `d1-cfp-account-binding.integration.test.ts` enumerates
 the read paths so a leak fails a test rather than appearing in somebody's queue.
 
@@ -1122,22 +1125,45 @@ the read paths so a leak fails a test rather than appearing in somebody's queue.
 the submission confirmation because the only address available was an unverified form field. Account
 binding answers that — the recipient is resolved from the *session* through identity's directory, so
 nothing a request carries can direct it — but the message still needed a trigger value, and
-`communication_deliveries.trigger_type` is a pinned `CHECK` on a communications-owned table with two
-child tables. So `1705` repeats `1703`'s rebuild ordering exactly, takes its number from the
-communications block per `migrations/README.md`, and is replayed over the seeded fixture in the same
-file `1703`'s replay lives in. `proposal.submitted` is deliberately **absent** from
+`communication_deliveries.trigger_type` is a pinned `CHECK` on a communications-owned table with
+**three** child tables — `communication_delivery_attempts`, `communication_projection_state` and
+`calendar_invite_states`, the last added by `1704` after `1703` was written. `1705` therefore rebuilds
+three rather than copying `1703`'s two, takes its number from the communications block per
+`migrations/README.md`, and is replayed over the seeded fixture in the same file `1703`'s replay lives
+in. It *did* copy the two, which is the blocker recorded below. `proposal.submitted` is deliberately **absent** from
 `requestTriggerTypeSchema`: an organizer authoring one to an arbitrary address would hand back
 precisely the primitive the binding removed.
 
 **What this does not do: `#132` narrows and stays open.** The anonymous door is unchanged and still
 accepts an address nobody verified, so the exposure `#132` describes still exists for the one message
 that addresses it — a decision notification for an anonymous proposal, still carrying only the fact of
-a decision (`D6`). What narrowed is real and worth stating in three parts: the *new* message queues
-only to a session-derived address, so the account-bound path adds no exposure at all; a decision is
-now readable on the submitter's own dashboard, so the product no longer *depends* on mail to
-communicate one; and an address in a form now buys ownership of nothing, enforced by a trigger. The
+a decision (`D6`). What narrowed is real and worth stating in four parts.
+
+The *new* message queues only to a session-derived address, so the account-bound path adds no
+exposure at all. A decision is now readable on the submitter's own dashboard, so the product no
+longer *depends* on mail to communicate one. An address in a form now buys ownership of nothing,
+enforced by a trigger.
+
+And the fourth is the one that touches the message `#132` was actually filed about. **An
+account-bound proposal's accept or decline is now sent to the address identity holds for its
+owner**, not to the `email`-typed form answer. `SubmittedProposal` carries `submitterUserId`,
+`decisionRecorded` reports it beside `submitterEmail`, and `lifecycleRecipient` in the
+communications domain states the rule once: an account address wins whenever there is one. Review
+reports both and resolves neither, because an address is identity's to answer for and a domain that
+started resolving them would need identity as a dependency; the composition root is where the two
+meet, so that is where the choice is made. The reviewer projection drops `submitterUserId` with the
+name and the address — it is a stable identifier for one person across every event, so a blind queue
+that kept it would let a reviewer join two masked proposals to the same applicant, and neither of
+the two string assertions guarding that test would have caught it.
+
+So the exposure is now bounded to *guest* submissions rather than to all of them. The fallback to
+the form address is deliberate and is why this narrows rather than closes: a guest submission is a
+supported way to apply (`PRD-CFP-002`) and refusing to write to it would mean telling nobody. The
 per-`(event, recipient)` cap or double opt-in that `#132` actually asks for is still a product
-decision plus storage, and was not taken here.
+decision plus storage, and was not taken here. `DEBT-013`'s enrichment guard is unchanged and still
+binding: the moment a decision notification carries reviewer comments or scores, an unverified
+address becomes a disclosure of somebody's review, and the guest path must be verified before the
+message is enriched.
 
 `GAP-027` records the three residuals: nothing announces a deadline before it passes, this deployment
 offers a submitter one sign-in door and it is a seeded persona, and no confirmation has reached a real
@@ -1145,9 +1171,9 @@ mailbox.
 
 #### What the review passes changed, and one of them was a blocker
 
-Three adversarial passes ran against the risk map, and two verification passes over the repairs.
-The design survived all five; its execution did not, and the defects are recorded below because each
-is a shape that will recur.
+Five adversarial passes ran against the risk map, three of them over the repairs the earlier ones
+provoked. The design survived all five; its execution did not, and the defects are recorded below
+because each is a shape that will recur — three of them twice, on a sibling nobody had looked at.
 
 **A rebuild migration copied a recipe that had gone out of date.** `1705` follows `1703`'s ordering
 statement for statement — and `1703` had *two* child tables, while `1704` had since added a third.
@@ -1206,6 +1232,44 @@ that module was already making. Two smaller ones came with it: the bearer refusa
 anywhere (the CFP HTTP suite runs in demo mode, where the bearer branch is unreachable, so it was
 structurally incapable of covering it), and the guard was five copies inside handlers rather than
 middleware on the prefix — a sixth route would have inherited nothing and failed nothing.
+
+**A third pass found one more major, and it is the same shape as the first pass's.** A revision
+rewrote `answers_json` and left `form_fields_json` and `cfp_version` on the snapshot the proposal
+was *submitted* against — while `saveProposal` validates against the form as published **now**, and
+refuses any key the current form does not name. So after an organizer renamed a question, an
+applicant's revision stored answers whose keys matched nothing in the row's own snapshot, and every
+projection reads an answer by looking its field up there: the proposal went blank in triage, blank
+in every reviewer's queue, blank on the applicant's own dashboard, and its contact address —
+resolved from the first `email`-typed field of that snapshot — became null, so the decision was
+logged unaddressable and never sent. `submitProposal` always carried both; `saveProposalAnswers`
+did not. That is `GAP-025`'s lesson again, and the fake had the same hole as the statement, so no
+test using it could have caught the divergence. Both now write the snapshot with the answers, and
+the repair is confirmed by reverting it.
+
+Three smaller ones came with it, each a sibling of something already repaired. The anonymous
+door's closed-window race still answered `400 VALIDATION_FAILED` — telling a guest their form
+answers were wrong as the organizer closed the call — where `createDraft` had been moved to `409`;
+the three account-bound writes parsed an attacker-controlled body before establishing there was an
+account at all, which the same file states as a rule twice; and the confirmation was announced
+*after* a read-back, putting a fallible read between a one-way action and the message that says it
+happened — the very shape `recipientFor` exists to prevent, one layer up. Two header claims were
+corrected rather than defended: migration `1201`'s "submitting is one-way … a property of the
+database" is true of `UPDATE` and not of `INSERT OR REPLACE`, which resolves a conflict as
+delete-then-insert and fires no `BEFORE UPDATE` trigger (nothing writes that table that way, and
+the weaker true statement is the one worth having); and `normalizeInstant`'s rationale named an
+offset spelling the window contract actually refuses.
+
+**One request from that pass was refused, and the refusal is the interesting part.** A reviewer
+asked for migration `1201`'s backfill to be replayed over rows rather than only asserted through
+its end state. It was written, and it works — it catches a deleted backfill. But `cfp_submissions`
+has a foreign key to `events`, which D1 enforces, so the fixture needs an `events` and an
+`organizations` row, and `npm run context -- check` then reports *Domain 'cfp' reads table 'events'
+owned by 'events'*. Moving those two inserts into the platform-owned harness moves the same
+finding to `platform`. What remains is putting the fixture in a `.sql` file so the table names stop
+appearing in scanned source — which is defeating the check rather than satisfying it. The replay
+was reverted and the attempt recorded at the test, because the gate is right: a CFP file must not
+depend on the events schema, and the coverage that costs is one `UPDATE … WHERE updated_at IS NULL`
+whose failure mode is a NULL every reader already `COALESCE`s.
 
 **One cross-domain UI edit, announced here as the rules require.** `OrganizerReviewWorkspace.tsx` is
 review-owned and gains a notice routing an organizer into the members workspace when no reviewer is

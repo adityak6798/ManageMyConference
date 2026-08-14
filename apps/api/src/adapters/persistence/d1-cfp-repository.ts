@@ -338,10 +338,15 @@ export class D1CfpRepository implements CfpRepository {
   async saveProposalAnswers(write: ProposalOwnerWrite) {
     const result = await this.database
       .prepare(
-        `UPDATE cfp_submissions SET answers_json = ?, revision = revision + 1, updated_at = ? WHERE event_id = ? AND id = ? AND submitter_user_id = ? AND revision = ? AND ${OPEN_WINDOW_GUARD}`,
+        `UPDATE cfp_submissions SET answers_json = ?, form_fields_json = ?, cfp_version = ?, revision = revision + 1, updated_at = ? WHERE event_id = ? AND id = ? AND submitter_user_id = ? AND revision = ? AND ${OPEN_WINDOW_GUARD}`,
       )
       .bind(
         JSON.stringify(write.answers),
+        // The snapshot moves with the answers. See `ProposalOwnerWrite`: a projection reads an
+        // answer by looking its field up here, so answers written against a newer form under an
+        // older snapshot read as an empty proposal.
+        JSON.stringify(write.fields),
+        write.cfpVersion,
         write.updatedAt,
         write.eventId,
         write.proposalId,

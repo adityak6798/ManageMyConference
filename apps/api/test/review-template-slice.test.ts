@@ -83,6 +83,7 @@ const submitted = (eventId: string, status: string): SubmittedProposal => ({
   title: "Test proposal",
   abstract: "Test abstract",
   submitterName: "Robin Submitter",
+  submitterUserId: null,
   submitter: { name: "Robin Submitter", email: "robin@example.test" },
   answers: [],
   status,

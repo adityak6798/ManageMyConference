@@ -58,6 +58,7 @@ const build = (options: { suggestions?: ReviewSuggestionPort | null } = {}) => {
       title: "Test proposal",
       abstract: "Streaming joins without a state store. It works because watermarks are enough.",
       submitterName: "Robin Submitter",
+      submitterUserId: null,
       submitter: { name: "Robin Submitter", email: "robin@example.test" },
       answers: [{ fieldId: "format", label: "Session format", type: "select", value: "Workshop" }],
       status: "submitted",

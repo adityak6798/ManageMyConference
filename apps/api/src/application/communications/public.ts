@@ -57,6 +57,15 @@ export type {
   DeliveryState,
   TriggerType,
 } from "../../domain/communications/delivery";
+/**
+ * Which of a subject's two addresses a lifecycle message is sent to.
+ *
+ * Exported here because the composition root is where a lifecycle fact from one domain meets
+ * identity's answer about the same person, and that is the only place the choice can be made —
+ * but the rule belongs to this domain, so it is stated once in `delivery.ts` rather than
+ * re-decided at each call site.
+ */
+export { lifecycleRecipient } from "../../domain/communications/delivery";
 
 /**
  * One delivery a lifecycle event wants sent.

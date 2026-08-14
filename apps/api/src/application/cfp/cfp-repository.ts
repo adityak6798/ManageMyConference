@@ -27,12 +27,24 @@ export interface ProposalOwnerWrite {
   readonly expectedRevision: number;
   readonly updatedAt: string;
   readonly at: string;
-}
-
-/** A `ProposalOwnerWrite` that also moves the proposal out of draft, so it needs the form it met. */
-export interface ProposalSubmitWrite extends ProposalOwnerWrite {
+  /**
+   * The form these answers were validated against, stored beside them.
+   *
+   * Answers and their form travel together on **every** write, not only on the submit. A revision
+   * is validated against the form as published *now*, so writing the answers without the fields
+   * leaves a row whose keys no longer match its snapshot — and every organizer and reviewer
+   * projection reads answers by looking each stored field up in that snapshot. A renamed question
+   * between submission and revision therefore emptied the proposal in triage, in every reviewer's
+   * queue and on the submitter's own dashboard, and blanked the contact address the decision
+   * notification is resolved from. `submitProposal` already carried both; this is the same
+   * invariant on the sibling write (`GAP-025`'s lesson about siblings).
+   */
   readonly cfpVersion: number;
   readonly fields: readonly CfpField[];
+}
+
+/** A `ProposalOwnerWrite` that also moves the proposal out of draft, so it records the decision. */
+export interface ProposalSubmitWrite extends ProposalOwnerWrite {
   readonly resolvedRoute: CfpResolvedRoute | null;
   readonly status: string;
   readonly submittedAt: string;
