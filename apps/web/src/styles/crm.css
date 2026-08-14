@@ -25,6 +25,62 @@
   max-width: 100%;
 }
 
+/*
+ * Everything the directory renders *after* its table.
+ *
+ * The card body is `tight` so the table can meet the card's own border, which means every
+ * other block in that body has to bring its own padding. The toolbar row above brings its;
+ * this section did not, so "Directory tools" and every control beneath it — import, find and
+ * merge duplicates, outreach — sat on the border, read as page furniture rather than as part
+ * of the card, and were reported as missing rather than as mis-padded (#206).
+ */
+.crm .crm-directory-tools {
+  display: grid;
+  gap: var(--s-3);
+  padding: var(--s-5);
+  border-top: 1px solid var(--line);
+}
+/* Each disclosure is its own block, so an open one is separable from the next by eye. */
+.crm .crm-directory-tools .crm-details {
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+.crm .crm-directory-tools .crm-details[open] {
+  background: var(--surface);
+}
+/* The contents of an open disclosure, which are otherwise a run of unspaced controls. */
+.crm .crm-directory-tools .crm-details[open] > *:not(summary) {
+  margin-top: var(--s-3);
+}
+.crm .crm-directory-tools form {
+  display: grid;
+  gap: var(--s-3);
+  justify-items: start;
+}
+.crm .crm-directory-tools table.data {
+  margin-top: var(--s-3);
+}
+
+/* A label sits above its control, so a flex row centred on the box mid-line staggers the two:
+   the saved-view select and the save-this-view input landed on different lines and read as
+   unrelated. Top alignment puts the labels on one line and the controls on the next. */
+.crm .crm-toolbar-row .toolbar {
+  align-items: start;
+}
+/* The save-view form is a labelled input with its own submit, so the button belongs beside
+   the box rather than under it. */
+.crm .crm-toolbar-row .toolbar > form.field {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--s-2);
+}
+.crm .crm-toolbar-row .toolbar > form.field > label {
+  grid-column: 1 / -1;
+  margin-bottom: -3px;
+}
+
 /* The tab strip is flush with the card edge so it reads as the table's header rail. */
 .crm .crm-toolbar-row .tabs {
   margin: 0 calc(-1 * var(--s-5));
@@ -233,6 +289,9 @@
     padding: 0 var(--s-4);
   }
   .crm .crm-skeletons {
+    padding: var(--s-4);
+  }
+  .crm .crm-directory-tools {
     padding: var(--s-4);
   }
 }

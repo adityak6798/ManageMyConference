@@ -43,8 +43,7 @@ import {
 } from "./api/crm";
 import "./styles/crm.css";
 import { IconCheck, IconPlus, IconSend, IconSpeakers, IconWarning } from "./ui/icons";
-import { Card, EmptyState, Notice, Pill, Stat } from "./ui/primitives";
-import { useActionFeedback } from "./ui/primitives";
+import { Card, EmptyState, Notice, Pill, Stat, useActionFeedback } from "./ui/primitives";
 
 type Dashboard = Awaited<ReturnType<typeof getContactDashboard>>;
 type ImportPreview = Awaited<ReturnType<typeof previewImport>> & {
@@ -779,7 +778,7 @@ export function CrmDirectoryWorkspace({
             </div>
           )}
 
-          <section aria-labelledby="crm-directory-tools">
+          <section className="crm-directory-tools" aria-labelledby="crm-directory-tools">
             <h3 id="crm-directory-tools">Directory tools</h3>
 
             <details className="crm-details">
