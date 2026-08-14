@@ -297,24 +297,7 @@ export class CrmService {
     const authorized = this.authorize(actor, command.eventId);
     await this.requireAssignableOwner(command.eventId, command.ownerId);
     const now = this.dependencies.now().toISOString();
-    /*
-     * Where a new prospect lands is the board's first `open` stage rather than the literal
-     * `identified`. An organizer who renamed or reordered their intake column would otherwise
-     * find every new card arriving in a column they had moved to the end — the board would be
-     * configurable everywhere except where things enter it.
-     *
-     * The fallback is the first column a card may be *put* in, never simply the leftmost one.
-     * A board whose stages are all `won`, `nurture` or `lost` is a board this service accepts,
-     * and it can begin with Converted — so `stages[0]` created a prospect standing in Converted
-     * with no `speakerId` and no `convertedAt` behind it, which is the exact state `update`
-     * refuses to reach and the board refuses to accept a drop into. When Converted is the only
-     * column left there is nowhere honest to land, and creating is refused in the same words.
-     */
-    const stages = await this.ensureStages(command.eventId);
-    const entry =
-      stages.find(({ category }) => category === "open") ??
-      stages.find(({ key }) => isMovableStage(key));
-    if (!entry) throw new PipelineStageInvalidError(CONVERTED_IS_NOT_A_DESTINATION);
+    const entry = await this.entryStage(command.eventId);
     const prospect: Prospect = {
       id: this.dependencies.newId(),
       eventId: command.eventId,
@@ -453,6 +436,23 @@ export class CrmService {
         createdAt,
       })),
     );
+  }
+
+  /**
+   * Where every newly tracked person enters this event's board.
+   *
+   * The board's first `open` stage wins rather than the literal `identified`, so direct creation
+   * and directory sourcing cannot disagree after an organizer renames or reorders intake. The
+   * fallback is the first column a card may be put in, never simply the leftmost one: a board
+   * beginning with Converted must not create an unconverted prospect inside it.
+   */
+  private async entryStage(eventId: string): Promise<PipelineStage> {
+    const stages = await this.ensureStages(eventId);
+    const entry =
+      stages.find(({ category }) => category === "open") ??
+      stages.find(({ key }) => isMovableStage(key));
+    if (!entry) throw new PipelineStageInvalidError(CONVERTED_IS_NOT_A_DESTINATION);
+    return entry;
   }
 
   /**
@@ -1264,11 +1264,12 @@ export class CrmService {
       }
     }
     if (!prospectId) {
+      const entry = await this.entryStage(command.eventId);
       const prospect: Prospect = {
         id: this.dependencies.newId(),
         eventId: command.eventId,
         name: contact.name,
-        stage: "identified",
+        stage: entry.key,
         ownerId: command.ownerId,
         nextAction: "Confirm interest for this event",
         nextActionAt: null,

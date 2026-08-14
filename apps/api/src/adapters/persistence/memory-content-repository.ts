@@ -377,12 +377,16 @@ export class MemoryContentRepository
     this.comments = this.comments.filter(({ assetId: candidate }) => candidate !== assetId);
   }
   async deleteAssetAfterStorage(assetId: string, profileId: string, draft: ContentRevisionDraft) {
-    const current = await this.findProfile(profileId);
+    const stored = this.speakers.find(({ id }) => id === profileId);
+    const current = stored ? this.profileVersion(stored) : null;
+    // Invoke both async methods before yielding. Their in-memory mutations are synchronous, so
+    // no headshot selection can interleave between the canonical clear and metadata deletion.
     const revised =
       current?.photoAssetId === assetId
-        ? await this.reviseProfilePhoto(profileId, draft, current.version ?? 0, null)
-        : null;
-    await this.deleteAsset(assetId);
+        ? this.reviseProfilePhoto(profileId, draft, current.version ?? 0, null)
+        : Promise.resolve(null);
+    const deleted = this.deleteAsset(assetId);
+    await deleted;
     return revised;
   }
   async hasSpeakerWork(eventId: string, profileId: string) {

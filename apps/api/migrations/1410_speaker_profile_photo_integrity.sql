@@ -2,6 +2,19 @@
 -- @spec PRD-SPK-001
 -- @issue #224
 
+-- Before this invariant existed, restoring a revision after deleting its headshot could leave
+-- the profile naming an asset row that was already gone. Repair those deployed rows first; the
+-- trigger below would otherwise make every later canonical profile edit repeat that conflict.
+UPDATE speaker_profiles
+   SET photo_asset_id = NULL
+ WHERE photo_asset_id IS NOT NULL
+   AND NOT EXISTS (
+     SELECT 1
+       FROM speaker_assets
+      WHERE id = speaker_profiles.photo_asset_id
+        AND speaker_profile_id = speaker_profiles.id
+   );
+
 -- A restored revision and a headshot selection both name an asset read before the profile write.
 -- Decide the reference from committed rows: the asset must still exist and still belong to this
 -- profile when the choice lands.

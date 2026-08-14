@@ -1,7 +1,7 @@
 import type {
   CrmRepository,
-  ProspectMove,
   ProspectFilters,
+  ProspectMove,
   StageMigration,
 } from "../../application/crm/crm-repository";
 import {
@@ -1499,48 +1499,54 @@ export class D1CrmRepository implements CrmRepository {
      * whole sourcing lands or none of it does, which is what `LIVE` on all four gives.
      */
     const owns = [contact.id, contact.organizationId];
-    await this.runBatch(
-      [
-        this.database
-          .prepare(
-            `INSERT INTO crm_prospects (id,event_id,name,stage,owner_id,next_action,next_action_at,created_at,updated_at) SELECT ?,?,?,?,?,?,?,?,? WHERE ${D1CrmRepository.LIVE}`,
-          )
-          .bind(
-            prospect.id,
-            prospect.eventId,
-            prospect.name,
-            prospect.stage,
-            prospect.ownerId,
-            prospect.nextAction,
-            prospect.nextActionAt,
-            prospect.createdAt,
-            prospect.updatedAt,
-            ...owns,
-          ),
-        ...prospect.contacts.map((item) =>
+    try {
+      await this.runBatch(
+        [
           this.database
             .prepare(
-              `INSERT INTO crm_contacts (id,prospect_id,name,email,is_primary) SELECT ?,?,?,?,? WHERE ${D1CrmRepository.LIVE}`,
+              `INSERT INTO crm_prospects (id,event_id,name,stage,owner_id,next_action,next_action_at,created_at,updated_at) SELECT ?,?,?,?,?,?,?,?,? WHERE ${D1CrmRepository.LIVE}`,
             )
-            .bind(item.id, prospect.id, item.name, item.email, item.isPrimary ? 1 : 0, ...owns),
-        ),
-        this.database
-          .prepare(
-            `INSERT INTO crm_contact_events (contact_id,event_id,prospect_id,linked_at) SELECT ?,?,?,? WHERE ${D1CrmRepository.LIVE}`,
-          )
-          .bind(contact.id, prospect.eventId, prospect.id, input.activity.occurredAt, ...owns),
-        this.contactActivityStatement(contact.id, input.activity, contact.organizationId),
-      ],
-      "source the contact into the event atomically",
-      // A double-submitted "Add to event": the second write meets `PRIMARY KEY (contact_id,
-      // event_id)`, or the unique index that keeps one prospect to one contact. Reported as the
-      // conflict it is rather than as a server fault.
-      {
-        when: /crm_contact_events/i,
-        error: () =>
-          new ContactAlreadySourcedError("This contact is already in that event's pipeline"),
-      },
-    );
+            .bind(
+              prospect.id,
+              prospect.eventId,
+              prospect.name,
+              prospect.stage,
+              prospect.ownerId,
+              prospect.nextAction,
+              prospect.nextActionAt,
+              prospect.createdAt,
+              prospect.updatedAt,
+              ...owns,
+            ),
+          ...prospect.contacts.map((item) =>
+            this.database
+              .prepare(
+                `INSERT INTO crm_contacts (id,prospect_id,name,email,is_primary) SELECT ?,?,?,?,? WHERE ${D1CrmRepository.LIVE}`,
+              )
+              .bind(item.id, prospect.id, item.name, item.email, item.isPrimary ? 1 : 0, ...owns),
+          ),
+          this.database
+            .prepare(
+              `INSERT INTO crm_contact_events (contact_id,event_id,prospect_id,linked_at) SELECT ?,?,?,? WHERE ${D1CrmRepository.LIVE}`,
+            )
+            .bind(contact.id, prospect.eventId, prospect.id, input.activity.occurredAt, ...owns),
+          this.contactActivityStatement(contact.id, input.activity, contact.organizationId),
+        ],
+        "source the contact into the event atomically",
+        // A double-submitted "Add to event": the second write meets `PRIMARY KEY (contact_id,
+        // event_id)`, or the unique index that keeps one prospect to one contact. Reported as the
+        // conflict it is rather than as a server fault.
+        {
+          when: /crm_contact_events/i,
+          error: () =>
+            new ContactAlreadySourcedError("This contact is already in that event's pipeline"),
+        },
+      );
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("pipeline stage does not exist"))
+        throw new PipelineStageNotFoundError("That stage is not on this board");
+      throw error;
+    }
   }
 
   async linkContactToExistingProspect(input: {

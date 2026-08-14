@@ -1521,6 +1521,46 @@ describe("D1 CRM organization directory", () => {
     ).rejects.toThrow();
   });
 
+  it("maps a directory source whose entry stage disappeared and writes no partial link", async () => {
+    const migrated = await migratedRuntime("crm-directory-stage-race");
+    runtime = migrated.runtime;
+    const repository = new D1CrmRepository(migrated.database);
+    const contact = await repository.findContact(organizationId, priyaId);
+    if (!contact) throw new Error("The seeded contact is missing");
+    const prospectId = "50000000-0000-4000-8000-0000000000bc";
+
+    await expect(
+      repository.linkContactToEvent({
+        contact,
+        prospect: {
+          id: prospectId,
+          eventId,
+          name: contact.name,
+          stage: "stage-deleted-after-read",
+          ownerId: "seed-organizer",
+          nextAction: null,
+          nextActionAt: null,
+          contacts: [],
+          activities: [],
+          speakerId: null,
+          convertedAt: null,
+          createdAt: "2026-08-11T12:00:00.000Z",
+          updatedAt: "2026-08-11T12:00:00.000Z",
+        },
+        activity: {
+          id: "71000000-0000-4000-8000-0000000000bc",
+          kind: "note",
+          summary: "Sourced after a stale board read",
+          private: false,
+          occurredAt: "2026-08-11T12:00:00.000Z",
+          actorId: "seed-organizer",
+        },
+      }),
+    ).rejects.toBeInstanceOf(PipelineStageNotFoundError);
+    await expect(repository.findById(eventId, prospectId)).resolves.toBeNull();
+    expect((await repository.findContact(organizationId, priyaId))?.events).toEqual([]);
+  });
+
   it("adopts an existing prospect by normalized primary address with link history atomically", async () => {
     const migrated = await migratedRuntime("crm-adopt-existing");
     runtime = migrated.runtime;

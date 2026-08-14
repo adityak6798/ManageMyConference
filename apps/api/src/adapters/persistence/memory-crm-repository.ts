@@ -1,7 +1,7 @@
 import type {
   CrmRepository,
-  ProspectMove,
   ProspectFilters,
+  ProspectMove,
   StageMigration,
 } from "../../application/crm/crm-repository";
 import {
@@ -420,6 +420,12 @@ export class MemoryCrmRepository implements CrmRepository {
   }) {
     const contact = this.contacts.get(input.contact.id);
     if (!contact) throw new ContactNotFoundError("Contact not found");
+    if (
+      !(this.stages.get(input.prospect.eventId) ?? []).some(
+        ({ key }) => key === input.prospect.stage,
+      )
+    )
+      throw new PipelineStageNotFoundError("That stage is not on this board");
     this.prospects.set(input.prospect.id, input.prospect);
     this.contacts.set(contact.id, {
       ...contact,

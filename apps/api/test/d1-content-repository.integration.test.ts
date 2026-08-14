@@ -29,7 +29,7 @@ import { resolveSeededDemoActor } from "../src/application/identity/demo-session
 import { ProposalNotFoundError } from "../src/application/review/public";
 import { ReviewService } from "../src/application/review/review-service";
 import type { SpeakerProfile } from "../src/domain/content/content";
-import { createMigratedDatabase } from "./support/seeded-d1";
+import { applyMigrations, createMigratedDatabase } from "./support/seeded-d1";
 
 const _statements = (sql: string) =>
   sql
@@ -269,6 +269,47 @@ describe("D1ContentRepository", () => {
     await expect(repository.findAsset(privateAsset.id)).resolves.toMatchObject({
       visibility: "private",
     });
+  });
+});
+
+describe("speaker profile photo integrity migration", () => {
+  let runtime: Miniflare | undefined;
+  afterEach(async () => runtime?.dispose());
+
+  it("repairs a pre-existing dangling headshot before enforcing owned references", async () => {
+    const migrated = await createMigratedDatabase({ label: "content-photo-upgrade", seed: true });
+    runtime = migrated.runtime;
+    const database = migrated.database;
+    const profileId = "10000000-0000-4000-8000-000000000002";
+    // Recreate the state of a database just before 1410: its supported restore/delete sequence
+    // could remove this chosen asset without clearing the profile. Dropping only these triggers
+    // lets the current seed supply every referenced fixture row without this content-owned test
+    // writing another domain's tables.
+    await database.prepare("DROP TRIGGER speaker_asset_delete_rejects_profile_photo").run();
+    await database.prepare("DROP TRIGGER speaker_profile_photo_requires_owned_asset").run();
+    await database
+      .prepare(
+        "DELETE FROM speaker_assets WHERE id=(SELECT photo_asset_id FROM speaker_profiles WHERE id=?)",
+      )
+      .bind(profileId)
+      .run();
+
+    await applyMigrations(database, {
+      from: "1410_speaker_profile_photo_integrity.sql",
+      through: "1410_speaker_profile_photo_integrity.sql",
+    });
+
+    const repaired = await database
+      .prepare("SELECT photo_asset_id FROM speaker_profiles WHERE id=?")
+      .bind(profileId)
+      .first<{ photo_asset_id: string | null }>();
+    expect(repaired?.photo_asset_id).toBeNull();
+    await expect(
+      database
+        .prepare("UPDATE speaker_profiles SET bio=? WHERE id=?")
+        .bind("After the repair", profileId)
+        .run(),
+    ).resolves.toMatchObject({ success: true });
   });
 });
 

@@ -512,6 +512,30 @@ describe("ACC-CRM organization directory", () => {
     expect(await service.list(organizerOfBothEvents, otherEventId, {})).toHaveLength(1);
   });
 
+  it("sources a directory contact into the board's configured entry stage", async () => {
+    const { service } = setup();
+    await service.savePipelineStages(organizer, eventId, [
+      { key: "declined", label: "Declined", category: "lost" },
+      { key: "sourcing", label: "Sourcing", category: "open" },
+      { key: "identified", label: "Identified", category: "open" },
+      { key: "converted", label: "Converted", category: "won" },
+    ]);
+    const contact = await contactOf(service, { name: "Ada Rivera", email: "ada@example.test" });
+
+    const pushed = await service.pushContactToEvent(
+      organizer,
+      organizationId,
+      contact.id,
+      { eventId, ownerId: organizer.id, convert: false },
+      "correlation-custom-entry",
+    );
+
+    expect(pushed.prospect.stage).toBe("sourcing");
+    expect(pushed.contact.events).toEqual([
+      expect.objectContaining({ eventId, stage: "sourcing" }),
+    ]);
+  });
+
   it("converts a pushed contact exactly once and keeps the prospect provenance", async () => {
     const { service, createOrLink } = setup();
     const contact = await contactOf(service, { name: "Ada Rivera", email: "ada@example.test" });
