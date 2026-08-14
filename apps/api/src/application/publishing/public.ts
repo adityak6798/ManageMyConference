@@ -24,6 +24,38 @@ export {
 } from "./publication-service";
 export { publishingTemplateSlice } from "./template-slice";
 /**
+ * Sites and portals (issue #196).
+ *
+ * A Site composes *pointers* to programs other domains own; `SiteProgramResolver` is the seam the
+ * composition root binds to those domains' own public application interfaces, so publishing never
+ * learns another domain's tables.
+ */
+export type {
+  PublicSite,
+  Site,
+  SiteFieldKind,
+  SitePage,
+  SiteProgram,
+  SiteProgramKind,
+  SiteState,
+  SiteTheme,
+} from "../../domain/publishing/site";
+export {
+  composePublicSite,
+  programHref,
+  REQUIRED_REGISTRATION_FIELDS,
+} from "../../domain/publishing/site";
+export type { SiteDraft, SiteProgramResolver, SiteRepository } from "./site-service";
+export {
+  SiteAlreadyRegisteredError,
+  SiteConflictError,
+  SiteConsentUnavailableError,
+  SiteInvalidError,
+  SiteNotFoundError,
+  SiteService,
+  SiteSlugTakenError,
+} from "./site-service";
+/**
  * The seam platform's audit timeline observes publishing through (#99, `PRD-OPS-003`).
  *
  * Appended here rather than woven in, so a lane rebasing around this line moves nothing above it.

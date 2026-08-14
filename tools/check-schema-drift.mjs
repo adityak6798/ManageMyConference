@@ -80,6 +80,16 @@ export const UNMODELLED_OBJECTS = [
   // they are the whole reason the table is evidence rather than a log somebody can rewrite.
   "trigger:platform_audit_records_no_update",
   "trigger:platform_audit_records_no_delete",
+  // Sites and portals (issue #196, migration 1804). A privacy-notice version and a consent
+  // record are both immutable, and the point of each is what it makes the other mean: a consent
+  // names a version, so a version whose text could move afterwards would make every consent a
+  // claim about text nobody can produce. The publish history is append-only for the same reason
+  // the audit timeline is, and it carries no foreign key so the delete guard cannot be reached
+  // by a cascade.
+  "trigger:site_privacy_notices_immutable",
+  "trigger:site_consents_immutable",
+  "trigger:site_publications_no_update",
+  "trigger:site_publications_no_delete",
   // The pair that makes drift in `agenda_session_schedules` detectable rather than silent. They
   // belong to the database rather than to the application on purpose: a writer of
   // `agenda_publications` that knows nothing about the derived table — the old Worker during a

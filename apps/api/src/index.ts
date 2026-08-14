@@ -1,6 +1,7 @@
 import { createDeliverablesZip } from "./adapters/content/create-deliverables-zip";
 import { D1SpeakerConversion } from "./adapters/content/d1-speaker-conversion";
 import { parseSpeakerCsv } from "./adapters/content/parse-speaker-csv";
+import { sanitizeSiteHtml } from "./adapters/publishing/sanitize-site-html";
 import {
   sanitizeResourceEmbed,
   sanitizeResourceHtml,
@@ -30,6 +31,7 @@ import { D1CustomRoleRepository } from "./adapters/persistence/d1-custom-roles";
 import { D1MembershipRepository } from "./adapters/persistence/d1-identity-membership";
 import { D1SessionStore } from "./adapters/persistence/d1-identity-sessions";
 import { D1ItineraryRepository } from "./adapters/persistence/d1-itinerary-repository";
+import { D1SiteRepository } from "./adapters/persistence/d1-site-repository";
 import { D1InboxDismissalStore } from "./adapters/persistence/d1-platform-repository";
 import { D1PublicationRepository } from "./adapters/persistence/d1-publication-repository";
 import { D1ReviewRepository } from "./adapters/persistence/d1-review-repository";
@@ -106,7 +108,11 @@ import {
   PlatformOperationsService,
 } from "./application/platform/public";
 import { ItineraryService } from "./application/publishing/itinerary-service";
-import { type ProjectionRefresh, publishingTemplateSlice } from "./application/publishing/public";
+import {
+  type ProjectionRefresh,
+  publishingTemplateSlice,
+  SiteService,
+} from "./application/publishing/public";
 import { PublicationService } from "./application/publishing/publication-service";
 import { reviewTemplateSlice } from "./application/review/public";
 import type { ReviewNotificationPort } from "./application/review/review-service";
@@ -1683,6 +1689,62 @@ export default {
       },
     );
     const itineraries = new ItineraryService(new D1ItineraryRepository(environment.DB), publishing);
+    /*
+     * Sites and portals (issue #196).
+     *
+     * `programs` is the seam a Site resolves its attached programs through, and binding it is the
+     * whole of what this file contributes: publishing states that it needs a title and a state
+     * for a `(kind, ref)` pair, and the composition root decides that a `event-cfp` is answered by
+     * the CFP domain's published form and a `speaker-portal` by the events domain's own name for
+     * that event. Publishing therefore imports neither, and adding a fourth program kind is a
+     * change here rather than inside publishing.
+     *
+     * A reference this cannot resolve is simply absent from the answer. `SiteService` keeps it in
+     * the order and reports it to the organizer as unresolved; a portal that quietly shortened
+     * itself would say nothing about why.
+     */
+    const sites = new SiteService({
+      repository: new D1SiteRepository(environment.DB),
+      events: service,
+      sanitize: sanitizeSiteHtml,
+      newId: () => crypto.randomUUID(),
+      now: () => new Date(),
+      programs: {
+        async resolve(references) {
+          const resolved = new Map<string, { title: string; state: string }>();
+          await Promise.all(
+            references.map(async ({ kind, ref }) => {
+              try {
+                if (kind === "event-cfp") {
+                  const form = await cfpService.getPublished(ref);
+                  resolved.set(`${kind}:${ref}`, {
+                    title: form.title,
+                    state: form.effectiveStatus === "open" ? "open" : "closed",
+                  });
+                  return;
+                }
+                // An interest form and a speaker portal are both addressed by their event today.
+                // Naming the event is what a visitor needs from the portal's list; the program's
+                // own page is where its detail lives.
+                const name = await service.nameOf(ref);
+                if (name) resolved.set(`${kind}:${ref}`, { title: name, state: "open" });
+              } catch (error) {
+                // ERROR-INTENT: an unresolvable program is a portal-composition fact, not a
+                // failure of the read. It is reported to the organizer as `unresolvedPrograms`
+                // and keeps its place in the visitor's list; letting one missing program refuse
+                // the whole portal would take a working page down over a deleted call.
+                if (error instanceof CfpUnavailableError) return;
+                logger.warn(
+                  { operation: "site.program.unresolved", kind, ref },
+                  "site.program.unresolved",
+                );
+              }
+            }),
+          );
+          return resolved;
+        },
+      },
+    });
     // --- events (issue #102) ---
     /*
      * The orchestration seam for reusable event templates.
@@ -1853,6 +1915,7 @@ export default {
       webhooks,
       publishing,
       itineraries,
+      sites,
       speakerCalendarInvites,
       accelEventsSync,
       membership,

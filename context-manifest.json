@@ -987,7 +987,17 @@
         "apps/api/test/itinerary.test.ts",
         "apps/web/src/api/itinerary.ts",
         "apps/web/src/public-event/itinerary.tsx",
-        "apps/web/test/public-itinerary.test.ts"
+        "apps/web/test/public-itinerary.test.ts",
+        "apps/api/migrations/1804_sites.sql",
+        "apps/api/src/domain/publishing/site.ts",
+        "apps/api/src/application/publishing/site-service.ts",
+        "apps/api/src/adapters/persistence/d1-site-repository.ts",
+        "apps/api/src/adapters/publishing/sanitize-site-html.ts",
+        "apps/api/test/site-service.test.ts",
+        "apps/api/test/d1-site-repository.integration.test.ts",
+        "apps/web/src/SitesWorkspace.tsx",
+        "apps/web/src/workspaces/sites.tsx",
+        "apps/web/src/api/sites.ts"
       ]
     }
   ],

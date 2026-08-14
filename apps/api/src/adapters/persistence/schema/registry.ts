@@ -43,7 +43,10 @@ const communicationsIntegrationsSchema = defineCommunicationsIntegrationsSchema(
   eventsId: eventsSchema.events.id,
   organizationsId: eventsSchema.organizations.id,
 });
-const publishingSchema = definePublishingSchema({ eventsId: eventsSchema.events.id });
+const publishingSchema = definePublishingSchema({
+  eventsId: eventsSchema.events.id,
+  organizationsId: eventsSchema.organizations.id,
+});
 const platformSchema = definePlatformSchema({
   eventsId: eventsSchema.events.id,
   usersId: identityAccessSchema.users.id,
@@ -86,6 +89,13 @@ export const {
   agendaScheduleMaterializations,
   agendaSessionSchedules,
   attendeeItineraries,
+  siteConsents,
+  sitePages,
+  sitePrivacyNotices,
+  sitePrograms,
+  sitePublications,
+  siteRegistrationFields,
+  sites,
   cfpForms,
   cfpStatusAudit,
   cfpStatuses,

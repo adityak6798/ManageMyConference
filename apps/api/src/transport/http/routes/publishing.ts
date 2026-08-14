@@ -17,14 +17,35 @@ import {
   publicEventProjectionSchema,
   publicEventSlugParamsSchema,
   publicScheduleSchema,
+  publicSitePageResponseSchema,
+  publicSiteResponseSchema,
+  siteConsentsResponseSchema,
+  siteDetailResponseSchema,
+  siteDraftSchema,
+  sitePageParamsSchema,
+  sitePrivacyNoticeInputSchema,
+  sitePrivacyNoticeResponseSchema,
+  siteRegistrationInputSchema,
+  siteRegistrationResponseSchema,
+  siteResponseSchema,
+  siteRevisionInputSchema,
+  sitesResponseSchema,
+  siteSlugParamsSchema,
+  siteUpdateSchema,
 } from "@greenroom/contracts";
 import {
   composePublicSchedule,
   ItineraryNotFoundError,
   PublicationSettingsError,
   PublicationSlugTakenError,
+  SiteAlreadyRegisteredError,
+  SiteConflictError,
+  SiteConsentUnavailableError,
+  SiteInvalidError,
+  SiteNotFoundError,
+  SiteSlugTakenError,
 } from "../../../application/publishing/public";
-import { envelope, readJson, validationFields } from "../runtime";
+import { envelope, type HttpContext, readJson, validationFields } from "../runtime";
 import { clientAddress, FixedWindowThrottle } from "../throttle";
 import type { HttpApp, HttpDependencies, RouteModule } from "./contract";
 
@@ -44,6 +65,22 @@ const routes = [
   "POST /api/public/events/:slug/itinerary",
   "GET /api/public/itineraries/:token",
   "POST /api/public/itineraries/:token",
+  /*
+   * Sites and portals (issue #196). Their public prefix is `/api/public/sites/*`, which is what
+   * keeps a Site's address and an event's address from ever needing to reserve against each
+   * other: they are different namespaces rather than one namespace with two kinds of row.
+   */
+  "GET /api/public/sites/:slug",
+  "GET /api/public/sites/:slug/pages/:pageSlug",
+  "POST /api/public/sites/:slug/registrations",
+  "GET /api/publishing/organizations/:organizationId/sites",
+  "POST /api/publishing/organizations/:organizationId/sites",
+  "GET /api/publishing/organizations/:organizationId/sites/:siteId",
+  "PUT /api/publishing/organizations/:organizationId/sites/:siteId",
+  "POST /api/publishing/organizations/:organizationId/sites/:siteId/privacy-notice",
+  "POST /api/publishing/organizations/:organizationId/sites/:siteId/publish",
+  "POST /api/publishing/organizations/:organizationId/sites/:siteId/unpublish",
+  "GET /api/publishing/organizations/:organizationId/sites/:siteId/consents",
 ] as const;
 
 /*
@@ -58,11 +95,18 @@ const routes = [
  */
 const itineraryThrottle = new FixedWindowThrottle(20, 60_000);
 
+/*
+ * Portal registration is the other anonymous row-creating write, and it is throttled on the same
+ * terms and for the same reason. Tighter than itinerary minting because a registration carries a
+ * name and an address: the cost of a flood is somebody's inbox rather than a wasted row.
+ */
+const registrationThrottle = new FixedWindowThrottle(10, 60_000);
+
 export const publishingRoutes: RouteModule = {
   domain: "publishing",
   routes,
   register(app: HttpApp, dependencies: HttpDependencies) {
-    const { publishing, agenda, itineraries, auth } = dependencies;
+    const { publishing, agenda, itineraries, sites, auth } = dependencies;
     app.get("/api/public/events/:slug", async (context) => {
       const slug = context.req.param("slug");
       if (!publishing || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug))
@@ -295,6 +339,206 @@ export const publishingRoutes: RouteModule = {
       const itinerary = await itineraries.save(parsed.data.token, body.data.sessionSlugs);
       return context.json(itineraryResponseSchema.parse({ itinerary }));
     });
+
+    /*
+     * ---- Sites and portals (issue #196) -----------------------------------
+     *
+     * The public reads answer a draft, an unpublished Site and an unknown address identically, so
+     * the routes cannot be used to discover a portal somebody is still preparing — the same rule
+     * the public event hub follows.
+     *
+     * Registration is a row created by an unauthenticated caller, so it is throttled exactly as
+     * itinerary minting and anonymous CFP submission are, and on the caller's address alone for
+     * the reason `throttle.ts` states.
+     */
+    const noSite = (correlationId: string) =>
+      envelope("NOT_FOUND", "This site is not published.", correlationId);
+    const siteScope = (context: HttpContext) =>
+      [context.req.param("organizationId") ?? "", context.req.param("siteId") ?? ""] as const;
+    const invalidSite = (context: HttpContext, error: { issues: readonly unknown[] }) =>
+      context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "Review the highlighted site details.",
+          context.get("correlationId"),
+          validationFields(error.issues as never),
+        ),
+        400,
+      );
+
+    app.get("/api/public/sites/:slug", async (context) => {
+      const parsed = siteSlugParamsSchema.safeParse(context.req.param());
+      if (!parsed.success || !sites) return context.json(noSite(context.get("correlationId")), 404);
+      const site = await sites.publicSite(parsed.data.slug);
+      if (!site) return context.json(noSite(context.get("correlationId")), 404);
+      return context.json(publicSiteResponseSchema.parse({ site }));
+    });
+
+    app.get("/api/public/sites/:slug/pages/:pageSlug", async (context) => {
+      const parsed = sitePageParamsSchema.safeParse(context.req.param());
+      if (!parsed.success || !sites) return context.json(noSite(context.get("correlationId")), 404);
+      const found = await sites.publicPage(parsed.data.slug, parsed.data.pageSlug);
+      // A hidden page is *not found* rather than forbidden: telling a visitor a page exists but
+      // is not for them is the enumeration the public namespace avoids everywhere else.
+      if (!found) return context.json(noSite(context.get("correlationId")), 404);
+      return context.json(publicSitePageResponseSchema.parse(found));
+    });
+
+    app.post("/api/public/sites/:slug/registrations", async (context) => {
+      const throttled = registrationThrottle.check(
+        clientAddress(context.req.raw.headers),
+        (auth.now ?? Date.now)(),
+      );
+      if (!throttled.allowed) {
+        context.header("retry-after", String(throttled.retryAfterSeconds));
+        return context.json(
+          envelope(
+            "RATE_LIMITED",
+            "Too many registrations from this address. Try again shortly.",
+            context.get("correlationId"),
+          ),
+          429,
+        );
+      }
+      const parsed = siteSlugParamsSchema.safeParse(context.req.param());
+      if (!parsed.success || !sites) return context.json(noSite(context.get("correlationId")), 404);
+      const body = siteRegistrationInputSchema.safeParse(await readJson(context.req));
+      if (!body.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "Review the highlighted registration details.",
+            context.get("correlationId"),
+            validationFields(body.error.issues),
+          ),
+          400,
+        );
+      const recorded = await sites.register(parsed.data.slug, {
+        name: body.data.name,
+        email: body.data.email,
+        accepted: body.data.accepted,
+        answers: body.data.answers ?? {},
+      });
+      return context.json(
+        siteRegistrationResponseSchema.parse({ registered: true, ...recorded }),
+        201,
+      );
+    });
+
+    const noSites = (context: HttpContext) =>
+      context.json(
+        envelope(
+          "NOT_FOUND",
+          "The requested resource was not found.",
+          context.get("correlationId"),
+        ),
+        404,
+      );
+
+    app.get("/api/publishing/organizations/:organizationId/sites", async (context) => {
+      if (!sites) return noSites(context);
+      const [organizationId] = siteScope(context);
+      return context.json(
+        sitesResponseSchema.parse({
+          sites: await sites.list(context.get("actor"), organizationId),
+        }),
+      );
+    });
+
+    app.post("/api/publishing/organizations/:organizationId/sites", async (context) => {
+      if (!sites) return noSites(context);
+      const body = siteDraftSchema.safeParse(await readJson(context.req));
+      if (!body.success) return invalidSite(context, body.error);
+      const [organizationId] = siteScope(context);
+      return context.json(
+        siteResponseSchema.parse({
+          site: await sites.create(context.get("actor"), organizationId, body.data),
+        }),
+        201,
+      );
+    });
+
+    app.get("/api/publishing/organizations/:organizationId/sites/:siteId", async (context) => {
+      if (!sites) return noSites(context);
+      const [organizationId, siteId] = siteScope(context);
+      return context.json(
+        siteDetailResponseSchema.parse(
+          await sites.get(context.get("actor"), organizationId, siteId),
+        ),
+      );
+    });
+
+    app.put("/api/publishing/organizations/:organizationId/sites/:siteId", async (context) => {
+      if (!sites) return noSites(context);
+      const body = siteUpdateSchema.safeParse(await readJson(context.req));
+      if (!body.success) return invalidSite(context, body.error);
+      const [organizationId, siteId] = siteScope(context);
+      return context.json(
+        siteResponseSchema.parse({
+          site: await sites.update(context.get("actor"), organizationId, siteId, body.data),
+        }),
+      );
+    });
+
+    app.post(
+      "/api/publishing/organizations/:organizationId/sites/:siteId/privacy-notice",
+      async (context) => {
+        if (!sites) return noSites(context);
+        const body = sitePrivacyNoticeInputSchema.safeParse(await readJson(context.req));
+        if (!body.success) return invalidSite(context, body.error);
+        const [organizationId, siteId] = siteScope(context);
+        return context.json(
+          sitePrivacyNoticeResponseSchema.parse(
+            await sites.publishPrivacyNotice(
+              context.get("actor"),
+              organizationId,
+              siteId,
+              body.data.bodyHtml,
+            ),
+          ),
+          201,
+        );
+      },
+    );
+
+    for (const action of ["publish", "unpublish"] as const)
+      app.post(
+        `/api/publishing/organizations/:organizationId/sites/:siteId/${action}`,
+        async (context) => {
+          if (!sites) return noSites(context);
+          const body = siteRevisionInputSchema.safeParse(await readJson(context.req));
+          if (!body.success) return invalidSite(context, body.error);
+          const [organizationId, siteId] = siteScope(context);
+          const site =
+            action === "publish"
+              ? await sites.publish(
+                  context.get("actor"),
+                  organizationId,
+                  siteId,
+                  body.data.expectedRevision,
+                )
+              : await sites.unpublish(
+                  context.get("actor"),
+                  organizationId,
+                  siteId,
+                  body.data.expectedRevision,
+                );
+          return context.json(siteResponseSchema.parse({ site }));
+        },
+      );
+
+    app.get(
+      "/api/publishing/organizations/:organizationId/sites/:siteId/consents",
+      async (context) => {
+        if (!sites) return noSites(context);
+        const [organizationId, siteId] = siteScope(context);
+        return context.json(
+          siteConsentsResponseSchema.parse({
+            consents: await sites.consents(context.get("actor"), organizationId, siteId),
+          }),
+        );
+      },
+    );
   },
   translateError(error: unknown) {
     // One answer for an unknown token, an unpublished event and a withdrawn one, so the
@@ -309,6 +553,47 @@ export const publishingRoutes: RouteModule = {
         // Named so the form can put the refusal on the field that caused it, rather than
         // printing "already taken" above a form of five inputs.
         fields: { slug: [error.message] },
+      };
+    /*
+     * A Site that is not in this organization, one that does not exist, and an unpublished one
+     * are a single 404 — the same indistinguishability rule the public event hub follows, so a
+     * site id cannot be probed from an organization it does not belong to.
+     */
+    if (error instanceof SiteNotFoundError)
+      return {
+        code: "NOT_FOUND" as const,
+        message: "That site was not found.",
+        status: 404 as const,
+      };
+    if (error instanceof SiteSlugTakenError)
+      return {
+        code: "CONFLICT" as const,
+        message: error.message,
+        status: 409 as const,
+        fields: { slug: [error.message] },
+      };
+    if (error instanceof SiteConflictError)
+      return { code: "CONFLICT" as const, message: error.message, status: 409 as const };
+    if (error instanceof SiteInvalidError)
+      return {
+        code: "VALIDATION_FAILED" as const,
+        message: error.message,
+        status: 400 as const,
+        fields: error.fields,
+      };
+    // 409 rather than 400: the registrant did nothing wrong, and telling them they are already
+    // registered is more useful than refusing the form they just filled in.
+    if (error instanceof SiteAlreadyRegisteredError)
+      return {
+        code: "CONFLICT" as const,
+        message: "That address is already registered for this site.",
+        status: 409 as const,
+      };
+    if (error instanceof SiteConsentUnavailableError)
+      return {
+        code: "CONFLICT" as const,
+        message: "This site is not accepting registrations yet.",
+        status: 409 as const,
       };
     if (error instanceof PublicationSettingsError)
       return {

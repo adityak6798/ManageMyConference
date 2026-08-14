@@ -93,6 +93,13 @@
     "public_event_projection_versions": "publishing",
     "event_custom_roles": "identity-access",
     "event_custom_role_capabilities": "identity-access",
-    "event_custom_role_field_policies": "identity-access"
+    "event_custom_role_field_policies": "identity-access",
+    "sites": "publishing",
+    "site_programs": "publishing",
+    "site_pages": "publishing",
+    "site_privacy_notices": "publishing",
+    "site_registration_fields": "publishing",
+    "site_consents": "publishing",
+    "site_publications": "publishing"
   }
 }

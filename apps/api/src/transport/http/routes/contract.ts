@@ -26,7 +26,11 @@ import type { CustomRoleService } from "../../../application/identity/public";
 import type { MembershipService } from "../../../application/identity/membership";
 import type { ApiClientService } from "../../../application/identity/public";
 import type { PlatformOperationsService } from "../../../application/platform/public";
-import type { ItineraryService, PublicationService } from "../../../application/publishing/public";
+import type {
+  ItineraryService,
+  PublicationService,
+  SiteService,
+} from "../../../application/publishing/public";
 import type { ReviewService } from "../../../application/review/review-service";
 import type {
   BuildIdentity,
@@ -98,6 +102,13 @@ export interface HttpDependencies {
   accelEventsSync?: AccelEventsSyncService | undefined;
   publishing?: PublicationService | undefined;
   itineraries?: ItineraryService | undefined;
+  /**
+   * Organization-owned portals composing several programs (issue #196).
+   *
+   * Separate from `publishing` because a Site is not a public-event projection and shares none of
+   * its machinery: it composes pointers to programs other domains own, resolved at read time.
+   */
+  sites?: SiteService | undefined;
   eventTemplates?: EventTemplateService | undefined;
   platformOps?: PlatformOperationsService | undefined;
   build?: BuildIdentity | undefined;
