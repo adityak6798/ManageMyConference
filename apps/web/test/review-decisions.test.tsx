@@ -574,8 +574,10 @@ describe("staffing a reviewer", () => {
       "href",
       `/members?event=${eventId}`,
     );
-    // And it names the role, because "invite somebody" is the half an organizer already knew.
-    expect(notice.textContent).toContain("reviewer");
+    // And it names the *role to choose*, because "invite somebody" is the half an organizer already
+    // knew. Asserted on the emphasised element rather than on the notice's text, which contains the
+    // word "reviewers" anyway — the first version of this assertion was tautological.
+    expect(within(notice).getByText("reviewer", { selector: "strong" })).toBeVisible();
 
     cleanup();
     stubApi((url) =>

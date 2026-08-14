@@ -1,6 +1,6 @@
 # Authorization
 
-Status: canonical | Owner: security | ID: `ARC-AUTH-001` | Last verified: 2026-08-12
+Status: canonical | Owner: security | ID: `ARC-AUTH-001` | Last verified: 2026-08-14
 
 Authentication establishes identity; application authorization establishes organization/event scope and capability. Route visibility is convenience, never enforcement.
 
@@ -39,16 +39,29 @@ event. `requireEventCapability` would be the wrong instrument twice over: it ref
 has not been staffed, and the alternative — granting an event role to anyone who opens a form —
 would hand a capability model's guarantees away to strangers.
 
-What replaces it is narrower rather than weaker, and it is enforced in three places at once.
+**The first enforcement point is the credential's *kind*, and it is the transport's.** These routes
+never consult an event grant, so an event-scoped bearer token's one restriction — the event it was
+minted for — would go unread, and a token issued for one event would work against every other. An
+API-client credential is worse: it satisfies "is there an actor" with no scopes at all, and its `id`
+names a client row rather than a user. Both are refused with `403` by middleware on the
+`/api/events/:eventId/cfp/proposals` prefix, so a route added under it later inherits the refusal
+rather than quietly omitting it. A cookie session — real or demo — passes. This differs from
+identity's own routes, which answer `401` and refuse demo sessions as well; the divergence is
+deliberate, because here the caller is authenticated and it is the credential's kind that is wrong,
+and because a demo persona is a legitimate submitter on a demo deployment.
+
+The rest is narrower rather than weaker, and it is enforced in three further places.
 `CfpService` requires a session at all (`submitterFor`); every read is scoped to
 `(event_id, id, submitter_user_id)`; and every write puts that triple *and* the expected revision
 *and* the open-window condition in its own `WHERE` clause, so a write naming another account's
 proposal matches no row rather than being refused after a check. A proposal belonging to somebody
 else answers exactly as one that does not exist — the same indistinguishability rule the rest of
 this document states for cross-tenant lookups — so proposal ids cannot be enumerated from any
-account. Migration `1201` adds the fourth place: a trigger refuses any `UPDATE` that changes
+account. Migration `1201` adds the last place: a trigger refuses any `UPDATE` that changes
 `submitter_user_id`, so no write path can move a proposal onto another dashboard or claim an
-anonymous one.
+anonymous one. A caller-supplied idempotency key is namespaced by its owner before it is stored, so
+the per-event uniqueness constraint behind duplicate suppression cannot make one account's key
+resolve to another's proposal.
 
 The submitter view is also *narrower than the organizer's data*: it reports `draft`,
 `under consideration`, `accepted` or `not accepted` and never the configured triage status, because

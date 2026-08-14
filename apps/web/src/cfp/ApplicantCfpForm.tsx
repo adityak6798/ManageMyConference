@@ -36,8 +36,11 @@ export function ApplicantCfpForm({ eventId, form }: { eventId: string; form: Cfp
    * `status` describes the publication; `effectiveStatus` is the server's answer to "may somebody
    * submit right now", and it is the only one that accounts for a deadline or an opening date. This
    * surface branched on `status` and so offered a whole working form — and an "Open for
-   * submissions" pill — over a call that answers 409 to every submission. `?? form.status` keeps
-   * the two-state reading for a response that predates the field.
+   * submissions" pill — over a call that answers 409 to every submission.
+   *
+   * The `?? form.status` branch is unreachable and is kept as a type-level total, not as a
+   * compatibility story: `cfpFormSchema` requires `effectiveStatus` and `loadCfp` decodes through
+   * it, so a response lacking the field throws in `decodeResponse` and never reaches this component.
    */
   const effective = form.effectiveStatus ?? form.status;
   const open = effective === "open";

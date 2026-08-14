@@ -1,6 +1,6 @@
 # Personas and journeys
 
-Status: canonical | Owner: product | Last verified: 2026-08-12
+Status: canonical | Owner: product | Last verified: 2026-08-14
 
 ## Personas
 

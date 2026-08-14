@@ -16,10 +16,13 @@ import {
   createDemoSession,
   resolveSeededDemoActor,
 } from "../src/application/identity/demo-session";
-import { createHttpApp } from "../src/transport/http/app";
+import { createEventToken } from "../src/application/identity/real-auth";
+import { createHttpApp, createHttpAppFrom } from "../src/transport/http/app";
 import { submissionThrottle } from "../src/transport/http/throttle";
+import { memorySessionStore } from "./support/memory-session-store";
 
 const eventId = "00000000-0000-4000-8000-000000000001";
+const otherEventId = "00000000-0000-4000-8000-0000000000ee";
 const secret = "cfp-submitter-secret";
 const unknownProposal = "00000000-0000-4000-8000-0000000000ff";
 
@@ -102,6 +105,137 @@ async function setup() {
 }
 
 const proposals = `/api/events/${eventId}/cfp/proposals`;
+
+/**
+ * A deployment with **real** authentication, which is the only way to reach the bearer branch.
+ *
+ * The suite below composes with `demoMode: true`, and `app.ts` never looks at an `Authorization`
+ * header in that mode — so it is structurally incapable of exercising the machine-credential
+ * refusal, which is exactly why the hole it closes survived the first review pass unnoticed.
+ */
+async function realAuthSetup() {
+  const clock = new Date("2026-08-10T12:00:00.000Z");
+  const cfp = new CfpService(
+    new MemoryCfpRepository(),
+    () => crypto.randomUUID(),
+    () => clock,
+  );
+  const eventRepository = new MemoryEventRepository();
+  await eventRepository.create({
+    id: eventId,
+    organizationId: "00000000-0000-4000-8000-000000000010",
+    name: "Real-auth CFP Event",
+    timezone: "UTC",
+    createdAt: "2026-08-10T00:00:00.000Z",
+  });
+  /** An API-client principal: an actor whose `id` names a client row rather than a user. */
+  const machine = {
+    id: "api-client-row",
+    name: "Deploy bot",
+    persona: "organizer" as const,
+    organizations: [],
+    eventAccess: [],
+    capabilities: new Set<never>(),
+  };
+  /**
+   * The person an event token is minted for, holding a role on **another** event. That is the
+   * shape that makes the refusal worth asserting: a token carries exactly one restriction, the
+   * event it names, and these routes never read an event grant — so without the guard this
+   * credential would reach another event's proposals with its one restriction unread.
+   */
+  const tokenHolder = {
+    id: "00000000-0000-4000-8000-0000000000aa",
+    name: "Other Event Organizer",
+    persona: "organizer" as const,
+    organizations: [],
+    eventAccess: [
+      {
+        eventId: otherEventId,
+        role: "organizer" as const,
+        capabilities: new Set(["events:settings:update"] as const),
+      },
+    ],
+    capabilities: new Set(["events:settings:update"] as const),
+  };
+  const sessions = memorySessionStore();
+  sessions.seed({
+    id: "sid-event-token",
+    userId: tokenHolder.id,
+    issuedAt: 0,
+    expiresAt: clock.getTime() + 60_000,
+  });
+  const app = createHttpAppFrom({
+    events: new EventService({
+      repository: eventRepository,
+      newId: () => crypto.randomUUID(),
+      now: () => clock,
+    }),
+    logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    auth: {
+      demoMode: false,
+      sessionSecret: secret,
+      now: () => clock.getTime(),
+      resolveActor: async (userId) => (userId === tokenHolder.id ? tokenHolder : null),
+      resolveApiClient: async () => machine,
+      resolveEmail: async () => null,
+      sendLoginCode: async () => undefined,
+      saveLoginChallenge: async () => undefined,
+      consumeLoginChallenge: async () => null,
+      sessions,
+    },
+    cfp,
+  });
+  /** A real event-scoped bearer token, not a string that looks like one. */
+  const eventToken = await createEventToken(
+    "sid-event-token",
+    tokenHolder.id,
+    otherEventId,
+    secret,
+    clock.getTime() + 60_000,
+  );
+  return { app, eventToken };
+}
+
+describe("machine credentials on the submitter routes", () => {
+  it("refuses an API credential and an event token on every one of them", async () => {
+    const { app, eventToken } = await realAuthSetup();
+    const unknown = "00000000-0000-4000-8000-0000000000ff";
+    const body = JSON.stringify({ answers: complete, expectedRevision: 1 });
+    for (const credential of ["grn_live_whatever", eventToken])
+      for (const [method, path, payload] of [
+        ["GET", proposals, undefined],
+        ["POST", proposals, JSON.stringify({ idempotencyKey: "machine-key", answers: complete })],
+        ["GET", `${proposals}/${unknown}`, undefined],
+        ["PUT", `${proposals}/${unknown}`, body],
+        ["POST", `${proposals}/${unknown}/submit`, body],
+      ] as const) {
+        const response = await app.request(path, {
+          method,
+          headers: {
+            authorization: `Bearer ${credential}`,
+            "content-type": "application/json",
+          },
+          ...(payload ? { body: payload } : {}),
+        });
+        // 403 rather than 401: the caller *is* authenticated, and it is the credential's kind that
+        // is wrong. A person proposing a talk is the only thing that can own a proposal.
+        expect({ path, method, status: response.status }).toEqual({ path, method, status: 403 });
+        await expect(response.json()).resolves.toMatchObject({
+          error: { code: "FORBIDDEN", message: expect.stringContaining("person's account") },
+        });
+      }
+  });
+
+  it("covers a route added later, because the guard is on the prefix", async () => {
+    const { app } = await realAuthSetup();
+    // The first version of this repeated the check inside each handler, so a sixth route would have
+    // inherited nothing and failed nothing. This asserts the prefix itself is guarded.
+    const response = await app.request(`${proposals}/anything/at/all`, {
+      headers: { authorization: "Bearer grn_live_whatever" },
+    });
+    expect(response.status).toBe(403);
+  });
+});
 
 describe("the submitter's proposal routes", () => {
   beforeEach(() => submissionThrottle.reset());

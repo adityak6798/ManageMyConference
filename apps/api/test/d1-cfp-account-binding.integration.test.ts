@@ -185,6 +185,55 @@ describe("D1: the submission window in SQL", () => {
     ).resolves.toMatchObject({ answers: { title: "Draft 20000000-0000-4000-8000-000000000010" } });
   });
 
+  /*
+   * The convergence *read*, pinned on its own.
+   *
+   * `CfpService` namespaces an owned proposal's stored key by its owner, so two accounts cannot
+   * collide through the service at all — which means the service-level regression test would still
+   * pass if this scoping were reverted. That is the wrong shape for the half that actually failed:
+   * the defect two reviewers reproduced was an unscoped read answering one account with another's
+   * row, and it lives here. So this drives the repository directly, with a key deliberately shared,
+   * which is the arrangement the namespacing exists to prevent and this predicate exists to survive.
+   */
+  it("answers a create with nothing when another account already holds that key", async () => {
+    const { repository } = await published({ opensAt: null, closesAt: null });
+    const shared = "deliberately-shared-key";
+    const mine = await repository.createDraft(
+      draftOf("20000000-0000-4000-8000-000000000040", PAT, AT, shared),
+    );
+    expect(mine).toMatchObject({ submitterUserId: PAT });
+
+    // `INSERT OR IGNORE` is skipped for the duplicate key whoever owns it, so everything depends on
+    // what the read that follows is scoped to. Unscoped, this returned Pat's row to Sam with a 201.
+    await expect(
+      repository.createDraft(draftOf("20000000-0000-4000-8000-000000000041", SAM, AT, shared)),
+    ).resolves.toBeNull();
+    await expect(repository.listProposalsForOwner(eventId, SAM)).resolves.toEqual([]);
+
+    // The same in the other direction: an anonymous retry naming an owned key converges on nothing
+    // rather than confirming a proposal nobody submitted.
+    await expect(
+      repository.createSubmission({
+        id: "20000000-0000-4000-8000-000000000042",
+        eventId,
+        cfpVersion: form.version,
+        idempotencyKey: shared,
+        answers: { title: "Guest" },
+        fields: form.fields,
+        resolvedRoute: null,
+        submittedAt: AT,
+        updatedAt: AT,
+        lifecycle: "submitted",
+        submitterUserId: null,
+      }),
+    ).resolves.toBeNull();
+
+    // And the owner's own retry still converges, which is what the key is for.
+    await expect(
+      repository.createDraft(draftOf("20000000-0000-4000-8000-000000000043", PAT, AT, shared)),
+    ).resolves.toMatchObject({ id: "20000000-0000-4000-8000-000000000040" });
+  });
+
   it("scopes every proposal write to its owner and its revision", async () => {
     const { repository } = await published({ opensAt: null, closesAt: null });
     const id = "20000000-0000-4000-8000-000000000020";

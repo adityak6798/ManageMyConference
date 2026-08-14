@@ -1,6 +1,6 @@
 # Data flows
 
-Status: canonical | Owner: architecture | IDs: `ARC-FLOW-001`–`ARC-FLOW-006` | Last verified: 2026-08-12
+Status: canonical | Owner: architecture | IDs: `ARC-FLOW-001`–`ARC-FLOW-006` | Last verified: 2026-08-14
 
 ## Proposal to publication (`ARC-FLOW-001`)
 

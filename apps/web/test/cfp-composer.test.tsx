@@ -484,4 +484,31 @@ describe("the public submission form", () => {
     expect(await screen.findByText("This call for proposals is not available")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Submit proposal" })).toBeNull();
   });
+  it("shows the console applicant a scheduled and a closed call, not a form it cannot submit", async () => {
+    /*
+     * This surface branched on `status`, which describes the publication rather than whether a
+     * submission is possible — so a published call past its deadline rendered a green "Open for
+     * submissions" pill over a whole working form that answers 409. Both non-open states get their
+     * own words, because "not open yet" and "you have missed it" are opposite messages.
+     */
+    for (const [effectiveStatus, heading, pill] of [
+      ["scheduled", "Submissions have not opened yet", "Opening soon"],
+      ["closed", "Submissions are closed", "Closed"],
+    ] as const) {
+      cleanup();
+      stubApi((url) =>
+        url.startsWith("/api/")
+          ? jsonResponse({
+              cfp: form({ status: "open", publishedStatus: "open", effectiveStatus }),
+            })
+          : undefined,
+      );
+      render(<CfpWorkspace eventId={eventId} organizer={false} timezone={TIMEZONE} />);
+
+      expect(await screen.findByText(heading)).toBeVisible();
+      expect(screen.getByText(pill)).toBeVisible();
+      expect(screen.queryByRole("button", { name: "Submit proposal" })).toBeNull();
+      expect(screen.queryByText("Open for submissions")).toBeNull();
+    }
+  });
 });

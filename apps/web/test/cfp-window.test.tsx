@@ -199,6 +199,30 @@ describe("what the applicant is shown when the call is not open", () => {
     expect(screen.queryByRole("button", { name: "Submit proposal" })).toBeNull();
   });
 
+  it("offers a way back in after the call has closed, because that is when decisions land", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === "/api/session") return jsonResponse({ error: {} }, 401);
+        if (url === "/api/auth/config") return jsonResponse({ demoMode: true, google: false });
+        return jsonResponse({}, 404);
+      }),
+    );
+    view({ closesAt: "2026-10-01T06:59:00.000Z", effectiveStatus: "closed" }, "closed");
+
+    // Gating the door on the call being open stranded a signed-out applicant on a closed call with
+    // neither their dashboard nor any way to reach it — and an organizer records decisions *after*
+    // the deadline, which makes this the main occasion for coming back at all.
+    expect(
+      await screen.findByRole("heading", { name: "Already proposed something?" }),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: "Continue as Sam Speaker" })).toBeVisible();
+    // The invitation changes wording rather than promising a submission it cannot take.
+    expect(screen.getByText(/Submissions are not open/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Submit proposal" })).toBeNull();
+  });
+
   it("offers the anonymous form and a way to sign in while the call is open", async () => {
     vi.stubGlobal(
       "fetch",

@@ -151,9 +151,9 @@ export const cfpRoutes: RouteModule = {
      */
 
     /**
-     * These five routes are authorized by ownership rather than by an event capability, which means
-     * they are the only event-addressed routes that never call `requireEventCapability` — and that
-     * makes every *other* credential grammar a problem rather than a nicety.
+     * These routes are authorized by ownership rather than by an event capability, which makes them
+     * the only event-addressed routes that never call `requireEventCapability` — and that makes
+     * every *other* credential grammar a problem rather than a nicety.
      *
      * An event-scoped bearer token is documented as "restricted to one event they can read"
      * (`ARC-AUTH-001`), and `resolveEventToken` enforces that by narrowing `eventAccess` — which
@@ -162,12 +162,17 @@ export const cfpRoutes: RouteModule = {
      * its `id` is a client row rather than a user, so it reaches `submitter_user_id REFERENCES
      * users(id)` and dies as an opaque 500.
      *
-     * Both are refused here rather than patched into the service, because the distinction is about
-     * *how the caller authenticated* and the transport is the only layer that knows. Proposing a
-     * talk is a person's act; a machine identity has no business owning one.
+     * Both are refused here rather than in the service, because the distinction is about *how the
+     * caller authenticated* and the transport is the only layer that knows. Proposing a talk is a
+     * person's act; a machine identity has no business owning one.
+     *
+     * **Middleware on the prefix rather than a line in each handler.** A repeated guard is one a
+     * sixth route added later silently does not get, and nothing would fail to say so — which is
+     * what a review pass pointed out about the first version of this. Hono applies `use` to
+     * handlers registered after it, and the five routes below are the only ones under this prefix.
      */
-    const requiresPersonalSession = (context: HttpContext) => {
-      if (context.get("authentication") !== "bearer") return null;
+    const refuseMachineCredentials = async (context: HttpContext, next: () => Promise<void>) => {
+      if (context.get("authentication") !== "bearer") return next();
       return context.json(
         envelope(
           "FORBIDDEN",
@@ -177,10 +182,10 @@ export const cfpRoutes: RouteModule = {
         403,
       );
     };
+    app.use("/api/events/:eventId/cfp/proposals", refuseMachineCredentials);
+    app.use("/api/events/:eventId/cfp/proposals/*", refuseMachineCredentials);
 
     app.get("/api/events/:eventId/cfp/proposals", async (context) => {
-      const refused = requiresPersonalSession(context);
-      if (refused) return refused;
       if (!cfpService) throw new CfpUnavailableError("CFP service is unavailable");
       const params = eventIdParamsSchema.safeParse(context.req.param());
       if (!params.success)
@@ -203,8 +208,6 @@ export const cfpRoutes: RouteModule = {
       );
     });
     app.post("/api/events/:eventId/cfp/proposals", async (context) => {
-      const refused = requiresPersonalSession(context);
-      if (refused) return refused;
       if (!cfpService) throw new CfpUnavailableError("CFP service is unavailable");
       const params = eventIdParamsSchema.safeParse(context.req.param());
       if (!params.success)
@@ -236,8 +239,6 @@ export const cfpRoutes: RouteModule = {
       );
     });
     app.get("/api/events/:eventId/cfp/proposals/:proposalId", async (context) => {
-      const refused = requiresPersonalSession(context);
-      if (refused) return refused;
       if (!cfpService) throw new CfpUnavailableError("CFP service is unavailable");
       const params = cfpProposalParamsSchema.safeParse(context.req.param());
       if (!params.success)
@@ -257,8 +258,6 @@ export const cfpRoutes: RouteModule = {
       );
     });
     app.put("/api/events/:eventId/cfp/proposals/:proposalId", async (context) => {
-      const refused = requiresPersonalSession(context);
-      if (refused) return refused;
       if (!cfpService) throw new CfpUnavailableError("CFP service is unavailable");
       const params = cfpProposalParamsSchema.safeParse(context.req.param());
       if (!params.success)
@@ -290,8 +289,6 @@ export const cfpRoutes: RouteModule = {
       );
     });
     app.post("/api/events/:eventId/cfp/proposals/:proposalId/submit", async (context) => {
-      const refused = requiresPersonalSession(context);
-      if (refused) return refused;
       if (!cfpService) throw new CfpUnavailableError("CFP service is unavailable");
       const params = cfpProposalParamsSchema.safeParse(context.req.param());
       if (!params.success)

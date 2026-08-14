@@ -1,6 +1,6 @@
 # Quality scorecard
 
-Status: canonical | Owner: quality | Last verified: 2026-08-11
+Status: canonical | Owner: quality | Last verified: 2026-08-14
 
 The commit each verdict was measured against is **not written here**. It lives in the run records
 under `.evidence/`, which is where `gate:evidence` reads it, and duplicating it in this header is

@@ -236,6 +236,18 @@ export function CfpWorkspace({
    * close/reopen control does, because that control changes the organizer's half of the answer.
    */
   const effective = form?.effectiveStatus ?? liveStatus ?? "unpublished";
+  /*
+   * The destinations a routing rule may actually name.
+   *
+   * `accepted` and `declined` are configured on every event, so they are in `routingStatuses` — but
+   * reaching one is the effect of a recorded decision, which is what creates the session and tells
+   * the submitter. A rule assigning one told an applicant they had been accepted with nothing behind
+   * it, so the API refuses it; offering it here would be a control that builds an unsaveable rule.
+   */
+  const routableStatuses = useMemo(
+    () => routingStatuses.filter((status) => !DECISION_STATUSES.includes(status.key)),
+    [routingStatuses],
+  );
   const deadlinePassed = effective === "closed" && liveStatus === "open";
   const divergesFromLive = publishedShape !== null && publishedShape !== draftShape;
   const absoluteUrl = publicUrl ? new URL(publicUrl, window.location.origin).toString() : null;
@@ -1053,14 +1065,17 @@ export function CfpWorkspace({
               <button
                 type="button"
                 className="secondary"
-                disabled={!routingStatuses.length}
+                disabled={!routableStatuses.length}
                 onClick={() =>
                   setRouting([
                     ...routing,
                     {
                       id: `route-${crypto.randomUUID()}`,
                       when: { fieldId: fields[0]?.id ?? "", operator: "in", values: [] },
-                      routeTo: { status: routingStatuses[0]?.key ?? "" },
+                      // Seeded from the *routable* set, not the configured one: seeding from a
+                      // decision status would create a rule the API refuses and the select below
+                      // cannot even display, since it is filtered out of the options.
+                      routeTo: { status: routableStatuses[0]?.key ?? "" },
                     },
                   ])
                 }
@@ -1197,13 +1212,11 @@ export function CfpWorkspace({
                             no decision behind it — the API refuses such a rule, and the control
                             should not propose one.
                           */}
-                          {routingStatuses
-                            .filter((status) => !DECISION_STATUSES.includes(status.key))
-                            .map((status) => (
-                              <option key={status.key} value={status.key}>
-                                {status.label}
-                              </option>
-                            ))}
+                          {routableStatuses.map((status) => (
+                            <option key={status.key} value={status.key}>
+                              {status.label}
+                            </option>
+                          ))}
                         </select>
                       </label>
                     </div>

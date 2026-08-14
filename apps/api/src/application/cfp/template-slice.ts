@@ -36,6 +36,12 @@ export const CFP_TEMPLATE_SLICE_KEY = "cfp";
  */
 const REVIEW_TRIAGE_STATUSES: SliceProvision = "review:triage-statuses";
 
+/**
+ * The two destinations a routing rule may never name, restated for the same reason the provision
+ * above is: CFP must not reach into review's modules. `CfpService` holds the same pair.
+ */
+const DECISION_STATUSES: readonly string[] = ["accepted", "declined"];
+
 interface CfpTemplatePayload {
   readonly title: string;
   readonly description: string;
@@ -239,6 +245,15 @@ function appliedEntries(
  * review is still to write is not a refusal but a dependency, and it is `pending` rather than
  * `refused` so that the preview promises what the apply will do. Only a preview passes it — an
  * apply reads the statuses after review wrote them.
+ *
+ * **A decision destination is refused for a second reason, and it took a regression to find.**
+ * `accepted` and `declined` are configured on every event (migration `0021`), so a rule naming one
+ * passed the check above and went into `usable` — and `CfpService.save` now refuses such a rule
+ * outright, because reaching a decision is the effect of a *recorded* decision and the submitter's
+ * dashboard reads that status. So a template captured from an event that already held such a rule
+ * previewed as "copies", then discarded the **whole CFP category** on apply: no form, no fields, no
+ * title. Partitioning on it here restores this module's own promise — every rule dropped is named
+ * back to the organizer, and the form arrives without it.
  */
 async function partitionRouting(
   service: CfpTemplateCommands,
@@ -253,7 +268,12 @@ async function partitionRouting(
   const pending: CfpRoutingRule[] = [];
   const refused: SliceEntry[] = [];
   for (const rule of routing)
-    if (configured.has(rule.routeTo.status)) usable.push(rule);
+    if (DECISION_STATUSES.includes(rule.routeTo.status))
+      refused.push({
+        id: rule.id,
+        label: `Routing rule to “${rule.routeTo.status}”, which is recorded by an accept or decline rather than by routing`,
+      });
+    else if (configured.has(rule.routeTo.status)) usable.push(rule);
     else if (statusesArriving) pending.push(rule);
     else
       refused.push({

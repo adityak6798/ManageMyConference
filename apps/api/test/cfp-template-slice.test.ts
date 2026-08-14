@@ -116,7 +116,8 @@ async function setup(options: { readonly destinationProposalStatus?: string } = 
         ]
       : [],
   );
-  const cfp = new CfpService(new MemoryCfpRepository(), newId, now, proposals);
+  const cfpRepository = new MemoryCfpRepository();
+  const cfp = new CfpService(cfpRepository, newId, now, proposals);
   const reviewRepository = new MemoryReviewRepository();
   const review = new ReviewService({
     repository: reviewRepository,
@@ -139,7 +140,9 @@ async function setup(options: { readonly destinationProposalStatus?: string } = 
     newId,
     now,
   });
-  return { actor: organizer(), cfp, proposals, review, reviewRepository, templates };
+  // The repository is handed back so a test can write a form the service would now refuse —
+  // which is exactly what a template captured before that refusal existed contains.
+  return { actor: organizer(), cfp, cfpRepository, proposals, review, reviewRepository, templates };
 }
 
 const capture = (templates: EventTemplateService, actor: Actor) =>
@@ -257,6 +260,55 @@ describe("CFP template slice, applied behind the triage statuses", () => {
     expect(previewed?.copies.map(({ id }) => id)).not.toContain("route-shortlist");
     expect(applied?.incompatible.map(({ id }) => id)).toContain("route-shortlist");
     expect((await cfp.getForOrganizer(actor, DESTINATION))?.routing ?? []).toEqual([]);
+  });
+
+  it("names a legacy decision route as incompatible rather than losing the whole form", async () => {
+    /*
+     * A regression this branch introduced and a review pass caught. `accepted` is configured on
+     * every event, so a rule naming it passed "is this status configured" and went into `usable` —
+     * and `CfpService.save` now refuses such a rule outright, because a decision is recorded rather
+     * than routed. The apply therefore threw and discarded the **entire** CFP category: no form, no
+     * fields, no title, for a template whose only problem was one rule. The preview meanwhile
+     * promised to copy it.
+     *
+     * A template captured before that refusal existed is exactly the case, so this is not
+     * hypothetical: the rule is written straight into the source's stored form here, the way one
+     * saved on `origin/main` would be.
+     */
+    const { actor, cfp, cfpRepository, templates } = await setup();
+    await cfp.save(actor, {
+      eventId: SOURCE,
+      title: "Share your conference story",
+      description: "Submit a practical session.",
+      fields: FIELDS,
+      routing: [],
+      expectedVersion: 0,
+    });
+    const stored = await cfp.getForOrganizer(actor, SOURCE);
+    await cfpRepository.saveForm(
+      {
+        ...(stored as NonNullable<typeof stored>),
+        routing: [routingRule("route-legacy", "accepted")],
+      },
+      stored?.version ?? 1,
+    );
+    const { template } = await capture(templates, actor);
+
+    const plan = await previewInto(templates, actor, template.id);
+    const result = await applyInto(templates, actor, template.id);
+    const previewed = cfpSlice(plan.slices);
+    const applied = cfpSlice(result.slices);
+
+    // The preview and the apply agree, which is the promise this module makes.
+    expect(previewed?.incompatible.map(({ id }) => id)).toContain("route-legacy");
+    expect(previewed?.copies.map(({ id }) => id)).not.toContain("route-legacy");
+    expect(applied?.outcome).toBe("applied");
+    expect(applied?.incompatible.map(({ id }) => id)).toContain("route-legacy");
+    // And the form itself arrives — the part the regression threw away.
+    const destination = await cfp.getForOrganizer(actor, DESTINATION);
+    expect(destination?.title).toBe("Share your conference story");
+    expect(destination?.fields).toHaveLength(FIELDS.length);
+    expect(destination?.routing ?? []).toEqual([]);
   });
 
   it("copies a rule when review reports incompatible but its statuses still land", async () => {

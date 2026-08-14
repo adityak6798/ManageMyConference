@@ -1145,8 +1145,9 @@ mailbox.
 
 #### What the review passes changed, and one of them was a blocker
 
-Three adversarial passes ran against the risk map. The design survived all three; five defects in
-its execution did not, and they are recorded because each is a shape that will recur.
+Three adversarial passes ran against the risk map, and two verification passes over the repairs.
+The design survived all five; its execution did not, and the defects are recorded below because each
+is a shape that will recur.
 
 **A rebuild migration copied a recipe that had gone out of date.** `1705` follows `1703`'s ordering
 statement for statement — and `1703` had *two* child tables, while `1704` had since added a third.
@@ -1184,14 +1185,27 @@ would have told somebody they were accepted with no decision recorded, no sessio
 having decided anything. `save` now refuses such a rule, `resolveRoute` ignores one already stored,
 and the composer stops offering the two as destinations.
 
-**And three smaller ones**: the five submitter routes accepted an event-scoped bearer token without
+**And four smaller ones**: the five submitter routes accepted an event-scoped bearer token without
 ever consulting the event it was scoped to (and an API-client credential reached them and died on a
 foreign key as a 500) — both are refused at the transport now, because *how the caller
 authenticated* is a fact only the transport holds; `identityDirectory.findRecipient` sat between the
 two swallow wrappers in the composition root, so a transient read could answer 500 over a submission
-that had already committed and whose retry is then refused as "already submitted"; and the console's
-own applicant form branched on `status` rather than `effectiveStatus`, offering a working form over
-a call past its deadline.
+that had already committed and whose retry is then refused as "already submitted"; the console's own
+applicant form branched on `status` rather than `effectiveStatus`, offering a working form over a
+call past its deadline; and an event whose proposals were all drafts could delete the default
+`submitted` status, leaving the applicant's Submit aborting on a trigger name.
+
+**The verification passes then found one regression the repairs themselves introduced**, which is
+the reason a repair round gets its own review rather than being taken on trust. Refusing a decision
+route in `CfpService.save` made the *event-template* CFP slice refuse a whole category: a template
+captured from an event that already held such a rule previewed as "copies" and then discarded the
+entire form — title, fields and all — because `partitionRouting` only ever asked whether a status
+was *configured*, and `accepted` always is. The slice now partitions on that too, so the rule is
+named back to the organizer as incompatible and the form arrives without it, which is the promise
+that module was already making. Two smaller ones came with it: the bearer refusal had no test
+anywhere (the CFP HTTP suite runs in demo mode, where the bearer branch is unreachable, so it was
+structurally incapable of covering it), and the guard was five copies inside handlers rather than
+middleware on the prefix — a sixth route would have inherited nothing and failed nothing.
 
 **One cross-domain UI edit, announced here as the rules require.** `OrganizerReviewWorkspace.tsx` is
 review-owned and gains a notice routing an organizer into the members workspace when no reviewer is
