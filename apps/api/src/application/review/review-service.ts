@@ -192,6 +192,14 @@ const formatOf = (proposal: SubmittedProposal) =>
   )?.value || DEFAULT_SESSION_FORMAT;
 
 /**
+ * The CFP field that carries the structured co-author list.
+ *
+ * Named once because two projections read it for opposite reasons: the organizer's parses it into
+ * `coAuthors`, and the blind reviewer's has to make sure it does not travel at all.
+ */
+const CO_AUTHOR_FIELD = "coauthors";
+
+/**
  * Blind review is a projection concern, not a storage one: the same stored proposal is shown with
  * its submitter to organizers and without to reviewers. This is the mask.
  */
@@ -201,6 +209,21 @@ const withoutSubmitter = (proposal: SubmittedProposal): PublishedProposal => ({
   // would let a reviewer join two masked proposals to the same applicant — and a key set to null
   // is still a key `proposalSchema` does not declare, on a response nothing parses.
   ...withoutOwner(proposal),
+  /*
+   * The co-author answer goes too, and this is the leak that nulling `submitter` on its own left
+   * open.
+   *
+   * Authorship arrives from the CFP as an *answer* — a JSON array of names and roles under
+   * `coauthors` — so a projection that masked `submitterName` and stopped there handed a blind
+   * reviewer every co-author's name in plain text, inside the same `answers` list the abstract is
+   * rendered from. The submitter was hidden and the people beside them were not.
+   *
+   * Dropped rather than emptied, for the same reason `submitterUserId` is dropped: a co-author
+   * entry blanked to `""` still says how many there were, and "three co-authors, one a professor"
+   * identifies a submission in a small field. `blindProjection` below sets `coAuthors: []` so the
+   * absence is explicit to a reader of the response as well.
+   */
+  answers: proposal.answers.filter(({ fieldId }) => fieldId !== CO_AUTHOR_FIELD),
   submitterName: MASKED_SUBMITTER_NAME,
   submitter: null,
 });
@@ -225,10 +248,21 @@ const withoutOwner = ({
   ...proposal
 }: SubmittedProposal): PublishedProposal => proposal;
 
-/** The organizer's proposal: authorship parsed out of its answers, and no owner id. */
+/**
+ * The organizer's proposal: authorship parsed out of its answers, and no owner id.
+ *
+ * The raw answer is **replaced** by the parsed list rather than shown beside it. Left in place it
+ * rendered as a line of JSON in the organizer's answer table, directly above the same names
+ * formatted properly — the storage representation of a field and its presentation, one after the
+ * other. A malformed value still leaves the abstract readable; it just leaves authorship absent.
+ */
 const withCoAuthors = (submitted: SubmittedProposal) => {
-  const proposal = withoutOwner(submitted);
-  const answer = proposal.answers.find(({ fieldId }) => fieldId === "coauthors")?.value;
+  const owned = withoutOwner(submitted);
+  const answer = owned.answers.find(({ fieldId }) => fieldId === CO_AUTHOR_FIELD)?.value;
+  const proposal = {
+    ...owned,
+    answers: owned.answers.filter(({ fieldId }) => fieldId !== CO_AUTHOR_FIELD),
+  };
   if (!answer) return { ...proposal, coAuthors: [] };
   try {
     const parsed: unknown = JSON.parse(answer);

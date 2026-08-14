@@ -1008,6 +1008,11 @@ export function OrganizerReviewWorkspace({
           ) : (
             <div className="table-wrap">
               <table className="data triage-table">
+                {/* Named, because this page now holds more than one table and a screen-reader
+                    user moving between them needs to know which is which. */}
+                <caption className="visually-hidden">
+                  Submitted abstracts, with their status, reviewers, aggregate and decision
+                </caption>
                 <thead>
                   <tr>
                     {/* The control itself lives in the toolbar: below 780px the table becomes a
@@ -1257,7 +1262,9 @@ export function OrganizerReviewWorkspace({
               statusLabel="Move this abstract to"
               reviewerLabel="Assign this abstract to"
               statuses={data.statuses}
-              reviewers={data.reviewers}
+              // The round's pool here too: the detail panel and the bulk bar assign into the same
+              // round, so they must offer the same people.
+              reviewers={roundReviewers}
               currentStatus={open.status}
               busy={busy}
               onTransition={(toStatus) => transition([open.id], toStatus, false)}
