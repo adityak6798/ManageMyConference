@@ -57,6 +57,9 @@ const eventCapabilities: Record<EventAccess["role"], readonly Capability[]> = {
     "content:manage",
     "review:manage",
     "identity:manage",
+    // Organizers hold it; every narrower built-in role does not, and a custom role gets it only
+    // when an administrator grants it deliberately.
+    "reports:pii",
   ],
   reviewer: ["events:read", "review:evaluate"],
   speaker: ["events:read", "content:read"],
@@ -382,6 +385,35 @@ export class D1IdentityDirectory implements IdentityDirectory {
     return grants;
   }
 
+  /**
+   * What each event has closed on its own portal, for the events this actor holds a grant on.
+   *
+   * Read with the actor for the same reason the custom-role policies are: `fieldAccessFor` has to
+   * be a pure function of the actor, or a projection, an export and a report end up asking
+   * different questions. One statement over a small id set, and empty for an event with no locks.
+   */
+  private async resolveFieldLocks(
+    eventIds: readonly string[],
+  ): Promise<Map<string, Map<string, "view" | "lock" | "hide">>> {
+    const locks = new Map<string, Map<string, "view" | "lock" | "hide">>();
+    if (eventIds.length === 0) return locks;
+    const rows = await this.database
+      .prepare(
+        "SELECT event_id, subject, field, policy FROM event_field_locks " +
+          "WHERE event_id IN (SELECT value FROM json_each(?))",
+      )
+      .bind(JSON.stringify([...eventIds]))
+      .all<{ event_id: string; subject: string; field: string; policy: string }>();
+    if (!rows.success)
+      throw new Error(`D1 failed to resolve field locks: ${rows.error ?? "unknown error"}`);
+    for (const row of rows.results ?? []) {
+      const held = locks.get(row.event_id) ?? new Map<string, "view" | "lock" | "hide">();
+      held.set(`${row.subject}:${row.field}`, row.policy as "view" | "lock" | "hide");
+      locks.set(row.event_id, held);
+    }
+    return locks;
+  }
+
   private async resolve(user: UserRow): Promise<Actor> {
     const [organizations, roles] = await Promise.all([
       this.database
@@ -413,13 +445,44 @@ export class D1IdentityDirectory implements IdentityDirectory {
         .map((role) => role.custom_role_id)
         .filter((id): id is string => id !== null),
     );
+    const locks = await this.resolveFieldLocks([
+      ...new Set((roles.results ?? []).map((role) => role.event_id)),
+    ]);
+    /**
+     * A grant's field policies are the *strictest* thing that applies to it, merged from two
+     * sources with different meanings.
+     *
+     * The custom role says what a staffed role may see; the event's locks say what the person
+     * whose record it is may change. Merging them here rather than composing them later is what
+     * keeps `fieldAccessFor` a pure function of the actor — and the merge takes the **stricter**
+     * of the two, because an organizer closing a field on the portal is not undone by whichever
+     * role somebody happens to hold.
+     *
+     * Locks never reach an `organizer` grant. An organizer who could lock themselves out of their
+     * own board would be the same class of problem the last-administrator guard prevents, and
+     * unlike that one it would have no remedy at all.
+     */
+    const withLocks = (eventId: string, own?: ReadonlyMap<string, "view" | "lock" | "hide">) => {
+      const eventLocks = locks.get(eventId);
+      if (!eventLocks && !own) return undefined;
+      const merged = new Map<string, "view" | "lock" | "hide">(own ?? []);
+      const rank = { view: 0, lock: 1, hide: 2 } as const;
+      for (const [key, policy] of eventLocks ?? []) {
+        const held = merged.get(key);
+        if (!held || rank[policy] > rank[held]) merged.set(key, policy);
+      }
+      return merged;
+    };
     const eventAccess = (roles.results ?? []).map((role) => {
-      if (role.role !== "custom" || !role.custom_role_id)
+      if (role.role !== "custom" || !role.custom_role_id) {
+        const policies = role.role === "organizer" ? undefined : withLocks(role.event_id);
         return {
           eventId: role.event_id,
           role: role.role,
           capabilities: new Set(eventCapabilities[role.role]),
+          ...(policies ? { fieldPolicies: policies } : {}),
         };
+      }
       const grant = customGrants.get(role.custom_role_id);
       return {
         eventId: role.event_id,
@@ -429,7 +492,9 @@ export class D1IdentityDirectory implements IdentityDirectory {
         // Always present on a custom grant, empty map included: its *absence* is what
         // `fieldAccessFor` reads as "this grant is a built-in role and governs nothing", so a
         // custom role with no policies must still carry one.
-        fieldPolicies: grant?.fieldPolicies ?? new Map<string, "view" | "lock" | "hide">(),
+        fieldPolicies:
+          withLocks(role.event_id, grant?.fieldPolicies) ??
+          new Map<string, "view" | "lock" | "hide">(),
       };
     });
     const capabilities = new Set<Capability>();

@@ -260,7 +260,7 @@ export function defineIdentityAccessSchema(references: {
       primaryKey({ columns: [table.roleId, table.capability] }),
       check(
         "event_custom_role_capabilities_capability",
-        sql`${table.capability} IN ('events:read', 'events:settings:read', 'communications:manage', 'agenda:manage', 'crm:manage', 'content:read', 'content:manage', 'review:manage', 'review:evaluate')`,
+        sql`${table.capability} IN ('events:read', 'events:settings:read', 'communications:manage', 'agenda:manage', 'crm:manage', 'content:read', 'content:manage', 'review:manage', 'review:evaluate', 'reports:pii')`,
       ),
     ],
   );
@@ -294,6 +294,50 @@ export function defineIdentityAccessSchema(references: {
         "event_custom_role_field_policies_required",
         sql`NOT (${table.policy} = 'hide' AND ((${table.subject} = 'session' AND ${table.field} = 'title') OR (${table.subject} = 'speaker' AND ${table.field} = 'name') OR (${table.subject} = 'contact' AND ${table.field} = 'name')))`,
       ),
+    ],
+  );
+
+  /**
+   * What an organizer has closed on this event's own portal (issue #196; the primitive `GAP-028`
+   * needs).
+   *
+   * Not the custom-role policy table, and the difference is the whole point: that one answers
+   * "what may this staffed role see", this one answers "what may the person whose record it is
+   * change". A speaker editing their own profile holds no custom role, and freezing the biography
+   * after the programme is printed is a property of the event. Same vocabulary, so
+   * `fieldAccessFor` composes both without a second rule. See `1007_event_field_locks.sql`.
+   */
+  // @spec PRD-IAM-002
+  const eventFieldLocks = sqliteTable(
+    "event_field_locks",
+    {
+      eventId: text("event_id")
+        .notNull()
+        .references(() => references.eventsId, { onDelete: "cascade" }),
+      subject: text("subject").notNull(),
+      field: text("field").notNull(),
+      policy: text("policy").notNull(),
+      updatedBy: text("updated_by")
+        .notNull()
+        .references(() => users.id),
+      updatedAt: integer("updated_at").notNull(),
+    },
+    (table) => [
+      primaryKey({ columns: [table.eventId, table.subject, table.field] }),
+      check(
+        "event_field_locks_subject",
+        sql`${table.subject} IN ('session', 'speaker', 'contact')`,
+      ),
+      check("event_field_locks_policy", sql`${table.policy} IN ('view', 'lock', 'hide')`),
+      check(
+        "event_field_locks_field",
+        sql`(${table.subject} = 'session' AND ${table.field} IN ('*', 'title', 'abstract', 'format', 'tags', 'tracks', 'publicationState')) OR (${table.subject} = 'speaker' AND ${table.field} IN ('*', 'name', 'email', 'bio', 'pronouns', 'organization', 'photoAssetId', 'workflowStatus', 'logistics', 'customFields')) OR (${table.subject} = 'contact' AND ${table.field} IN ('*', 'name', 'email', 'company', 'title', 'notes', 'tags', 'fields', 'activities'))`,
+      ),
+      check(
+        "event_field_locks_required",
+        sql`NOT (${table.policy} = 'hide' AND ((${table.subject} = 'session' AND ${table.field} = 'title') OR (${table.subject} = 'speaker' AND ${table.field} = 'name') OR (${table.subject} = 'contact' AND ${table.field} = 'name')))`,
+      ),
+      index("event_field_locks_event_idx").on(table.eventId, table.subject),
     ],
   );
 
@@ -373,7 +417,7 @@ export function defineIdentityAccessSchema(references: {
       primaryKey({ columns: [table.clientId, table.capability] }),
       check(
         "api_client_scopes_capability",
-        sql`${table.capability} IN ('events:read', 'events:create', 'events:settings:read', 'events:settings:update', 'communications:manage', 'agenda:manage', 'crm:manage', 'content:read', 'content:manage', 'review:manage', 'review:evaluate', 'identity:manage')`,
+        sql`${table.capability} IN ('events:read', 'events:create', 'events:settings:read', 'events:settings:update', 'communications:manage', 'agenda:manage', 'crm:manage', 'content:read', 'content:manage', 'review:manage', 'review:evaluate', 'identity:manage', 'reports:pii')`,
       ),
     ],
   );
@@ -407,6 +451,7 @@ export function defineIdentityAccessSchema(references: {
     eventCustomRoles,
     eventCustomRoleCapabilities,
     eventCustomRoleFieldPolicies,
+    eventFieldLocks,
     eventRoles,
     apiClients,
     apiClientScopes,

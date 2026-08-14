@@ -85,6 +85,7 @@ function dependencies(overrides: Partial<PlatformSources> = {}): PlatformSources
           abstract: "",
           format: "talk",
           tracks: [],
+          speakerProfileIds: [],
         })),
         speakers: [
           {
@@ -344,6 +345,7 @@ describe("permission-aware search", () => {
       abstract: "",
       format: "talk",
       tracks: [],
+      speakerProfileIds: [],
     }));
     const answer = await service({
       content: {

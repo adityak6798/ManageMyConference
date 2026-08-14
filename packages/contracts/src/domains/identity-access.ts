@@ -268,8 +268,26 @@ export const customRoleHolderParamsSchema = customRoleParamsSchema.extend({
 export const customRoleDeleteQuerySchema = z.object({
   expectedRevision: z.coerce.number().int().min(1),
 });
+/**
+ * What an organizer has closed on this event's own portal (issue #196; the primitive issue #189's
+ * `GAP-028` residual consumes).
+ *
+ * Deliberately the same vocabulary as a role's field policy, and deliberately a different thing:
+ * a role policy governs a staffed role, and a lock governs the person whose record it is. A
+ * speaker holds no custom role, and freezing the biography once the programme is printed is a
+ * property of the event rather than of anybody's staffing.
+ */
+export const eventFieldLocksInputSchema = z.object({
+  locks: z.array(fieldPolicyEntrySchema).max(40),
+});
+export const eventFieldLocksResponseSchema = z.object({
+  locks: z.array(fieldPolicyEntrySchema),
+});
+
 export const customRolesResponseSchema = z.object({
   roles: z.array(customRoleSchema),
+  /** Beside the roles, because an organizer should not have to know which mechanism answered. */
+  fieldLocks: z.array(fieldPolicyEntrySchema),
   assignments: z.array(
     z.object({ roleId: z.string().uuid(), userId: z.string(), userName: z.string() }),
   ),

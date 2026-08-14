@@ -17,6 +17,8 @@ import {
   customRolesResponseSchema,
   customRoleUpdateSchema,
   demoSessionInputSchema,
+  eventFieldLocksInputSchema,
+  eventFieldLocksResponseSchema,
   eventRoleSchema,
   eventTokenRequestSchema,
   loginCodeRequestSchema,
@@ -99,6 +101,8 @@ const routes = [
   "GET /api/organizations/{organizationId}/events/{eventId}/custom-roles/{roleId}/preview",
   "PUT /api/organizations/{organizationId}/events/{eventId}/custom-roles/{roleId}/holders/{userId}",
   "DELETE /api/organizations/{organizationId}/events/{eventId}/custom-roles/{roleId}/holders/{userId}",
+  // Per-event portal field locks: what an organizer closed on this event's own write surface.
+  "PUT /api/organizations/{organizationId}/events/{eventId}/field-locks",
 ] as const;
 const loginThrottle = new FixedWindowThrottle(5, 60_000, 10_000);
 /**
@@ -813,6 +817,37 @@ export const identityRoutes: RouteModule = {
         });
       },
     );
+
+    /*
+     * The event's own portal field locks, beside the roles because they answer the same question
+     * from the other side: what a role may see, and what the person whose record it is may
+     * change. Whole-set replacement, so the stored locks are exactly what the organizer confirmed.
+     */
+    app.put("/api/organizations/:organizationId/events/:eventId/field-locks", async (context) => {
+      if (!customRoles) return noCustomRoles(context);
+      const body = eventFieldLocksInputSchema.safeParse(await readJson(context.req));
+      if (!body.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "Review the highlighted field locks.",
+            context.get("correlationId"),
+            validationFields(body.error.issues),
+          ),
+          400,
+        );
+      const [organizationId, eventId] = roleScope(context);
+      return context.json(
+        eventFieldLocksResponseSchema.parse({
+          locks: await customRoles.setFieldLocks(
+            context.get("actor"),
+            organizationId,
+            eventId,
+            body.data.locks,
+          ),
+        }),
+      );
+    });
 
     app.get("/api/organizations/:organizationId/audit-events", async (context) => {
       if (!membership) return noMembership(context);

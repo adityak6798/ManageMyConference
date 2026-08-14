@@ -14,6 +14,7 @@ import { CapabilityDeniedError } from "../src/application/identity/actor";
 import {
   type CustomRole,
   CustomRoleConflictError,
+  type CustomRoleFieldPolicy,
   CustomRoleInvalidError,
   CustomRoleNotFoundError,
   CustomRoleRefusedError,
@@ -58,6 +59,7 @@ const draft = {
 
 function service(over: { stored?: CustomRole | null; updated?: number; member?: boolean } = {}) {
   const roles = new Map<string, CustomRole>();
+  let locks: CustomRoleFieldPolicy[] = [];
   if (over.stored) roles.set(over.stored.id, over.stored);
   const repository = {
     list: vi.fn(async () => [...roles.values()]),
@@ -82,10 +84,15 @@ function service(over: { stored?: CustomRole | null; updated?: number; member?: 
     unassign: vi.fn(async () => 1),
     listAssignments: vi.fn(async () => []),
     isMember: vi.fn(async () => over.member ?? true),
+    listFieldLocks: vi.fn(async () => locks),
+    replaceFieldLocks: vi.fn(async (_eventId: string, next: readonly CustomRoleFieldPolicy[]) => {
+      locks = [...next];
+    }),
   } satisfies CustomRoleRepository;
   return {
     repository,
     roles,
+    fieldLocks: () => locks,
     service: new CustomRoleService({
       repository,
       events: {

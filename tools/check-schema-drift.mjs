@@ -90,6 +90,10 @@ export const UNMODELLED_OBJECTS = [
   "trigger:site_consents_immutable",
   "trigger:site_publications_no_update",
   "trigger:site_publications_no_delete",
+  // A scheduled report's run log is append-only for the same reason the audit timeline is: it is
+  // the row an operator reads when somebody says the report never arrived, and a log a later
+  // write can correct is not evidence of anything (issue #196, migration 1902).
+  "trigger:report_runs_no_update",
   // The pair that makes drift in `agenda_session_schedules` detectable rather than silent. They
   // belong to the database rather than to the application on purpose: a writer of
   // `agenda_publications` that knows nothing about the derived table — the old Worker during a

@@ -379,4 +379,12 @@ export const GRANTABLE_CAPABILITIES: readonly string[] = [
   "content:manage",
   "review:manage",
   "review:evaluate",
+  /**
+   * Present, and off in every template.
+   *
+   * An organization that wants a sponsor liaison who can export unmasked addresses should be able
+   * to say so; what it must not be is implied by any other capability. Reports mask by default,
+   * so a role without this one still reads every report — with the personal columns masked.
+   */
+  "reports:pii",
 ];

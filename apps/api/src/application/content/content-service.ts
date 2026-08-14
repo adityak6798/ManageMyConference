@@ -1369,6 +1369,16 @@ export class ContentService {
       profile.userId !== authorized.id
     )
       throw new CapabilityDeniedError("Speaker profile access denied");
+    /*
+     * The speaker's own portal is a *configured* write surface rather than a fixed one.
+     *
+     * `event_field_locks` is what an organizer closed on this event — the biography after the
+     * programme is printed, the organization once badges are ordered — and it reaches this grant
+     * through the actor, so the refusal is the same `FieldLockedError` a staffed role meets. This
+     * is the primitive issue #189's `GAP-028` residual asks for: what a speaker may change is a
+     * property of the event, not of this method's parameter list.
+     */
+    fieldAccessFor(authorized, profile.eventId).assertEditable("speaker", Object.keys(input));
     const updated = await this.dependencies.repository.reviseProfile(
       profile.id,
       this.draftRevision(authorized, profile.eventId),

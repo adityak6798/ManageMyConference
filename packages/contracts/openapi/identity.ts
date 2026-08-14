@@ -27,6 +27,8 @@ import {
   customRolesResponseSchema,
   customRoleUpdateSchema,
   demoSessionInputSchema,
+  eventFieldLocksInputSchema,
+  eventFieldLocksResponseSchema,
   demoSessionResponseSchema,
   eventRoleSchema,
   eventTokenRequestSchema,
@@ -477,6 +479,29 @@ export const identityPaths: OpenApiFragment = {
       request: { params: customRoleHolderParamsSchema },
       responses: {
         200: { description: "Role revoked", content: json(membershipChangeResponseSchema) },
+        401: errorResponse,
+        403: errorResponse,
+        404: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "put",
+      path: "/api/organizations/{organizationId}/events/{eventId}/field-locks",
+      security: [{ sessionCookie: [] }],
+      description:
+        "Replace what this event has closed on its own portal. Not the same thing as a custom " +
+        "role's field policy: a role policy governs a staffed role, and a lock governs the person " +
+        "whose record it is — a speaker holds no custom role, and freezing the biography once the " +
+        "programme is printed is a property of the event. Whole-set replacement, so the stored " +
+        "locks are exactly what the organizer confirmed.",
+      request: {
+        params: customRoleEventParamsSchema,
+        body: { required: true, content: json(eventFieldLocksInputSchema) },
+      },
+      responses: {
+        200: { description: "Field locks replaced", content: json(eventFieldLocksResponseSchema) },
+        400: errorResponse,
         401: errorResponse,
         403: errorResponse,
         404: errorResponse,

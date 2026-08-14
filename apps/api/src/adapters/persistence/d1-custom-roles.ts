@@ -438,6 +438,44 @@ export class D1CustomRoleRepository implements CustomRoleRepository {
     }));
   }
 
+  async listFieldLocks(eventId: string) {
+    const found = await this.database
+      .prepare(
+        "SELECT subject, field, policy FROM event_field_locks WHERE event_id = ? ORDER BY subject, field",
+      )
+      .bind(eventId)
+      .all<{ subject: FieldSubject; field: string; policy: FieldPolicy }>();
+    if (!found.success)
+      throw new Error(`D1 failed to read field locks: ${found.error ?? "unknown error"}`);
+    return found.results ?? [];
+  }
+
+  /**
+   * Replace the whole set in one batch.
+   *
+   * Delete-then-insert rather than an upsert per row: the stored locks must end up exactly what
+   * the organizer confirmed, and an upsert leaves behind whatever they removed. D1 applies a
+   * batch atomically, so there is no moment at which the event is unlocked.
+   */
+  async replaceFieldLocks(
+    eventId: string,
+    locks: readonly { subject: string; field: string; policy: string }[],
+    updatedBy: string,
+    updatedAt: number,
+  ): Promise<void> {
+    const results = await this.database.batch([
+      this.database.prepare("DELETE FROM event_field_locks WHERE event_id = ?").bind(eventId),
+      ...locks.map((lock) =>
+        this.database
+          .prepare(
+            "INSERT INTO event_field_locks (event_id, subject, field, policy, updated_by, updated_at) VALUES (?,?,?,?,?,?)",
+          )
+          .bind(eventId, lock.subject, lock.field, lock.policy, updatedBy, updatedAt),
+      ),
+    ]);
+    this.assertBatch(results, "replace field locks");
+  }
+
   async isMember(organizationId: string, userId: string): Promise<boolean> {
     const found = await this.database
       .prepare(

@@ -25,6 +25,12 @@
  * **The last-administrator guard counts what would be left.** Revoking one organizer role from
  * somebody who organizes a second event in the same organization removes no administrator, and
  * the SQL has to say so.
+ *
+ * **A per-event field lock reaches the actor.** `event_field_locks` is resolved onto every
+ * non-organizer grant by the directory, which is what makes it enforceable by `assertEditable` on
+ * the speaker's own portal write rather than by a check somebody has to remember. It is the
+ * primitive issue #189's `GAP-028` residual consumes, so its guards are asserted here rather than
+ * left to the first lane that needs them.
  */
 import type { Miniflare } from "miniflare";
 import { afterEach, describe, expect, it } from "vitest";
@@ -300,5 +306,54 @@ describe("custom roles against D1", () => {
         eventId: null,
       }),
     ).toBe(0);
+  });
+});
+
+describe("per-event field locks against D1", () => {
+  let runtime: Miniflare | null = null;
+  afterEach(async () => {
+    await runtime?.dispose();
+    runtime = null;
+  });
+
+  it("reaches a speaker's own grant and leaves an organizer's alone", async () => {
+    const migrated = await createMigratedDatabase({ seed: true, label: "field-locks" });
+    runtime = migrated.runtime;
+    const database = migrated.database as unknown as IdentityDatabasePort;
+    const directory = new D1IdentityDirectory(database);
+    await database
+      .prepare(
+        "INSERT INTO event_field_locks (event_id, subject, field, policy, updated_by, updated_at) VALUES (?,?,?,?,?,?)",
+      )
+      .bind(DEMO_EVENT, "speaker", "bio", "lock", "seed-organizer", 1_760_000_000_000)
+      .run();
+
+    const speaker = await directory.findByPersona("speaker");
+    const speakerAccess = fieldAccessFor(speaker, DEMO_EVENT);
+    // The lock is what the portal's own `assertEditable` refuses on.
+    expect(speakerAccess.canView("speaker", "bio")).toBe(true);
+    expect(speakerAccess.canEdit("speaker", "bio")).toBe(false);
+
+    // An organizer who could lock themselves out of their own board would have no remedy at all.
+    const organizer = await directory.findByPersona("organizer");
+    expect(fieldAccessFor(organizer, DEMO_EVENT).canEdit("speaker", "bio")).toBe(true);
+  });
+
+  it("refuses a lock naming a field nobody governs, and one hiding an identifier", async () => {
+    const migrated = await createMigratedDatabase({ seed: true, label: "field-locks-guard" });
+    runtime = migrated.runtime;
+    const database = migrated.database as unknown as IdentityDatabasePort;
+    const write = (subject: string, field: string, policy: string) =>
+      database
+        .prepare(
+          "INSERT INTO event_field_locks (event_id, subject, field, policy, updated_by, updated_at) VALUES (?,?,?,?,?,?)",
+        )
+        .bind(DEMO_EVENT, subject, field, policy, "seed-organizer", 1_760_000_000_000)
+        .run();
+    await expect(write("speaker", "salary", "hide")).rejects.toThrow(/CHECK constraint failed/i);
+    await expect(write("speaker", "name", "hide")).rejects.toThrow(/CHECK constraint failed/i);
+    // And the subject-wide default is admitted, because that is what keeps a lock correct when a
+    // field is added later.
+    await expect(write("speaker", "*", "lock")).resolves.toBeTruthy();
   });
 });

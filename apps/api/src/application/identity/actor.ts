@@ -18,7 +18,17 @@ export type Capability =
    * organization, and that the capability was earned on an event belonging to it. See
    * `MembershipService.requireOrganization` and `docs/architecture/authorization.md`.
    */
-  | "identity:manage";
+  | "identity:manage"
+  /**
+   * Read personal data in a report unmasked (issue #196).
+   *
+   * Separate from every other capability because it authorizes *seeing more of a row* rather than
+   * reaching a surface: reports mask personal fields by default, and unmasking needs this plus an
+   * explicit request plus an audit record. It is a capability rather than a role test so that
+   * "who may export contact addresses" is answerable without asking who happens to be an
+   * organizer — which is the coupling custom roles exist to break.
+   */
+  | "reports:pii";
 
 export interface EventAccess {
   readonly eventId: string;

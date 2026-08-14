@@ -46,6 +46,7 @@ function sources(overrides: Partial<PlatformSources> = {}): PlatformSources {
             abstract: "",
             format: "talk",
             tracks: [],
+            speakerProfileIds: [],
           },
         ],
         speakers: [],

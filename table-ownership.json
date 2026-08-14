@@ -100,6 +100,11 @@
     "site_privacy_notices": "publishing",
     "site_registration_fields": "publishing",
     "site_consents": "publishing",
-    "site_publications": "publishing"
+    "site_publications": "publishing",
+    "capability_links": "platform",
+    "report_definitions": "platform",
+    "report_schedules": "platform",
+    "report_runs": "platform",
+    "event_field_locks": "identity-access"
   }
 }

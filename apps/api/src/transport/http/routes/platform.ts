@@ -4,6 +4,22 @@ import {
   eventIdParamsSchema,
   inboxDismissalInputSchema,
   inboxDismissalParamsSchema,
+  reportCatalogueResponseSchema,
+  reportDuplicateInputSchema,
+  reportResponseSchema,
+  reportRevisionQuerySchema,
+  reportRunInputSchema,
+  reportRunResponseSchema,
+  reportSaveInputSchema,
+  reportScheduleInputSchema,
+  reportSchedulesResponseSchema,
+  reportShareCreatedResponseSchema,
+  reportShareInputSchema,
+  reportShareResolveInputSchema,
+  reportShareResolvedResponseSchema,
+  reportSharesResponseSchema,
+  reportShareTokenParamsSchema,
+  reportsResponseSchema,
   searchQuerySchema,
 } from "@greenroom/contracts";
 import type { Context } from "hono";
@@ -16,6 +32,14 @@ import {
 import {
   INBOX_CATEGORY_KEYS,
   InboxItemNotFoundError,
+  ReportConflictError,
+  ReportInvalidError,
+  ReportNameTakenError,
+  ReportNotFoundError,
+  ReportPiiDeniedError,
+  ReportQueryInvalidError,
+  ReportShareUnavailableError,
+  ReportTooExpensiveError,
   SEARCH_SECTION_KEYS,
   SearchQueryTooShortError,
 } from "../../../application/platform/public";
@@ -37,6 +61,28 @@ const routes = [
   "POST /api/events/:eventId/inbox/dismissals",
   "DELETE /api/events/:eventId/inbox/dismissals/:itemKey",
   "GET /api/events/:eventId/audit",
+  /*
+   * Reporting (issue #196). Event-addressed, because a report is a question about one event and
+   * every dataset behind it is authorized by the domain that owns it.
+   *
+   * The share resolver is the exception, and it is under `/api/public/*` for the same reason the
+   * itinerary is: the link is the credential, the namespace reads no session, and a wildcard CORS
+   * origin means a cookie could not identify a caller there even if one were sent.
+   */
+  "GET /api/events/:eventId/reports/catalogue",
+  "GET /api/events/:eventId/reports",
+  "POST /api/events/:eventId/reports",
+  "POST /api/events/:eventId/reports/run",
+  "DELETE /api/events/:eventId/reports/:reportId",
+  "POST /api/events/:eventId/reports/:reportId/duplicate",
+  "GET /api/events/:eventId/reports/:reportId/export",
+  "GET /api/events/:eventId/reports/:reportId/shares",
+  "POST /api/events/:eventId/reports/:reportId/shares",
+  "DELETE /api/events/:eventId/reports/:reportId/shares/:shareId",
+  "GET /api/events/:eventId/reports/:reportId/schedules",
+  "POST /api/events/:eventId/reports/:reportId/schedules",
+  "DELETE /api/events/:eventId/reports/:reportId/schedules/:scheduleId",
+  "POST /api/public/reports/:token",
 ] as const;
 
 const docsPage = `<!doctype html>
@@ -429,6 +475,266 @@ export const platformRoutes: RouteModule = {
         nextCursor: page.nextCursor,
       });
     });
+
+    /*
+     * ---- reporting (issue #196) -------------------------------------------
+     *
+     * Every read here is authorized twice: `events:read` on this event to reach the surface at
+     * all, and then the owning domain's own rule per dataset. A run therefore degrades rather
+     * than refuses — a reviewer opening a CRM report is told "not yours", which is the
+     * authorization model working rather than a fault.
+     */
+    const noReporting = (context: Context<{ Variables: Variables }>) =>
+      context.json(
+        envelope(
+          "NOT_FOUND",
+          "The requested resource was not found.",
+          context.get("correlationId"),
+        ),
+        404,
+      );
+    const eventOf = (context: Context<{ Variables: Variables }>) =>
+      context.req.param("eventId") ?? "";
+    const invalidReport = (
+      context: Context<{ Variables: Variables }>,
+      issues: readonly { path: PropertyKey[]; message: string }[],
+    ) =>
+      context.json(
+        envelope(
+          "VALIDATION_FAILED",
+          "Review the highlighted report settings.",
+          context.get("correlationId"),
+          validationFields([...issues]),
+        ),
+        400,
+      );
+
+    app.get("/api/events/:eventId/reports/catalogue", (context) => {
+      const { reporting } = dependencies;
+      if (!reporting) return noReporting(context);
+      // What a query builder renders, so the screen cannot offer a field the service refuses. It
+      // carries no data, only the shape of the questions available.
+      return context.json(reportCatalogueResponseSchema.parse(reporting.catalogue()));
+    });
+
+    app.get("/api/events/:eventId/reports", async (context) => {
+      const { reporting } = dependencies;
+      if (!reporting) return noReporting(context);
+      return context.json(
+        reportsResponseSchema.parse({
+          reports: await reporting.list(context.get("actor"), eventOf(context)),
+        }),
+      );
+    });
+
+    app.post("/api/events/:eventId/reports", async (context) => {
+      const { reporting } = dependencies;
+      if (!reporting) return noReporting(context);
+      const body = reportSaveInputSchema.safeParse(await readJson(context.req));
+      if (!body.success) return invalidReport(context, body.error.issues);
+      const report = await reporting.save(context.get("actor"), eventOf(context), body.data);
+      return context.json(reportResponseSchema.parse({ report }), body.data.reportId ? 200 : 201);
+    });
+
+    app.post("/api/events/:eventId/reports/run", async (context) => {
+      const { reporting } = dependencies;
+      if (!reporting) return noReporting(context);
+      const body = reportRunInputSchema.safeParse(await readJson(context.req));
+      if (!body.success) return invalidReport(context, body.error.issues);
+      const answer = await reporting.run(context.get("actor"), eventOf(context), body.data);
+      if (answer.state === "failed")
+        return context.json(
+          reportRunResponseSchema.parse(wireSection(context, dependencies, "reports.run", answer)),
+          500,
+        );
+      return context.json(reportRunResponseSchema.parse(answer));
+    });
+
+    app.delete("/api/events/:eventId/reports/:reportId", async (context) => {
+      const { reporting } = dependencies;
+      if (!reporting) return noReporting(context);
+      const query = reportRevisionQuerySchema.safeParse(context.req.query());
+      if (!query.success) return invalidReport(context, query.error.issues);
+      await reporting.remove(
+        context.get("actor"),
+        eventOf(context),
+        context.req.param("reportId") ?? "",
+        query.data.expectedRevision,
+      );
+      return context.body(null, 204);
+    });
+
+    app.post("/api/events/:eventId/reports/:reportId/duplicate", async (context) => {
+      const { reporting } = dependencies;
+      if (!reporting) return noReporting(context);
+      const body = reportDuplicateInputSchema.safeParse(await readJson(context.req));
+      if (!body.success) return invalidReport(context, body.error.issues);
+      const report = await reporting.duplicate(
+        context.get("actor"),
+        eventOf(context),
+        context.req.param("reportId") ?? "",
+        body.data.name,
+      );
+      return context.json(reportResponseSchema.parse({ report }), 201);
+    });
+
+    /*
+     * The export is a *format* applied to the run, never a second query.
+     *
+     * That is what makes "the export goes through the same field-access decision as the screen"
+     * true by construction rather than by discipline: the rows have already been filtered by the
+     * caller's grants, redacted by their custom role and masked by the PII rule before either
+     * renderer sees them. `includePii=true` is refused with 403 for a caller without the
+     * capability, exactly as the on-screen run is.
+     */
+    app.get("/api/events/:eventId/reports/:reportId/export", async (context) => {
+      const { reporting } = dependencies;
+      if (!reporting) return noReporting(context);
+      const format = context.req.query("format") ?? "csv";
+      if (format !== "csv" && format !== "xlsx" && format !== "json")
+        return invalidReport(context, [
+          { path: ["format"], message: "Export as csv, xlsx or json." },
+        ]);
+      const rendered = await reporting.export(context.get("actor"), eventOf(context), {
+        reportId: context.req.param("reportId") ?? "",
+        format,
+        includePii: context.req.query("includePii") === "true",
+      });
+      if (rendered.state !== "ok")
+        return context.json(
+          envelope(
+            rendered.state === "unauthorized" ? "FORBIDDEN" : "INTERNAL_ERROR",
+            rendered.state === "unauthorized"
+              ? "Your role cannot read this report's data."
+              : "Something went wrong.",
+            context.get("correlationId"),
+          ),
+          rendered.state === "unauthorized" ? 403 : 500,
+        );
+      return context.body(rendered.body as unknown as ArrayBuffer, 200, {
+        "content-type": rendered.contentType,
+        "content-disposition": `attachment; filename="${rendered.filename}"`,
+      });
+    });
+
+    app.get("/api/events/:eventId/reports/:reportId/shares", async (context) => {
+      const { reporting } = dependencies;
+      if (!reporting) return noReporting(context);
+      return context.json(
+        reportSharesResponseSchema.parse({
+          shares: await reporting.listShares(
+            context.get("actor"),
+            eventOf(context),
+            context.req.param("reportId") ?? "",
+          ),
+        }),
+      );
+    });
+
+    app.post("/api/events/:eventId/reports/:reportId/shares", async (context) => {
+      const { reporting } = dependencies;
+      if (!reporting) return noReporting(context);
+      const body = reportShareInputSchema.safeParse(await readJson(context.req));
+      if (!body.success) return invalidReport(context, body.error.issues);
+      const created = await reporting.createShare(
+        context.get("actor"),
+        eventOf(context),
+        context.req.param("reportId") ?? "",
+        body.data,
+      );
+      // The URL is returned once and never again: only the token's digest is stored.
+      return context.json(
+        reportShareCreatedResponseSchema.parse({ share: created.share, url: created.url }),
+        201,
+      );
+    });
+
+    app.delete("/api/events/:eventId/reports/:reportId/shares/:shareId", async (context) => {
+      const { reporting } = dependencies;
+      if (!reporting) return noReporting(context);
+      return context.json({
+        changed: await reporting.revokeShare(
+          context.get("actor"),
+          eventOf(context),
+          context.req.param("reportId") ?? "",
+          context.req.param("shareId") ?? "",
+        ),
+      });
+    });
+
+    app.get("/api/events/:eventId/reports/:reportId/schedules", async (context) => {
+      const { reporting } = dependencies;
+      if (!reporting) return noReporting(context);
+      return context.json(
+        reportSchedulesResponseSchema.parse({
+          schedules: await reporting.listSchedules(
+            context.get("actor"),
+            eventOf(context),
+            context.req.param("reportId") ?? "",
+          ),
+        }),
+      );
+    });
+
+    app.post("/api/events/:eventId/reports/:reportId/schedules", async (context) => {
+      const { reporting } = dependencies;
+      if (!reporting) return noReporting(context);
+      const body = reportScheduleInputSchema.safeParse(await readJson(context.req));
+      if (!body.success) return invalidReport(context, body.error.issues);
+      const schedule = await reporting.createSchedule(
+        context.get("actor"),
+        eventOf(context),
+        context.req.param("reportId") ?? "",
+        body.data,
+      );
+      return context.json({ schedule }, 201);
+    });
+
+    app.delete("/api/events/:eventId/reports/:reportId/schedules/:scheduleId", async (context) => {
+      const { reporting } = dependencies;
+      if (!reporting) return noReporting(context);
+      return context.json({
+        changed: await reporting.removeSchedule(
+          context.get("actor"),
+          eventOf(context),
+          context.req.param("reportId") ?? "",
+          context.req.param("scheduleId") ?? "",
+        ),
+      });
+    });
+
+    /*
+     * Resolving a share link. Anonymous, and a POST rather than a GET on purpose: the optional
+     * password travels in a body rather than in a URL a browser would keep in history beside the
+     * token it protects, and the resolve *spends a view*, which is a state change however it is
+     * spelled. `DEBT-012` is the entry that says a capability URL leaks the way URLs leak; this
+     * one adds the password, the expiry, the view limit and the revocation that entry withholds
+     * from the itinerary.
+     */
+    app.post("/api/public/reports/:token", async (context) => {
+      const { reporting } = dependencies;
+      const parsed = reportShareTokenParamsSchema.safeParse(context.req.param());
+      if (!reporting || !parsed.success)
+        return context.json(
+          envelope("NOT_FOUND", "That share link is not available.", context.get("correlationId")),
+          404,
+        );
+      const body = reportShareResolveInputSchema.safeParse((await readJson(context.req)) ?? {});
+      const resolved = await reporting.resolveShare(
+        parsed.data.token,
+        body.success ? body.data.password : undefined,
+      );
+      return context.json(
+        reportShareResolvedResponseSchema.parse({
+          report: {
+            name: resolved.report.name,
+            description: resolved.report.description,
+            dataset: resolved.report.dataset,
+          },
+          result: resolved.result,
+        }),
+      );
+    });
   },
   /**
    * The platform errors a caller can act on.
@@ -455,6 +761,44 @@ export const platformRoutes: RouteModule = {
         message: "That item is no longer waiting on this event.",
         status: 404,
       };
+    // A report that is not on this event and one that does not exist answer alike, so a report id
+    // cannot be probed from an event it does not belong to.
+    if (error instanceof ReportNotFoundError)
+      return { code: "NOT_FOUND", message: "That report was not found.", status: 404 };
+    if (error instanceof ReportNameTakenError)
+      return {
+        code: "CONFLICT",
+        message: error.message,
+        status: 409,
+        fields: { name: [error.message] },
+      };
+    if (error instanceof ReportConflictError)
+      return { code: "CONFLICT", message: error.message, status: 409 };
+    if (error instanceof ReportInvalidError)
+      return {
+        code: "VALIDATION_FAILED",
+        message: error.message,
+        status: 400,
+        fields: error.fields,
+      };
+    if (error instanceof ReportQueryInvalidError)
+      return {
+        code: "VALIDATION_FAILED",
+        message: error.message,
+        status: 400,
+        fields: error.fields,
+      };
+    // Actionable, which is what issue #196 asks a cost bound to be: the message says to narrow it.
+    if (error instanceof ReportTooExpensiveError)
+      return { code: "VALIDATION_FAILED", message: error.message, status: 400 };
+    if (error instanceof ReportPiiDeniedError)
+      return { code: "FORBIDDEN", message: error.message, status: 403 };
+    /*
+     * One answer for an unknown token, a revoked link, an expired one, one out of views and a
+     * wrong password. Telling them apart would say whether a guessed token named a real report.
+     */
+    if (error instanceof ReportShareUnavailableError)
+      return { code: "NOT_FOUND", message: error.message, status: 404 };
     return null;
   },
 };

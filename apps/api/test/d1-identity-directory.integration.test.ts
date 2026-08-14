@@ -43,6 +43,9 @@ describe("D1IdentityDirectory", () => {
         "content:manage",
         "review:manage",
         "identity:manage",
+        // Reading unmasked personal data in a report. Organizers hold it; every narrower built-in
+        // role does not, and a custom role gets it only when an administrator grants it (#196).
+        "reports:pii",
         "review:evaluate",
       ]),
     });
@@ -65,6 +68,7 @@ describe("D1IdentityDirectory", () => {
         "content:manage",
         "review:manage",
         "identity:manage",
+        "reports:pii",
         "review:evaluate",
       ]),
     });

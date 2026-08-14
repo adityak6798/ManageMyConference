@@ -1,6 +1,8 @@
 import { createDeliverablesZip } from "./adapters/content/create-deliverables-zip";
 import { D1SpeakerConversion } from "./adapters/content/d1-speaker-conversion";
 import { parseSpeakerCsv } from "./adapters/content/parse-speaker-csv";
+import { renderReportCsv, renderReportXlsx } from "./adapters/platform/render-report-export";
+import { createReportLinkDelivery } from "./adapters/platform/report-link-delivery";
 import { sanitizeSiteHtml } from "./adapters/publishing/sanitize-site-html";
 import {
   sanitizeResourceEmbed,
@@ -31,6 +33,8 @@ import { D1CustomRoleRepository } from "./adapters/persistence/d1-custom-roles";
 import { D1MembershipRepository } from "./adapters/persistence/d1-identity-membership";
 import { D1SessionStore } from "./adapters/persistence/d1-identity-sessions";
 import { D1ItineraryRepository } from "./adapters/persistence/d1-itinerary-repository";
+import { D1CapabilityLinkStore } from "./adapters/persistence/d1-capability-links";
+import { D1ReportRepository } from "./adapters/persistence/d1-report-repository";
 import { D1SiteRepository } from "./adapters/persistence/d1-site-repository";
 import { D1InboxDismissalStore } from "./adapters/persistence/d1-platform-repository";
 import { D1PublicationRepository } from "./adapters/persistence/d1-publication-repository";
@@ -105,7 +109,10 @@ import {
   AuditRecorder,
   createRequestIdentity,
   lifecycleAuditKey,
+  hashCapabilityToken,
+  mintCapabilityToken,
   PlatformOperationsService,
+  ReportingService,
 } from "./application/platform/public";
 import { ItineraryService } from "./application/publishing/itinerary-service";
 import {
@@ -523,6 +530,44 @@ export async function reconcileScheduleMaterializations(
     },
   });
   return swept;
+}
+
+const reportDelivery = (environment: Environment) =>
+  createReportLinkDelivery(
+    environment.AUTH_EMAIL_ENDPOINT && environment.AUTH_EMAIL_TOKEN
+      ? { endpoint: environment.AUTH_EMAIL_ENDPOINT, token: environment.AUTH_EMAIL_TOKEN }
+      : null,
+  );
+
+/**
+ * One cron tick's scheduled reports.
+ *
+ * Composed with only the sources the tick actually uses. A tick mints a link and delivers it; it
+ * never *runs* a report, because nobody is present to be authorized — the recipient runs it by
+ * opening the link, under the share's own policy. So the reads a run would need are absent here
+ * rather than stubbed, which is what keeps a cron path from quietly gaining reach a request has.
+ */
+export function deliverScheduledReports(
+  environment: Environment,
+): Promise<{ fired: number; failed: number }> {
+  return new ReportingService({
+    repository: new D1ReportRepository(environment.DB),
+    links: new D1CapabilityLinkStore(environment.DB),
+    sources: {
+      events: {
+        organizationOf: async () => null,
+      },
+    },
+    // Nothing to audit on a tick: the only auditable act in reporting is somebody asking for
+    // unmasked data, and nobody is present here.
+    audit: { record: async () => undefined },
+    delivery: reportDelivery(environment),
+    mintToken: mintCapabilityToken,
+    hash: hashCapabilityToken,
+    shareBaseUrl: environment.PUBLIC_BASE_URL ?? "",
+    newId: () => crypto.randomUUID(),
+    now: () => new Date(),
+  }).tick();
 }
 
 export function pruneItineraries(environment: Environment): Promise<void> {
@@ -1852,6 +1897,39 @@ export default {
       audit: auditRecorder,
       identity: requestIdentity,
     });
+    /*
+     * Reporting (issue #196).
+     *
+     * The same `sources` object the operations service composes, which is the whole point: a
+     * report answers exactly what search and the inbox would show the same caller, under the same
+     * per-source authorization and the same per-field redaction. Handing reporting its own reads
+     * would have made it a second way to ask a question the console itself refuses.
+     */
+    const reporting = new ReportingService({
+      repository: new D1ReportRepository(environment.DB),
+      links: new D1CapabilityLinkStore(environment.DB),
+      sources: {
+        events: service,
+        content,
+        review: reviewService,
+        agenda,
+        publishing,
+        communications,
+        crm,
+      },
+      audit: auditRecorder,
+      delivery: reportDelivery(environment),
+      // The renderers are adapters; the transport may not reach one, so the service holds the
+      // port and the composition root binds it. An export is a format applied to a run.
+      exports: { csv: renderReportCsv, xlsx: renderReportXlsx },
+      mintToken: mintCapabilityToken,
+      hash: hashCapabilityToken,
+      // Where a share link is reachable, so no client assembles one. The public origin rather
+      // than the API's, because the link is opened by a person rather than fetched by a script.
+      shareBaseUrl: environment.PUBLIC_BASE_URL ?? "",
+      newId: () => crypto.randomUUID(),
+      now: () => new Date(),
+    });
     // --- end platform ---
     const app = createHttpAppFrom({
       events: service,
@@ -1923,6 +2001,7 @@ export default {
       apiClients,
       eventTemplates,
       platformOps,
+      reporting,
       build:
         environment.GREENROOM_WORKTREE_ROOT && environment.GREENROOM_COMMIT
           ? { root: environment.GREENROOM_WORKTREE_ROOT, commit: environment.GREENROOM_COMMIT }
@@ -1952,6 +2031,9 @@ export default {
       drainOutbox(environment),
       pruneItineraries(environment),
       reconcileScheduleMaterializations(environment),
+      // Scheduled reports. Never throws: a failing delivery is recorded as a failed run so the
+      // rest of the tick still happens, which is the same obligation every other job here has.
+      deliverScheduledReports(environment),
     ]);
   },
 };

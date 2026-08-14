@@ -25,7 +25,10 @@ import type { EventTemplateService } from "../../../application/events/public";
 import type { CustomRoleService } from "../../../application/identity/public";
 import type { MembershipService } from "../../../application/identity/membership";
 import type { ApiClientService } from "../../../application/identity/public";
-import type { PlatformOperationsService } from "../../../application/platform/public";
+import type {
+  PlatformOperationsService,
+  ReportingService,
+} from "../../../application/platform/public";
 import type {
   ItineraryService,
   PublicationService,
@@ -111,6 +114,14 @@ export interface HttpDependencies {
   sites?: SiteService | undefined;
   eventTemplates?: EventTemplateService | undefined;
   platformOps?: PlatformOperationsService | undefined;
+  /**
+   * Saved reports, their share links and their schedules (issue #196).
+   *
+   * Separate from `platformOps` because it owns durable state — definitions, shares, schedules,
+   * runs — while the operations service derives everything it answers on each request. A
+   * deployment composed without it answers 404 on the reporting routes rather than 500.
+   */
+  reporting?: ReportingService | undefined;
   build?: BuildIdentity | undefined;
 }
 

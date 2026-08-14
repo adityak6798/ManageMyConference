@@ -42,6 +42,12 @@ export interface ContentSource {
       readonly abstract?: string | undefined;
       readonly format?: string | undefined;
       readonly tracks?: readonly string[] | undefined;
+      /**
+       * Read by reporting rather than by search, and declared because a port states the narrowest
+       * shape its holder actually reads — so widening that dependency is a visible edit here.
+       */
+      readonly publicationState?: string | undefined;
+      readonly speakerProfileIds: readonly string[];
     }[];
     readonly speakers: readonly {
       readonly id: string;
@@ -49,6 +55,8 @@ export interface ContentSource {
       readonly email?: string | undefined;
       readonly bio?: string | undefined;
       readonly organization?: string | undefined;
+      /** Reporting's "onboarding status" column. Optional for the same reason the rest are. */
+      readonly workflowStatus?: string | undefined;
     }[];
     readonly tasks: readonly {
       readonly id: string;

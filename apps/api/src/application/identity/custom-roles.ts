@@ -133,6 +133,21 @@ export interface CustomRoleRepository {
   ): Promise<number>;
   listAssignments(eventId: string): Promise<readonly CustomRoleAssignment[]>;
   isMember(organizationId: string, userId: string): Promise<boolean>;
+  /**
+   * What this event has closed on its own portal, and the write that replaces it.
+   *
+   * On this repository rather than a second one because it is administered from the same screen,
+   * by the same people, in the same vocabulary — but it is a *different question* from a role's
+   * policy, and `1007_event_field_locks.sql` says why: a role policy governs a staffed role, and
+   * a lock governs the person whose record it is.
+   */
+  listFieldLocks(eventId: string): Promise<readonly CustomRoleFieldPolicy[]>;
+  replaceFieldLocks(
+    eventId: string,
+    locks: readonly CustomRoleFieldPolicy[],
+    updatedBy: string,
+    updatedAt: number,
+  ): Promise<void>;
 }
 
 export interface CustomRoleDependencies {
@@ -276,17 +291,67 @@ export class CustomRoleService {
 
   async list(actor: Actor | null, organizationId: string, eventId: string) {
     await this.authorize(actor, organizationId, eventId);
-    const [roles, assignments] = await Promise.all([
+    const [roles, assignments, fieldLocks] = await Promise.all([
       this.dependencies.repository.list(eventId),
       this.dependencies.repository.listAssignments(eventId),
+      this.dependencies.repository.listFieldLocks(eventId),
     ]);
     return {
       roles,
       assignments,
+      // What the event has closed on its own portal, beside what each role sees. One screen,
+      // because an organizer asking "can this person change their bio" should not have to know
+      // which of the two mechanisms answered.
+      fieldLocks,
       templates: customRoleTemplates(),
       catalogue: governedFieldCatalogue(),
       grantableCapabilities: GRANTABLE_CAPABILITIES,
     };
+  }
+
+  /**
+   * Replace this event's portal field locks.
+   *
+   * Whole-set replacement rather than per-field toggles, so the stored locks are always exactly
+   * what the organizer last saw and confirmed — a partial write is how a screen and a database
+   * come to disagree about whether a field is open.
+   *
+   * `view` entries are dropped for the same reason a role's are: `view` is the absence of a
+   * policy, and storing it would fill the table with rows that decide nothing.
+   */
+  async setFieldLocks(
+    actor: Actor | null,
+    organizationId: string,
+    eventId: string,
+    locks: readonly CustomRoleFieldPolicy[],
+  ): Promise<readonly CustomRoleFieldPolicy[]> {
+    const authorized = await this.authorize(actor, organizationId, eventId);
+    this.refusePersona(authorized);
+    const seen = new Set<string>();
+    const validated: CustomRoleFieldPolicy[] = [];
+    for (const entry of locks) {
+      if (!FIELD_SUBJECTS.includes(entry.subject))
+        throw new CustomRoleInvalidError(`${entry.subject} is not a governed record kind`);
+      if (!isGovernedField(entry.subject, entry.field))
+        throw new CustomRoleInvalidError(
+          `${entry.subject} has no field ${entry.field} for a lock to govern`,
+        );
+      if (entry.policy === "hide" && REQUIRED_FIELDS[entry.subject].includes(entry.field))
+        throw new CustomRoleInvalidError(
+          `${entry.subject}.${entry.field} identifies the record and cannot be hidden`,
+        );
+      const key = fieldPolicyKey(entry.subject, entry.field);
+      if (seen.has(key) || entry.policy === "view") continue;
+      seen.add(key);
+      validated.push(entry);
+    }
+    await this.dependencies.repository.replaceFieldLocks(
+      eventId,
+      validated,
+      authorized.id,
+      this.dependencies.now(),
+    );
+    return validated;
   }
 
   async create(
