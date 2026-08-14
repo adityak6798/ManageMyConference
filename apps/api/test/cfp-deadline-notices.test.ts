@@ -53,14 +53,21 @@ async function populate(
   cfp: MemoryCfpRepository,
   options: {
     closesAt: string | null;
-    publishedAt: string | null;
+    published: boolean;
     drafts: readonly (string | null)[];
     submittedBy: readonly string[];
   },
 ) {
-  // `savePublished`, not `saveForm`: a draft can only be written against a call that is actually
-  // published and open, which is the guard the product enforces and the fixture must satisfy.
-  await cfp.savePublished(form("2099-01-01T00:00:00.000Z", options.publishedAt), true, 0);
+  /*
+   * `savePublished`, not `saveForm`: a draft can only be written against a call that is actually
+   * published and open, which is the guard the product enforces and the fixture must satisfy.
+   *
+   * `published: false` therefore takes the other writer and carries no drafts — a draft on an
+   * unpublished call is a state the product cannot produce.
+   */
+  if (options.published)
+    await cfp.savePublished(form("2099-01-01T00:00:00.000Z", "2026-08-01T00:00:00.000Z"), true, 0);
+  else await cfp.saveForm(form("2099-01-01T00:00:00.000Z", null), 0);
   let proposal = 0;
   const create = (submitterUserId: string) =>
     cfp.createDraft({
@@ -127,7 +134,7 @@ async function populate(
 async function harness(
   options: {
     closesAt?: string | null;
-    publishedAt?: string | null;
+    published?: boolean;
     drafts?: readonly (string | null)[];
     submittedBy?: readonly string[];
     addresses?: Record<string, string | null>;
@@ -138,8 +145,7 @@ async function harness(
   const cfp = new MemoryCfpRepository();
   await populate(cfp, {
     closesAt: options.closesAt === undefined ? "2026-09-02T06:59:00.000Z" : options.closesAt,
-    publishedAt:
-      options.publishedAt === undefined ? "2026-08-01T00:00:00.000Z" : options.publishedAt,
+    published: options.published !== false,
     drafts: options.drafts ?? [],
     submittedBy: options.submittedBy ?? [],
   });
@@ -156,6 +162,7 @@ async function harness(
     enqueueCfpDeadlineNotices({
       calls: cfp,
       enqueue: service,
+      alreadyEnqueued: (organizationId, key) => service.alreadyEnqueued(organizationId, key),
       eventOf: async () => ({ organizationId, name: "Greenroom Demo Summit", timezone: LA }),
       findRecipient: async (userId) => ({
         id: userId,
@@ -250,7 +257,7 @@ describe("the scheduled CFP deadline messages", () => {
     const cfp = new MemoryCfpRepository();
     await populate(cfp, {
       closesAt: "2026-09-02T06:59:00.000Z",
-      publishedAt: "2026-08-01T00:00:00.000Z",
+      published: true,
       drafts: ["user-pat"],
       submittedBy: [],
     });
@@ -266,6 +273,7 @@ describe("the scheduled CFP deadline messages", () => {
       enqueueCfpDeadlineNotices({
         calls: cfp,
         enqueue: service,
+        alreadyEnqueued: (organizationId, key) => service.alreadyEnqueued(organizationId, key),
         eventOf: async () => ({ organizationId, name: "Greenroom Demo Summit", timezone: LA }),
         findRecipient: async (userId) => ({
           id: userId,
@@ -286,10 +294,102 @@ describe("the scheduled CFP deadline messages", () => {
     expect(await repository.list(organizationId, eventId)).toHaveLength(2);
   });
 
+  it("still sees a call whose form was edited after it was published", async () => {
+    /*
+     * The defect a review pass found, and the reason "published" is the snapshot rather than the
+     * timestamp.
+     *
+     * `CfpService.save` sets `publishedAt: null` on **every** draft save and the adapter writes it
+     * straight through, so `cfp_forms.published_at` is the editable draft's timestamp and not an
+     * "is published" flag. A scheduler filtering on it went blind the first time an organizer
+     * fixed a typo in a published call's description — permanently, and silently: the tick reports
+     * `considered: 0`, which is what "nothing was due" looks like. No draft holder and no
+     * organizer would ever hear about that deadline again.
+     *
+     * The sequence below is the ordinary one: publish, set a deadline, then edit the form.
+     */
+    const cfp = new MemoryCfpRepository();
+    await populate(cfp, {
+      closesAt: "2026-09-02T06:59:00.000Z",
+      published: true,
+      drafts: ["user-pat"],
+      submittedBy: [],
+    });
+    const before = await cfp.listDeadlineNotices(
+      { from: "2026-08-01T00:00:00.000Z", to: "2026-10-01T00:00:00.000Z" },
+      50,
+    );
+    expect(before).toHaveLength(1);
+
+    // One ordinary draft save, exactly as the composer issues it — note `publishedAt: null`.
+    await cfp.saveForm(
+      { ...form("2099-01-01T00:00:00.000Z", null), version: 4, description: "Corrected." },
+      3,
+    );
+
+    const after = await cfp.listDeadlineNotices(
+      { from: "2026-08-01T00:00:00.000Z", to: "2026-10-01T00:00:00.000Z" },
+      50,
+    );
+    expect(after).toHaveLength(1);
+    expect(after[0]?.draftHolders).toEqual([{ userId: "user-pat", draftCount: 1 }]);
+  });
+
+  it("bounds one tick by recipients, not only by calls, and resumes on the next", async () => {
+    /*
+     * `DEADLINE_BATCH_LIMIT` bounds the calls; the people are a different unit, and nothing bounded
+     * them. One call with hundreds of unsubmitted drafts meant one identity read and one
+     * idempotency read *per holder, every sixty seconds, for the whole forty-eight-hour lead
+     * window* — and `scheduled()` awaits this pass before the outbox drain, so a tick that
+     * exhausts its budget here delays every queued delivery including the ones it just wrote.
+     *
+     * The budget stops the tick rather than dropping anybody: the holders it did not reach still
+     * hold drafts, and the deadline has not moved.
+     */
+    const cfp = new MemoryCfpRepository();
+    await populate(cfp, {
+      closesAt: "2026-09-02T06:59:00.000Z",
+      published: true,
+      drafts: ["user-a", "user-b", "user-c"],
+      submittedBy: [],
+    });
+    const repository = new MemoryCommunicationsRepository();
+    let id = 0;
+    const service = new CommunicationsService({
+      repository,
+      eventDirectory: { belongsToOrganization: async () => true },
+      newId: () => `id-${++id}`,
+      now: () => NOW,
+    });
+    const resolvedFor: string[] = [];
+    const run = () =>
+      enqueueCfpDeadlineNotices({
+        calls: cfp,
+        enqueue: service,
+        alreadyEnqueued: (organizationId, key) => service.alreadyEnqueued(organizationId, key),
+        eventOf: async () => ({ organizationId, name: "Greenroom Demo Summit", timezone: LA }),
+        findRecipient: async (userId) => {
+          resolvedFor.push(userId);
+          return { id: userId, name: "Pat", email: `${userId}@example.test` };
+        },
+        organizersOf: async () => [],
+        now: () => NOW,
+        recipientLimit: 2,
+      });
+
+    expect(await run()).toMatchObject({ reminded: 2 });
+    // Two identity reads, not three: the budget is spent before the third holder is resolved.
+    expect(resolvedFor).toEqual(["user-a", "user-b"]);
+
+    // The next tick finishes the job, and re-reading the first two writes nothing further.
+    expect(await run()).toMatchObject({ reminded: 1 });
+    expect(await repository.list(organizationId, eventId)).toHaveLength(3);
+  });
+
   it("says nothing about a call nobody published", async () => {
     // An unpublished call has no applicants and no deadline anybody has seen; a message about it
     // would announce something that was never offered.
-    const test = await harness({ publishedAt: null, drafts: ["user-pat"] });
+    const test = await harness({ published: false });
 
     expect(await test.run()).toMatchObject({ considered: 0, reminded: 0, announced: 0 });
   });
@@ -324,6 +424,7 @@ describe("the scheduled CFP deadline messages", () => {
           throw new Error("should not be reached");
         },
       } as never,
+      alreadyEnqueued: async () => false,
       eventOf: async () => null,
       findRecipient: async () => null,
       organizersOf: async () => [],

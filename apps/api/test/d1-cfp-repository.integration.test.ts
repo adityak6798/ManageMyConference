@@ -337,6 +337,68 @@ describe("D1CfpRepository", () => {
       ),
     ).rejects.toThrow(/reported no row count/);
   });
+
+  it("finds a closing call against real storage, including after its form is edited", async () => {
+    /*
+     * `listDeadlineNotices` had no integration test, and that is exactly how it shipped filtering
+     * on the wrong column: `published_at` is the **editable draft's** timestamp, cleared by every
+     * `saveForm`, not an "is published" flag. The memory fake read the same wrong field, so no
+     * unit test could expose it — only the real schema and the real write path can, which is what
+     * this case is for.
+     *
+     * The sequence is the ordinary organizer one: publish, set a deadline, then fix a typo.
+     */
+    const migrated = await createMigratedDatabase({ label: "cfp-deadline-notices", seed: true });
+    runtime = migrated.runtime;
+    const database = migrated.database;
+    const repository = new D1CfpRepository(database as D1CfpDatabasePort);
+    const eventId = "00000000-0000-4000-8000-000000000001";
+    const published = {
+      eventId,
+      title: "Share what you learned",
+      description: "Submit a practical session.",
+      fields: [],
+      routing: [],
+      status: "open" as const,
+      version: 2,
+      publishedAt: "2026-08-10T00:00:00.000Z",
+      publishedStatus: "open" as const,
+      opensAt: null,
+      closesAt: null,
+    };
+    await repository.saveForm(published, 1);
+    await repository.savePublished(published, true, published.version);
+    await repository.saveWindow(eventId, {
+      opensAt: null,
+      closesAt: "2026-09-02T06:59:00.000Z",
+    });
+    const window = { from: "2026-08-01T00:00:00.000Z", to: "2026-10-01T00:00:00.000Z" };
+
+    await expect(repository.listDeadlineNotices(window, 50)).resolves.toEqual([
+      { eventId, closesAt: "2026-09-02T06:59:00.000Z", draftHolders: [] },
+    ]);
+
+    // One draft save, exactly as `CfpService.save` issues it: `publishedAt` goes to null.
+    await repository.saveForm(
+      { ...published, description: "Corrected.", version: 3, publishedAt: null },
+      2,
+    );
+
+    // Still visible. Filtering on `published_at` returns nothing here, and the scheduler would
+    // report `considered: 0` for ever — indistinguishable from "nothing was due".
+    await expect(repository.listDeadlineNotices(window, 50)).resolves.toEqual([
+      { eventId, closesAt: "2026-09-02T06:59:00.000Z", draftHolders: [] },
+    ]);
+
+    // And a call outside the window is not reported, so the filter is doing work in both
+    // directions rather than answering "everything".
+    await expect(
+      repository.listDeadlineNotices(
+        { from: "2027-01-01T00:00:00.000Z", to: "2027-02-01T00:00:00.000Z" },
+        50,
+      ),
+    ).resolves.toEqual([]);
+  });
 });
 
 // The DDL `tools/check-schema-drift.mjs` renders from schema.ts is the declared storage intent

@@ -102,13 +102,19 @@ export class MemoryCfpRepository implements CfpRepository {
    * comment gives: the window is live state on the row, and a fake that read a copy off the
    * snapshot would answer "when does this close" differently from the adapter the product runs on
    * — which is exactly the bug this whole feature is about.
+   *
+   * "Published" is **the snapshot's existence**, matching the adapter's `published_json IS NOT
+   * NULL`, and not `publishedAt`. That distinction is the whole of a defect this fake originally
+   * reproduced without exposing: every draft save clears `publishedAt`, so a filter on it goes
+   * blind on any call whose form has been edited since publication — and because the fake read
+   * the same wrong field, no unit test could see it.
    */
   listDeadlineNotices(window: { from: string; to: string }, limit: number) {
     const closing = [...this.forms.values()]
       .map((form) => ({ ...form, ...this.windowOf(form.eventId) }))
       .filter(
         (form) =>
-          form.publishedAt !== null &&
+          this.published.has(form.eventId) &&
           form.closesAt !== null &&
           form.closesAt >= window.from &&
           form.closesAt < window.to,

@@ -97,6 +97,8 @@ const publishedSnapshot = (form: CfpForm) => {
 };
 
 export class D1CfpRepository implements CfpRepository {
+  /** The most calls one deadline read will name, kept under D1's 100-parameter ceiling. */
+  private static readonly DEADLINE_CHUNK = 90;
   constructor(private readonly database: D1CfpDatabasePort) {}
   async findForm(eventId: string) {
     const result = await this.database
@@ -287,20 +289,34 @@ export class D1CfpRepository implements CfpRepository {
    * *account* rather than one per draft. So the deadlines are read first, bounded, and the draft
    * holders are grouped per call in a second statement over exactly those event ids.
    *
-   * `published_at IS NOT NULL` is the filter that keeps this honest: a call nobody published has
-   * no applicants and no deadline anybody has seen, and a message about it would announce
-   * something that was never offered.
+   * **`published_json IS NOT NULL` is the "is published" fact, and `published_at` is not.** A call
+   * nobody published has no applicants and no deadline anybody has seen, so a message about it
+   * would announce something that was never offered — but the column that survives says so is the
+   * snapshot, not the timestamp. `CfpService.save` sets `publishedAt: null` on *every* draft save
+   * and `saveForm` writes it straight through, so a filter on `published_at` goes blind the first
+   * time an organizer edits a published call's description: the scheduler then reports
+   * `considered: 0`, which is indistinguishable from "nothing was due", and no draft holder or
+   * organizer is ever told about that deadline again. `OPEN_WINDOW_GUARD` above already reads the
+   * snapshot for the same reason.
    *
    * The second statement counts **drafts only** — `lifecycle = 'draft'` — so an account that has
    * submitted everything it wrote is absent rather than reminded, which is half of the acceptance
    * this exists for.
    */
   async listDeadlineNotices(window: { from: string; to: string }, limit: number) {
+    /*
+     * D1 binds at most 100 parameters per statement, and the draft-holder read below binds one per
+     * call. The caller's own batch limit is smaller than that today, but it lives in another file
+     * and nothing tied the two together — so the ceiling is enforced here, where the statement
+     * that would break is. Truncating rather than throwing is right for a scheduler: the calls
+     * this drops are still closing, and the next tick reads again.
+     */
+    const capped = Math.min(limit, D1CfpRepository.DEADLINE_CHUNK);
     const calls = await this.database
       .prepare(
-        "SELECT event_id, closes_at FROM cfp_forms WHERE published_at IS NOT NULL AND closes_at IS NOT NULL AND closes_at >= ? AND closes_at < ? ORDER BY closes_at, event_id LIMIT ?",
+        "SELECT event_id, closes_at FROM cfp_forms WHERE published_json IS NOT NULL AND closes_at IS NOT NULL AND closes_at >= ? AND closes_at < ? ORDER BY closes_at, event_id LIMIT ?",
       )
-      .bind(window.from, window.to, limit)
+      .bind(window.from, window.to, capped)
       .all<{ event_id: string; closes_at: string }>();
     if (!calls.success)
       throw new Error(`D1 failed to list closing calls: ${calls.error ?? "unknown error"}`);

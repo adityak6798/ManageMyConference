@@ -56,7 +56,11 @@
  * @spec PRD-COM-001 PRD-CFP-003
  */
 import type { CommunicationsCfpQuery } from "../cfp/public";
-import { CommunicationsInputError, CommunicationsNotFoundError } from "./errors";
+import {
+  CommunicationsInputError,
+  CommunicationsNotFoundError,
+  UnverifiedRecipientCapError,
+} from "./errors";
 import type { CommunicationsEnqueue } from "./public";
 
 /** The template each message renders from. Provisioned as a default; an organizer may edit it. */
@@ -85,6 +89,23 @@ export const CLOSED_LOOKBACK_HOURS = 24;
 /** The most calls one tick will consider, for the reason `REMINDER_BATCH_LIMIT` gives. */
 export const DEADLINE_BATCH_LIMIT = 50;
 
+/**
+ * The most **recipients** one tick will resolve and enqueue for, across every call it considers.
+ *
+ * `DEADLINE_BATCH_LIMIT` bounds the calls; nothing bounded the people, and the two are not the
+ * same unit. One popular call with five hundred unsubmitted drafts meant five hundred concurrent
+ * identity reads plus five hundred idempotency reads — *every sixty seconds for the whole
+ * forty-eight-hour lead window*, because the key is checked per holder rather than the window
+ * being marked done. `scheduled()` awaits this pass before `drainOutbox`, so a tick that exhausts
+ * its subrequest budget here delays every queued delivery, including the ones this pass just
+ * wrote. `task-reminders.ts` bounds the unit it iterates for exactly this reason.
+ *
+ * Nothing is lost when the bound bites: the holders it did not reach still hold drafts and the
+ * deadline has not moved, so the next tick sees them. It is a rate limit on a backlog, not a
+ * ceiling on who is told.
+ */
+export const DEADLINE_RECIPIENT_LIMIT = 200;
+
 const HOUR_MS = 60 * 60 * 1000;
 
 /** One person a message can be addressed to, answered by identity from an account id. */
@@ -97,6 +118,15 @@ export interface DeadlineRecipient {
 export interface CfpDeadlineDependencies {
   readonly calls: CommunicationsCfpQuery;
   readonly enqueue: CommunicationsEnqueue;
+  /**
+   * Whether this key already has a delivery — one indexed read, and no identity lookup.
+   *
+   * The cheap half of the tick. Without it every holder costs an address resolution on every
+   * sixty-second tick for the whole lead window, when the answer after the first tick is always
+   * "already told". Asking first turns the steady state into one key read per holder and keeps the
+   * expensive work for the people who have not been written to yet.
+   */
+  readonly alreadyEnqueued: (organizationId: string, idempotencyKey: string) => Promise<boolean>;
   /**
    * The owning organization, the event's name and its timezone. Events owns all three; this asks
    * rather than joins, exactly as the task reminder asks for `organizationOf`.
@@ -112,6 +142,7 @@ export interface CfpDeadlineDependencies {
   readonly leadHours?: number;
   readonly lookbackHours?: number;
   readonly limit?: number;
+  readonly recipientLimit?: number;
   /** Reports a message that could not be queued. Never called for an ordinary duplicate. */
   readonly onFailure?: (fields: Record<string, unknown>) => void;
 }
@@ -156,6 +187,34 @@ export const deadlineInZone = (instant: string, timeZone: string): string => {
 };
 
 /**
+ * The draft holders on this call who have not been written to yet, up to `budget`.
+ *
+ * Asked with the cheap key read rather than by resolving everybody and letting the enqueue
+ * converge: convergence is correct but costs an identity lookup per holder per tick, and this pass
+ * runs every sixty seconds for the whole lead window. It is also what makes the recipient budget
+ * advance — a budget spent on people who were already told would stop the tick at the same
+ * holders for ever, and the rest of the call would never be reached.
+ */
+async function pendingHolders(
+  dependencies: CfpDeadlineDependencies,
+  organizationId: string,
+  call: {
+    readonly eventId: string;
+    readonly closesAt: string;
+    readonly draftHolders: readonly { readonly userId: string; readonly draftCount: number }[];
+  },
+  budget: number,
+): Promise<readonly { readonly userId: string; readonly draftCount: number }[]> {
+  const pending: { readonly userId: string; readonly draftCount: number }[] = [];
+  for (const holder of call.draftHolders) {
+    if (pending.length >= budget) break;
+    const key = `cfp-deadline:${call.eventId}:${holder.userId}:${call.closesAt}`;
+    if (!(await dependencies.alreadyEnqueued(organizationId, key))) pending.push(holder);
+  }
+  return pending;
+}
+
+/**
  * Queue one reminder per draft holder about to lose their chance, and one notice per organizer
  * whose call has just closed.
  *
@@ -187,9 +246,17 @@ export async function enqueueCfpDeadlineNotices(
   }
 
   const nowInstant = now.toISOString();
+  const recipientLimit = dependencies.recipientLimit ?? DEADLINE_RECIPIENT_LIMIT;
+  let considered = 0;
+  let resolved = 0;
   let reminded = 0;
   let announced = 0;
   for (const call of calls) {
+    // The recipient budget is spent across calls, not per call, and it stops the loop rather than
+    // truncating one call's audience — a half-told event would leave the rest of its holders
+    // waiting on a tick that had already counted the call as considered.
+    if (resolved >= recipientLimit) break;
+    considered += 1;
     try {
       const event = await dependencies.eventOf(call.eventId);
       if (!event) {
@@ -210,7 +277,14 @@ export async function enqueueCfpDeadlineNotices(
             payload: { organizerName: organizer.name, eventName: event.name, closesAt },
           }))
         : await Promise.all(
-            call.draftHolders.map(async (holder) => {
+            (
+              await pendingHolders(
+                dependencies,
+                event.organizationId,
+                call,
+                recipientLimit - resolved,
+              )
+            ).map(async (holder) => {
               const recipient = await dependencies.findRecipient(holder.userId);
               return {
                 recipient,
@@ -228,6 +302,7 @@ export async function enqueueCfpDeadlineNotices(
             }),
           );
 
+      resolved += audience.length;
       for (const message of audience) {
         // No address means unreachable, and that is reported rather than guessed at: an account
         // identity holds no address for cannot be written to, and a delivery to an empty string
@@ -262,11 +337,17 @@ export async function enqueueCfpDeadlineNotices(
       dependencies.onFailure?.({
         eventId: call.eventId,
         reason:
-          error instanceof CommunicationsNotFoundError || error instanceof CommunicationsInputError
+          error instanceof CommunicationsNotFoundError ||
+          error instanceof CommunicationsInputError ||
+          // A reached cap is a decision this scheduler made, not a fault: reporting it as
+          // "unexpected failure" hides the one line an operator needs to understand the silence.
+          error instanceof UnverifiedRecipientCapError
             ? error.message
             : "unexpected failure",
       });
     }
   }
-  return { considered: calls.length, reminded, announced };
+  // `considered` counts the calls this tick actually worked, which is what the recipient budget
+  // can cut short — reporting `calls.length` would claim work the budget stopped.
+  return { considered, reminded, announced };
 }
