@@ -18,3 +18,22 @@ INSERT INTO agenda_session_schedules (
   '2026-09-01T16:00:00.000Z', '2026-09-01T17:00:00.000Z', 'Main stage',
   1, '2026-08-10T20:00:00.000Z'
 );
+
+-- And the statement that says the row above is current.
+--
+-- `publication_watermark` counts writes to this event's history, and the seed makes exactly one.
+--
+-- The insert into `agenda_publications` already created this row through `1602`'s trigger, with
+-- `materialized_watermark` NULL — the seed is precisely one of the direct writers that motivated
+-- the trigger, and the trigger cannot tell that this one does maintain the derived table. Claiming
+-- the watermark here is what makes the seeded event *sound* rather than merely correct: without it
+-- every fixture starts life flagged as drifted, and the first read of the demo schedule would
+-- replay a one-publication history to rediscover the row three lines above (issue #169).
+INSERT INTO agenda_schedule_materializations (
+  event_id, publication_watermark, materialized_watermark, materialized_at
+) VALUES (
+  '00000000-0000-4000-8000-000000000001', 1, 1, '2026-08-10T20:00:00.000Z'
+)
+ON CONFLICT(event_id) DO UPDATE SET
+  materialized_watermark = excluded.materialized_watermark,
+  materialized_at = excluded.materialized_at;

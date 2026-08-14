@@ -2,10 +2,13 @@ import type {
   AgendaRepository,
   PublishedSchedule,
   PublishOutcome,
+  ScheduleReconciliation,
 } from "../../application/agenda/agenda-repository";
 import {
   advanceBoardOccurrences,
+  compareSessionScheduleRevisions,
   EMPTY_BOARD_OCCURRENCES,
+  isScheduleInSync,
   nextSessionScheduleRevisions,
   schedulePublishedEvent,
   type AgendaDraft,
@@ -26,14 +29,35 @@ export class MemoryAgendaRepository implements AgendaRepository {
   /**
    * The same materialized answer D1 stores, maintained by the same domain function.
    *
-   * Held per event rather than re-derived from a kept history, because that is the contract
-   * being doubled: D1 advances these rows inside the publication's batch and never replays.
-   * A double that folded a history on read would keep passing if the write path stopped
-   * maintaining the table at all.
+   * Held per event rather than re-derived from the kept history below, because that is the
+   * contract being doubled: D1 advances these rows inside the publication's batch and replays
+   * only to reconcile. A double that folded a history on read would keep passing if the write
+   * path stopped maintaining the table at all — and would have no drift to detect either.
    */
   private readonly sessionSchedules = new Map<
     string,
     ReadonlyMap<string, SessionScheduleRevision>
+  >();
+  /**
+   * Every publication, in version order — the input a reconciliation replays.
+   *
+   * D1 has always had this: `agenda_publications` is the history, and what #141 changed is that
+   * nothing *reads* it on the read path any more. The double keeps the same separation. Nothing
+   * here folds this on a read; only `reconcileSessionSchedules` touches it, which is exactly the
+   * arrangement the storage has.
+   */
+  private readonly history = new Map<string, PublishedSchedule[]>();
+  /**
+   * The two watermarks `agenda_schedule_materializations` holds, doubled (issue #169).
+   *
+   * `publication` counts every write to the history by anyone — in D1 that is a trigger, so it
+   * holds for writers this class never sees; here it is every method that appends to `history`.
+   * `materialized` moves only when the fold runs, and `null` means it never has. A counter rather
+   * than a version, for the reason `1602` gives: two writes can carry the same version.
+   */
+  private readonly watermarks = new Map<
+    string,
+    { publication: number; materialized: number | null }
   >();
   /** Versions already taken per event, so a second publication cannot reuse one. */
   private readonly versions = new Map<string, Set<number>>();
@@ -76,7 +100,8 @@ export class MemoryAgendaRepository implements AgendaRepository {
      * a later-numbered publication had already placed. Sorting by version is enough — the sort
      * is stable, so each event's own subsequence keeps its relative order.
      */
-    for (const schedule of [...publications].sort((left, right) => left.version - right.version))
+    for (const schedule of [...publications].sort((left, right) => left.version - right.version)) {
+      this.record(schedule);
       this.sessionSchedules.set(
         schedule.eventId,
         nextSessionScheduleRevisions(
@@ -84,6 +109,25 @@ export class MemoryAgendaRepository implements AgendaRepository {
           schedule,
         ),
       );
+      this.claim(schedule.eventId);
+    }
+  }
+  /** Append to the history and move the watermark every writer of the history moves. */
+  private record(schedule: PublishedSchedule) {
+    const history = this.history.get(schedule.eventId) ?? [];
+    history.push(structuredClone(schedule));
+    history.sort((left, right) => left.version - right.version);
+    this.history.set(schedule.eventId, history);
+    const watermark = this.watermarks.get(schedule.eventId);
+    this.watermarks.set(schedule.eventId, {
+      publication: (watermark?.publication ?? 0) + 1,
+      materialized: watermark?.materialized ?? null,
+    });
+  }
+  /** Claim that the stored revisions describe every write the history has taken. */
+  private claim(eventId: string) {
+    const held = this.watermarks.get(eventId);
+    if (held) this.watermarks.set(eventId, { ...held, materialized: held.publication });
   }
   async getDraft(eventId: string) {
     const draft = this.drafts.get(eventId);
@@ -180,14 +224,16 @@ export class MemoryAgendaRepository implements AgendaRepository {
     versions.add(schedule.version);
     this.versions.set(schedule.eventId, versions);
     this.publications.set(schedule.eventId, structuredClone(schedule));
+    /*
+     * Read before the history moves, exactly as `D1AgendaRepository.publish` reads the revisions
+     * before inserting the publication — and through the drift-aware read, so a publication
+     * following a missed one folds over a re-derived answer rather than inheriting the gap.
+     */
+    const current = await this.sessionScheduleRevisions(schedule.eventId);
+    this.record(schedule);
     // Advanced with the publication, exactly as D1 advances it inside the publication's batch.
-    this.sessionSchedules.set(
-      schedule.eventId,
-      nextSessionScheduleRevisions(
-        this.sessionSchedules.get(schedule.eventId) ?? new Map(),
-        schedule,
-      ),
-    );
+    this.sessionSchedules.set(schedule.eventId, nextSessionScheduleRevisions(current, schedule));
+    this.claim(schedule.eventId);
     if (schedule.commandKey)
       this.byCommandKey.set(
         `${schedule.eventId}~${schedule.commandKey}`,
@@ -206,9 +252,88 @@ export class MemoryAgendaRepository implements AgendaRepository {
   async getPublished(eventId: string) {
     return structuredClone(this.publications.get(eventId) ?? null);
   }
+  /**
+   * The stored answer, re-derived first if the history moved without it (issue #169).
+   *
+   * The watermark comparison is the double's whole share of the drift contract, and it has to be
+   * here rather than only in D1: a service test that drove a missed publication through this class
+   * would otherwise be asserting against a store that cannot go stale, which proves nothing about
+   * the store that can.
+   */
   async sessionScheduleRevisions(
     eventId: string,
   ): Promise<ReadonlyMap<string, SessionScheduleRevision>> {
+    const watermark = this.watermarks.get(eventId);
+    if (watermark && watermark.materialized !== watermark.publication) {
+      await this.reconcileSessionSchedules(eventId, { repair: true });
+    }
     return new Map(this.sessionSchedules.get(eventId) ?? new Map());
+  }
+  async reconcileSessionSchedules(
+    eventId: string,
+    options: { readonly repair: boolean },
+  ): Promise<ScheduleReconciliation> {
+    const history = this.history.get(eventId) ?? [];
+    let replayed: ReadonlyMap<string, SessionScheduleRevision> = new Map();
+    for (const publication of history)
+      replayed = nextSessionScheduleRevisions(replayed, publication);
+    const watermark = this.watermarks.get(eventId);
+    const stored = this.sessionSchedules.get(eventId) ?? new Map();
+    const drift = compareSessionScheduleRevisions(stored, replayed);
+    const inSync =
+      isScheduleInSync(drift) &&
+      (watermark?.materialized ?? null) === (watermark?.publication ?? null);
+    // Declines for the same reason D1 does: with no watermark there is nothing to make the write
+    // conditional on, and an unconditional rewrite is the defect the guard exists to prevent.
+    const repaired = options.repair && !inSync && watermark !== undefined;
+    if (repaired) {
+      this.sessionSchedules.set(eventId, replayed);
+      this.claim(eventId);
+    }
+    return {
+      eventId,
+      publicationWatermark: watermark?.publication ?? null,
+      materializedWatermark: repaired
+        ? (watermark?.publication ?? null)
+        : (watermark?.materialized ?? null),
+      publications: history.length,
+      drift,
+      inSync,
+      repaired,
+    };
+  }
+  async driftedEvents(limit: number): Promise<readonly string[]> {
+    return [...this.watermarks]
+      .filter(([, watermark]) => watermark.materialized !== watermark.publication)
+      .map(([eventId]) => eventId)
+      .sort()
+      .slice(0, limit);
+  }
+  /**
+   * The state migration `1602` leaves behind: correct rows, an unclaimed watermark.
+   *
+   * A test seam for the same reason `recordUnmaintainedPublication` is one — the state is produced
+   * by a migration rather than by any code path this class models, and asserting on it matters
+   * because "rows that agree" and "rows that can be believed" are different questions.
+   */
+  unclaimWatermark(eventId: string): void {
+    const held = this.watermarks.get(eventId);
+    if (held) this.watermarks.set(eventId, { ...held, materialized: null });
+  }
+  /**
+   * A publication written the way a writer that does not know about the derived table writes one.
+   *
+   * This is the deploy window in one call: the old Worker inserts into `agenda_publications`, the
+   * database's trigger moves the publication watermark because it belongs to the database rather
+   * than to the code, and nothing maintains `agenda_session_schedules`. Tests need it because the
+   * whole point of `GAP-024` is a state no supported code path produces — a state that can only be
+   * reached by writing history behind the fold's back.
+   */
+  async recordUnmaintainedPublication(schedule: PublishedSchedule): Promise<void> {
+    const versions = this.versions.get(schedule.eventId) ?? new Set<number>();
+    versions.add(schedule.version);
+    this.versions.set(schedule.eventId, versions);
+    this.publications.set(schedule.eventId, structuredClone(schedule));
+    this.record(schedule);
   }
 }

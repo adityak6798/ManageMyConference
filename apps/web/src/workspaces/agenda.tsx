@@ -3,7 +3,7 @@
  *
  * Owned by the `agenda` domain. @spec PRD-AGD-001
  */
-import { AgendaWorkspace } from "../AgendaWorkspace";
+import { AgendaWorkspace } from "../agenda/AgendaWorkspace";
 import { IconCalendar } from "../ui/icons";
 import { Notice } from "../ui/primitives";
 import type { WorkspaceModule } from "./contract";

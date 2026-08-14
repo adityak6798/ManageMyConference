@@ -218,6 +218,90 @@ export function nextSessionScheduleRevisions(
 }
 
 /**
+ * One session on which the stored answer and a replay of the history disagree.
+ *
+ * Both sides are carried, not just the fact of a difference. A reconciliation that reported a
+ * count would leave whoever reads it unable to tell the benign case (a revision one lower than it
+ * should be) from the one that mails an invitation to a session the programme does not schedule,
+ * and those are the two ends of `GAP-024`.
+ */
+export interface SessionScheduleDivergence {
+  readonly sessionId: string;
+  readonly stored: SessionScheduleRevision;
+  readonly replayed: SessionScheduleRevision;
+}
+
+/**
+ * How a stored set of revisions differs from the one the publication history produces.
+ *
+ * Three kinds, because the stored form can diverge on *which rows exist* as well as on what they
+ * say, and issue #169 turns on the difference:
+ *
+ * *`missing`* — the history places the session and the table has no row. Every consumer reads
+ * that as "not scheduled yet", so the speaker calendar send skips it silently and the `.ics`
+ * omits it. Mail that should go out does not.
+ *
+ * *`phantom`* — the table holds a row the history does not place. This is the one that fails in
+ * the other direction: nothing downstream re-checks a row against the board in force, so a Send
+ * computes a ref, allocates a `SEQUENCE`, and mails the speakers an invitation to a session the
+ * published programme no longer schedules. Strictly more mail than a correct table sends, and all
+ * of it wrong. A repair that only recomputed the rows it already had would leave exactly this.
+ *
+ * *`divergent`* — the row exists on both sides and says something different. A stale hour mails
+ * the wrong time; a stale `revision` compares equal to the ref already in `calendar_invite_states`
+ * and suppresses the REQUEST that puts a returning talk back on a speaker's calendar (issue #136).
+ */
+export interface SessionScheduleDrift {
+  readonly missing: readonly string[];
+  readonly phantom: readonly string[];
+  readonly divergent: readonly SessionScheduleDivergence[];
+}
+
+const sameRevision = (left: SessionScheduleRevision, right: SessionScheduleRevision) =>
+  left.startsAt === right.startsAt &&
+  left.endsAt === right.endsAt &&
+  left.location === right.location &&
+  left.revision === right.revision &&
+  left.revisedAt === right.revisedAt;
+
+/** Whether a drift report found anything at all. */
+export const isScheduleInSync = (drift: SessionScheduleDrift): boolean =>
+  drift.missing.length === 0 && drift.phantom.length === 0 && drift.divergent.length === 0;
+
+/**
+ * What a replay of the publication history says the stored revisions should have been.
+ *
+ * Compares the *whole* revision, not only `revision`: `startsAt`, `endsAt` and `location` are what
+ * a calendar client renders, and `revisedAt` is written into the delivery's stored ref beside the
+ * revision. A comparison that ignored any of them would report "in sync" for a table that mails
+ * the wrong hour.
+ *
+ * Session ids are sorted so a report is stable between runs. Nothing downstream depends on the
+ * order; the point is that two reconciliations of the same divergence read identically, which is
+ * what makes one worth pasting into an issue.
+ */
+export function compareSessionScheduleRevisions(
+  stored: ReadonlyMap<string, SessionScheduleRevision>,
+  replayed: ReadonlyMap<string, SessionScheduleRevision>,
+): SessionScheduleDrift {
+  const missing: string[] = [];
+  const phantom: string[] = [];
+  const divergent: SessionScheduleDivergence[] = [];
+  for (const [sessionId, expected] of replayed) {
+    const held = stored.get(sessionId);
+    if (!held) missing.push(sessionId);
+    else if (!sameRevision(held, expected))
+      divergent.push({ sessionId, stored: held, replayed: expected });
+  }
+  for (const sessionId of stored.keys()) if (!replayed.has(sessionId)) phantom.push(sessionId);
+  return {
+    missing: missing.sort(),
+    phantom: phantom.sort(),
+    divergent: divergent.sort((left, right) => left.sessionId.localeCompare(right.sessionId)),
+  };
+}
+
+/**
  * What the agenda tells the rest of the system when a schedule becomes public.
  *
  * The agenda owns this payload, not whoever eventually delivers it: the facts it carries —

@@ -14,6 +14,7 @@ import {
   agendaPublicationHeadersSchema,
   agendaResourcesSchema,
   publishedScheduleSchema,
+  scheduleReconciliationSchema,
 } from "../src/index";
 import type { OpenApiFragment } from "./contract";
 
@@ -132,5 +133,26 @@ export const agendaPaths: OpenApiFragment = {
         500: errorResponse,
       },
     });
+    for (const [method, description] of [
+      ["get", "Whether the stored session schedules still match the publication history"],
+      ["post", "The same comparison, with the replayed answer written back where it differed"],
+    ] as const)
+      registry.registerPath({
+        method,
+        path: "/api/events/{eventId}/agenda/schedule-reconciliation",
+        security: [{ sessionCookie: [] }, { eventBearer: [] }],
+        request: { params: agendaIdParamsSchema },
+        responses: {
+          200: {
+            description,
+            content: json(z.object({ reconciliation: scheduleReconciliationSchema })),
+          },
+          400: errorResponse,
+          401: errorResponse,
+          403: errorResponse,
+          404: errorResponse,
+          500: errorResponse,
+        },
+      });
   },
 };

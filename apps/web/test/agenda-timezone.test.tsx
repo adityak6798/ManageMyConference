@@ -10,7 +10,7 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import type { EventDto } from "@greenroom/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AgendaWorkspace } from "../src/AgendaWorkspace";
+import { AgendaWorkspace } from "../src/agenda/AgendaWorkspace";
 
 const eventId = "123e4567-e89b-12d3-a456-426614174000";
 const organizationId = "00000000-0000-4000-8000-000000000010";
@@ -133,6 +133,41 @@ describe("AgendaWorkspace timezone rendering", () => {
     expect(zoneLabel()).toHaveTextContent("Times are shown in America/New_York (EDT)");
     // Midnight Eastern belongs to the next day, so Eastern really does split these two.
     expect(screen.getByRole("option", { name: "Wed, Sep 2" })).toBeInTheDocument();
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  /*
+   * `DEBT-008`: an empty board used to read the zone abbreviation at `new Date()`.
+   *
+   * The abbreviation is a fact about an *instant* — DST makes it so — and a board with no slots
+   * shows no instant. Reading "now" made a January conference configured in July announce itself
+   * as PDT, stated exactly as confidently as a real reading, and flipped to PST six months later
+   * with nothing about the event having changed. The event record carries no dates of its own
+   * (`EventDto` is id, organization, name, timezone and creation time), so there is no honest
+   * instant to substitute and the board says only the zone.
+   *
+   * Both abbreviations are ruled out rather than the current one, so this holds in either half of
+   * the year without faking a clock — the old fallback printed one of exactly these two whenever
+   * it ran.
+   */
+  it("names no abbreviation on an empty board, in either half of the year", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ agenda: { ...draft, slots: [], placements: [] } }), {
+            status: 200,
+          }),
+        ),
+      ),
+    );
+    render(<AgendaWorkspace event={eventIn("America/Los_Angeles")} onError={onError} />);
+
+    await waitFor(() =>
+      expect(zoneLabel()).toHaveTextContent("Times are shown in America/Los_Angeles"),
+    );
+    expect(zoneLabel()).not.toHaveTextContent("PDT");
+    expect(zoneLabel()).not.toHaveTextContent("PST");
     expect(onError).not.toHaveBeenCalled();
   });
 

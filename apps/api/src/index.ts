@@ -37,7 +37,12 @@ import { AesGcmWebhookSecretProtector } from "./adapters/persistence/webhook-sec
 import { R2AssetStorage, type R2BucketPort } from "./adapters/storage/r2-asset-storage";
 import { resolveSuggestionProvider } from "./adapters/suggestions/configuration";
 import { AgendaService } from "./application/agenda/agenda-service";
-import { agendaTemplateSlice } from "./application/agenda/public";
+import {
+  agendaTemplateSlice,
+  sweepDriftedSchedules,
+  type ScheduleReconciliation,
+  type ScheduleSweepResult,
+} from "./application/agenda/public";
 import { CfpService, CfpUnavailableError } from "./application/cfp/cfp-service";
 import { cfpTemplateSlice } from "./application/cfp/public";
 import { OutboxWorker } from "./application/communications/outbox-worker";
@@ -405,6 +410,107 @@ export async function drainOutbox(environment: Environment, limit = 100): Promis
   return communicationsProcessed + webhooksProcessed;
 }
 
+/**
+ * Told about every repair of `agenda_session_schedules`, from whichever path performed it.
+ *
+ * This line is the whole answer to the objection the design invites: repairing automatically can
+ * hide the writer producing the drift, because a future importer writing publications directly
+ * would be corrected forever and look correct. Leaving the damage in place is not the alternative
+ * it appears to be — the failure it causes is mail, in both directions, and nothing surfaces the
+ * condition to a human. So the repair is loud instead.
+ *
+ * It is bound to the *repository* rather than to the sweep, and that placement is load-bearing: a
+ * read repairs the moment anybody opens the workspace or presses Send, so the tick only ever
+ * reaches events nobody read. An observer on the sweep alone would report exactly the events that
+ * matter least, and "a repair is never silent" would be false for the path that runs most.
+ *
+ * How to read one. A repair whose three drift counts are all zero is migration `1602`'s backfill
+ * claiming a watermark it deliberately left unclaimed — one per already-published event, once, and
+ * never again. Any repair with a non-zero count is a real divergence: one is a deploy that raced a
+ * publication, and a recurring one names a writer that needs fixing.
+ */
+const logScheduleRepair = (report: ScheduleReconciliation) => {
+  // biome-ignore lint/suspicious/noConsole: Workers emit structured JSON at this telemetry boundary.
+  console.warn(
+    JSON.stringify({
+      level: "warn",
+      message: "agenda.schedule.drift_repaired",
+      eventId: report.eventId,
+      publicationWatermark: report.publicationWatermark,
+      materializedWatermark: report.materializedWatermark,
+      publications: report.publications,
+      // Counts rather than session ids: this line reaches a shared log sink, and which sessions
+      // moved is organizer data. The three counts are what distinguishes a settling backfill from
+      // a missed publication from a table somebody wrote directly, which is what the line is for.
+      missing: report.drift.missing.length,
+      phantom: report.drift.phantom.length,
+      divergent: report.drift.divergent.length,
+    }),
+  );
+};
+
+/**
+ * The agenda's storage, with the repair observer already attached.
+ *
+ * A factory rather than two `new D1AgendaRepository(...)` calls because the observer has to reach
+ * *both* compositions — the request-scoped one, where a read repairs the moment anybody opens the
+ * workspace, and the tick's. Wiring them separately is not a hypothetical mistake: it was made,
+ * reviewed, reported, and then made again in the commit that claimed to fix it, because nothing
+ * about two independent argument lists says they must agree. One place to attach it is the fix
+ * that a test could not have been.
+ */
+const agendaRepository = (
+  environment: Environment,
+  now: () => Date,
+  writePublicationEvent?: ConstructorParameters<typeof D1AgendaRepository>[2],
+) => new D1AgendaRepository(environment.DB, now, writePublicationEvent, logScheduleRepair);
+
+/**
+ * Repair the events whose stored schedule revisions have fallen behind their history (issue #169).
+ *
+ * The composition is deliberately the repository alone. `AgendaService` needs the content domain's
+ * schedulable-session query to answer anything about a board, and a reconciliation asks nothing
+ * about a board: it replays immutable snapshots the agenda already owns. Building a service here
+ * to reach one method would make the tick depend on a domain it has no business in.
+ *
+ * The repair itself is reported by `logScheduleRepair` below, which is bound to the repository
+ * rather than to this sweep — see the note there for why that placement is load-bearing.
+ */
+export async function reconcileScheduleMaterializations(
+  environment: Environment,
+): Promise<ScheduleSweepResult> {
+  const swept = await sweepDriftedSchedules({
+    schedules: agendaRepository(environment, () => new Date()),
+    onFailure(fields) {
+      // biome-ignore lint/suspicious/noConsole: Workers emit structured JSON at this telemetry boundary.
+      console.warn(
+        JSON.stringify({
+          level: "warn",
+          message: "agenda.schedule.drift_repair_failed",
+          ...fields,
+        }),
+      );
+    },
+    /*
+     * A drifted event that neither repaired nor threw lost every attempt to a concurrent
+     * publication. Nothing else says so — the repair observer only fires on success and
+     * `onFailure` only on a throw — so without this an event being published faster than its
+     * history can be walked would be swept, declined and forgotten every minute in silence.
+     */
+    onContention(fields) {
+      // biome-ignore lint/suspicious/noConsole: Workers emit structured JSON at this telemetry boundary.
+      console.warn(
+        JSON.stringify({
+          level: "warn",
+          message: "agenda.schedule.drift_unrepaired",
+          ...fields,
+        }),
+      );
+    },
+  });
+  return swept;
+}
+
 export function pruneItineraries(environment: Environment): Promise<void> {
   return new ItineraryService(
     new D1ItineraryRepository(environment.DB),
@@ -581,7 +687,7 @@ export default {
       environment.DB as Parameters<typeof preparedDeliveryWriter>[0],
     );
     const agenda = new AgendaService(
-      new D1AgendaRepository(environment.DB, now, async (_database, event) => {
+      agendaRepository(environment, now, async (_database, event) => {
         const organizationId = await service.organizationOf(event.eventId);
         // A publication whose event has no owning organization cannot be announced to anyone.
         // Throwing fails the batch, so the publication does not commit either — which is the
@@ -1409,11 +1515,20 @@ export default {
    * reports rather than throws, including when the open-task read itself fails, precisely so one
    * broken template cannot leave every queued delivery unsent.
    *
-   * The drain and the itinerary prune stay concurrent with each other, as they were: neither
-   * depends on the other and both are bounded.
+   * The drain, the itinerary prune and the schedule reconciliation stay concurrent with each
+   * other: none depends on the others and all three are bounded.
+   *
+   * The reconciliation joins them rather than running before the drain, even though the drift it
+   * repairs is what makes a calendar invitation wrong, because nothing in the drain sends one —
+   * `SpeakerCalendarInviteService.send` is reached only from the organizer's explicit Send. There
+   * is no ordering here that would make a queued delivery more correct.
    */
   async scheduled(_controller: unknown, environment: Environment): Promise<void> {
     await remindDueSpeakerTasks(environment);
-    await Promise.all([drainOutbox(environment), pruneItineraries(environment)]);
+    await Promise.all([
+      drainOutbox(environment),
+      pruneItineraries(environment),
+      reconcileScheduleMaterializations(environment),
+    ]);
   },
 };

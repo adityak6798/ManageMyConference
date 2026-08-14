@@ -13,7 +13,7 @@
 import type { EventDto } from "@greenroom/contracts";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AgendaWorkspace } from "../src/AgendaWorkspace";
+import { AgendaWorkspace } from "../src/agenda/AgendaWorkspace";
 
 const eventId = "123e4567-e89b-12d3-a456-426614174000";
 

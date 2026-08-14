@@ -65,6 +65,13 @@ export const UNMODELLED_OBJECTS = [
   // they are the whole reason the table is evidence rather than a log somebody can rewrite.
   "trigger:platform_audit_records_no_update",
   "trigger:platform_audit_records_no_delete",
+  // The pair that makes drift in `agenda_session_schedules` detectable rather than silent. They
+  // belong to the database rather than to the application on purpose: a writer of
+  // `agenda_publications` that knows nothing about the derived table — the old Worker during a
+  // deploy, an import, a fixture — still moves the watermark, which is the only reason an
+  // unmaintained write can be noticed at all (issue #169).
+  "trigger:agenda_publication_insert_advances_watermark",
+  "trigger:agenda_publication_delete_invalidates_watermark",
 ];
 
 const dialect = new SQLiteSyncDialect();

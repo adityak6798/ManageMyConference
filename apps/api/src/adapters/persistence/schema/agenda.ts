@@ -79,5 +79,48 @@ export function defineAgendaSchema(references: {
     ],
   );
 
-  return { agendaDrafts, agendaPublications, agendaSessionSchedules };
+  /**
+   * Whether `agendaSessionSchedules` still describes the publication history (issue #169).
+   *
+   * Two watermarks that are equal exactly when the derived table is current. `publicationWatermark`
+   * is advanced by a trigger on every insert into `agenda_publications`, so it moves for writers
+   * the application never sees — the old Worker during a deploy, an import, a fixture — and
+   * `materializedWatermark` moves only when the fold that derives the table has run. Neither the
+   * triggers nor their delete counterpart can be declared here, which is why they are listed in
+   * `UNMODELLED_OBJECTS` in `tools/check-schema-drift.mjs`.
+   *
+   * `materializedWatermark` is nullable and NULL means "never derived", which is what migration
+   * `1602` deliberately backfills: it will not claim `1601` caught a publication that landed
+   * between the two migrations.
+   */
+  const agendaScheduleMaterializations = sqliteTable(
+    "agenda_schedule_materializations",
+    {
+      eventId: text("event_id")
+        .primaryKey()
+        .notNull()
+        .references(() => references.eventsId),
+      publicationWatermark: integer("publication_watermark").notNull(),
+      materializedWatermark: integer("materialized_watermark"),
+      materializedAt: text("materialized_at"),
+    },
+    (table) => [
+      check("agenda_schedule_materializations_publication", sql`${table.publicationWatermark} > 0`),
+      check(
+        "agenda_schedule_materializations_materialized",
+        sql`${table.materializedWatermark} > 0`,
+      ),
+      // Only the drifted events, so the one-minute sweep scans what it is going to repair.
+      index("agenda_schedule_materializations_drifted_idx")
+        .on(table.eventId)
+        .where(sql`${table.materializedWatermark} IS NOT ${table.publicationWatermark}`),
+    ],
+  );
+
+  return {
+    agendaDrafts,
+    agendaPublications,
+    agendaSessionSchedules,
+    agendaScheduleMaterializations,
+  };
 }

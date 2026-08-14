@@ -123,6 +123,70 @@ export type AgendaAssistedDraftDto = z.infer<typeof agendaAssistedDraftSchema>;
 export const agendaPublicationHeadersSchema = z.object({
   "idempotency-key": z.string().min(1).max(200).optional(),
 });
+/**
+ * One session's stored schedule, as a reconciliation reports it.
+ *
+ * Plain strings rather than `.datetime()`, unlike every other instant in this module, and the
+ * exception is the point: this surface exists to describe rows that may be *wrong*. A schema that
+ * refused to describe a malformed stored value would make the diagnostic unusable at exactly the
+ * moment it was needed. Everything an organizer would compare is here, because a report that
+ * omitted `location` or `revisedAt` could call two rows equal that a calendar client does not.
+ */
+export const scheduleRevisionSchema = z.object({
+  startsAt: z.string(),
+  endsAt: z.string(),
+  location: z.string(),
+  revision: z.number().int(),
+  revisedAt: z.string(),
+});
+/**
+ * Whether an event's stored schedule revisions still describe its publication history.
+ *
+ * Three kinds of divergence, kept apart because they fail in opposite directions (issue #169).
+ * `missing` withholds mail that should go out — the session reads as unscheduled everywhere.
+ * `phantom` sends mail that should not — a row for a session the programme no longer schedules,
+ * which a Send mails an invitation for. `divergent` can do either, depending on whether the hour
+ * or the revision is what went stale.
+ *
+ * The two watermarks answer a different question from the drift: the drift says what is wrong now,
+ * the watermarks say whether anything had noticed. A divergence with equal watermarks means the
+ * derived table was written behind the fold's back, which is a different fault from a publication
+ * the fold never saw. They count *writes to the history*, not versions — two writes can carry the
+ * same version, and the question is whether anything happened. `materializedWatermark` is null when
+ * the table has never been derived, which is what migration `1602` leaves behind for every event
+ * that had already published.
+ */
+export const scheduleReconciliationSchema = z.object({
+  eventId: z.string().uuid(),
+  publicationWatermark: z.number().int().nullable(),
+  materializedWatermark: z.number().int().nullable(),
+  /** How many publications the replay walked, which is the cost this answer actually paid. */
+  publications: z.number().int().nonnegative(),
+  /**
+   * Whether the stored answer could be believed: the rows agree with the history *and* the
+   * watermark says so. Both halves — an event whose rows are right but whose watermark migration
+   * `1602` deliberately left unclaimed is **not** in sync, and is repaired to make it so.
+   *
+   * A statement about what was *found*, not about what was left behind. A `POST` that repaired
+   * anything therefore answers `inSync: false` with `repaired: true`, and the proof it worked is
+   * that the next `GET` answers `inSync: true`.
+   */
+  inSync: z.boolean(),
+  /** Whether this call wrote the replayed answer back. Always false for the `GET`. */
+  repaired: z.boolean(),
+  drift: z.object({
+    missing: z.array(z.string()),
+    phantom: z.array(z.string()),
+    divergent: z.array(
+      z.object({
+        sessionId: z.string(),
+        stored: scheduleRevisionSchema,
+        replayed: scheduleRevisionSchema,
+      }),
+    ),
+  }),
+});
+export type ScheduleReconciliationDto = z.infer<typeof scheduleReconciliationSchema>;
 export const publishedScheduleSchema = z.object({
   eventId: z.string().uuid(),
   version: z.number().int().positive(),

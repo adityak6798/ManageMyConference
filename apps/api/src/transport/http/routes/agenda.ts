@@ -17,10 +17,14 @@ import {
   AgendaNotFoundError,
   AgendaPublicationConflictError,
   AgendaResourceInUseError,
+  type ScheduleReconciliation,
 } from "../../../application/agenda/public";
 import { requireEventCapability } from "../../../application/identity/actor";
-import { envelope, validationFields, readJson } from "../runtime";
+import type { Context } from "hono";
+import { envelope, validationFields, readJson, type Variables } from "../runtime";
 import type { HttpApp, HttpDependencies, RouteModule } from "./contract";
+
+type AgendaContext = Context<{ Variables: Variables }>;
 
 const routes = [
   "GET /api/events/:eventId/agenda",
@@ -29,7 +33,28 @@ const routes = [
   "POST /api/events/:eventId/agenda/assisted-placements",
   "DELETE /api/events/:eventId/agenda/placements/:placementId",
   "POST /api/events/:eventId/agenda/publications",
+  "GET /api/events/:eventId/agenda/schedule-reconciliation",
+  "POST /api/events/:eventId/agenda/schedule-reconciliation",
 ] as const;
+
+/**
+ * The application's reconciliation, as the wire reports it.
+ *
+ * `inSync` is passed through rather than recomputed from `drift`. An earlier version derived it
+ * here, and the two answers diverged for exactly the events migration `1602` backfills: correct
+ * rows, an unclaimed watermark, so the wire said "in sync" while the reconciler kept queueing the
+ * event for repair and the `POST` on the same event answered `repaired: true`. One definition,
+ * held by the storage that decides it.
+ */
+const reconciliationBody = (report: ScheduleReconciliation) => ({
+  eventId: report.eventId,
+  publicationWatermark: report.publicationWatermark,
+  materializedWatermark: report.materializedWatermark,
+  publications: report.publications,
+  inSync: report.inSync,
+  repaired: report.repaired,
+  drift: report.drift,
+});
 
 export const agendaRoutes: RouteModule = {
   domain: "agenda",
@@ -161,6 +186,37 @@ export const agendaRoutes: RouteModule = {
       );
       return context.json({ schedule }, 201);
     });
+    /*
+     * Does the stored schedule still describe the publication history, and can it be put right?
+     *
+     * Two methods on one path because they are the same question asked with and without consent
+     * to act on the answer. `GET` replays and compares and writes nothing at all, which is what
+     * makes it usable for "is this event sound" — a check that repaired as a side effect could
+     * only ever be run once. `POST` does the same work and then writes the replayed answer back.
+     *
+     * Neither is the primary defence, and saying so here keeps the next reader from over-reading
+     * them: every read of a schedule already re-derives a drifted answer before serving it, and
+     * the one-minute tick sweeps the events nobody reads. What only these routes can do is find a
+     * divergence the watermark cannot see — a derived table edited directly leaves the watermark
+     * undisturbed, so no cheap check will ever notice it — and answer the question without
+     * changing it (issue #169, closing `GAP-024`).
+     */
+    const reconciliation = (repair: boolean) => async (context: AgendaContext) => {
+      if (!agenda) throw new AgendaNotFoundError("Agenda not configured");
+      const parsed = agendaIdParamsSchema.safeParse(context.req.param());
+      if (!parsed.success)
+        return context.json(
+          envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+          400,
+        );
+      return context.json({
+        reconciliation: reconciliationBody(
+          await agenda.reconcileSchedule(context.get("actor"), parsed.data.eventId, { repair }),
+        ),
+      });
+    };
+    app.get("/api/events/:eventId/agenda/schedule-reconciliation", reconciliation(false));
+    app.post("/api/events/:eventId/agenda/schedule-reconciliation", reconciliation(true));
     /*
      * The public schedule is addressed by the event's public slug, like every other public
      * route, and is gated on the publication being live: unpublishing has to take the whole
