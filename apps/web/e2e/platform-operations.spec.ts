@@ -121,13 +121,15 @@ test("the inbox states what is waiting on the seeded event, and a dismissal roun
   await expect(page.getByRole("heading", { level: 1, name: "Inbox" })).toBeVisible();
 
   /*
-   * Four of the five categories are populated by the deterministic seed, and each is asserted
-   * on its own content rather than on a count: the seeded reviewer assignment with no
-   * evaluation, the two open speaker tasks, the accepted session nobody has placed, and the two
-   * deliveries the fixture provider genuinely refused.
+   * Three categories are populated by the deterministic seed, and each is asserted on its own
+   * content rather than on a count: the seeded reviewer assignment with no evaluation, the open
+   * speaker tasks, and the deliveries the fixture provider genuinely refused. Wave 5's two-day
+   * programme places both seeded sessions; journeys earlier in the shared run may add their own
+   * draft work, so this assertion names the seeded session that must not be waiting.
    */
   const programme = page.getByRole("region", { name: "Programme" });
-  await expect(programme.getByRole("link", { name: "Accessible by default" })).toBeVisible();
+  await expect(programme).toBeVisible();
+  await expect(programme.getByRole("link", { name: "Accessible by default" })).toHaveCount(0);
 
   const speakerWork = page.getByRole("region", { name: "Speaker work" });
   await expect(speakerWork.getByRole("link", { name: "Confirm profile details" })).toBeVisible();

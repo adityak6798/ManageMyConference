@@ -249,6 +249,14 @@ test("reaches a conflict from the board, explains it, and blocks publication unt
   await returnToAgenda(page);
 
   // ---- one click on an occupied cell is all it takes ------------------------
+  // Wave 5 gives the seed a real second day, so this session starts placed there. Move it
+  // back to the rail before deliberately creating the overlap on day one.
+  await page.getByRole("tab", { name: /^List/ }).click();
+  await page
+    .getByRole("row", { name: new RegExp(secondSession) })
+    .getByRole("button", { name: "Unschedule" })
+    .click();
+  await page.getByRole("tab", { name: /^Room/ }).click();
   const card = page.getByRole("button", { name: new RegExp(`${secondSession}\\. Not scheduled`) });
   await card.focus();
   await card.press("Enter");
@@ -459,6 +467,14 @@ test("switches views and keeps the chosen view in a shareable URL", async ({ pag
 test("generates a conflict-free draft in one action and keeps it editable", async ({ page }) => {
   await openAgenda(page);
 
+  // The two-day seed starts complete. Free one session so generating a draft still exercises
+  // a persisted placement instead of asserting against a correctly disabled no-op control.
+  await page.getByRole("tab", { name: /^List/ }).click();
+  await page
+    .getByRole("row", { name: new RegExp(secondSession) })
+    .getByRole("button", { name: "Unschedule" })
+    .click();
+  await page.getByRole("tab", { name: /^Room/ }).click();
   const scheduledBefore = await page.getByText(/\d+ of \d+ scheduled/).innerText();
   await page.getByRole("button", { name: "Generate draft" }).click();
 
@@ -505,6 +521,11 @@ test("places only the sessions ticked in the rail, chosen with the keyboard", as
   await page.getByRole("tab", { name: /^List/ }).click();
   await page
     .getByRole("row", { name: /Designing the calm conference/ })
+    .getByRole("button", { name: "Unschedule" })
+    .click();
+  await expect(page.getByRole("status")).toContainText("moved back to Unscheduled");
+  await page
+    .getByRole("row", { name: new RegExp(secondSession) })
     .getByRole("button", { name: "Unschedule" })
     .click();
   await expect(page.getByRole("status")).toContainText("moved back to Unscheduled");

@@ -240,5 +240,5 @@ test("says the same thing about one session on every surface that names it", asy
   await expect(page.getByRole("heading", { level: 1, name: title })).toBeVisible();
   await expect(page.getByText("Main stage", { exact: false }).first()).toBeVisible();
   // And the page states the freshness boundary rather than implying it is live.
-  await expect(page.getByText(/shows the programme as last published/)).toBeVisible();
+  await expect(page.getByText(/shows the current published programme/)).toBeVisible();
 });

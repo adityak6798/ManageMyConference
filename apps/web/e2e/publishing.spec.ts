@@ -119,7 +119,7 @@ test("creates an event, previews without publishing, publishes, and takes it dow
   // ---- publish -------------------------------------------------------------
   await page.getByRole("button", { name: "Publish", exact: true }).click();
   await expect(publicationStatus).toContainText(
-    "Published. Accepted schedule, content, and CFP publications now refresh this live version automatically.",
+    "Published. Accepted schedule, content, and CFP publications now refresh every public surface automatically.",
   );
   await expect(page.getByText("Published", { exact: true })).toBeVisible();
   await expect(page.getByText("Snapshot matches the draft")).toBeVisible();

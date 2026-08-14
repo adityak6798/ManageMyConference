@@ -194,7 +194,9 @@ test("carries one proposal from the public form to the published site", async ({
   await page.goto(`/events/${SLUG}/schedule`);
   const scheduled = page.getByRole("link", { name: title });
   await expect(scheduled).toBeVisible();
-  await expect(page.getByText("Workshop lab")).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: "Tuesday, September 1" }).getByText("Workshop lab"),
+  ).toBeVisible();
   await scheduled.click();
   await expect(page.getByRole("heading", { level: 1, name: title })).toBeVisible();
   await expect(page.getByRole("link", { name: speaker })).toBeVisible();

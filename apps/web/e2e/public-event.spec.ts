@@ -38,7 +38,7 @@ test("browses the same accessible published projection directly and embedded", a
 
   // The home page carries the event itself — dates, venue, itinerary, gallery, CFP —
   // rather than a hero with nothing behind it.
-  await expect(page.getByText("September 1, 2026").first()).toBeVisible();
+  await expect(page.getByText("September 1–2, 2026").first()).toBeVisible();
   await expect(page.getByText("Harbor Conference Center, Oakland").first()).toBeVisible();
   await expect(page.getByRole("heading", { name: "Schedule at a glance" })).toBeVisible();
   await expect(
@@ -285,7 +285,7 @@ test("serves an edit published during this run on the public page", async ({ pag
   await page.getByRole("button", { name: "Publish changes" }).click();
   await expect(page.getByRole("status").filter({ hasText: "Published." })).toBeVisible();
   await expect(
-    page.getByText("The published snapshot is identical to the current draft"),
+    page.getByText("Snapshot matches the draft"),
   ).toBeVisible();
   await page.goto(`/events/${SLUG}/sessions`);
   await expect(page.getByRole("link", { name: original, exact: true })).toBeVisible();

@@ -265,7 +265,9 @@ test("audits every organizer destination and the Wave 2 evaluator surfaces", asy
   await page.goto("/agenda");
   await expect(page.getByRole("button", { name: "Generate draft" })).toBeVisible();
   await expect(page.getByText("2 of 2 scheduled")).toBeVisible();
-  await page.getByLabel("Day", { exact: true }).selectOption({ label: "Wednesday, September 2" });
+  await page
+    .getByRole("combobox", { name: "Day", exact: true })
+    .selectOption({ label: "Wed, Sep 2" });
   await expect(
     page.getByRole("button", {
       name: /Accessible by default\. Workshop lab, 10:00–11:00/,
