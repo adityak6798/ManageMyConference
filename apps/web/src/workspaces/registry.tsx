@@ -16,6 +16,7 @@ import { cfpWorkspace } from "./cfp";
 import { communicationsWorkspace } from "./communications";
 import { portalWorkspace, sessionsWorkspace } from "./content";
 import type { NavGroupName, WorkspaceAccess, WorkspaceModule } from "./contract";
+import { customRolesWorkspace } from "./custom-roles";
 import { crmDirectoryWorkspace, crmWorkspace } from "./crm";
 import { eventTemplatesWorkspace } from "./events";
 import { membersWorkspace } from "./identity";
@@ -31,6 +32,7 @@ export const workspaceModules: readonly WorkspaceModule[] = [
   crmWorkspace,
   crmDirectoryWorkspace,
   membersWorkspace,
+  customRolesWorkspace,
   apiClientsWorkspace,
   communicationsWorkspace,
   publishingWorkspace,

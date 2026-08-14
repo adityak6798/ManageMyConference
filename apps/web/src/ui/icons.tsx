@@ -126,6 +126,16 @@ export const IconSettings = (p: IconProps) =>
     p,
   );
 
+/** A shield, for the surface that decides what a role may see. */
+export const IconShield = (p: IconProps) =>
+  svg(
+    <>
+      <path d="M12 2.8 4.5 6v6.2c0 4.3 3 7.6 7.5 9 4.5-1.4 7.5-4.7 7.5-9V6z" />
+      <path d="M9.2 12.2 11.3 14.3l3.6-4.2" />
+    </>,
+    p,
+  );
+
 export const IconWarning = (p: IconProps) =>
   svg(
     <>

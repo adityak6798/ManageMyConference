@@ -10,6 +10,12 @@ import {
   acceptInvitationSchema,
   createApiClientSchema,
   createInvitationSchema,
+  customRoleDeleteQuerySchema,
+  customRoleDraftSchema,
+  customRolePreviewResponseSchema,
+  customRoleResponseSchema,
+  customRolesResponseSchema,
+  customRoleUpdateSchema,
   demoSessionInputSchema,
   eventRoleSchema,
   eventTokenRequestSchema,
@@ -29,6 +35,13 @@ import {
   type PublicApiClient,
 } from "../../../application/identity/api-clients";
 import type { AuditContext } from "../../../application/identity/audit";
+import {
+  CustomRoleConflictError,
+  CustomRoleInvalidError,
+  CustomRoleNameTakenError,
+  CustomRoleNotFoundError,
+  CustomRoleRefusedError,
+} from "../../../application/identity/custom-roles";
 import { createDemoSession, isDemoPersonaId } from "../../../application/identity/demo-session";
 import {
   EventOutsideOrganizationError,
@@ -36,6 +49,7 @@ import {
   InvitationInvalidError,
   MembershipRefusedError,
 } from "../../../application/identity/membership";
+import { LastAdministratorError } from "../../../application/identity/organization-administration";
 import {
   createEventToken,
   createLoginChallenge,
@@ -76,6 +90,15 @@ const routes = [
   "GET /api/organizations/{organizationId}/api-clients",
   "POST /api/organizations/{organizationId}/api-clients/{clientId}/rotate",
   "DELETE /api/organizations/{organizationId}/api-clients/{clientId}",
+  // Custom event roles (issue #196), addressed under the organization that owns the event for
+  // the same reason built-in event roles are: the address is where the authorization happens.
+  "GET /api/organizations/{organizationId}/events/{eventId}/custom-roles",
+  "POST /api/organizations/{organizationId}/events/{eventId}/custom-roles",
+  "PUT /api/organizations/{organizationId}/events/{eventId}/custom-roles/{roleId}",
+  "DELETE /api/organizations/{organizationId}/events/{eventId}/custom-roles/{roleId}",
+  "GET /api/organizations/{organizationId}/events/{eventId}/custom-roles/{roleId}/preview",
+  "PUT /api/organizations/{organizationId}/events/{eventId}/custom-roles/{roleId}/holders/{userId}",
+  "DELETE /api/organizations/{organizationId}/events/{eventId}/custom-roles/{roleId}/holders/{userId}",
 ] as const;
 const loginThrottle = new FixedWindowThrottle(5, 60_000, 10_000);
 /**
@@ -448,6 +471,7 @@ export const identityRoutes: RouteModule = {
      * deployment composed without it genuinely does not have these doors.
      */
     const membership = dependencies.membership;
+    const customRoles = dependencies.customRoles;
     const noMembership = (context: HttpContext) =>
       context.json(
         envelope(
@@ -607,6 +631,183 @@ export const identityRoutes: RouteModule = {
             context.req.param("eventId"),
             context.req.param("userId"),
             parsed.data.role,
+            auditContext(context),
+          ),
+        });
+      },
+    );
+
+    /*
+     * ---- custom event roles (issue #196) ----------------------------------
+     *
+     * Same address shape as a built-in event role, and for the same reason: the organization in
+     * the path is what `requireOrganizationAdministration` runs against, and the event is then
+     * checked to belong to it. A role composed in one organization can therefore never be
+     * addressed from another.
+     *
+     * The reads are open to any organization administrator, including a demo persona — the
+     * screen is a real console surface. Every write refuses a persona, exactly as membership
+     * administration does, because anything a persona wrote would be real state in the demo
+     * organization handed to whoever presses **Continue as organizer** next.
+     */
+    const noCustomRoles = (context: HttpContext) =>
+      context.json(
+        envelope(
+          "NOT_FOUND",
+          "The requested resource was not found.",
+          context.get("correlationId"),
+        ),
+        404,
+      );
+    const roleScope = (context: HttpContext) =>
+      [context.req.param("organizationId") ?? "", context.req.param("eventId") ?? ""] as const;
+
+    app.get("/api/organizations/:organizationId/events/:eventId/custom-roles", async (context) => {
+      if (!customRoles) return noCustomRoles(context);
+      const [organizationId, eventId] = roleScope(context);
+      return context.json(
+        customRolesResponseSchema.parse(
+          await customRoles.list(context.get("actor"), organizationId, eventId),
+        ),
+      );
+    });
+
+    app.post("/api/organizations/:organizationId/events/:eventId/custom-roles", async (context) => {
+      if (!customRoles) return noCustomRoles(context);
+      const body = customRoleDraftSchema.safeParse(await readJson(context.req));
+      if (!body.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "Review the highlighted role details.",
+            context.get("correlationId"),
+            validationFields(body.error.issues),
+          ),
+          400,
+        );
+      const [organizationId, eventId] = roleScope(context);
+      return context.json(
+        customRoleResponseSchema.parse({
+          role: await customRoles.create(
+            context.get("actor"),
+            organizationId,
+            eventId,
+            body.data,
+            auditContext(context),
+          ),
+        }),
+        201,
+      );
+    });
+
+    app.put(
+      "/api/organizations/:organizationId/events/:eventId/custom-roles/:roleId",
+      async (context) => {
+        if (!customRoles) return noCustomRoles(context);
+        const body = customRoleUpdateSchema.safeParse(await readJson(context.req));
+        if (!body.success)
+          return context.json(
+            envelope(
+              "VALIDATION_FAILED",
+              "Review the highlighted role details.",
+              context.get("correlationId"),
+              validationFields(body.error.issues),
+            ),
+            400,
+          );
+        const [organizationId, eventId] = roleScope(context);
+        return context.json(
+          customRoleResponseSchema.parse({
+            role: await customRoles.update(
+              context.get("actor"),
+              organizationId,
+              eventId,
+              context.req.param("roleId"),
+              body.data,
+              auditContext(context),
+            ),
+          }),
+        );
+      },
+    );
+
+    app.delete(
+      "/api/organizations/:organizationId/events/:eventId/custom-roles/:roleId",
+      async (context) => {
+        if (!customRoles) return noCustomRoles(context);
+        // The expected revision is a query parameter because a DELETE carrying a body is
+        // inconsistently forwarded by intermediaries, and dropping the guard rather than the
+        // request is exactly the failure optimistic concurrency exists to prevent.
+        const query = customRoleDeleteQuerySchema.safeParse(context.req.query());
+        if (!query.success)
+          return context.json(
+            envelope(
+              "VALIDATION_FAILED",
+              "Reload the roles list and try again.",
+              context.get("correlationId"),
+            ),
+            400,
+          );
+        const [organizationId, eventId] = roleScope(context);
+        await customRoles.remove(
+          context.get("actor"),
+          organizationId,
+          eventId,
+          context.req.param("roleId"),
+          query.data.expectedRevision,
+          auditContext(context),
+        );
+        return context.body(null, 204);
+      },
+    );
+
+    app.get(
+      "/api/organizations/:organizationId/events/:eventId/custom-roles/:roleId/preview",
+      async (context) => {
+        if (!customRoles) return noCustomRoles(context);
+        const [organizationId, eventId] = roleScope(context);
+        return context.json(
+          customRolePreviewResponseSchema.parse(
+            await customRoles.previewAs(
+              context.get("actor"),
+              organizationId,
+              eventId,
+              context.req.param("roleId"),
+            ),
+          ),
+        );
+      },
+    );
+
+    app.put(
+      "/api/organizations/:organizationId/events/:eventId/custom-roles/:roleId/holders/:userId",
+      async (context) => {
+        if (!customRoles) return noCustomRoles(context);
+        const [organizationId, eventId] = roleScope(context);
+        await customRoles.assign(
+          context.get("actor"),
+          organizationId,
+          eventId,
+          context.req.param("roleId"),
+          context.req.param("userId"),
+          auditContext(context),
+        );
+        return context.body(null, 204);
+      },
+    );
+
+    app.delete(
+      "/api/organizations/:organizationId/events/:eventId/custom-roles/:roleId/holders/:userId",
+      async (context) => {
+        if (!customRoles) return noCustomRoles(context);
+        const [organizationId, eventId] = roleScope(context);
+        return context.json({
+          changed: await customRoles.unassign(
+            context.get("actor"),
+            organizationId,
+            eventId,
+            context.req.param("roleId"),
+            context.req.param("userId"),
             auditContext(context),
           ),
         });
@@ -912,6 +1113,22 @@ export const identityRoutes: RouteModule = {
           eventId: access.eventId,
           role: access.role,
           capabilities: [...access.capabilities],
+          ...(access.customRole ? { customRole: access.customRole } : {}),
+          // Reported so the console can hide a control the API would refuse — a mirror of the
+          // decision, never the enforcement. `fieldAccessFor` on the server is what actually
+          // narrows a projection, and it reads the same map.
+          ...(access.fieldPolicies
+            ? {
+                fieldPolicies: [...access.fieldPolicies].map(([key, policy]) => {
+                  const separator = key.indexOf(":");
+                  return {
+                    subject: key.slice(0, separator),
+                    field: key.slice(separator + 1),
+                    policy,
+                  };
+                }),
+              }
+            : {}),
         })),
         capabilities: [...actor.capabilities],
         // The middleware already decided this; reporting it is what lets the console tell a
@@ -963,6 +1180,36 @@ export const identityRoutes: RouteModule = {
         message: "That event is not part of this organization.",
         status: 403 as const,
       };
+    // A role that is not on this event and an event that is not in this organization answer the
+    // same 404, so a role id cannot be probed from an organization it does not belong to.
+    if (error instanceof CustomRoleNotFoundError)
+      return {
+        code: "NOT_FOUND" as const,
+        message: "That role was not found.",
+        status: 404 as const,
+      };
+    if (error instanceof CustomRoleNameTakenError)
+      return {
+        code: "CONFLICT" as const,
+        message: error.message,
+        status: 409 as const,
+        // Named so the form can put the refusal on the input that caused it.
+        fields: { name: [error.message] },
+      };
+    if (error instanceof CustomRoleConflictError)
+      return { code: "CONFLICT" as const, message: error.message, status: 409 as const };
+    if (error instanceof CustomRoleInvalidError)
+      return { code: "VALIDATION_FAILED" as const, message: error.message, status: 400 as const };
+    if (error instanceof CustomRoleRefusedError)
+      return { code: "FORBIDDEN" as const, message: error.message, status: 403 as const };
+    /*
+     * 409 rather than 403, because the caller *is* allowed to do this and the state is what
+     * refuses. The message carries the remedy — staff a second administrator first — which is
+     * the documented recovery path issue #196 asks for, and it is the message rather than a
+     * generic one precisely so the person is not left guessing what to do next.
+     */
+    if (error instanceof LastAdministratorError)
+      return { code: "CONFLICT" as const, message: error.message, status: 409 as const };
     return null;
   },
 };

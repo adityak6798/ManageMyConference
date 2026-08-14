@@ -322,7 +322,7 @@ describe("ACC-CRM organization directory HTTP", () => {
     expect(noted.status).toBe(200);
     const profile = organizationContactSchema.parse((await noted.json()).contact);
     expect(profile.notes).toBe("Prefers a morning slot");
-    expect(profile.activities.map(({ kind }) => kind)).toEqual(["note"]);
+    expect((profile.activities ?? []).map(({ kind }) => kind)).toEqual(["note"]);
 
     // A second live contact on one address is a conflict the caller can act on, named on the
     // field, rather than a unique-index failure surfacing as a 500.

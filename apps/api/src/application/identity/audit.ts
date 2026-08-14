@@ -41,7 +41,17 @@ export type AuditAction =
   | "event_role.revoked"
   | "api_client.created"
   | "api_client.rotated"
-  | "api_client.revoked";
+  | "api_client.revoked"
+  /**
+   * Custom event roles (issue #196). `detail` carries the whole composed role — its name,
+   * template, capabilities and field policies — because the question asked afterwards is "what
+   * could this role see on the day", which a diff against a row that has since moved cannot
+   * answer. Assigning and unassigning one is `event_role.granted`/`event_role.revoked` with the
+   * role named in `detail`, so the members timeline stays one list.
+   */
+  | "custom_role.created"
+  | "custom_role.updated"
+  | "custom_role.deleted";
 
 /** A refusal is recorded as such; it is the row an operator most often goes looking for. */
 export type AuditOutcome = "succeeded" | "refused";

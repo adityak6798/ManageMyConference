@@ -172,6 +172,11 @@
         "path": "apps/web/src/workspaces/contract.ts",
         "governing": "ARC-DOM-001",
         "reason": "The workspace-module interface every domain's console surface implements."
+      },
+      {
+        "path": "packages/contracts/src/domains/identity-access.ts",
+        "governing": "PRD-IAM-002",
+        "reason": "The wire half of the authorization vocabulary. fieldPolicyEntrySchema states what a per-field View/Lock/Hide decision looks like on the wire, and a domain whose projection can be narrowed by one has to name it in its own response \u2014 content's workspace does, and the CRM directory follows. It is the same shared-surface argument application/identity/actor.ts already carries: every domain enforces authorization through identity's vocabulary rather than restating it, and two copies of a policy enum is how one surface comes to permit what another refuses."
       }
     ],
     "compositionRoots": [
@@ -512,7 +517,15 @@
         "apps/web/e2e/api-clients.spec.ts",
         "apps/api/src/adapters/persistence/identity-fixture-statements.mjs",
         "apps/api/src/transport/http/oauth-attempt-cookie.ts",
-        "apps/api/test/oauth-attempt-cookie.test.ts"
+        "apps/api/test/oauth-attempt-cookie.test.ts",
+        "apps/api/migrations/1005_custom_event_roles.sql",
+        "apps/api/src/adapters/persistence/d1-custom-roles.ts",
+        "apps/api/test/field-access.test.ts",
+        "apps/api/test/custom-roles.test.ts",
+        "apps/api/test/d1-custom-roles.integration.test.ts",
+        "apps/web/src/CustomRolesWorkspace.tsx",
+        "apps/web/src/workspaces/custom-roles.tsx",
+        "apps/web/src/api/custom-roles.ts"
       ]
     },
     {

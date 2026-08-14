@@ -26,6 +26,7 @@ import {
   D1IdentityDirectory,
   preparedOrganizerGrant,
 } from "./adapters/persistence/d1-identity-directory";
+import { D1CustomRoleRepository } from "./adapters/persistence/d1-custom-roles";
 import { D1MembershipRepository } from "./adapters/persistence/d1-identity-membership";
 import { D1SessionStore } from "./adapters/persistence/d1-identity-sessions";
 import { D1ItineraryRepository } from "./adapters/persistence/d1-itinerary-repository";
@@ -94,6 +95,7 @@ import {
   startGoogleAuthorization,
   stateProof,
 } from "./application/identity/google-oauth";
+import { CustomRoleService } from "./application/identity/custom-roles";
 import { MembershipService, mintInvitationToken } from "./application/identity/membership";
 import { issuingSecret } from "./application/identity/real-auth";
 import { SignupService, UnverifiedProviderEmailError } from "./application/identity/signup";
@@ -1576,6 +1578,14 @@ export default {
       now: () => Date.now(),
       mintToken: mintInvitationToken,
     });
+    // Custom event roles share `service` for the same reason membership does: it is the events
+    // domain's own interface, and identity reads none of its tables.
+    const customRoles = new CustomRoleService({
+      repository: new D1CustomRoleRepository(environment.DB),
+      events: service,
+      newId: () => crypto.randomUUID(),
+      now: () => Date.now(),
+    });
     const apiClientRepository = new D1ApiClientRepository(environment.DB);
     const apiClients = new ApiClientService({
       repository: apiClientRepository,
@@ -1846,6 +1856,7 @@ export default {
       speakerCalendarInvites,
       accelEventsSync,
       membership,
+      customRoles,
       apiClients,
       eventTemplates,
       platformOps,

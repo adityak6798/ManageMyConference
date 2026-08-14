@@ -25,6 +25,15 @@ import {
   requireCapability,
   requireEventCapability,
 } from "../identity/actor";
+import {
+  type FieldAccess,
+  fieldAccessFor,
+  type FieldPolicy,
+  type FieldSubject,
+  type HideableSessionField,
+  type HideableSpeakerField,
+  type Redacted,
+} from "../identity/public";
 import type { AssignableOwner } from "../identity/identity-directory";
 import type { AcceptedProposalQuery } from "../review/public";
 import {
@@ -105,6 +114,33 @@ export interface ScheduledContentSession extends ContentSession {
 export interface ContentWorkspaceView extends Omit<ContentWorkspace, "sessions"> {
   readonly sessions: readonly ScheduledContentSession[];
   readonly actorDirectory?: readonly AssignableOwner[];
+}
+
+/**
+ * The workspace as a *reader under a per-field policy* receives it (issue #196).
+ *
+ * A separate type from `ContentWorkspaceView` rather than a widening of it, and the difference
+ * matters. Content's own internal projection is complete — the calendar-invite composer needs
+ * every speaker's address, and making it optional everywhere would have every caller in the
+ * domain testing for an absence that only the console boundary can produce. This is the one
+ * boundary the redaction happens at, so this is the one type that admits it.
+ *
+ * A field a custom role Hides is *removed* rather than blanked (`FieldAccess.redact`): an empty
+ * string is a value, and a caller cannot tell it from a speaker who genuinely has no
+ * organization — which is how a redacted projection comes to look like a complete one.
+ */
+export interface RedactedContentWorkspaceView
+  extends Omit<ContentWorkspaceView, "sessions" | "speakers"> {
+  readonly sessions: readonly Redacted<ScheduledContentSession, HideableSessionField>[];
+  readonly speakers: readonly Redacted<
+    ContentWorkspace["speakers"][number],
+    HideableSpeakerField
+  >[];
+  /** Named rather than inferred from an absence. Present only when a role narrowed the read. */
+  readonly fieldAccess?: {
+    readonly hidden: readonly { subject: FieldSubject; field: string; policy: FieldPolicy }[];
+    readonly locked: readonly { subject: FieldSubject; field: string; policy: FieldPolicy }[];
+  };
 }
 
 export interface CalendarInviteContentWorkspaceView extends Omit<ContentWorkspaceView, "sessions"> {
@@ -325,8 +361,44 @@ export interface SpeakerInvitationOutcome {
   readonly reason: string;
 }
 
-function hasEventRole(actor: Actor, eventId: string, role: "organizer" | "speaker") {
+function hasEventRole(actor: Actor, eventId: string, role: "organizer" | "speaker" | "custom") {
   return actor.eventAccess.some((access) => access.eventId === eventId && access.role === role);
+}
+
+/**
+ * Narrow a projection to what a per-field policy permits, and say what was withheld.
+ *
+ * `schedule` is deliberately not governed: when and where a session happens is the agenda's
+ * answer, resolved on every read, and it is already published to anybody who can see the site.
+ * A policy that could hide it would promise a confidentiality this projection cannot keep.
+ */
+function redactContentWorkspace(
+  workspace: ContentWorkspaceView,
+  access: FieldAccess,
+): RedactedContentWorkspaceView {
+  if (!access.restricted) return workspace;
+  const entries = (subject: FieldSubject, fields: readonly string[]) =>
+    fields.map((field) => ({ subject, field, policy: access.policyFor(subject, field) }));
+  return {
+    ...workspace,
+    sessions: workspace.sessions.map(({ schedule, ...session }) => ({
+      ...access.redact<typeof session, HideableSessionField>("session", session),
+      ...(schedule ? { schedule } : {}),
+    })),
+    speakers: workspace.speakers.map((speaker) =>
+      access.redact<typeof speaker, HideableSpeakerField>("speaker", speaker),
+    ),
+    fieldAccess: {
+      hidden: [
+        ...entries("session", access.hiddenFields("session")),
+        ...entries("speaker", access.hiddenFields("speaker")),
+      ],
+      locked: [
+        ...entries("session", access.lockedFields("session")),
+        ...entries("speaker", access.lockedFields("speaker")),
+      ],
+    },
+  };
 }
 
 /** RFC 5545 section 3.1: a content line carries at most 75 octets before its CRLF. */
@@ -552,6 +624,9 @@ export class ContentService {
     const profile = await this.dependencies.repository.findProfile(profileId);
     if (!profile) throw new CapabilityDeniedError();
     const authorized = requireEventCapability(actor, profile.eventId, "content:manage");
+    // The same decision the projection made, applied to the write. A role that cannot see a
+    // speaker's logistics cannot rewrite them either.
+    fieldAccessFor(authorized, profile.eventId).assertEditable("speaker", Object.keys(input));
     const updated = await this.dependencies.repository.reviseProfile(
       profile.id,
       this.draftRevision(authorized, profile.eventId),
@@ -1235,13 +1310,33 @@ export class ContentService {
     return profile;
   }
 
-  async workspace(actor: Actor | null, eventId: string): Promise<ContentWorkspaceView> {
+  /**
+   * The sessions and speakers board, narrowed to what this reader's role permits.
+   *
+   * Three kinds of reader reach it. An **organizer** sees the whole event. A **speaker** sees
+   * their own slice, scoped by user id. A **custom role** holding `content:read` sees the whole
+   * event narrowed field by field — which is why the role check admits `custom` rather than
+   * naming the two built-in roles it used to: an AV coordinator granted `content:read` was
+   * refused outright before, so the capability the role was given did nothing.
+   *
+   * The redaction is applied *here*, at the projection, and not in the route or the client. The
+   * issue states the rule and it is worth repeating where it is enforced: a field the client
+   * hides and the API returns is not hidden.
+   */
+  async workspace(actor: Actor | null, eventId: string): Promise<RedactedContentWorkspaceView> {
     const authorized = requireEventCapability(actor, eventId, "content:read");
     const isOrganizer = hasEventRole(authorized, eventId, "organizer");
     const isSpeaker = hasEventRole(authorized, eventId, "speaker");
-    if (!isOrganizer && !isSpeaker)
+    const isCustom = hasEventRole(authorized, eventId, "custom");
+    if (!isOrganizer && !isSpeaker && !isCustom)
       throw new CapabilityDeniedError("Content workspace access denied");
-    return this.projected(eventId, isOrganizer ? undefined : authorized.id);
+    // A speaker's own slice, whether or not they also hold a custom role: the narrower scope
+    // wins, because a custom role is a staffing grant and never a way to widen a speaker's read.
+    const projected = await this.projected(
+      eventId,
+      isOrganizer || !isSpeaker ? undefined : authorized.id,
+    );
+    return redactContentWorkspace(projected, fieldAccessFor(authorized, eventId));
   }
 
   async calendarInviteWorkspace(
@@ -1375,7 +1470,7 @@ export class ContentService {
     actor: Actor | null,
     taskId: string,
     eventId: string,
-  ): Promise<ContentWorkspaceView> {
+  ): Promise<RedactedContentWorkspaceView> {
     const authorized = requireEventCapability(actor, eventId, "content:read");
     if (!hasEventRole(authorized, eventId, "speaker"))
       throw new CapabilityDeniedError("Speaker task access denied");
@@ -1449,6 +1544,11 @@ export class ContentService {
     const session = await this.dependencies.repository.findSession(sessionId);
     if (!session) throw new CapabilityDeniedError("Organizer session access denied");
     const authorized = requireEventCapability(actor, session.eventId, "content:manage");
+    // Enforced in the mutation command, not only by hiding the control. Every key the caller
+    // actually sent is checked, so a form that submits the whole object is not refused for the
+    // fields it left alone — and Hide counts as unchangeable too, because a caller who cannot
+    // read a field must not be able to overwrite one with a blank.
+    fieldAccessFor(authorized, session.eventId).assertEditable("session", Object.keys(input));
     const profiles = await Promise.all(
       input.speakerProfileIds.map((id) => this.dependencies.repository.findProfile(id)),
     );

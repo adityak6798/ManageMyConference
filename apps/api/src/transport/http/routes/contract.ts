@@ -22,6 +22,7 @@ import type { SpeakerCalendarInviteService } from "../../../application/content/
 import type { CrmService } from "../../../application/crm/public";
 import type { EventService } from "../../../application/events/event-service";
 import type { EventTemplateService } from "../../../application/events/public";
+import type { CustomRoleService } from "../../../application/identity/public";
 import type { MembershipService } from "../../../application/identity/membership";
 import type { ApiClientService } from "../../../application/identity/public";
 import type { PlatformOperationsService } from "../../../application/platform/public";
@@ -80,6 +81,14 @@ export interface HttpDependencies {
    * persona.
    */
   membership?: MembershipService | undefined;
+  /**
+   * Custom event roles and their per-field View/Lock/Hide policies (issue #196).
+   *
+   * Separate from `membership` because it administers a different thing — what a role *is*,
+   * rather than who holds one — and because a deployment can perfectly well offer membership
+   * administration without it, in which case those routes 404 rather than 500.
+   */
+  customRoles?: CustomRoleService | undefined;
   /** Organization-scoped machine-credential administration. */
   apiClients?: ApiClientService | undefined;
   agenda?: AgendaService | undefined;

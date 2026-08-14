@@ -757,7 +757,7 @@ export function CrmDirectoryWorkspace({
                         {contact.title ? <span className="sub">{contact.title}</span> : null}
                       </td>
                       <td>
-                        {contact.tags.length
+                        {contact.tags?.length
                           ? contact.tags.map((tag) => (
                               <Pill key={tag} tone="info">
                                 {tag}
@@ -995,7 +995,7 @@ export function CrmDirectoryWorkspace({
                     </li>
                   ))}
                 </ul>
-                {selected.fields.length ? (
+                {selected.fields?.length ? (
                   <dl className="grid-auto">
                     {selected.fields.map((field) => (
                       <div key={field.key}>

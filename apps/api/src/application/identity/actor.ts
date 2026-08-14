@@ -22,8 +22,24 @@ export type Capability =
 
 export interface EventAccess {
   readonly eventId: string;
-  readonly role: "organizer" | "reviewer" | "speaker" | "public";
+  readonly role: "organizer" | "reviewer" | "speaker" | "public" | "custom";
   readonly capabilities: ReadonlySet<Capability>;
+  /**
+   * The custom role this grant came from, when `role` is `custom`.
+   *
+   * Named so a role/permission inspection screen can say *which* role a refusal came from, and
+   * so an audit row about a role change can be joined to the grants it affected.
+   */
+  readonly customRole?: { readonly id: string; readonly name: string } | undefined;
+  /**
+   * Per-field View/Lock/Hide for this grant, keyed `subject:field`.
+   *
+   * Present only on a custom-role grant, and its *absence* is what makes a built-in role
+   * unrestricted — see `fieldAccessFor` in `field-access.ts`, which is the only thing that
+   * should read this. Carried on the actor rather than fetched per surface so that a projection,
+   * an export and a report cannot reach different answers.
+   */
+  readonly fieldPolicies?: ReadonlyMap<string, "view" | "lock" | "hide"> | undefined;
 }
 
 export interface Actor {

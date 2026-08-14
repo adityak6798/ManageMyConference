@@ -49,7 +49,12 @@ const actor = (over: Partial<Actor> = {}): Actor => ({
 const context = { correlationId: "c", actorUserId: null, source: "human" as const };
 
 function service(
-  over: { eventsInOrganization?: string[]; belongs?: boolean; member?: boolean } = {},
+  over: {
+    eventsInOrganization?: string[];
+    belongs?: boolean;
+    member?: boolean;
+    administratorsAfter?: number;
+  } = {},
 ) {
   // Parameters are declared rather than inferred, because these mocks are *inspected*: a
   // `vi.fn(async () => …)` records calls typed as the empty tuple, and `calls[0][0]` then fails
@@ -83,6 +88,13 @@ function service(
       ) => undefined,
     ),
     isMember: vi.fn(async () => over.member ?? true),
+    countAdministratorsAfter: vi.fn(
+      async (
+        _organizationId: string,
+        _eventIds: readonly string[],
+        _removing: Parameters<Repository["countAdministratorsAfter"]>[2],
+      ) => over.administratorsAfter ?? 1,
+    ),
   };
   return {
     repository,

@@ -167,14 +167,23 @@ export class PlatformSearchService {
     return interleave(
       [
         workspace.sessions
+          // A field this reader's role hides is absent, so it is not searched and cannot be
+          // inferred from a hit — searching a redacted field would leak its contents one query
+          // at a time, which is the subtler half of "search consumes the same policy decision".
           .filter((session) =>
-            matches(needle, session.title, session.abstract, session.format, ...session.tracks),
+            matches(
+              needle,
+              session.title,
+              session.abstract,
+              session.format,
+              ...(session.tracks ?? []),
+            ),
           )
           .map((session) => ({
             kind: "session" as const,
             id: session.id,
             title: session.title,
-            subtitle: `Session · ${session.format}`,
+            subtitle: session.format ? `Session · ${session.format}` : "Session",
             href,
           })),
         workspace.speakers

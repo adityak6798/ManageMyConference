@@ -80,9 +80,12 @@ function calendarSession(session: Workspace["sessions"][number]): CalendarLinkSe
 function profileDraft(profile: SpeakerProfile): ProfileDraft {
   return {
     name: profile.name,
-    pronouns: profile.pronouns,
-    organization: profile.organization,
-    bio: profile.bio,
+    // A speaker's own portal is never under a custom role's field policy — a speaker reads their
+    // own slice — but the DTO admits an absence because the same schema serves the organizer
+    // board, so the draft falls back rather than binding an input to `undefined`.
+    pronouns: profile.pronouns ?? "",
+    organization: profile.organization ?? "",
+    bio: profile.bio ?? "",
     // Every platform is a controlled input, so an absent link is "" here and is dropped again
     // on the way out. Leaving them undefined made the boxes uncontrolled on first paint and
     // React then warned on the first keystroke.
@@ -775,9 +778,11 @@ export function SpeakerView({
                         Unscheduled
                       </Pill>
                     )}
-                    <Pill tone={PUBLICATION_TONE[session.publicationState]}>
-                      {PUBLICATION_LABEL[session.publicationState]}
-                    </Pill>
+                    {session.publicationState ? (
+                      <Pill tone={PUBLICATION_TONE[session.publicationState]}>
+                        {PUBLICATION_LABEL[session.publicationState]}
+                      </Pill>
+                    ) : null}
                   </span>
                 </div>
               </li>

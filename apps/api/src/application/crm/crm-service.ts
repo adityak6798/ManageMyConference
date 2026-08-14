@@ -32,6 +32,7 @@ import {
   requireEventCapability,
 } from "../identity/actor";
 import type { AssignableOwner, IdentityDirectory } from "../identity/identity-directory";
+import { fieldAccessAcross, type HideableContactField, type Redacted } from "../identity/public";
 import type { CrmRepository, ProspectFilters } from "./crm-repository";
 import {
   ContactEmailTakenError,
@@ -242,17 +243,31 @@ export class CrmService {
    * two conditions would have admitted.
    */
   private async requireOrganization(actor: Actor | null, organizationId: string): Promise<Actor> {
+    return (await this.requireOrganizationScope(actor, organizationId)).actor;
+  }
+
+  /**
+   * The same three-condition check, but keeping the events the capability was earned on.
+   *
+   * The directory is organization-scoped while a custom role is event-scoped, so answering "what
+   * may this person see here" needs the set of qualifying events rather than only a yes
+   * (`fieldAccessAcross`). Everything else about the rule is unchanged.
+   */
+  private async requireOrganizationScope(
+    actor: Actor | null,
+    organizationId: string,
+  ): Promise<{ actor: Actor; eventIds: readonly string[] }> {
     const authorized = requireCapability(actor, "crm:manage");
     if (!authorized.organizations.some(({ id }) => id === organizationId))
       throw new CapabilityDeniedError("Organization access denied");
     const candidateEventIds = authorized.eventAccess
       .filter(({ capabilities }) => capabilities.has("crm:manage"))
       .map(({ eventId }) => eventId);
-    if (
-      (await this.dependencies.events.listEventIdsInOrganization(organizationId, candidateEventIds))
-        .length > 0
-    )
-      return authorized;
+    const eventIds = await this.dependencies.events.listEventIdsInOrganization(
+      organizationId,
+      candidateEventIds,
+    );
+    if (eventIds.length > 0) return { actor: authorized, eventIds };
     throw new CapabilityDeniedError("Actor lacks crm:manage inside this organization");
   }
 
@@ -665,11 +680,21 @@ export class CrmService {
     actor: Actor | null,
     organizationId: string,
     query: DirectoryQuery = {},
-  ): Promise<{ contacts: readonly OrganizationContact[]; filters: DirectoryFilters }> {
-    await this.requireOrganization(actor, organizationId);
+  ): Promise<{
+    contacts: readonly Redacted<OrganizationContact, HideableContactField>[];
+    filters: DirectoryFilters;
+  }> {
+    const scope = await this.requireOrganizationScope(actor, organizationId);
     const filters = await this.resolveFilters(organizationId, query);
+    const access = fieldAccessAcross(scope.actor, scope.eventIds);
+    // Redacted at the projection, so the directory screen, its CSV export and any report over it
+    // reach the same answer. A sponsor liaison who cannot read a contact's notes does not get
+    // them here, in the download, or by asking a report for them.
     return {
-      contacts: await this.dependencies.repository.listContacts(organizationId, filters),
+      contacts: access.redactAll<OrganizationContact, HideableContactField>(
+        "contact",
+        await this.dependencies.repository.listContacts(organizationId, filters),
+      ),
       filters,
     };
   }
@@ -678,8 +703,27 @@ export class CrmService {
     actor: Actor | null,
     organizationId: string,
     contactId: string,
+  ): Promise<Redacted<OrganizationContact, HideableContactField>> {
+    const scope = await this.requireOrganizationScope(actor, organizationId);
+    return fieldAccessAcross(scope.actor, scope.eventIds).redact<
+      OrganizationContact,
+      HideableContactField
+    >("contact", await this.loadContact(organizationId, contactId));
+  }
+
+  /**
+   * The whole contact, for a command that has to reason about it.
+   *
+   * Separate from `getContact` because redaction belongs at the *read boundary* and nowhere else.
+   * An update composes the next record from the current one, and a merge reads both sides; hand
+   * either of those a redacted copy and the write would silently erase whatever the caller's role
+   * could not see — which is a data-loss bug wearing an access-control costume. What a restricted
+   * caller may *change* is enforced separately, by `assertEditable` on the command's own fields.
+   */
+  private async loadContact(
+    organizationId: string,
+    contactId: string,
   ): Promise<OrganizationContact> {
-    await this.requireOrganization(actor, organizationId);
     const contact = await this.dependencies.repository.findContact(organizationId, contactId);
     if (!contact) throw new ContactNotFoundError("Contact not found");
     return contact;
@@ -747,7 +791,7 @@ export class CrmService {
     command: UpdateContactCommand,
   ): Promise<OrganizationContact> {
     const authorized = await this.requireOrganization(actor, organizationId);
-    const current = await this.getContact(authorized, organizationId, contactId);
+    const current = await this.loadContact(organizationId, contactId);
     if (current.mergedIntoId)
       throw new ContactMergeInvalidError("A merged contact is read-only; edit the primary");
     const now = this.dependencies.now().toISOString();
@@ -1257,13 +1301,16 @@ export class CrmService {
     contactId: string,
     command: { eventId: string; ownerId: string; convert: boolean },
     correlationId: string,
-  ): Promise<{ contact: OrganizationContact; prospect: Prospect }> {
+  ): Promise<{
+    contact: Redacted<OrganizationContact, HideableContactField>;
+    prospect: Prospect;
+  }> {
     const authorized = await this.requireOrganization(actor, organizationId);
     // The directory grant is not a licence to write into any event: this is the same
     // event-scoped check every prospect mutation makes.
     this.authorize(authorized, command.eventId);
     await this.requireOrganizationEvent(organizationId, command.eventId);
-    const contact = await this.getContact(authorized, organizationId, contactId);
+    const contact = await this.loadContact(organizationId, contactId);
     if (contact.mergedIntoId)
       throw new ContactMergeInvalidError("A merged contact cannot be sourced; use the primary");
     await this.requireAssignableOwner(command.eventId, command.ownerId);

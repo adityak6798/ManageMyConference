@@ -90,6 +90,9 @@
     "webhook_deliveries": "communications-integrations",
     "webhook_delivery_attempts": "communications-integrations",
     "webhook_idempotency_records": "communications-integrations",
-    "public_event_projection_versions": "publishing"
+    "public_event_projection_versions": "publishing",
+    "event_custom_roles": "identity-access",
+    "event_custom_role_capabilities": "identity-access",
+    "event_custom_role_field_policies": "identity-access"
   }
 }

@@ -87,6 +87,8 @@ function harness(over: { accept?: MembershipRepository["acceptInvitation"] } = {
     ]),
     recordRefusal: vi.fn(async () => undefined),
     isMember: vi.fn(async () => true),
+    /** One administrator besides whoever is being removed, so the last-admin guard stays quiet. */
+    countAdministratorsAfter: vi.fn(async () => 1),
   };
   const app = createHttpAppFrom({
     events: new EventService({

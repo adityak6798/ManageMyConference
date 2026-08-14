@@ -35,6 +35,7 @@ import { ContentOperations } from "./ContentOperations";
 import {
   assetVersionGroups,
   daysUntil,
+  HiddenField,
   isImageAsset,
   PUBLICATION_LABEL,
   PUBLICATION_TONE,
@@ -89,7 +90,10 @@ export function OrganizerView({
 
   const counts = useMemo(() => {
     const byState = { draft: 0, ready: 0, published: 0 };
-    for (const session of workspace.sessions) byState[session.publicationState] += 1;
+    // A session whose publication state this role hides is counted in none of the three, rather
+    // than defaulted into "draft": a tally that invents a state is worse than one that is short.
+    for (const session of workspace.sessions)
+      if (session.publicationState) byState[session.publicationState] += 1;
     return byState;
   }, [workspace.sessions]);
 
@@ -100,7 +104,8 @@ export function OrganizerView({
     const speakerNames = session.speakerProfileIds
       .map((id) => speakerById.get(id)?.name ?? "")
       .join(" ");
-    return `${session.title} ${session.format} ${session.tags.join(" ")} ${session.tracks.join(" ")} ${speakerNames}`
+    // Only what this reader was actually sent is searched; a hidden field is not in the haystack.
+    return `${session.title} ${session.format ?? ""} ${(session.tags ?? []).join(" ")} ${(session.tracks ?? []).join(" ")} ${speakerNames}`
       .toLowerCase()
       .includes(needle);
   });
@@ -364,11 +369,11 @@ export function OrganizerView({
                           <tr>
                             <td className="primary-cell" data-label="Session">
                               {session.title}
-                              {session.tags.length ? (
+                              {session.tags?.length ? (
                                 <span className="sub">{session.tags.join(" · ")}</span>
                               ) : null}
                             </td>
-                            <td data-label="Format">{session.format}</td>
+                            <td data-label="Format">{session.format ?? <HiddenField />}</td>
                             <td data-label="Speakers">
                               {session.speakerProfileIds.length ? (
                                 session.speakerProfileIds
@@ -379,9 +384,13 @@ export function OrganizerView({
                               )}
                             </td>
                             <td data-label="Publication">
-                              <Pill tone={PUBLICATION_TONE[session.publicationState]}>
-                                {PUBLICATION_LABEL[session.publicationState]}
-                              </Pill>
+                              {session.publicationState ? (
+                                <Pill tone={PUBLICATION_TONE[session.publicationState]}>
+                                  {PUBLICATION_LABEL[session.publicationState]}
+                                </Pill>
+                              ) : (
+                                <HiddenField />
+                              )}
                             </td>
                             <td data-label="Schedule">
                               {session.schedule ? (

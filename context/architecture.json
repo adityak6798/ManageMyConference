@@ -31,7 +31,7 @@
       {
         "path": "apps/api/src/application/platform/public.ts",
         "governing": "ARC-DOM-001",
-        "reason": "The platform domain's declared export surface: the operational service the transport composes and the vocabulary its cross-domain answers are written in. No cross-domain import reaches it today — platform composes other domains rather than being composed — and it stays declared for the same reason events/public.ts does, so a later consumer has a surface to target instead of deep-importing the service."
+        "reason": "The platform domain's declared export surface: the operational service the transport composes and the vocabulary its cross-domain answers are written in. No cross-domain import reaches it today \u2014 platform composes other domains rather than being composed \u2014 and it stays declared for the same reason events/public.ts does, so a later consumer has a surface to target instead of deep-importing the service."
       },
       {
         "path": "apps/api/src/application/cfp/public.ts",
@@ -61,7 +61,7 @@
       {
         "path": "apps/api/src/application/identity/session-store.ts",
         "governing": "PRD-IAM-001",
-        "reason": "The record of an issued session — the same boundary as real-auth.ts, for the same reason. The platform transport holds this behaviour object in its auth configuration and checks every session cookie against it, while the D1 implementation and the signing secret stay behind it. It is a port of four methods with no storage detail on it, which is what makes it an interface rather than a reach into identity's internals."
+        "reason": "The record of an issued session \u2014 the same boundary as real-auth.ts, for the same reason. The platform transport holds this behaviour object in its auth configuration and checks every session cookie against it, while the D1 implementation and the signing secret stay behind it. It is a port of four methods with no storage detail on it, which is what makes it an interface rather than a reach into identity's internals."
       },
       {
         "path": "apps/api/src/application/identity/identity-directory.ts",
@@ -136,7 +136,7 @@
       {
         "path": "apps/web/src/api/identity.ts",
         "governing": "ARC-DOM-001",
-        "reason": "The browser's identity client — who this document is, which doors the deployment offers, and the four ways through them — and the same kind of surface as api/cfp.ts one entry above. Three unrelated roots read it: the console shell, the landing page, and the public CFP, which offers a submitter a way to sign in so their drafts and decisions belong to an account (issue #190). It was already declared its own module rather than living in api/events.ts precisely because the landing page must not import the console's domain client; the public bundle has the same constraint and the same need. It holds no session state and no capability logic — the httpOnly cookie means only the API can answer either question."
+        "reason": "The browser's identity client \u2014 who this document is, which doors the deployment offers, and the four ways through them \u2014 and the same kind of surface as api/cfp.ts one entry above. Three unrelated roots read it: the console shell, the landing page, and the public CFP, which offers a submitter a way to sign in so their drafts and decisions belong to an account (issue #190). It was already declared its own module rather than living in api/events.ts precisely because the landing page must not import the console's domain client; the public bundle has the same constraint and the same need. It holds no session state and no capability logic \u2014 the httpOnly cookie means only the API can answer either question."
       },
       {
         "path": "apps/web/src/api/config.ts",
@@ -172,6 +172,11 @@
         "path": "apps/web/src/workspaces/contract.ts",
         "governing": "ARC-DOM-001",
         "reason": "The workspace-module interface every domain's console surface implements."
+      },
+      {
+        "path": "packages/contracts/src/domains/identity-access.ts",
+        "governing": "PRD-IAM-002",
+        "reason": "The wire half of the authorization vocabulary. fieldPolicyEntrySchema states what a per-field View/Lock/Hide decision looks like on the wire, and a domain whose projection can be narrowed by one has to name it in its own response \u2014 content's workspace does, and the CRM directory follows. It is the same shared-surface argument application/identity/actor.ts already carries: every domain enforces authorization through identity's vocabulary rather than restating it, and two copies of a policy enum is how one surface comes to permit what another refuses."
       }
     ],
     "compositionRoots": [

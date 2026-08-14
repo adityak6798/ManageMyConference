@@ -29,7 +29,8 @@ const actorOf = (
   eventId: string,
   capabilities: readonly Capability[],
   /** The grant's role. Separate from the capability, because the gate tests both. */
-  role: Actor["eventAccess"][number]["role"] = "organizer",
+  /** `custom` is excluded: it is a grant kind, never a `users.persona`. */
+  role: Exclude<Actor["eventAccess"][number]["role"], "custom"> = "organizer",
 ): Actor => ({
   id,
   name,
