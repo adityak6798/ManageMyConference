@@ -23,17 +23,26 @@
  * **A channel nobody configured does not become a silent fake on a deployment that believes it
  * is live.** Two cases, and they are the same rule the whole-`fixture` mode has always had:
  *
- * - `ENVIRONMENT` names production — the unconfigured channel gets `UnconfiguredProvider`, which
- *   refuses every delivery terminally and names the bindings that would make it real. Nothing is
- *   reported as sent. Refusing *at resolution* was the other option and is worse: it would take
- *   the whole drain down, so the configured channel would stop sending too.
- * - anywhere else — the unconfigured channel gets `DeterministicProvider`, which is what a
- *   deployment running the demo beside a real conference needs: mail goes out for real while the
- *   Airtable and Accelevents projections nobody has credentials for keep answering the demo.
+ * - `ENVIRONMENT` names a **development** deployment (`DEVELOPMENT_NAMES`) — the unconfigured
+ *   channel gets `DeterministicProvider`, which is what a deployment running the demo beside a
+ *   real conference needs: mail goes out for real while the Airtable and Accelevents projections
+ *   nobody has credentials for keep answering the demo.
+ * - **anything else, including a name nobody recognizes** — the unconfigured channel gets
+ *   `UnconfiguredProvider`, which refuses every delivery terminally and names the bindings that
+ *   would make it real. Nothing is reported as sent. Refusing *at resolution* was the other option
+ *   and is worse: it would take the whole drain down, so the configured channel would stop sending
+ *   too.
  *
- * So the state "a channel is quietly deterministic on a deployment that believes it is
- * production" is unreachable, whichever way the switch is set — with `fixture` it is refused at
- * resolution, and with `live` it is refused per delivery.
+ * The question is "is this a development environment?" rather than "is this production?" because
+ * the second fails open on a typo: `ENVIRONMENT=production-eu` matched no production name, and an
+ * unconfigured channel there answered `fake:` and wrote projection state saying it had pushed.
+ * Under the all-or-nothing switch this replaced, that configuration refused to resolve at all — so
+ * asking the question the other way round was the one case where the split made a deployment
+ * quietly worse.
+ *
+ * So a channel is quietly deterministic **only** where somebody wrote down that this is a
+ * development deployment. With `fixture` a production name is refused at resolution; with `live`
+ * anything not named as development is refused per delivery.
  *
  * This resolves inside `drainOutbox`, on the scheduled trigger, rather than at module load. A
  * misconfigured deployment therefore deploys cleanly and serves requests; what it does not do is
@@ -180,6 +189,24 @@ const demand = (environment: ProviderEnvironment, specs: readonly ChannelBinding
 const PRODUCTION_NAMES = new Set(["production", "prod", "live"]);
 
 /**
+ * The environments a deterministic fake is *allowed* on, named positively.
+ *
+ * The first version of the per-channel split asked the opposite question — "is this production?" —
+ * and gave every other spelling a deterministic fake. That is fail-open on a typo: a Worker
+ * deployed with `ENVIRONMENT=production-eu` and `COMMUNICATIONS_PROVIDERS=live` matched none of
+ * the three production names, so an unconfigured Airtable channel answered `fake:` for every
+ * projection *and* wrote projection state recording it as pushed. The console showed green and
+ * nothing had left the machine. Under the code this replaced, that same configuration refused to
+ * resolve at all, so the split had made one configuration quietly worse.
+ *
+ * Asking "is this a development environment?" fails the safe way instead: an unrecognized value
+ * gets the provider that refuses, and an operator who wants fakes says so in a word this set
+ * contains. `PRODUCTION_NAMES` still exists because `fixture` mode needs the other question — it
+ * refuses outright there, which an unrecognized name must not do to a whole deployment.
+ */
+const DEVELOPMENT_NAMES = new Set(["development", "dev", "local", "test", "ci", "preview"]);
+
+/**
  * An endpoint that will carry a bearer token has to be an absolute HTTPS URL.
  *
  * Presence alone is not enough: a typo'd or `http:` endpoint is accepted as valid configuration
@@ -216,17 +243,19 @@ const mustNotFake = (environment: ProviderEnvironment, what: string) => {
 /**
  * What a channel nobody configured gets under `live`.
  *
- * The deterministic fake everywhere except a deployment that names itself production, where it
- * is the provider that refuses instead. See this module's header: refusing here rather than at
- * resolution is what lets the channels an operator *did* configure keep sending.
+ * The deterministic fake **only** on a deployment that names itself a development one; everything
+ * else — production, and every spelling nobody recognizes — gets the provider that refuses. See
+ * `DEVELOPMENT_NAMES` for why the question is asked that way round, and this module's header for
+ * why refusing here rather than at resolution is what lets the channels an operator *did*
+ * configure keep sending.
  */
 const unconfiguredChannel = (
   environment: ProviderEnvironment,
   spec: ChannelBindings,
 ): DeliveryProvider =>
-  namesProduction(environment)
-    ? new UnconfiguredProvider(spec.channel, spec.required)
-    : new DeterministicProvider();
+  DEVELOPMENT_NAMES.has((environment.ENVIRONMENT ?? "").trim().toLowerCase())
+    ? new DeterministicProvider()
+    : new UnconfiguredProvider(spec.channel, spec.required);
 
 export function resolveProviders(environment: ProviderEnvironment): DeliveryProviders {
   const mode = environment.COMMUNICATIONS_PROVIDERS ?? "fixture";

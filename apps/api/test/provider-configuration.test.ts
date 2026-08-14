@@ -143,13 +143,42 @@ describe("provider selection", () => {
        * The whole reason for the split. `live` used to `demand()` eight bindings at once, so a
        * deployment with a mail provider and no Airtable account could not send mail at all — it
        * threw on resolution and every delivery stayed queued for ever.
+       *
+       * `ENVIRONMENT=development` is what this deployment actually sets (`wrangler.toml`), and it
+       * is what entitles the two unconfigured channels to the deterministic fake that keeps the
+       * demo's projections working beside real mail.
        */
-      const providers = resolveProviders(EMAIL_ONLY);
+      const providers = resolveProviders({ ...EMAIL_ONLY, ENVIRONMENT: "development" });
 
       expect(providers.email).toBeInstanceOf(HttpEmailProvider);
       expect(providers.airtable).toBeInstanceOf(DeterministicProvider);
       expect(providers.accelevents).toBeInstanceOf(DeterministicProvider);
     });
+
+    it.each(["production-eu", "prod-us", "staging", "", undefined])(
+      "refuses an unconfigured channel rather than faking it when ENVIRONMENT is %o",
+      (environment) => {
+        /*
+         * The fail-open a review pass found. Asking "is this production?" gave a deterministic
+         * fake to every spelling that was not one of three exact strings — so
+         * `ENVIRONMENT=production-eu` with `live` answered `fake:` for an unconfigured Airtable
+         * channel *and* wrote projection state recording the push. The console showed green and
+         * nothing had left the machine.
+         *
+         * Under the all-or-nothing switch this replaced, that configuration refused to resolve at
+         * all, so it was the one case the split made worse. The question is now asked the other
+         * way round, and an unrecognized name lands on the refusing provider.
+         */
+        const providers = resolveProviders({
+          ...EMAIL_ONLY,
+          ...(environment === undefined ? {} : { ENVIRONMENT: environment }),
+        });
+
+        expect(providers.email).toBeInstanceOf(HttpEmailProvider);
+        expect(providers.airtable).toBeInstanceOf(UnconfiguredProvider);
+        expect(providers.accelevents).toBeInstanceOf(UnconfiguredProvider);
+      },
+    );
 
     it.each([
       ["EMAIL_API_TOKEN", "email"],
