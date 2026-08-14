@@ -645,6 +645,74 @@ describe("a proposal that belongs to an account", () => {
     expect(refusal).toMatchObject({ effectiveState: "open" });
   });
 
+  it("confirms a submission that committed even when the read-back after it fails", async () => {
+    /*
+     * Ordering, asserted — because the repair that established it changed no output.
+     *
+     * `submitProposal` reads the proposal, writes, announces, then reads it back for the view it
+     * returns. When the announcement came *after* that second read, a transient read failure
+     * answered 500 over a write that had already committed — and submitting is one-way, so the
+     * applicant's retry is refused with "already submitted" and no confirmation is ever queued.
+     * Moving `announce` above the read-back is invisible to every other test: the happy path
+     * produces the same call with the same arguments either way. This is the case that tells them
+     * apart, and it fails against the original ordering.
+     */
+    const proposalSubmitted = vi.fn(() => Promise.resolve());
+    const { service, repository } = await open({ notifications: { proposalSubmitted } });
+    const draft = await service.createDraft(pat, eventId, "k1", complete);
+
+    // The first read is the ownership check before the write; the second is the read-back after
+    // it. Only the second fails, which is what makes this a post-commit failure rather than a
+    // refusal to start.
+    const real = repository.findProposalForOwner.bind(repository);
+    let reads = 0;
+    vi.spyOn(repository, "findProposalForOwner").mockImplementation(async (...args) => {
+      reads += 1;
+      if (reads > 1) throw new Error("D1 read failed after the write committed");
+      return real(...args);
+    });
+
+    await expect(
+      service.submitProposal(pat, eventId, draft.id, complete, draft.revision),
+    ).rejects.toThrow("D1 read failed");
+
+    // The 500 still happens — this does not make a failed read succeed. What it changes is that
+    // the applicant has already been confirmed, which is the part that could never be recovered.
+    expect(proposalSubmitted).toHaveBeenCalledTimes(1);
+    expect(proposalSubmitted).toHaveBeenCalledWith(
+      expect.objectContaining({ proposalId: draft.id, submitterUserId: pat.id }),
+    );
+  });
+
+  it("keeps a revised draft following the live form rather than freezing one", async () => {
+    /*
+     * The other half of the snapshot rule, and the one it is easy to break while fixing the first.
+     *
+     * A submitted proposal is named from its own snapshot, because it has met a published form and
+     * everything downstream reads it through that. A **draft** has not, so it is named from the
+     * live form — and freezing a snapshot on its first revision would name it from a question the
+     * organizer has since replaced, which is exactly what `viewOf`'s invariant exists to avoid.
+     * Writing `form.fields` on every revision quietly ended that.
+     */
+    const { service, repository } = await open();
+    const draft = await service.createDraft(pat, eventId, "k1", complete);
+    const [saved] = await service.myProposals(pat, eventId);
+    await service.saveProposal(pat, eventId, draft.id, complete, saved?.revision as number);
+
+    // Revised, and still holding no snapshot of its own — which is what makes `viewOf` read the
+    // live form for it. Asserted on the stored row rather than on the rendered title, because a
+    // title can coincide: `proposalTitleOf` falls back through the answers, so a draft frozen
+    // against the old form and one following the live one can print the same string while
+    // disagreeing about everything that matters after the next republish.
+    await expect(repository.findProposalForOwner(eventId, draft.id, pat.id)).resolves.toMatchObject(
+      {
+        lifecycle: "draft",
+        fields: [],
+        revision: 2,
+      },
+    );
+  });
+
   it("keeps naming a submitted proposal after the form moves on beneath it", async () => {
     const { service } = await open();
     const draft = await service.createDraft(pat, eventId, "k1", complete);

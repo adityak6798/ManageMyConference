@@ -253,6 +253,13 @@ describe("review workflow", () => {
       submitterName: "Robin Submitter",
       submitter: { name: "Robin Submitter", email: "robin@example.test" },
     });
+    // The organizer gets the contact details and *not* the owning account id. That id exists so a
+    // decision message can be addressed to the account rather than to a form answer; no organizer
+    // surface needs it, `proposalSchema` does not declare it, and this response is serialized
+    // without a schema parse that would strip it. It is a stable identifier for one person across
+    // every event, so reaching the wire by accident is the failure worth pinning.
+    expect(organizerView.proposals[0]).not.toHaveProperty("submitterUserId");
+    expect(JSON.stringify(organizerView)).not.toContain("20000000-0000-4000-8000-00000000000a");
 
     // Blind review is a real mask at the projection edge, not a constant the adapter happens
     // to emit: the same stored proposal loses its submitter on the way to a reviewer.

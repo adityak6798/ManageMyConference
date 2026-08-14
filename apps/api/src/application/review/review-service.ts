@@ -162,7 +162,16 @@ const withoutSubmitter = (proposal: SubmittedProposal): SubmittedProposal => ({
   submitterUserId: null,
 });
 
-const withCoAuthors = (proposal: SubmittedProposal) => {
+/**
+ * The organizer's proposal, with authorship parsed out of its answers — and without the owner id.
+ *
+ * `submitterUserId` is internal: it exists so a decision message can be addressed to the account
+ * rather than to a form answer, and no organizer surface needs it. Dropping it here keeps it off
+ * the wire, because this response is serialized without a schema parse to strip it, and because
+ * a stable identifier for one person across every event is not something to publish by accident.
+ * `proposalSchema` in the contracts package does not declare it, and this is what keeps that true.
+ */
+const withCoAuthors = ({ submitterUserId: _owner, ...proposal }: SubmittedProposal) => {
   const answer = proposal.answers.find(({ fieldId }) => fieldId === "coauthors")?.value;
   if (!answer) return { ...proposal, coAuthors: [] };
   try {

@@ -116,13 +116,29 @@ export const REQUESTABLE_TRIGGERS = (Object.keys(TRIGGER_CHANNELS) as TriggerTyp
  * `null` means there is nobody to write to, which callers report rather than paper over — a
  * delivery to a non-address burns an attempt and fails with the provider's refusal instead of
  * the reason.
+ *
+ * **A lookup that failed is not an account with no address, and the difference is the type's.**
+ * Collapsing them would let a transient read error choose the *less* trustworthy address — the
+ * exact exposure the preference exists to remove — so the account argument carries the outcome of
+ * asking rather than an address. `asked: false` yields `null`: nothing is sent, and a human is
+ * left to it. Stating that here rather than as a rule each caller must remember is the point; the
+ * composition root that resolves the address is not the place to re-decide it.
  */
+export type AccountAddressLookup =
+  /** Identity answered. `email` is `null` when the account genuinely has none linked. */
+  | { readonly asked: true; readonly email: string | null }
+  /** Identity could not be asked. Not evidence about the account, and not a reason to fall back. */
+  | { readonly asked: false };
+
 export const lifecycleRecipient = (subject: {
-  /** The address identity holds for the owning account, if the subject has one. */
-  readonly accountEmail?: string | null | undefined;
+  /** What asking identity for the owning account's address produced, if there is an account. */
+  readonly account?: AccountAddressLookup | undefined;
   /** The address a public form collected. Unverified by construction. */
   readonly declaredEmail?: string | null | undefined;
-}): string | null => subject.accountEmail || subject.declaredEmail || null;
+}): string | null => {
+  if (subject.account && !subject.account.asked) return null;
+  return (subject.account?.asked ? subject.account.email : null) || subject.declaredEmail || null;
+};
 
 export interface MessageTemplate {
   readonly id: string;

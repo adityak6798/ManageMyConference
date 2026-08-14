@@ -358,6 +358,45 @@ describe("building the question list", () => {
     ).toBeNull();
   });
 
+  it("says nothing about a rule's destination while it does not know which statuses exist", async () => {
+    /*
+     * The failure mode the label above creates if it is left ungated.
+     *
+     * `routingStatuses` starts empty and is filled asynchronously, and stays empty for good if
+     * that read fails. Without the guard the "no longer a routing destination" option renders for
+     * **every** rule, including perfectly valid ones — under its raw key, because the labels are
+     * empty too, in a select holding nothing else to choose. The organizer is then told to pick
+     * another destination with none on offer, next to a notice saying existing rules are
+     * unchanged.
+     */
+    const routedForm = form({
+      fields: [
+        field({ id: "track", type: "select", label: "Track", options: ["Workshop", "Keynote"] }),
+      ],
+      routing: [
+        {
+          id: "valid",
+          when: { fieldId: "track", operator: "in", values: ["Keynote"] },
+          routeTo: { status: "under_review" },
+        },
+      ],
+    });
+    stubApi((url) => {
+      // The statuses read fails; everything else answers.
+      if (url.endsWith("/cfp/routing-statuses")) return jsonResponse({ error: {} }, 500);
+      if (url.startsWith("/api/events/")) return jsonResponse({ cfp: routedForm });
+      return undefined;
+    });
+    render(<CfpWorkspace eventId={eventId} organizer timezone={TIMEZONE} />);
+
+    const routingCard = await screen.findByRole("region", { name: "Submission routing" });
+    const destination = within(routingCard).getByLabelText("Triage status");
+    expect(destination).toHaveValue("under_review");
+    expect(
+      within(destination as HTMLSelectElement).queryByText(/no longer a routing destination/),
+    ).toBeNull();
+  });
+
   it("refuses an empty equals condition before sending the draft", async () => {
     const conditionalForm = form({
       fields: [field(), field({ id: "abstract", label: "Session abstract" })],

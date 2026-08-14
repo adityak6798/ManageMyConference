@@ -1228,10 +1228,20 @@ export function CfpWorkspace({
                             organizer would see an empty control, an unexplained 400 on save, and
                             no way to tell which of their rules was the problem. The stored value
                             is shown, named as no longer allowed, and cannot be chosen again.
+
+                            The `length === 0` branch is not defensive noise. `routingStatuses`
+                            starts empty and is filled asynchronously, and stays empty for good if
+                            that read fails — so a single branch here labelled *every* rule as no
+                            longer routable, including perfectly valid ones, in a select holding
+                            nothing else to choose. Not knowing which statuses exist is not the
+                            same as knowing this one is gone, so that case renders the stored value
+                            plainly: the control says what the rule says and saves unchanged.
                           */}
                           {routableStatuses.some(
                             ({ key }) => key === rule.routeTo.status,
-                          ) ? null : (
+                          ) ? null : routingStatuses.length === 0 ? (
+                            <option value={rule.routeTo.status}>{rule.routeTo.status}</option>
+                          ) : (
                             <option value={rule.routeTo.status} disabled>
                               {statusLabels.get(rule.routeTo.status) ?? rule.routeTo.status} — no
                               longer a routing destination, choose another or remove this rule

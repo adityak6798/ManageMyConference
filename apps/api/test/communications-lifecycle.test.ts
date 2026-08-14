@@ -165,25 +165,52 @@ describe("the trigger and channel vocabulary", () => {
      */
     expect(
       lifecycleRecipient({
-        accountEmail: "owner@example.test",
+        account: { asked: true, email: "owner@example.test" },
         declaredEmail: "typed@example.test",
       }),
     ).toBe("owner@example.test");
     // The fallback is why #132 stays open rather than closing here: a guest submission is a
     // supported way to apply, and refusing to write to it would mean telling nobody.
-    expect(lifecycleRecipient({ accountEmail: null, declaredEmail: "typed@example.test" })).toBe(
-      "typed@example.test",
-    );
-    // An account with no linked address falls back rather than going silent.
+    expect(
+      lifecycleRecipient({
+        account: { asked: true, email: null },
+        declaredEmail: "typed@example.test",
+      }),
+    ).toBe("typed@example.test");
+    // No account at all — a guest proposal.
     expect(lifecycleRecipient({ declaredEmail: "typed@example.test" })).toBe("typed@example.test");
     // An empty string is not an address. `||` is load-bearing here and `??` would not be.
-    expect(lifecycleRecipient({ accountEmail: "", declaredEmail: "typed@example.test" })).toBe(
-      "typed@example.test",
-    );
+    expect(
+      lifecycleRecipient({
+        account: { asked: true, email: "" },
+        declaredEmail: "typed@example.test",
+      }),
+    ).toBe("typed@example.test");
     // Nobody to write to, reported as such rather than as an empty recipient a provider would
     // refuse with a message about its own syntax.
-    expect(lifecycleRecipient({ accountEmail: null, declaredEmail: null })).toBeNull();
+    expect(
+      lifecycleRecipient({ account: { asked: true, email: null }, declaredEmail: null }),
+    ).toBeNull();
     expect(lifecycleRecipient({})).toBeNull();
+  });
+
+  it("sends nothing when the account could not be asked, rather than falling back", () => {
+    /*
+     * The distinction the type exists for, and the reason it is a type rather than a comment.
+     *
+     * A failed identity lookup is not evidence that the account has no address. Treating it as
+     * one falls through to the address a *public form* was told — so a transient read error at
+     * the moment an organizer decides would deliver an accept or decline to whatever address an
+     * applicant typed, which is precisely the exposure preferring the account address removes.
+     * And it does not heal: the delivery key names the decision's occurrence, so a retry
+     * converges on the row already addressed wrongly.
+     */
+    expect(
+      lifecycleRecipient({ account: { asked: false }, declaredEmail: "typed@example.test" }),
+    ).toBeNull();
+    // Even with no fallback available, the answer is the same — silence, and a caller that
+    // reports it, rather than a guess.
+    expect(lifecycleRecipient({ account: { asked: false }, declaredEmail: null })).toBeNull();
   });
 });
 

@@ -444,8 +444,17 @@ export class CfpService {
      */
     if (!created) {
       const live = await this.getPublished(eventId);
+      /*
+       * Named for both causes, unlike `createDraft`'s, which genuinely has one.
+       *
+       * This insert carries a version predicate the owned writes do not, so a miss means the call
+       * closed **or** the organizer republished between the read above and the write. Borrowing
+       * `createDraft`'s sentence told a guest who raced a republish that the call was closed while
+       * it was open and an immediate retry would have worked. The state travels with the error, so
+       * a surface that wants to distinguish them still can.
+       */
       throw new CfpClosedError(
-        "This call for proposals closed before the proposal was saved.",
+        "This call for proposals changed before the proposal was saved — it has either closed or been republished. Reload the form and try again.",
         live.effectiveStatus,
       );
     }
@@ -577,10 +586,24 @@ export class CfpService {
       expectedRevision,
       updatedAt: at,
       at,
-      // The form these answers were just validated against, stored with them. `openForm` reads
-      // the *published* form, so a revision made after a republish carries the new snapshot.
-      cfpVersion: form.version,
-      fields: form.fields,
+      /*
+       * The form these answers were just validated against — stored with them, for a **submitted**
+       * proposal only.
+       *
+       * A submitted proposal is read through its own snapshot everywhere: every organizer and
+       * reviewer projection resolves an answer by looking its field up there, so answers written
+       * against a republished form under the old snapshot render as an empty proposal. Writing
+       * both together is what keeps them agreeing.
+       *
+       * A draft is the opposite case and keeps its empty snapshot, which is `viewOf`'s stated
+       * invariant: a draft has not met a published form yet, so it is named from the live one, and
+       * freezing a snapshot on its first revision would name it from a question the organizer has
+       * since replaced. Passing `form.fields` unconditionally quietly ended that — the first
+       * revision froze it — which a review pass caught by reading the comment that governs it.
+       */
+      ...(existing.lifecycle === "draft"
+        ? { cfpVersion: existing.cfpVersion, fields: [] }
+        : { cfpVersion: form.version, fields: form.fields }),
     };
     if (!(await this.repository.saveProposalAnswers(write)))
       await this.explainRefusedWrite(eventId, proposalId, submitter.id, expectedRevision);

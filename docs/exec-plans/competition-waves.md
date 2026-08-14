@@ -1126,7 +1126,7 @@ the submission confirmation because the only address available was an unverified
 binding answers that — the recipient is resolved from the *session* through identity's directory, so
 nothing a request carries can direct it — but the message still needed a trigger value, and
 `communication_deliveries.trigger_type` is a pinned `CHECK` on a communications-owned table with
-**three** child tables — `communication_delivery_attempts`, `communication_projection_state` and
+**three** child tables — `communication_attempts`, `outbound_projection_state` and
 `calendar_invite_states`, the last added by `1704` after `1703` was written. `1705` therefore rebuilds
 three rather than copying `1703`'s two, takes its number from the communications block per
 `migrations/README.md`, and is replayed over the seeded fixture in the same file `1703`'s replay lives
@@ -1258,6 +1258,23 @@ database" is true of `UPDATE` and not of `INSERT OR REPLACE`, which resolves a c
 delete-then-insert and fires no `BEFORE UPDATE` trigger (nothing writes that table that way, and
 the weaker true statement is the one worth having); and `normalizeInstant`'s rationale named an
 offset spelling the window contract actually refuses.
+
+**And a pass over *that* repair found the one that matters most, because it was a security defect
+introduced by a security fix.** Preferring the account's address was written as
+`accountEmail: owner?.email` — and `recipientFor` swallows a failed identity lookup and answers
+`null`, which is indistinguishable from an account that holds no address. So a transient read error
+at the moment an organizer decided fell *through* to the form-supplied address: an accept or decline
+delivered to whatever a stranger had typed into a public form, which is verbatim the exposure the
+preference exists to remove. It does not heal, either — the delivery key names the decision's
+occurrence and the insert is `ON CONFLICT DO NOTHING`, so a retry converges on the row already
+addressed wrongly. The sibling path did not have the bug: `reviewerAssigned` treats a null lookup as
+unaddressable and sends nothing.
+
+The fix is a type rather than a rule to remember. `lifecycleRecipient` now takes the *outcome* of
+asking identity — `{ asked: true, email }` or `{ asked: false }` — and returns `null` for the
+second, so the distinction is the domain's and the composition root cannot collapse it. Removing
+that one line fails the test that names it. Two claims this repair round had itself written were
+false under a failed lookup and are now conditioned: `PRD-COM-001` and the data-flow narrative.
 
 **One request from that pass was refused, and the refusal is the interesting part.** A reviewer
 asked for migration `1201`'s backfill to be replayed over rows rather than only asserted through
