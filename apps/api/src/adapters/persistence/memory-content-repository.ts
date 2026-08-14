@@ -376,6 +376,15 @@ export class MemoryContentRepository
     }
     this.comments = this.comments.filter(({ assetId: candidate }) => candidate !== assetId);
   }
+  async deleteAssetAfterStorage(assetId: string, profileId: string, draft: ContentRevisionDraft) {
+    const current = await this.findProfile(profileId);
+    const revised =
+      current?.photoAssetId === assetId
+        ? await this.reviseProfilePhoto(profileId, draft, current.version ?? 0, null)
+        : null;
+    await this.deleteAsset(assetId);
+    return revised;
+  }
   async hasSpeakerWork(eventId: string, profileId: string) {
     return this.tasks.some(
       (task) => task.eventId === eventId && task.speakerProfileId === profileId,
@@ -552,7 +561,19 @@ export class MemoryContentRepository
       "profile",
       stored ? this.profileVersion(stored) : undefined,
       draft,
-      (current) => ({ ...edit(current), version: (current.version ?? 0) + 1 }),
+      (current) => {
+        const edited = edit(current);
+        if (
+          edited.photoAssetId &&
+          !this.assets.some(
+            (asset) => asset.id === edited.photoAssetId && asset.speakerProfileId === profileId,
+          )
+        )
+          throw new ContentConflictError(
+            "This profile's saved headshot is no longer available. Reload and try again.",
+          );
+        return { ...edited, version: (current.version ?? 0) + 1 };
+      },
       expectedVersion,
     );
     if (next) {

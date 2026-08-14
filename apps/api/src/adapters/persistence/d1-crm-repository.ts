@@ -297,7 +297,13 @@ export class D1CrmRepository implements CrmRepository {
       // a board can never show a card whose history begins after it.
       ...(transition ? [this.transitionStatement(transition)] : []),
     ];
-    await this.runBatch(statements, "create prospect atomically");
+    try {
+      await this.runBatch(statements, "create prospect atomically");
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("pipeline stage does not exist"))
+        throw new PipelineStageNotFoundError("That stage is not on this board");
+      throw error;
+    }
   }
   async update(
     prospect: Prospect,
@@ -645,31 +651,37 @@ export class D1CrmRepository implements CrmRepository {
      * that moves and the set that gets a history entry are the same set by construction, and
      * neither an empty stage nor a busy one has a special case.
      */
-    await this.runBatch(
-      [
-        // Before the UPDATE, for the same reason the conversion's entry goes before its stamp:
-        // afterwards this SELECT would find the stage already empty.
-        this.database
-          .prepare(
-            `INSERT INTO crm_prospect_transitions (id,event_id,prospect_id,from_stage,to_stage,actor_id,source,occurred_at)
+    try {
+      await this.runBatch(
+        [
+          // Before the UPDATE, for the same reason the conversion's entry goes before its stamp:
+          // afterwards this SELECT would find the stage already empty.
+          this.database
+            .prepare(
+              `INSERT INTO crm_prospect_transitions (id,event_id,prospect_id,from_stage,to_stage,actor_id,source,occurred_at)
              SELECT ${D1CrmRepository.SQL_UUID}, event_id, id, stage, ?, ?, ?, ?
                FROM crm_prospects WHERE event_id=? AND stage=?`,
-          )
-          .bind(migrateTo, move.actorId, move.source, move.occurredAt, eventId, stageKey),
-        this.database
-          .prepare("UPDATE crm_prospects SET stage=?, updated_at=? WHERE event_id=? AND stage=?")
-          .bind(migrateTo, move.occurredAt, eventId, stageKey),
-        this.database
-          .prepare("DELETE FROM crm_pipeline_stages WHERE event_id=? AND key=?")
-          .bind(eventId, stageKey),
-        ...remaining.map((stage) =>
+            )
+            .bind(migrateTo, move.actorId, move.source, move.occurredAt, eventId, stageKey),
           this.database
-            .prepare("UPDATE crm_pipeline_stages SET sort_order=? WHERE event_id=? AND key=?")
-            .bind(stage.sortOrder, eventId, stage.key),
-        ),
-      ],
-      "migrate and delete a pipeline stage",
-    );
+            .prepare("UPDATE crm_prospects SET stage=?, updated_at=? WHERE event_id=? AND stage=?")
+            .bind(migrateTo, move.occurredAt, eventId, stageKey),
+          this.database
+            .prepare("DELETE FROM crm_pipeline_stages WHERE event_id=? AND key=?")
+            .bind(eventId, stageKey),
+          ...remaining.map((stage) =>
+            this.database
+              .prepare("UPDATE crm_pipeline_stages SET sort_order=? WHERE event_id=? AND key=?")
+              .bind(stage.sortOrder, eventId, stage.key),
+          ),
+        ],
+        "migrate and delete a pipeline stage",
+      );
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("pipeline stage does not exist"))
+        throw new PipelineStageNotFoundError("That stage is not on this board");
+      throw error;
+    }
   }
 
   /**

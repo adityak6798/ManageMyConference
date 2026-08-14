@@ -734,6 +734,19 @@ describe("ContentService", () => {
     });
     await service.setProfilePhoto(speaker, profileId, headshot.id, 0);
     await service.publishAsset(organizer, headshot.id);
+    await service.updateProfile(speaker, profileId, {
+      expectedVersion: 1,
+      name: "Sam Speaker",
+      bio: "A revision whose snapshot still names the headshot.",
+      pronouns: "",
+      organization: "",
+    });
+    const photoRevision = ((await service.workspace(organizer, eventId)).revisions ?? []).find(
+      (revision) =>
+        revision.entityType === "profile" &&
+        (JSON.parse(revision.snapshotJson) as SpeakerProfile).photoAssetId === headshot.id,
+    );
+    expect(photoRevision).toBeTruthy();
     expect(publishedEvents.has(eventId)).toBe(true);
     await expect(service.readAsset(null, headshot.id)).resolves.toMatchObject({
       publiclyReadable: true,
@@ -745,6 +758,11 @@ describe("ContentService", () => {
     await service.deleteAsset(speaker, headshot.id);
     expect((await repository.findProfile(profileId))?.photoAssetId).toBeUndefined();
     expect(await service.readAsset(organizer, headshot.id)).toBeNull();
+
+    // Restoring a snapshot that named the now-deleted file restores the text but cannot
+    // resurrect a dangling photo reference.
+    await service.restoreRevision(organizer, photoRevision?.id ?? "");
+    expect((await repository.findProfile(profileId))?.photoAssetId).toBeUndefined();
   });
 
   it("persists canonical bytes through the production R2 port", async () => {

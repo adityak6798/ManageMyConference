@@ -1652,7 +1652,12 @@ export class ContentService {
       await this.recordProfileUpdate(authorized, updated);
     }
     await this.dependencies.assetStorage.delete(asset.storageKey);
-    await this.dependencies.repository.deleteAsset(asset.id);
+    const concurrentClear = await this.dependencies.repository.deleteAssetAfterStorage(
+      asset.id,
+      asset.speakerProfileId,
+      this.draftRevision(authorized, asset.eventId),
+    );
+    if (concurrentClear) await this.recordProfileUpdate(authorized, concurrentClear);
   }
 
   async upload(
@@ -2055,6 +2060,9 @@ export class ContentService {
     const draft = this.draftRevision(authorized, revision.eventId, revision.id);
     if (revision.entityType === "profile") {
       const snapshot = JSON.parse(revision.snapshotJson) as SpeakerProfile;
+      const snapshotPhoto = snapshot.photoAssetId
+        ? await this.dependencies.repository.findAsset(snapshot.photoAssetId)
+        : null;
       const restored = await this.dependencies.repository.reviseProfile(
         revision.entityId,
         draft,
@@ -2065,9 +2073,11 @@ export class ContentService {
           pronouns: snapshot.pronouns,
           jobTitle: snapshot.jobTitle ?? "",
           organization: snapshot.organization,
-          // Restored exactly as the snapshot held it, absence included: a revision taken before
-          // the speaker chose a headshot puts the profile back to having none.
-          ...(snapshot.photoAssetId ? { photoAssetId: snapshot.photoAssetId } : {}),
+          // Restore the snapshot's choice only while that owned asset still exists. An absent or
+          // since-deleted headshot restores as none, so history cannot recreate a dangling link.
+          ...(snapshotPhoto?.speakerProfileId === revision.entityId
+            ? { photoAssetId: snapshotPhoto.id }
+            : {}),
           workflowStatus: snapshot.workflowStatus,
           logistics: snapshot.logistics,
           customFields: snapshot.customFields,

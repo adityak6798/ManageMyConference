@@ -455,6 +455,76 @@ describe("D1 CRM persistence", () => {
     expect(transitions.results).toEqual([]);
   });
 
+  it("refuses a new card when its entry stage disappears after the caller read the board", async () => {
+    const migrated = await migratedRuntime("crm-create-stage-race");
+    runtime = migrated.runtime;
+    const repository = new D1CrmRepository(migrated.database);
+    const staleBoard = await repository.listStages(eventId);
+    expect(staleBoard.some(({ key }) => key === "future-fit")).toBe(true);
+    await repository.saveStages(
+      eventId,
+      staleBoard
+        .filter(({ key }) => key !== "future-fit")
+        .map((stage, sortOrder) => ({ ...stage, sortOrder })),
+    );
+    const prospect = cardIn(
+      "10000000-0000-4000-8000-000000000054",
+      "Created after stage deletion",
+      "future-fit",
+    );
+
+    await expect(repository.create(prospect)).rejects.toBeInstanceOf(PipelineStageNotFoundError);
+    await expect(repository.findById(eventId, prospect.id)).resolves.toBeNull();
+  });
+
+  it("maps a stage migration whose target disappeared to the board refusal", async () => {
+    const migrated = await migratedRuntime("crm-delete-target-stage-race");
+    runtime = migrated.runtime;
+    const repository = new D1CrmRepository(migrated.database);
+    const board = await repository.listStages(eventId);
+    const source = {
+      id: "15030000-0000-4000-8000-000000000003",
+      eventId,
+      key: "temporary-source",
+      label: "Temporary source",
+      category: "open" as const,
+      sortOrder: board.length,
+      createdAt: "2026-08-12T12:00:00.000Z",
+    };
+    await repository.saveStages(eventId, [...board, source]);
+    const prospect = cardIn(
+      "10000000-0000-4000-8000-000000000055",
+      "Migrated after target deletion",
+      source.key,
+    );
+    await repository.create(prospect);
+    const staleBoard = await repository.listStages(eventId);
+    await repository.saveStages(
+      eventId,
+      staleBoard
+        .filter(({ key }) => key !== "future-fit")
+        .map((stage, sortOrder) => ({ ...stage, sortOrder })),
+    );
+
+    await expect(
+      repository.deleteStage(
+        eventId,
+        source.key,
+        "future-fit",
+        {
+          actorId: "seed-organizer",
+          source: "migration",
+          occurredAt: "2026-08-12T12:05:00.000Z",
+        },
+        staleBoard.filter(({ key }) => key !== source.key),
+      ),
+    ).rejects.toBeInstanceOf(PipelineStageNotFoundError);
+    await expect(repository.findById(eventId, prospect.id)).resolves.toMatchObject({
+      stage: source.key,
+    });
+    expect((await repository.listStages(eventId)).some(({ key }) => key === source.key)).toBe(true);
+  });
+
   it("gives history to exactly the cards a stage delete moves, not to the ones a stale read named", async () => {
     const migrated = await migratedRuntime("crm-delete-stage-stale");
     runtime = migrated.runtime;

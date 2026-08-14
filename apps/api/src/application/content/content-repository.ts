@@ -154,6 +154,20 @@ export interface ContentRepository {
   ): Promise<{ versionGroupId: string; versionNumber: number }>;
   deleteAsset(assetId: string): Promise<void>;
   /**
+   * Finish metadata deletion after object storage has accepted it.
+   *
+   * A profile may have selected the asset after the service's first clear. The repository
+   * therefore re-decides from the committed profile row: when referenced, it records and clears
+   * that choice in the same batch that deletes the asset; otherwise the guarded delete proceeds
+   * without manufacturing a profile revision. The returned profile is the one newly revised,
+   * or null when deletion needed no second profile change.
+   */
+  deleteAssetAfterStorage(
+    assetId: string,
+    profileId: string,
+    draft: ContentRevisionDraft,
+  ): Promise<SpeakerProfile | null>;
+  /**
    * Has this speaker been given any work on this event yet?
    *
    * The question acceptance actually asks before deciding whether to write the onboarding

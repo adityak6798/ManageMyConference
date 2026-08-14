@@ -64,6 +64,9 @@ export class MemoryCrmRepository implements CrmRepository {
     );
   }
   async create(prospect: Prospect, transition?: ProspectTransition) {
+    const board = this.stages.get(prospect.eventId);
+    if (board && !board.some(({ key }) => key === prospect.stage))
+      throw new PipelineStageNotFoundError("That stage is not on this board");
     this.prospects.set(prospect.id, prospect);
     if (transition) this.transitions.push(transition);
   }
@@ -192,6 +195,8 @@ export class MemoryCrmRepository implements CrmRepository {
     move: StageMigration,
     remaining: readonly PipelineStage[],
   ) {
+    if (!(this.stages.get(eventId) ?? []).some(({ key }) => key === migrateTo))
+      throw new PipelineStageNotFoundError("That stage is not on this board");
     // The same rule the D1 adapter keeps: whatever this predicate matches is what moves *and*
     // what gets a history entry. A fake that took the caller's word for which prospects moved
     // would stay green against the stale-snapshot defect the real adapter had, which is the one

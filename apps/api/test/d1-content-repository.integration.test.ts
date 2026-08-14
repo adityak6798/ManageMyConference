@@ -414,6 +414,41 @@ describe("D1ContentRepository revisions", () => {
     await expect(repository.findAsset(second.id)).resolves.toMatchObject({ visibility: "private" });
   });
 
+  it("deletes a last-moment headshot choice through the same committed revision", async () => {
+    const { repository } = await fixture("content-profile-photo-delete-race");
+    const asset = {
+      id: "80000000-0000-4000-8000-0000000000c1",
+      eventId,
+      speakerProfileId: profileId,
+      name: "deleting.png",
+      contentType: "image/png",
+      storageKey: `${eventId}/${profileId}/deleting.png`,
+      visibility: "publishable" as const,
+      uploadedAt: "2026-08-10T12:00:00.000Z",
+      versionGroupId: "80000000-0000-4000-8000-0000000000c1",
+      versionNumber: 1,
+      isLatest: true,
+    };
+    await repository.addAsset(asset);
+    await repository.reviseProfilePhoto(profileId, draft("c-profile-v1"), 0, asset.id);
+
+    // A bare metadata delete cannot strand the committed reference. The deletion seam re-reads
+    // that choice, snapshots it, clears it and deletes the asset in one batch instead.
+    await expect(repository.deleteAsset(asset.id)).rejects.toThrow(/profile still references/);
+    await expect(
+      repository.deleteAssetAfterStorage(asset.id, profileId, draft("c-profile-v2")),
+    ).resolves.toMatchObject({ version: 2 });
+    expect(await repository.findProfile(profileId)).not.toHaveProperty("photoAssetId");
+    await expect(repository.findAsset(asset.id)).resolves.toBeNull();
+
+    // Restore/set races cannot reintroduce the row after deletion: committed ownership, rather
+    // than the caller's earlier asset read, decides the reference.
+    await expect(
+      repository.reviseProfilePhoto(profileId, draft("c-profile-v3"), 2, asset.id),
+    ).rejects.toBeInstanceOf(ContentConflictError);
+    expect(await repository.findProfile(profileId)).not.toHaveProperty("photoAssetId");
+  });
+
   /**
    * The same seam as `withWriterBetweenReadAndWrite`, for the writers that do not batch.
    *
@@ -752,6 +787,20 @@ describe("D1ContentRepository revisions", () => {
     const { repository } = await fixture("content-narrow-writes");
     const before = await repository.findProfile(profileId);
     if (!before) throw new Error("Seeded profile is missing");
+    const photoAssetId = "90000000-0000-4000-8000-000000000009";
+    await repository.addAsset({
+      id: photoAssetId,
+      eventId,
+      speakerProfileId: profileId,
+      name: "narrow-writer-photo.png",
+      contentType: "image/png",
+      storageKey: `${eventId}/${profileId}/${photoAssetId}`,
+      visibility: "private",
+      uploadedAt: "2026-08-10T11:00:00.000Z",
+      versionGroupId: photoAssetId,
+      versionNumber: 1,
+      isLatest: true,
+    });
 
     // Every column these two statements name is checked against the migrated schema here and
     // nowhere else. A typo — `logistics_jsn`, or a transposed bind — is invisible to a memory
@@ -769,10 +818,10 @@ describe("D1ContentRepository revisions", () => {
       customFields: { shirt: "M" },
     });
 
-    await repository.updateProfilePhoto(profileId, "90000000-0000-4000-8000-000000000001");
+    await repository.updateProfilePhoto(profileId, photoAssetId);
     expect(await repository.findProfile(profileId)).toEqual({
       ...enriched,
-      photoAssetId: "90000000-0000-4000-8000-000000000001",
+      photoAssetId,
     });
     // Clearing the headshot leaves the import's three columns exactly where the import put them.
     await repository.updateProfilePhoto(profileId, null);

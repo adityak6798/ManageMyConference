@@ -35,3 +35,18 @@ WHEN NEW.stage <> OLD.stage
 BEGIN
   SELECT RAISE(ABORT, 'pipeline stage does not exist');
 END;
+
+-- Creation chooses the first open stage before it writes too. The same invariant therefore has
+-- to cover an INSERT whose chosen entry stage disappeared after that read.
+CREATE TRIGGER crm_prospect_insert_requires_pipeline_stage
+BEFORE INSERT ON crm_prospects
+FOR EACH ROW
+WHEN NOT EXISTS (
+  SELECT 1
+    FROM crm_pipeline_stages
+   WHERE event_id = NEW.event_id
+     AND key = NEW.stage
+)
+BEGIN
+  SELECT RAISE(ABORT, 'pipeline stage does not exist');
+END;

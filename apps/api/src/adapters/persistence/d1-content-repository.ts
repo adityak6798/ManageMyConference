@@ -724,8 +724,62 @@ export class D1ContentRepository
           .bind(asset.versionGroupId, assetId),
       );
     const results = await this.database.batch(statements);
-    if (results.some((result) => !result.success))
-      throw new Error("Content asset deletion batch failed");
+    const failed = results.find((result) => !result.success);
+    if (failed)
+      throw new Error(`Content asset deletion batch failed: ${failed.error ?? "unknown error"}`);
+  }
+  async deleteAssetAfterStorage(assetId: string, profileId: string, draft: ContentRevisionDraft) {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const profile = await this.findProfile(profileId);
+      if (!profile || profile.photoAssetId !== assetId) {
+        try {
+          await this.deleteAsset(assetId);
+          return null;
+        } catch (error) {
+          if (error instanceof Error && error.message.includes("profile still references asset"))
+            continue;
+          throw error;
+        }
+      }
+      const asset = await this.findAsset(assetId);
+      try {
+        return await this.revise<SpeakerProfile>(
+          "profile",
+          profileId,
+          draft,
+          (current) => {
+            const { photoAssetId: _removed, ...withoutPhoto } = current;
+            return { ...withoutPhoto, version: (current.version ?? 0) + 1 };
+          },
+          "speaker_profiles",
+          PROFILE_WRITTEN_COLUMNS,
+          (row) => this.profile(row),
+          (next, where) => this.profileWrite(next, where),
+          profile.version ?? 0,
+          () => [
+            this.database
+              .prepare("DELETE FROM content_asset_comments WHERE asset_id=?")
+              .bind(assetId),
+            this.database.prepare("DELETE FROM speaker_assets WHERE id=?").bind(assetId),
+            ...(asset?.isLatest !== false && asset?.versionGroupId
+              ? [
+                  this.database
+                    .prepare(
+                      "UPDATE speaker_assets SET is_latest=1 WHERE id=(SELECT id FROM speaker_assets WHERE version_group_id=? AND id<>? ORDER BY version_number DESC LIMIT 1)",
+                    )
+                    .bind(asset.versionGroupId, assetId),
+                ]
+              : []),
+          ],
+        );
+      } catch (error) {
+        if (error instanceof ContentConflictError) continue;
+        throw error;
+      }
+    }
+    throw new ContentConflictError(
+      "This profile changed while its asset was being deleted. Reload and try again.",
+    );
   }
   async hasSpeakerWork(eventId: string, profileId: string) {
     // `LIMIT 1` and no columns beyond the constant: the caller wants existence, and the index on
@@ -1105,6 +1159,10 @@ export class D1ContentRepository
         continue;
       }
       lastFailure = result.failure;
+      if (lastFailure.includes("profile photo asset does not exist"))
+        throw new ContentConflictError(
+          "This profile's saved headshot is no longer available. Reload and try again.",
+        );
       // The composite guard names all three of its columns; the primary key names only `id`, so
       // a duplicated revision id is a fault to report rather than contention to retry.
       if (!/UNIQUE constraint failed:[^\n]*content_revisions\.revision_number/.test(lastFailure))
