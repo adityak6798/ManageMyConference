@@ -281,6 +281,7 @@ export class D1PublicationRepository implements PublicationRepository {
              activation_cause = ?
            WHERE event_id = ? AND state = 'published'
              AND (
+               projection_version IS NOT ? OR
                published_json IS NOT ? OR
                agenda_version IS NOT ? OR agenda_published_at IS NOT ? OR
                cfp_version IS NOT ? OR cfp_published_at IS NOT ? OR
@@ -298,6 +299,7 @@ export class D1PublicationRepository implements PublicationRepository {
           source.contentDigest,
           source.cause,
           refresh.eventId,
+          refresh.expectedProjectionVersion,
           projection,
           source.agendaVersion,
           source.agendaPublishedAt,

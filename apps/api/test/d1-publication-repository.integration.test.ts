@@ -587,6 +587,68 @@ describe("D1PublicationRepository", () => {
     );
   });
 
+  it("classifies a second identical refresh as retryable contention", async () => {
+    runtime = new Miniflare({
+      modules: true,
+      script: "export default { fetch() {} }",
+      d1Databases: { DB: "publishing-projection-convergent-cas" },
+    });
+    const database = await runtime.getD1Database("DB");
+    await applySeed(database);
+    const { publicationRepository: repository, publishing } = publishingFor(database as never);
+    await publishing.publicBySlug(DEMO_SLUG);
+    const before = await repository.findByEventId(DEMO_EVENT);
+    const expected = before?.projectionVersion ?? 0;
+    const provenance = before?.provenance;
+    expect(before?.published).not.toBeNull();
+    expect(provenance).not.toBeNull();
+
+    // Two anonymous readers can both compose these bytes from version N. Only one may activate
+    // N+1; the other must become a retryable CAS conflict, never a history uniqueness fault.
+    const refresh = {
+      eventId: DEMO_EVENT,
+      expectedProjectionVersion: expected,
+      activatedAt: "2026-08-10T21:02:00.000Z",
+      projection: {
+        ...(before?.published ?? safeProjection),
+        event: { ...(before?.published ?? safeProjection).event, summary: "Converged refresh" },
+      },
+      provenance: {
+        ...(provenance ?? {
+          agendaVersion: null,
+          agendaPublishedAt: null,
+          cfpVersion: null,
+          cfpPublishedAt: null,
+          contentDigest: "legacy:unknown",
+          cause: "source-reconciled" as const,
+        }),
+        contentDigest: "fnv1a32:converged",
+        cause: "source-reconciled" as const,
+      },
+    };
+    const results = await Promise.allSettled([
+      repository.refreshPublished(refresh),
+      repository.refreshPublished(refresh),
+    ]);
+    expect(results.filter(({ status }) => status === "fulfilled")).toHaveLength(1);
+    const loser = results.find(({ status }) => status === "rejected");
+    expect(loser).toMatchObject({
+      status: "rejected",
+      reason: expect.any(PublicationProjectionConflictError),
+    });
+
+    const active = await repository.findByEventId(DEMO_EVENT);
+    expect(active?.projectionVersion).toBe(expected + 1);
+    expect(active?.published?.event.summary).toBe("Converged refresh");
+    const history = await database
+      .prepare(
+        "SELECT COUNT(*) AS count FROM public_event_projection_versions WHERE event_id = ? AND version = ?",
+      )
+      .bind(DEMO_EVENT, expected + 1)
+      .first<{ count: number }>();
+    expect(history?.count).toBe(1);
+  });
+
   it("enforces immutable projection history in storage", async () => {
     runtime = new Miniflare({
       modules: true,
