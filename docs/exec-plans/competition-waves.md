@@ -1063,6 +1063,7 @@ new instant and returns.
 **No migration and no table.** The answer is a fold over `outcome_json`, which #175 already
 stored and #188 already read back, so this lane took no number in the `1400` block and none in
 any other.
+
 ### Issue #190 rulings
 
 The account-bound CFP lifecycle, worked as one pull request. Seven decisions a later reader would
@@ -1148,7 +1149,8 @@ And the fourth is the one that touches the message `#132` was actually filed abo
 account-bound proposal's accept or decline is now sent to the address identity holds for its
 owner**, not to the `email`-typed form answer. `SubmittedProposal` carries `submitterUserId`,
 `decisionRecorded` reports it beside `submitterEmail`, and `lifecycleRecipient` in the
-communications domain states the rule once: an account address wins whenever there is one. Review
+communications domain states the rule once — an account-bound subject is written to at its account
+or not at all, and the form address is reached only when there is no account. Review
 reports both and resolves neither, because an address is identity's to answer for and a domain that
 started resolving them would need identity as a dependency; the composition root is where the two
 meet, so that is where the choice is made. The reviewer projection drops `submitterUserId` with the
@@ -1165,7 +1167,7 @@ binding: the moment a decision notification carries reviewer comments or scores,
 address becomes a disclosure of somebody's review, and the guest path must be verified before the
 message is enriched.
 
-`GAP-027` records the three residuals: nothing announces a deadline before it passes, this deployment
+`GAP-027` records the residuals: nothing announces a deadline before it passes, this deployment
 offers a submitter one sign-in door and it is a seeded persona, and no confirmation has reached a real
 mailbox.
 
@@ -1512,6 +1514,21 @@ demo seed for one organization, so on any other organization all nine messages �
 `decision-accepted` and `decision-declined` that predate this issue — resolve no template, and
 `notifyLifecycle` swallows the refusal. Filed as issue #217 rather than repaired here, because it
 is one provisioning decision across four domains and this branch neither introduced nor widened it.
+
+**And the fix for Copilot's first finding shipped a blocker of its own, which is the fourth time on
+this branch that a repair broke the sibling of the thing it fixed.** Removing the fallback for an
+account with no address was right. But the composition root encoded a *guest* as
+`{ asked: true, email: null }` — a stand-in account object, correct while that fallback existed and
+wrong the instant it went — so `lifecycleRecipient` read it as "this account has no address" and
+**every guest decision stopped being sent**, silently, with all 902 tests green.
+
+The rule's shape was the trap: it distinguishes guest from account by whether a field is *present*,
+so a caller has to encode absence, and the one caller encoded it wrongly. `lifecycleRecipientForAccount`
+takes the account **id** instead — `null` *is* the guest case, identity is asked only when there is
+somebody to ask, and there is no intermediate value to get wrong. The unit assertions had pinned
+the guest case as `lifecycleRecipient({ declaredEmail })`, a shape production never constructs,
+which is why nothing connected the rule to its only caller; the new test drives the root's own
+shape and fails against both encodings of the bug.
 
 **One request from that pass was refused, and the refusal is the interesting part.** A reviewer
 asked for migration `1201`'s backfill to be replayed over rows rather than only asserted through

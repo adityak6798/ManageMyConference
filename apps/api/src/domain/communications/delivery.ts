@@ -137,6 +137,34 @@ export type AccountAddressLookup =
   /** Identity could not be asked. Not evidence about the account, and not a reason to fall back. */
   | { readonly asked: false };
 
+/**
+ * The rule again, taking the account's **id** rather than a pre-built lookup.
+ *
+ * `lifecycleRecipient` distinguishes guest from account by whether `account` is present, which
+ * means a caller has to encode "there is no account" as an absent field — and the composition root
+ * encoded it as `{ asked: true, email: null }` instead. That was right while an account with no
+ * address fell through to the form address, and became wrong the instant that fallback was
+ * removed: the sentinel is an account object, so every guest decision resolved to `null` and
+ * stopped being sent, silently, with nothing failing.
+ *
+ * This shape removes the encoding step. `accountId === null` *is* the guest case, `askIdentity` is
+ * called only when there is somebody to ask, and there is no intermediate value for a caller to
+ * get wrong. Prefer it at any call site that starts from an id.
+ */
+export async function lifecycleRecipientForAccount(subject: {
+  /** The account owning the record this message is about, or `null` for a guest. */
+  readonly accountId: string | null;
+  readonly declaredEmail?: string | null | undefined;
+  /** Asks identity for the account's address, reporting whether it could be asked at all. */
+  readonly askIdentity: (accountId: string) => Promise<AccountAddressLookup>;
+}): Promise<string | null> {
+  if (!subject.accountId) return lifecycleRecipient({ declaredEmail: subject.declaredEmail });
+  return lifecycleRecipient({
+    account: await subject.askIdentity(subject.accountId),
+    declaredEmail: subject.declaredEmail,
+  });
+}
+
 export const lifecycleRecipient = (subject: {
   /** What asking identity for the owning account's address produced, if there is an account. */
   readonly account?: AccountAddressLookup | undefined;

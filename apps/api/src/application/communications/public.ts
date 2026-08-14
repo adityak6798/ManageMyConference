@@ -65,7 +65,10 @@ export type {
  * but the rule belongs to this domain, so it is stated once in `delivery.ts` rather than
  * re-decided at each call site.
  */
-export { lifecycleRecipient } from "../../domain/communications/delivery";
+export {
+  lifecycleRecipient,
+  lifecycleRecipientForAccount,
+} from "../../domain/communications/delivery";
 
 /**
  * One delivery a lifecycle event wants sent.

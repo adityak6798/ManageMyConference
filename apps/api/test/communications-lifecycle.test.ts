@@ -24,6 +24,7 @@ import {
 import { CommunicationsConflictError } from "../src/application/communications/errors";
 import {
   lifecycleRecipient,
+  lifecycleRecipientForAccount,
   REQUESTABLE_TRIGGERS,
   TRIGGER_CHANNELS,
 } from "../src/domain/communications/delivery";
@@ -158,7 +159,8 @@ describe("the trigger and channel vocabulary", () => {
     /*
      * The rule issue #190 narrowed #132 with, stated once here rather than at each call site.
      *
-     * The order is the whole of it: an account address wins whenever there is one, because the
+     * Which *subject* is the whole of it: an account-bound one is written to at its account, or
+     * not at all. The account's address is preferred because the
      * person proved control of that mailbox to sign in, while a form address is whatever
      * somebody typed. A decision notice is the message where that difference is worst — it names
      * an outcome the organizer has published nowhere else.
@@ -201,6 +203,73 @@ describe("the trigger and channel vocabulary", () => {
       lifecycleRecipient({ account: { asked: true, email: null }, declaredEmail: null }),
     ).toBeNull();
     expect(lifecycleRecipient({})).toBeNull();
+  });
+
+  it("starts from the account id, so a guest cannot be encoded as an account with no address", async () => {
+    /*
+     * The shape the composition root actually builds, which is where this went wrong.
+     *
+     * `lifecycleRecipient` tells guest from account by whether `account` is present, so a caller
+     * has to *encode* "there is no account" as an absent field. The root encoded it as
+     * `{ asked: true, email: null }` — correct while an account with no address fell through to
+     * the form address, and wrong the instant that fallback was removed: the sentinel is an
+     * account object, so it answered "this account has no address" and **every guest decision
+     * stopped being sent**, silently, with all 902 API tests still green. The unit assertions
+     * above pinned the guest case as `lifecycleRecipient({ declaredEmail })` — a shape production
+     * never constructs — so nothing connected the rule to its only caller.
+     *
+     * `lifecycleRecipientForAccount` removes the encoding step: `accountId === null` *is* the
+     * guest case and there is no intermediate value to get wrong. These drive it the way the root
+     * does, including that identity is not asked at all when there is nobody to ask.
+     */
+    const asked: string[] = [];
+    const askIdentity = async (accountId: string) => {
+      asked.push(accountId);
+      return accountId === "user-with-address"
+        ? ({ asked: true, email: "owner@example.test" } as const)
+        : accountId === "user-unreachable"
+          ? ({ asked: false } as const)
+          : ({ asked: true, email: null } as const);
+    };
+
+    // A guest: the form address, and identity is never consulted.
+    await expect(
+      lifecycleRecipientForAccount({
+        accountId: null,
+        declaredEmail: "typed@example.test",
+        askIdentity,
+      }),
+    ).resolves.toBe("typed@example.test");
+    expect(asked).toEqual([]);
+
+    // An account with an address: its own, never the form's.
+    await expect(
+      lifecycleRecipientForAccount({
+        accountId: "user-with-address",
+        declaredEmail: "typed@example.test",
+        askIdentity,
+      }),
+    ).resolves.toBe("owner@example.test");
+
+    // An account holding none: nothing, because the form answer on an owned record is still
+    // unverified. The dashboard is the guarantee there.
+    await expect(
+      lifecycleRecipientForAccount({
+        accountId: "user-without-address",
+        declaredEmail: "typed@example.test",
+        askIdentity,
+      }),
+    ).resolves.toBeNull();
+
+    // And a lookup that failed is not evidence about the account either way.
+    await expect(
+      lifecycleRecipientForAccount({
+        accountId: "user-unreachable",
+        declaredEmail: "typed@example.test",
+        askIdentity,
+      }),
+    ).resolves.toBeNull();
+    expect(asked).toEqual(["user-with-address", "user-without-address", "user-unreachable"]);
   });
 
   it("sends nothing when the account could not be asked, rather than falling back", () => {

@@ -56,7 +56,7 @@ import {
   CommunicationsInputError,
   CommunicationsNotFoundError,
   CommunicationsService,
-  lifecycleRecipient,
+  lifecycleRecipientForAccount,
 } from "./application/communications/public";
 import { SchedulePublishedConsumer } from "./application/communications/schedule-published-consumer";
 import { enqueueDueTaskReminders } from "./application/communications/task-reminders";
@@ -1241,20 +1241,25 @@ export default {
          * a decision is on their own dashboard; that is why `PRD-CFP-004` makes the dashboard the
          * guarantee and the message a courtesy.
          */
-        const owner = fact.submitterUserId
-          ? await recipientFor(fact.submitterUserId, {
-              eventId: fact.eventId,
-              proposalId: fact.proposalId,
-            })
-          : { asked: true as const, email: null, name: null };
         /*
-         * `recipientFor` already answers in the shape the rule is decided from, so this passes it
-         * straight through: there is no line here that could collapse "failed" into "no address".
-         * The rule itself is the communications domain's — see `lifecycleRecipient`.
+         * `undefined` for a guest, not a stand-in account, and the difference is the whole rule.
+         *
+         * `lifecycleRecipient` decides on *whether there is an account*: absent means guest and
+         * reaches the form address, present means the account's answer is final. A guest was
+         * represented here as `{ asked: true, email: null }` — which was right while an account
+         * with no address fell through to the form, and became wrong the moment that fallback was
+         * removed, because the sentinel is an account object and so answered "this account has no
+         * address": every guest decision stopped being sent, silently.
+         *
+         * `recipientFor` answers in the shape the rule is decided from, so an account passes
+         * straight through and there is no line here that could collapse "failed" into "no
+         * address" either.
          */
-        const recipient = lifecycleRecipient({
-          account: owner,
+        const recipient = await lifecycleRecipientForAccount({
+          accountId: fact.submitterUserId,
           declaredEmail: fact.submitterEmail,
+          askIdentity: (accountId) =>
+            recipientFor(accountId, { eventId: fact.eventId, proposalId: fact.proposalId }),
         });
         if (!recipient) {
           logger.warn(
