@@ -640,9 +640,19 @@ describe("a proposal that belongs to an account", () => {
       (error: unknown) => error,
     );
     expect(refusal).toBeInstanceOf(CfpClosedError);
-    // And it names the state, so the surface can say *which* — a call that closed reads
-    // differently from one that never opened.
     expect(refusal).toMatchObject({ effectiveState: "open" });
+    /*
+     * The sentence is asserted, because it is the whole of what the guest is given.
+     *
+     * `effectiveState` rides on the error but the transport's envelope carries only code, message
+     * and status — so no surface can distinguish the causes, and the message must not claim one.
+     * It said "closed", which is the one thing that is *not* true here: the call is open and an
+     * immediate retry would have worked.
+     */
+    expect((refusal as CfpClosedError).message).toBe(
+      "This call for proposals changed before the proposal was saved. Reload the form and try again.",
+    );
+    expect((refusal as CfpClosedError).message).not.toMatch(/closed/);
   });
 
   it("confirms a submission that committed even when the read-back after it fails", async () => {

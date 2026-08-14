@@ -152,14 +152,14 @@ const formatOf = (proposal: SubmittedProposal) =>
  * Blind review is a projection concern, not a storage one: the same stored proposal is shown with
  * its submitter to organizers and without to reviewers. This is the mask.
  */
-const withoutSubmitter = (proposal: SubmittedProposal): SubmittedProposal => ({
-  ...proposal,
+const withoutSubmitter = (proposal: SubmittedProposal): PublishedProposal => ({
+  // The owning account goes with the name and the address, and is *dropped* rather than nulled:
+  // it is a stable identifier for one person across every event, so a blind queue that kept it
+  // would let a reviewer join two masked proposals to the same applicant — and a key set to null
+  // is still a key `proposalSchema` does not declare, on a response nothing parses.
+  ...withoutOwner(proposal),
   submitterName: MASKED_SUBMITTER_NAME,
   submitter: null,
-  // The owning account goes with the name and the address: it is a stable identifier for one
-  // person across every event, so leaving it on a blind queue would let a reviewer join two
-  // masked proposals to the same applicant.
-  submitterUserId: null,
 });
 
 /**
@@ -171,7 +171,28 @@ const withoutSubmitter = (proposal: SubmittedProposal): SubmittedProposal => ({
  * a stable identifier for one person across every event is not something to publish by accident.
  * `proposalSchema` in the contracts package does not declare it, and this is what keeps that true.
  */
-const withCoAuthors = ({ submitterUserId: _owner, ...proposal }: SubmittedProposal) => {
+/**
+ * A proposal without its owning account id.
+ *
+ * `submitterUserId` is internal: it exists so a decision message can be addressed to the account
+ * rather than to a form answer, and no organizer surface needs it. It is dropped on the way out of
+ * **every** read that answers a request, because these responses are serialized without a schema
+ * parse that would strip an undeclared field, and `proposalSchema` in the contracts package does
+ * not declare it. A stable identifier for one person across every event is not something to put on
+ * the wire by accident.
+ *
+ * Applied at each return rather than inside the adapter, because `decide` needs the id to address
+ * its notification and only then stops needing it.
+ */
+export type PublishedProposal = Omit<SubmittedProposal, "submitterUserId">;
+
+const withoutOwner = ({
+  submitterUserId: _owner,
+  ...proposal
+}: SubmittedProposal): PublishedProposal => proposal;
+
+const withCoAuthors = (submitted: SubmittedProposal) => {
+  const proposal = withoutOwner(submitted);
   const answer = proposal.answers.find(({ fieldId }) => fieldId === "coauthors")?.value;
   if (!answer) return { ...proposal, coAuthors: [] };
   try {
@@ -750,14 +771,16 @@ export class ReviewService implements AcceptedProposalQuery {
         ],
       });
     try {
-      return await this.dependencies.proposals.transitionAtomically({
-        eventId,
-        proposalIds: [...new Set(proposalIds)],
-        toStatus,
-        actorId: authorized.id,
-        occurredAt: this.dependencies.now().toISOString(),
-        auditIds: proposalIds.map(() => this.dependencies.newId()),
-      });
+      return (
+        await this.dependencies.proposals.transitionAtomically({
+          eventId,
+          proposalIds: [...new Set(proposalIds)],
+          toStatus,
+          actorId: authorized.id,
+          occurredAt: this.dependencies.now().toISOString(),
+          auditIds: proposalIds.map(() => this.dependencies.newId()),
+        })
+      ).map(withoutOwner);
     } catch (error) {
       if (error instanceof ProposalStatusConfigurationError)
         throw new ReviewValidationError({ toStatus: [error.message] });
@@ -781,7 +804,10 @@ export class ReviewService implements AcceptedProposalQuery {
     proposalIds: readonly string[],
     outcome: DecisionOutcome,
     note = "",
-  ): Promise<{ proposals: readonly SubmittedProposal[]; decisions: readonly ProposalDecision[] }> {
+  ): Promise<{
+    proposals: readonly PublishedProposal[];
+    decisions: readonly ProposalDecision[];
+  }> {
     const authorized = this.organizer(actor, eventId);
     const uniqueProposalIds = [...new Set(proposalIds)];
     const found = await this.dependencies.proposals.findMany(eventId, uniqueProposalIds);
@@ -841,7 +867,9 @@ export class ReviewService implements AcceptedProposalQuery {
         revision,
       });
     }
-    return { proposals, decisions };
+    // The owner id has done its work — it addressed the notifications above — and does not go out
+    // with the response. See `withoutOwner`.
+    return { proposals: proposals.map(withoutOwner), decisions };
   }
 
   /**

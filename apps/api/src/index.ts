@@ -1134,7 +1134,19 @@ export default {
      */
     const recipientFor = async (userId: string, subject: Record<string, string>) => {
       try {
-        return { asked: true as const, recipient: await identityDirectory.findRecipient(userId) };
+        const found = await identityDirectory.findRecipient(userId);
+        /*
+         * Shaped as an `AccountAddressLookup` so it can be handed to `lifecycleRecipient`
+         * unchanged.
+         *
+         * An earlier version returned the recipient and let the caller build the discriminated
+         * pair, which put the whole fail-closed property back in one hand-written line — and a
+         * line that reads `{ asked: true, … }` unconditionally reintroduces the vulnerability
+         * while typechecking. `name` rides along for the callers that render it; `email` and
+         * `asked` are the two fields the rule is decided from, and nothing downstream re-derives
+         * them.
+         */
+        return { asked: true as const, email: found?.email ?? null, name: found?.name ?? null };
       } catch (error) {
         // ERROR-INTENT: reported at error level with the identifiers needed to send the message by
         // hand, and swallowed so the committed action is still reported as the success it was.
@@ -1153,7 +1165,7 @@ export default {
          * remove — and the delivery key holds the revision, so a retry converges on the row
          * already addressed wrongly rather than correcting it.
          */
-        return { asked: false as const, recipient: null };
+        return { asked: false as const };
       }
     };
     const reviewNotifications: ReviewNotificationPort = {
@@ -1173,20 +1185,21 @@ export default {
         // No address means nobody to write to. Logged rather than queued, because a delivery to
         // a non-address would burn an attempt and fail terminally with a code that describes the
         // provider's refusal rather than the reason: this reviewer has no email linked.
-        if (!reviewer.recipient?.email) {
+        if (!reviewer.asked || !reviewer.email) {
           logger.warn(
             { eventId: fact.eventId, reviewerId: fact.reviewerId },
             "lifecycle.notification.unaddressable",
           );
           return;
         }
-        const reviewerRecipient = reviewer.recipient;
+        const reviewerAddress = reviewer.email;
+        const reviewerName = reviewer.name;
         await notifyLifecycle(fact.eventId, { reviewerId: fact.reviewerId }, () => ({
           idempotencyKey: `reviewer-assigned:${fact.eventId}:${fact.reviewerId}:r${fact.round}`,
           triggerType: "reviewer.assigned",
           channel: "email",
-          recipientRef: reviewerRecipient.email as string,
-          payload: { reviewerName: reviewerRecipient.name, round: fact.round },
+          recipientRef: reviewerAddress,
+          payload: { reviewerName, round: fact.round },
           templateKey: "reviewer-assignment",
         }));
       },
@@ -1228,18 +1241,14 @@ export default {
               eventId: fact.eventId,
               proposalId: fact.proposalId,
             })
-          : { asked: true as const, recipient: null };
+          : { asked: true as const, email: null, name: null };
         /*
-         * The lookup's *outcome* goes to `lifecycleRecipient`, not the address it found.
-         *
-         * A failed lookup is not an account with no address, and collapsing the two here would
-         * fall through to the unverified form address on the strength of a transient read — the
-         * exposure the preference exists to remove — with the delivery key holding the revision,
-         * so a retry converges on the row already addressed wrongly. The rule is the
-         * communications domain's and is enforced there rather than remembered here.
+         * `recipientFor` already answers in the shape the rule is decided from, so this passes it
+         * straight through: there is no line here that could collapse "failed" into "no address".
+         * The rule itself is the communications domain's — see `lifecycleRecipient`.
          */
         const recipient = lifecycleRecipient({
-          account: owner.asked ? { asked: true, email: owner.recipient?.email ?? null } : owner,
+          account: owner,
           declaredEmail: fact.submitterEmail,
         });
         if (!recipient) {
@@ -1286,23 +1295,24 @@ export default {
           eventId: fact.eventId,
           proposalId: fact.proposalId,
         });
-        if (!submitter.recipient?.email) {
+        if (!submitter.asked || !submitter.email) {
           logger.warn(
             { eventId: fact.eventId, proposalId: fact.proposalId },
             "lifecycle.notification.unaddressable",
           );
           return;
         }
-        const submitterRecipient = submitter.recipient;
+        const submitterAddress = submitter.email;
+        const submitterName = submitter.name;
         await notifyLifecycle(fact.eventId, { proposalId: fact.proposalId }, () => ({
           // One confirmation per proposal, not per revision: a submitter who fixes a typo and saves
           // again has not submitted a second proposal, and telling them twice would say they had.
           idempotencyKey: `proposal-submitted:${fact.eventId}:${fact.proposalId}`,
           triggerType: "proposal.submitted",
           channel: "email",
-          recipientRef: submitterRecipient.email as string,
+          recipientRef: submitterAddress,
           payload: {
-            submitterName: submitterRecipient.name,
+            submitterName,
             // The proposal's own name, or a neutral stand-in: a form that asks for no title at all
             // is a form an organizer may legitimately have published.
             proposalTitle: fact.proposalTitle ?? "your proposal",

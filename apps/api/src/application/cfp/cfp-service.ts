@@ -445,16 +445,20 @@ export class CfpService {
     if (!created) {
       const live = await this.getPublished(eventId);
       /*
-       * Named for both causes, unlike `createDraft`'s, which genuinely has one.
+       * Says what is true of every cause rather than naming one, unlike `createDraft`'s, which
+       * genuinely has one.
        *
-       * This insert carries a version predicate the owned writes do not, so a miss means the call
-       * closed **or** the organizer republished between the read above and the write. Borrowing
-       * `createDraft`'s sentence told a guest who raced a republish that the call was closed while
-       * it was open and an immediate retry would have worked. The state travels with the error, so
-       * a surface that wants to distinguish them still can.
+       * This insert misses for at least three reasons: the call closed, the organizer republished
+       * (it carries a version predicate the owned writes do not), or the idempotency key is
+       * already held by a row this caller cannot converge on — an owned proposal or a draft, the
+       * squatting residual `GAP-027` records. Borrowing `createDraft`'s sentence told a guest who
+       * raced a republish that the call was closed while it was open. Enumerating instead would
+       * be the same mistake with a longer list, and nothing here can tell which happened without
+       * a second read that would be racing too — so the message describes the shape of the answer
+       * (something moved, reload) and the status code carries the rest.
        */
       throw new CfpClosedError(
-        "This call for proposals changed before the proposal was saved — it has either closed or been republished. Reload the form and try again.",
+        "This call for proposals changed before the proposal was saved. Reload the form and try again.",
         live.effectiveStatus,
       );
     }
@@ -604,6 +608,10 @@ export class CfpService {
       ...(existing.lifecycle === "draft"
         ? { cfpVersion: existing.cfpVersion, fields: [] }
         : { cfpVersion: form.version, fields: form.fields }),
+      // And the write asserts the lifecycle the branch above was chosen for, so a row that moved
+      // between that read and this write matches nothing rather than being written under a
+      // decision that no longer applies to it.
+      lifecycle: existing.lifecycle ?? "submitted",
     };
     if (!(await this.repository.saveProposalAnswers(write)))
       await this.explainRefusedWrite(eventId, proposalId, submitter.id, expectedRevision);
@@ -649,6 +657,8 @@ export class CfpService {
       resolvedRoute,
       status: resolvedRoute?.status ?? "submitted",
       submittedAt: at,
+      // Submitting is one-way, so the row must still be a draft when the write lands.
+      lifecycle: "draft",
     };
     if (!(await this.repository.submitProposal(write)))
       await this.explainRefusedWrite(eventId, proposalId, submitter.id, expectedRevision);

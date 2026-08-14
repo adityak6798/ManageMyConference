@@ -169,6 +169,7 @@ describe("D1: the submission window in SQL", () => {
       at: AT,
       cfpVersion: form.version,
       fields: form.fields,
+      lifecycle: "draft" as const,
     };
     await expect(repository.saveProposalAnswers(write)).resolves.toBe(false);
     await expect(
@@ -177,6 +178,7 @@ describe("D1: the submission window in SQL", () => {
         resolvedRoute: null,
         status: "submitted",
         submittedAt: AT,
+        lifecycle: "draft" as const,
       }),
     ).resolves.toBe(false);
     // Nothing was written by either refusal.
@@ -251,6 +253,7 @@ describe("D1: the submission window in SQL", () => {
         at: AT,
         cfpVersion: form.version,
         fields: form.fields,
+        lifecycle: "draft" as const,
       }),
     ).resolves.toBe(false);
     await expect(
@@ -264,6 +267,7 @@ describe("D1: the submission window in SQL", () => {
         at: AT,
         cfpVersion: form.version,
         fields: form.fields,
+        lifecycle: "draft" as const,
       }),
     ).resolves.toBe(false);
     await expect(repository.findProposalForOwner(eventId, id, SAM)).resolves.toBeNull();
@@ -282,6 +286,7 @@ describe("D1: the submission window in SQL", () => {
         // projection that reads an answer through them renders an empty proposal.
         cfpVersion: form.version + 1,
         fields: [{ ...(form.fields[0] as CfpField), id: "renamed", label: "Renamed" }],
+        lifecycle: "draft" as const,
       }),
     ).resolves.toBe(true);
     await expect(repository.findProposalForOwner(eventId, id, PAT)).resolves.toMatchObject({
@@ -356,6 +361,7 @@ describe("D1: a draft is not a submission", () => {
         resolvedRoute: null,
         status: "submitted",
         submittedAt: AT,
+        lifecycle: "draft" as const,
       }),
     ).resolves.toBe(true);
     await expect(proposals.find(eventId, id)).resolves.toMatchObject({
@@ -396,6 +402,7 @@ describe("D1: a draft is not a submission", () => {
         resolvedRoute: null,
         status: "submitted",
         submittedAt: AT,
+        lifecycle: "draft" as const,
       }),
     ).resolves.toBe(true);
 
@@ -406,6 +413,66 @@ describe("D1: a draft is not a submission", () => {
     // The seeded event holds other proposals, so this names the row rather than the position.
     expect((await proposals.list(eventId)).find((row) => row.id === id)).toMatchObject({
       submitterUserId: PAT,
+    });
+  });
+
+  it("refuses a write that names a lifecycle the row has moved on from", async () => {
+    /*
+     * The predicate that makes "which snapshot does this write store" safe to decide from a read.
+     *
+     * A submitted proposal stores the form it was validated against; a draft stores none, so it
+     * is named from the live form. That branch is chosen from a row read *before* the write, and
+     * the caller supplies the expected revision — so without a lifecycle predicate a revision
+     * naming a number the row has not reached yet lands the draft branch on a row a concurrent
+     * submit has already moved to `submitted`, blanking `form_fields_json`. Every organizer and
+     * reviewer projection resolves an answer through that snapshot, so the proposal renders empty
+     * in triage and in every queue, and the `email`-typed answer the decision notification is
+     * addressed from goes with it.
+     *
+     * Here the row is submitted at revision 2; a write that still believes it is a draft matches
+     * nothing, which is a refusal its caller already knows how to explain.
+     */
+    const { repository, id } = await withDraft();
+    await expect(
+      repository.submitProposal({
+        eventId,
+        proposalId: id,
+        submitterUserId: PAT,
+        answers: { title: "Submitted" },
+        expectedRevision: 1,
+        updatedAt: AT,
+        at: AT,
+        cfpVersion: form.version,
+        fields: form.fields,
+        resolvedRoute: null,
+        status: "submitted",
+        submittedAt: AT,
+        lifecycle: "draft" as const,
+      }),
+    ).resolves.toBe(true);
+
+    // The draft branch, at the revision the row now holds. Right owner, right revision, open
+    // call — and still refused, because the row is no longer the thing this write describes.
+    await expect(
+      repository.saveProposalAnswers({
+        eventId,
+        proposalId: id,
+        submitterUserId: PAT,
+        answers: { title: "Written as a draft" },
+        expectedRevision: 2,
+        updatedAt: AT,
+        at: AT,
+        cfpVersion: form.version,
+        fields: [],
+        lifecycle: "draft" as const,
+      }),
+    ).resolves.toBe(false);
+
+    // The snapshot the submission stored is intact, which is the thing that was at risk.
+    await expect(repository.findProposalForOwner(eventId, id, PAT)).resolves.toMatchObject({
+      lifecycle: "submitted",
+      revision: 2,
+      fields: form.fields,
     });
   });
 
@@ -424,6 +491,7 @@ describe("D1: a draft is not a submission", () => {
       resolvedRoute: null,
       status: "submitted",
       submittedAt: AT,
+      lifecycle: "draft" as const,
     });
     // The real acceptance path: review moves the triage status through the CFP interface.
     await proposals.transitionAtomically({
@@ -500,7 +568,7 @@ describe("D1: migration 1201's guards", () => {
         id: "40000000-0000-4000-8000-000000000001",
         idempotency_key: "unowned-draft",
         status: "cfp:draft",
-        lifecycle: "draft",
+        lifecycle: "draft" as const,
         submitter_user_id: null,
       }),
     ).rejects.toThrow(/CFP_PROPOSAL_LIFECYCLE_INVALID/);
@@ -522,7 +590,7 @@ describe("D1: migration 1201's guards", () => {
         id: "40000000-0000-4000-8000-000000000003",
         idempotency_key: "half-submitted",
         status: "submitted",
-        lifecycle: "draft",
+        lifecycle: "draft" as const,
         submitter_user_id: PAT,
       }),
     ).rejects.toThrow(/CFP_PROPOSAL_LIFECYCLE_INVALID/);

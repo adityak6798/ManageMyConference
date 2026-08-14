@@ -171,7 +171,13 @@ export class MemoryCfpRepository implements CfpRepository {
     });
     return Promise.resolve(true);
   }
-  /** The same conjunction the adapter's `OPEN_WINDOW_GUARD` is: owner, revision, and open call. */
+  /**
+   * The same conjunction the adapter's statement is: owner, revision, lifecycle, and open call.
+   *
+   * The lifecycle belongs here rather than in the callers for the reason `ProposalOwnerWrite`
+   * gives: which snapshot a write stores is decided from a read *before* it, so a row that moved
+   * between the two has to miss rather than be written under the earlier decision.
+   */
   private ownedFor(write: ProposalOwnerWrite) {
     if (!this.openAt(write.eventId, write.at)) return null;
     for (const [key, proposal] of this.submissions)
@@ -179,7 +185,8 @@ export class MemoryCfpRepository implements CfpRepository {
         proposal.eventId === write.eventId &&
         proposal.id === write.proposalId &&
         proposal.submitterUserId === write.submitterUserId &&
-        (proposal.revision ?? 1) === write.expectedRevision
+        (proposal.revision ?? 1) === write.expectedRevision &&
+        (proposal.lifecycle ?? "submitted") === write.lifecycle
       )
         return { key, proposal };
     return null;

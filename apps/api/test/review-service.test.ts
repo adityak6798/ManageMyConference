@@ -260,6 +260,14 @@ describe("review workflow", () => {
     // every event, so reaching the wire by accident is the failure worth pinning.
     expect(organizerView.proposals[0]).not.toHaveProperty("submitterUserId");
     expect(JSON.stringify(organizerView)).not.toContain("20000000-0000-4000-8000-00000000000a");
+    // And on the two other reads that answer a request with proposals. `organizerWorkspace` was
+    // the only one scrubbed at first, so both of these carried the id to the wire — the same
+    // audience, but the invariant is "not on the wire" rather than "not to a stranger".
+    const moved = await service.bulkTransition(organizer, eventId, [proposalId], "under_review");
+    expect(moved[0]).not.toHaveProperty("submitterUserId");
+    const decided = await service.decide(organizer, eventId, [proposalId], "declined");
+    expect(decided.proposals[0]).not.toHaveProperty("submitterUserId");
+    expect(JSON.stringify(decided)).not.toContain("20000000-0000-4000-8000-00000000000a");
 
     // Blind review is a real mask at the projection edge, not a constant the adapter happens
     // to emit: the same stored proposal loses its submitter on the way to a reviewer.
@@ -267,12 +275,13 @@ describe("review workflow", () => {
     expect(queue[0]?.proposal).toMatchObject({
       submitterName: "Applicant",
       submitter: null,
-      // The owning account goes with the address, and it is the one a mask is easiest to forget:
-      // it carries no name and no `@`, so the two string assertions below would not catch it. It
-      // is a stable identifier for one person across every event, so a reviewer who kept it could
-      // join two masked proposals to the same applicant.
-      submitterUserId: null,
     });
+    // The owning account goes with the address, and it is the one a mask is easiest to forget: it
+    // carries no name and no `@`, so the two string assertions below would not catch it. It is a
+    // stable identifier for one person across every event, so a reviewer who kept it could join
+    // two masked proposals to the same applicant. Dropped rather than nulled — a key set to null
+    // is still an undeclared key on a response nothing parses.
+    expect(queue[0]?.proposal).not.toHaveProperty("submitterUserId");
     expect(JSON.stringify(queue)).not.toContain("robin@example.test");
     expect(JSON.stringify(queue)).not.toContain("Robin Submitter");
     expect(JSON.stringify(queue)).not.toContain("20000000-0000-4000-8000-00000000000a");

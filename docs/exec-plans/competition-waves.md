@@ -1276,6 +1276,29 @@ second, so the distinction is the domain's and the composition root cannot colla
 that one line fails the test that names it. Two claims this repair round had itself written were
 false under a failed lookup and are now conditioned: `PRD-COM-001` and the data-flow narrative.
 
+**A sixth pass then found that the fix's *other* half was still one line from being wrong, and
+that a repair had opened a race.** Two lessons, both about where a rule lives.
+
+`recipientFor` returned the address and let the composition root build the discriminated pair, so
+the entire fail-closed property came down to one hand-written line — and a line reading
+`{ asked: true, … }` unconditionally reintroduces the vulnerability while typechecking cleanly and
+passing every test, because nothing tests that file's wiring. `recipientFor` now answers in the
+shape the rule is decided from, so there is no line left to get wrong. A rule enforced by a type
+one call site re-derives is not enforced.
+
+And branching the snapshot on lifecycle made `saveProposalAnswers` unsafe: the branch is chosen
+from a row read *before* the write, the caller supplies the expected revision, and the statement
+had no lifecycle predicate — so a revision naming a number the row had not reached yet could land
+the draft branch on a row a concurrent submit had already made `submitted`, blanking
+`form_fields_json` and with it every organizer and reviewer projection of that proposal. Both
+statements now assert the lifecycle they were built for. This is the third time in this issue that
+a decision made from an earlier read had to be re-asserted in the write's own `WHERE`; the pattern
+is worth naming, because the fake had the same hole both times.
+
+Also: `submitterUserId` was scrubbed from `organizerWorkspace` and still went out on `decide` and
+`bulkTransition`, whose responses are serialized without a schema parse — the invariant is "not on
+the wire", not "not to a stranger", and one of three call sites is not an invariant.
+
 **One request from that pass was refused, and the refusal is the interesting part.** A reviewer
 asked for migration `1201`'s backfill to be replayed over rows rather than only asserted through
 its end state. It was written, and it works — it catches a deleted backfill. But `cfp_submissions`

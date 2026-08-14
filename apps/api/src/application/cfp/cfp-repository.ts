@@ -3,6 +3,7 @@ import type {
   CfpForm,
   CfpResolvedRoute,
   CfpSubmissionWindow,
+  ProposalLifecycle,
   ProposalSubmission,
 } from "../../domain/cfp/cfp";
 
@@ -41,6 +42,18 @@ export interface ProposalOwnerWrite {
    */
   readonly cfpVersion: number;
   readonly fields: readonly CfpField[];
+  /**
+   * The lifecycle this write's snapshot was chosen for, asserted in the statement's own `WHERE`.
+   *
+   * A submitted proposal stores the form it was validated against; a draft stores none, so it is
+   * named from the live form. Which of those is right is decided from a row read *before* the
+   * write, and the caller supplies the expected revision — so without this predicate a revision
+   * naming a number the row has not reached yet could land the draft branch on a row a concurrent
+   * submit had already moved to `submitted`, blanking its snapshot and with it every organizer
+   * and reviewer projection of that proposal. Naming the lifecycle makes the mismatch match no
+   * row, which is a refusal the caller already knows how to explain.
+   */
+  readonly lifecycle: ProposalLifecycle;
 }
 
 /** A `ProposalOwnerWrite` that also moves the proposal out of draft, so it records the decision. */
