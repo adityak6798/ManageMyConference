@@ -1343,6 +1343,31 @@ break. Every title it writes now carries a per-run marker and every count is sco
 header claimed re-runnability on the strength of a `finally` that restores the window, which is a
 different property.
 
+**A ninth pass, told to look at the surfaces rather than the seams, found four more — and two of
+them were the previous round's own repairs not doing what their commit message said.** The
+lifecycle-before-revision reorder was **untested**: swapping the two `if` blocks back left all 887
+tests green, because the test passed the *post*-submit revision, which makes the revision predicate
+match and the order irrelevant. The new 409 mapping was untested too — deleting it turned a
+double-submit into a **500** with the suite still green. Both now have assertions that fail against
+the reverted code, one of them at the transport, where the header already said status codes belong.
+
+The other two were the surfaces themselves. The public event home page rendered a *scheduled* call
+as **"Closed"**: `effectiveStatus` gained a fourth value and the pill still had two, so a visitor a
+month before a call opened was told it had ended, one click from a page saying "Opening soon" with
+the date. And a deadline was labelled with the zone abbreviation of the *event's own week*, which is
+right for a session and wrong for a deadline — a call closing in December for a conference in
+September rendered `12:00 PM PDT` when the answer is `PST`. Clock time right, zone name an hour out,
+at the one number on the page that has to be right. The label now comes from the instant.
+
+Three smaller ones round it out, all about the same live region. Removing the blanket
+`"Not submitted — "` prefix was right, but the notice *preferred the server's message*, and the
+API's generic refusal is "Something went wrong." — so a failed submit spoke exactly that and nothing
+else. It now always names the action and adds the server's reason after it. Adopting the draft early
+fixed the data loss and left the dashboard saying "Nothing yet." above a form claiming to edit a
+draft, so the list refreshes with it. And the transport threw away the sentence the service composes
+for a revision conflict, telling somebody who lost a race on a *submitted* proposal to "reload the
+latest draft".
+
 **One request from that pass was refused, and the refusal is the interesting part.** A reviewer
 asked for migration `1201`'s backfill to be replayed over rows rather than only asserted through
 its end state. It was written, and it works — it catches a deleted backfill. But `cfp_submissions`

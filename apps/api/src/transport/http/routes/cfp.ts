@@ -448,7 +448,11 @@ export const cfpRoutes: RouteModule = {
     if (error instanceof CfpDraftConflictError)
       return {
         code: "CONFLICT" as const,
-        message: "This draft changed elsewhere. Reload the latest draft before saving again.",
+        // The service's own wording, not a fixed sentence. This route now serves *submitted*
+        // proposals as well as drafts, and the hard-coded line told an applicant who lost a
+        // revision race on a submitted proposal to "reload the latest draft" — about something
+        // that is not a draft. The service composes the sentence for the case it detected.
+        message: error.message,
         status: 409 as const,
       };
     /*

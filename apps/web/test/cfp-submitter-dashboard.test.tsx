@@ -109,7 +109,6 @@ function mount(
       title={liveCfp.title}
       description={liveCfp.description}
       timezone={LA}
-      eventStartsOn="2026-09-15"
     />,
   );
   return {
@@ -151,6 +150,39 @@ describe("the signed-in applicant's proposals", () => {
     expect(notice).toHaveTextContent("Signing out did not work. Close the browser to be sure.");
     expect(notice.textContent).not.toContain("Not submitted");
     expect(test.calls.some(({ url }) => url === "/api/auth/signout")).toBe(true);
+  });
+
+  it("still says what failed when the server's own reason says nothing", async () => {
+    /*
+     * The half a blanket prefix was covering for.
+     *
+     * The API's generic refusal message is "Something went wrong.", and this notice preferred the
+     * server's message over the action's — so a failed save spoke exactly that, with nothing
+     * saying what had not happened. Removing the prefix without fixing this would trade one wrong
+     * sentence for a missing one, and this live region is the only outcome a screen reader gets.
+     */
+    mount({
+      write: (url, init) =>
+        url === proposalsPath && init.method === "POST"
+          ? jsonResponse(
+              {
+                error: {
+                  code: "INTERNAL_ERROR",
+                  message: "Something went wrong.",
+                  correlationId: "x",
+                },
+              },
+              500,
+            )
+          : undefined,
+    });
+    fireEvent.change(await screen.findByLabelText(/Proposal title/), { target: { value: "A" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+
+    // The action first, the server's reason after it — never the reason alone.
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "The proposal could not be saved. Something went wrong.",
+    );
   });
 
   it("keeps a correction typed after a failed submit, rather than saying it saved it", async () => {

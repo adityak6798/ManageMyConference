@@ -29,7 +29,7 @@ import {
   describeIdentityFailure,
 } from "../api/identity";
 import { Pill } from "./cards";
-import { fullTime, zoneAbbreviation } from "./model";
+import { fullTimeWithZone } from "./model";
 
 /**
  * Four states, and `scheduled` is the one worth having separately.
@@ -73,7 +73,6 @@ export function PublicCfpView({
   title,
   description,
   timezone,
-  eventStartsOn,
 }: {
   eventId: string;
   liveCfp: CfpFormDto | null;
@@ -84,8 +83,6 @@ export function PublicCfpView({
   description: string;
   /** The event's IANA zone: every deadline on this page is stated in it, never in the browser's. */
   timezone: string;
-  /** Used only to name the zone's abbreviation for the week the event runs. */
-  eventStartsOn: string;
 }) {
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [submissionKey, setSubmissionKey] = useState(() => crypto.randomUUID());
@@ -129,13 +126,23 @@ export function PublicCfpView({
     };
   }, [refreshProposals]);
 
-  /** Report a refusal beside the control that caused it, keeping any field errors it carried. */
+  /**
+   * Report a refusal beside the control that caused it, keeping any field errors it carried.
+   *
+   * `fallback` names the *action*, and it is always said — the server's message is added to it
+   * rather than replacing it. The API's generic refusal is "Something went wrong.", so preferring
+   * the server's message left an applicant whose submit failed with a live region reading exactly
+   * that, and nothing saying the proposal had not been sent. This notice also serves sign-out,
+   * demo sign-in and save, so a blanket "Not submitted — " prefix was the wrong way to fix it: it
+   * produced "Not submitted — This proposal has already been submitted."
+   */
   function report(reason: unknown, fallback: string) {
     // ERROR-INTENT: the public form renders submission failures next to the fields.
     if (reason instanceof CfpApiError) setFieldErrors(reason.envelope.error.fieldErrors ?? {});
+    const detail = reason instanceof CfpApiError ? reason.message : "";
     setNotice({
       tone: "error",
-      text: reason instanceof CfpApiError ? reason.message : fallback,
+      text: detail && detail !== fallback ? `${fallback} ${detail}` : fallback,
     });
   }
 
@@ -219,6 +226,9 @@ export function PublicCfpView({
         target = await createProposalDraft(eventId, answers, submissionKey);
         setEditing(target);
         setSubmissionKey(crypto.randomUUID());
+        // And the list, or a failing submit leaves "Nothing yet." above a form that says it is
+        // editing a draft — the row exists, and the two halves of the page disagree about it.
+        await refreshProposals();
       }
       const submitted = await submitOwnedProposal(eventId, target.id, answers, target.revision);
       setEditing(null);
@@ -255,8 +265,14 @@ export function PublicCfpView({
     void (signedIn ? submitOwned() : submitAnonymously());
   }
 
-  const zone = zoneAbbreviation(timezone, eventStartsOn);
-  const inZone = (instant: string) => `${fullTime(instant, timezone)}${zone ? ` ${zone}` : ""}`;
+  /*
+   * Labelled from the instant, not from the event's week.
+   *
+   * A deadline is usually outside the programme's own days — a call closing in December for a
+   * conference in September — so the event-week abbreviation printed `PDT` beside a time that was
+   * really `PST`. The same applies to a proposal's `submittedAt` and `updatedAt`.
+   */
+  const inZone = (instant: string) => fullTimeWithZone(instant, timezone);
   /**
    * The deadline, stated wherever there is one — including on a call that is already closed,
    * because "closed" without a date reads as a decision somebody made this morning.
@@ -553,23 +569,27 @@ export function PublicCfpView({
             : "This call is closed and is no longer accepting submissions."}
         </p>
       )}
-      {notice ? (
-        <p
-          className={notice.tone === "error" ? "pub-notice is-error" : "pub-notice"}
-          role={notice.tone === "error" ? "alert" : "status"}
-        >
-          {/*
-            No blanket prefix. This notice used to serve one action — an anonymous submission — so
-            "Not submitted — " was always true of it. It now carries sign-out, demo sign-in, save,
-            and identity failures too, where it was at best irrelevant and at worst
-            self-contradicting: "Not submitted — This proposal has already been submitted." Every
-            message reaching here already names what failed, which is the property to keep.
-          */}
-          {notice.text}
-        </p>
-      ) : (
-        <span className="pub-sr" role="status" aria-live="polite" />
-      )}
+      {/*
+        One element, always mounted, whose class and text change — the pattern `ui/primitives.tsx`
+        documents, for the reason it gives there: a live region swapped in at the moment its first
+        message arrives is commonly missed by assistive technology, and this notice is now the only
+        spoken outcome of five different actions.
+      */}
+      <p
+        className={
+          notice ? (notice.tone === "error" ? "pub-notice is-error" : "pub-notice") : "pub-sr"
+        }
+        role={notice?.tone === "error" ? "alert" : "status"}
+        aria-live={notice?.tone === "error" ? undefined : "polite"}
+      >
+        {/*
+          No blanket prefix. This served one action — an anonymous submission — when it took a
+          "Not submitted — " prefix, and now serves five, where the prefix was at best irrelevant
+          and at worst self-contradicting: "Not submitted — This proposal has already been
+          submitted." `report` names the action in the message instead.
+        */}
+        {notice?.text ?? ""}
+      </p>
     </article>
   );
 }

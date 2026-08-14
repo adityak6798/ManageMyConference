@@ -223,7 +223,10 @@ test("a stale organizer draft is refused and can safely reload the winning edit"
   expect(winning.ok(), `winning save failed: ${await winning.text()}`).toBe(true);
 
   await page.getByRole("button", { name: "Save draft" }).click();
-  await expect(page.getByRole("alert")).toContainText("changed elsewhere");
+  // The service's own wording now reaches the caller rather than a fixed transport sentence, so
+  // this names the editor rather than "elsewhere" — the applicant routes share this mapping and
+  // were being told to reload a draft about proposals that are not drafts.
+  await expect(page.getByRole("alert")).toContainText("changed in another editor");
   await expect(page.getByLabel("Form title")).toHaveValue("Stale local title");
   await page.getByRole("button", { name: "Reload latest draft" }).click();
   await expect(page.getByLabel("Form title")).toHaveValue("Concurrent winning title");

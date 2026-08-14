@@ -166,9 +166,31 @@ describe("what the applicant is shown when the call is not open", () => {
         title="Share what you learned"
         description="Submit a practical session."
         timezone={LA}
-        eventStartsOn="2026-09-15"
       />,
     );
+
+  it("labels a deadline with the zone in force at that instant, not the event's own week", async () => {
+    /*
+     * A call closing in December for a conference in September.
+     *
+     * The abbreviation came from `zoneAbbreviation(timezone, eventStartsOn)`, which answers for
+     * the week the programme runs — right for a session, wrong for a deadline, which usually sits
+     * outside it and often on the other side of a daylight-saving change. Los Angeles is PDT in
+     * September and PST in December, so the page rendered "December 15, 2026 at 12:00 PM PDT":
+     * the clock time correct, the zone name an hour out. A reader converting from the stated zone
+     * misses the deadline by an hour, which is the one number on this line that has to be right.
+     */
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => jsonResponse({}, 401)),
+    );
+    view({ closesAt: "2026-12-15T20:00:00.000Z", effectiveStatus: "open" }, "open");
+
+    const line = await screen.findByText(/Submissions close/);
+    expect(line.textContent).toContain("PST");
+    expect(line.textContent).not.toContain("PDT");
+    expect(line.textContent).toContain("12:00 PM");
+  });
 
   it("names the opening date and offers no form before the window starts", async () => {
     vi.stubGlobal(

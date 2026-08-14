@@ -313,7 +313,9 @@ export class CfpService {
     };
     try {
       if (!(await this.repository.saveForm(form, expectedVersion)))
-        throw new CfpDraftConflictError("This CFP draft changed in another editor");
+        throw new CfpDraftConflictError(
+          "This CFP draft changed in another editor. Reload the latest draft before saving again.",
+        );
     } catch (error) {
       if (String(error).includes("CFP_ROUTE_STATUS_NOT_CONFIGURED"))
         throw new CfpRoutingConfigurationError("Choose a configured proposal status");
@@ -376,7 +378,9 @@ export class CfpService {
         draft.version,
       ))
     )
-      throw new CfpDraftConflictError("This CFP draft changed in another editor");
+      throw new CfpDraftConflictError(
+        "This CFP draft changed in another editor. Reload the latest draft before saving again.",
+      );
     return (await this.getForOrganizer(actor, eventId)) ?? this.withEffectiveStatus(form, status);
   }
   /**
@@ -771,7 +775,9 @@ export class CfpService {
       // case that cannot happen is a claim nobody can check.
       throw new CfpProposalStateConflictError("This proposal has already been submitted.");
     if ((current.revision ?? 1) !== expectedRevision)
-      throw new CfpDraftConflictError("This proposal changed in another tab or window");
+      throw new CfpDraftConflictError(
+        "This proposal changed in another tab or window. Reload it before saving again.",
+      );
     // Owner, revision and lifecycle all still match, so what is left is the window: an organizer
     // closed the call between this request's read and its write.
     const form = await this.getPublished(eventId);

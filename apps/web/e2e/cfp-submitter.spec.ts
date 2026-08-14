@@ -223,7 +223,12 @@ test("an applicant signs in from the public call, drafts, resumes, submits, and 
 
   // ---- a second submitter sees none of it ---------------------------------------
   const mine = await page.request.get(`/api/events/${EVENT_ID}/cfp/proposals`);
-  const proposalId = (await mine.json()).proposals[0].id as string;
+  // Named rather than indexed, for the same reason as the deadline test below: the listing is
+  // oldest-first, so `[0]` is an *earlier run's* proposal on any server that has not been reset.
+  const proposalId = ((await mine.json()).proposals as { id: string; title: string }[]).find(
+    ({ title }) => title === `Idempotent conference workflows ${RUN}`,
+  )?.id as string;
+  expect(proposalId, "this run's submitted proposal was not in the listing").toBeTruthy();
   await signOut(page);
   await signInAs(page, "Pat Attendee");
   await expect(page.getByText(/Nothing yet/)).toBeVisible();

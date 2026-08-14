@@ -593,6 +593,49 @@ describe("what the public surface says about the call for proposals", () => {
   const answering = (status: "open" | "closed") => () =>
     Promise.resolve(new Response(JSON.stringify(liveForm(status)), { status: 200 }));
 
+  it("says a scheduled call is opening soon rather than calling it closed", async () => {
+    /*
+     * The state a two-way pill folded away.
+     *
+     * `effectiveStatus` gained `scheduled` with the submission window, and the CTA rendered
+     * `open ? "Open" : "Closed"` — so a visitor arriving a month before a call opens was told it
+     * had ended, one click from a page saying "Opening soon" with the date. "Opens on the 3rd" and
+     * "you have missed it" are opposite messages, which is the rule the CFP page states and this
+     * pill was breaking. The assertion is on both surfaces, because agreeing with itself is the
+     * property that failed.
+     */
+    serve(() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            cfp: {
+              ...liveForm("open").cfp,
+              opensAt: "2026-12-01T08:00:00.000Z",
+              effectiveStatus: "scheduled",
+            },
+          }),
+          { status: 200 },
+        ),
+      ),
+    );
+    const { container } = mountAt(`/events/${SLUG}`);
+    await screen.findByRole("heading", { level: 1, name: "Greenroom Demo Summit" });
+
+    const side = await waitFor(() => {
+      const node = container.querySelector(".pub-cta-side");
+      expect(node?.textContent).toContain("Opening soon");
+      return node as HTMLElement;
+    });
+    expect(side.textContent).not.toContain("Closed");
+    // Still no offer to submit — the call is not taking anything yet.
+    expect(within(side).queryByRole("link", { name: "Submit a proposal" })).toBeNull();
+
+    fireEvent.click(within(side).getByRole("link", { name: "Read the CFP" }));
+    await screen.findByRole("heading", { level: 1, name: "Share what you learned" });
+    expect(container.textContent).toContain("Submissions open");
+    expect(container.textContent).not.toContain("Submissions closed.");
+  });
+
   it("does not mix a later closed form into an open programme version", async () => {
     expect(projection.cfp.status).toBe("open");
     serve(answering("closed"));

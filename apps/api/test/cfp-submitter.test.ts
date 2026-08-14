@@ -746,7 +746,11 @@ describe("a proposal that belongs to an account", () => {
       return reads === 1 ? stale : real(...args);
     });
 
-    const revised = await service.saveProposal(pat, eventId, draft.id, complete, 2).then(
+    // Revision **1** — what a client that read the draft actually sends. Passing the post-submit
+    // revision instead makes the revision predicate match, so the order of the two checks stops
+    // mattering and the test passes against either: that is how the first version of this let the
+    // reorder revert silently.
+    const revised = await service.saveProposal(pat, eventId, draft.id, complete, 1).then(
       () => null,
       (error: unknown) => error,
     );

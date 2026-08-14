@@ -410,6 +410,49 @@ describe("the submitter's proposal routes", () => {
     expect((await app.request(proposals, { headers: pat })).status).toBe(200);
   });
 
+  it("answers a second submit with a conflict rather than a fault or a bad request", async () => {
+    /*
+     * The status code a double-click on Submit gets, which only this layer can prove.
+     *
+     * A proposal that has already been submitted is a conflict with the resource's state — the
+     * same kind of answer as a stale revision and a closed call, both 409 above. It reached here
+     * as a `CfpStateError`, which this module maps to **400 `VALIDATION_FAILED`**, telling an
+     * applicant their answers were wrong about a proposal they had already sent; and when that was
+     * given its own error type, deleting the new mapping produced a **500** instead, with the
+     * whole service suite still green. Both failures are invisible above the transport, which is
+     * why the assertion belongs here.
+     */
+    const { app, pat, publish } = await setup();
+    await publish();
+    const created = await app.request(proposals, {
+      method: "POST",
+      headers: pat,
+      body: JSON.stringify({ idempotencyKey: "double-submit", answers: complete }),
+    });
+    expect(created.status).toBe(201);
+    const draft = ((await created.json()) as { proposal: { id: string; revision: number } })
+      .proposal;
+
+    const submit = () =>
+      app.request(`${proposals}/${draft.id}/submit`, {
+        method: "POST",
+        headers: pat,
+        body: JSON.stringify({ answers: complete, expectedRevision: draft.revision }),
+      });
+    expect((await submit()).status).toBe(200);
+
+    const again = await submit();
+    expect(again.status).toBe(409);
+    await expect(again.json()).resolves.toMatchObject({
+      error: {
+        code: "CONFLICT",
+        // Names what happened, rather than the deadline or another tab — both send the applicant
+        // to look at the wrong thing.
+        message: expect.stringContaining("already been submitted"),
+      },
+    });
+  });
+
   it("keeps the window an organizer-only control and validates its order", async () => {
     const { app, organizer, pat } = await setup();
     const path = `/api/events/${eventId}/cfp/window`;
