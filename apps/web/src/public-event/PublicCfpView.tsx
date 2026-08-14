@@ -73,6 +73,7 @@ export function PublicCfpView({
   title,
   description,
   timezone,
+  schedule,
 }: {
   eventId: string;
   liveCfp: CfpFormDto | null;
@@ -83,6 +84,14 @@ export function PublicCfpView({
   description: string;
   /** The event's IANA zone: every deadline on this page is stated in it, never in the browser's. */
   timezone: string;
+  /**
+   * The scheduled window, independent of whether `liveCfp` is being withheld.
+   *
+   * Separate from `liveCfp` because it is live state rather than published form content: a
+   * deadline takes effect without a republish, so it must be stated even when the form itself
+   * cannot be offered.
+   */
+  schedule: { opensAt: string | null; closesAt: string | null } | null;
 }) {
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [submissionKey, setSubmissionKey] = useState(() => crypto.randomUUID());
@@ -389,13 +398,24 @@ export function PublicCfpView({
    * The deadline, stated wherever there is one — including on a call that is already closed,
    * because "closed" without a date reads as a decision somebody made this morning.
    */
-  const scheduleLine = liveCfp
-    ? status === "scheduled" && liveCfp.opensAt
-      ? `Submissions open ${inZone(liveCfp.opensAt)}.`
-      : liveCfp.closesAt
+  /*
+   * Read from `schedule` rather than from `liveCfp`, and that distinction is the point.
+   *
+   * `liveCfp` is withheld when the live form has advanced past the publication this page is
+   * showing, so its *fields* cannot be mixed into an older snapshot. The submission window is not
+   * form content: it is live state that reaches applicants **without a republish**
+   * (`PRD-CFP-003`), exactly like open and closed. Worse, a passed deadline makes that version
+   * check fail by construction — the projection reads `closed` while the live form's published
+   * flag is still `open` — so gating the window on it hid the date on every call a deadline had
+   * closed, leaving a bare "Closed" that reads as a decision made this morning.
+   */
+  const scheduleLine = schedule
+    ? status === "scheduled" && schedule.opensAt
+      ? `Submissions open ${inZone(schedule.opensAt)}.`
+      : schedule.closesAt
         ? status === "closed"
-          ? `Submissions closed ${inZone(liveCfp.closesAt)}.`
-          : `Submissions close ${inZone(liveCfp.closesAt)}.`
+          ? `Submissions closed ${inZone(schedule.closesAt)}.`
+          : `Submissions close ${inZone(schedule.closesAt)}.`
         : null
     : null;
   const formOpen = liveCfp !== null && status === "open";

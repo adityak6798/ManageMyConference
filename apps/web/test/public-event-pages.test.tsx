@@ -679,6 +679,76 @@ describe("what the public surface says about the call for proposals", () => {
     expect(container.textContent).toContain("Submissions closed.");
   });
 
+  it("states the deadline on a call whose live form no longer matches the publication", async () => {
+    /*
+     * The regression the version gate caused, and the reason the schedule is a separate prop.
+     *
+     * A passed deadline closes the call *effectively*: the projection reports `closed` while the
+     * live form's own published flag is still `open`, because nobody republished — that is the
+     * whole point of a window. So the last clause of `cfpVersionMatches` compares "open" against
+     * "closed" and fails **by construction** on exactly the calls a deadline governs, and the
+     * deadline line, read from the withheld form, disappeared with it. The applicant was left with
+     * a bare "Closed", which reads as a decision somebody made this morning.
+     *
+     * Withholding the form's *fields* here is still right. The window is not form content.
+     */
+    fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === `/api/public/events/${EVENT_ID}/cfp`)
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              cfp: {
+                ...liveForm("open").cfp,
+                closesAt: "2026-01-31T23:59:00.000Z",
+                effectiveStatus: "closed",
+              },
+            }),
+            { status: 200 },
+          ),
+        );
+      if (url.includes(`/api/public/events/${SLUG}`))
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              projection: { ...projection, cfp: { ...projection.cfp, status: "closed" } },
+              publication: {
+                version: 7,
+                publishedAt: null,
+                provenance: {
+                  agendaVersion: 3,
+                  agendaPublishedAt: "2026-08-01T15:00:00.000Z",
+                  cfpVersion: 4,
+                  cfpPublishedAt: "2026-08-01T16:00:00.000Z",
+                  contentDigest: "fnv1a32:12345678",
+                  cause: "source-reconciled",
+                },
+              },
+            }),
+            { status: 200 },
+          ),
+        );
+      return Promise.resolve(new Response("{}", { status: 404 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { container } = mountAt(`/events/${SLUG}`);
+    await screen.findByRole("heading", { level: 1, name: "Greenroom Demo Summit" });
+
+    fireEvent.click(await screen.findByRole("link", { name: "Read the CFP" }));
+    await screen.findByRole("heading", { level: 1, name: "Share what you learned" });
+
+    // The date, stated in the event's zone, even though the form itself is being withheld.
+    const deadline = await waitFor(() => {
+      const node = container.querySelector(".pub-cfp-deadline");
+      expect(node?.textContent).toContain("Submissions closed");
+      return node as HTMLElement;
+    });
+    expect(deadline.textContent).toContain("January 31, 2026");
+    // And still no form, and no offer to submit: the version rule holds for the fields.
+    expect(screen.queryByRole("button", { name: "Submit proposal" })).toBeNull();
+    expect(screen.queryByLabelText("Proposal title")).toBeNull();
+  });
+
   it("keeps the versioned state while explaining that its form cannot be read", async () => {
     serve(() =>
       Promise.resolve(

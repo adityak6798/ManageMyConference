@@ -318,21 +318,23 @@ export function PublicEventApp() {
     );
 
   /*
-   * One answer about the call, used by every view that mentions it. The live form decides;
-   * the snapshot only supplies wording until it arrives. "unknown" is a real state and is
-   * rendered as one: no pill, and a link that promises reading rather than submitting.
+   * One answer about the call, used by every view that mentions it.
    *
-   * The answer is `effectiveStatus`, which the server computes, rather than `status` plus the two
-   * window timestamps: deriving it here would put the visitor's own clock in charge of whether a
-   * deadline has passed, and a skewed laptop would offer a form the server refuses.
+   * Display only facts from the active publication. The separately loaded form supplies fields for
+   * submission, but may have advanced after this projection response was read, so a form of a
+   * different version is not allowed to speak for the call this page is showing.
    *
-   * The `?? status` branch is unreachable and is kept as a type-level total rather than as a
-   * compatibility story: `cfpFormSchema` requires `effectiveStatus`, and `loadCfp` decodes through
-   * it, so a response without the field fails decoding and lands in `cfpUnavailable` long before
-   * this line. The Worker serves this bundle, so a browser cannot outrun its own API either.
+   * Note what this rule does once a deadline exists: the projection reports the call's *effective*
+   * status, so a call whose deadline has passed reads `closed` there while the live form's own
+   * published flag is still `open` — and the last clause below therefore fails **by construction**
+   * on exactly the calls this lane is about. That is correct for form content and wrong for the
+   * window, which is why the schedule is passed to `PublicCfpView` separately, from `liveCfp`.
+   *
+   * Where the schedule does decide the status it is `effectiveStatus`, which the server computes,
+   * rather than `status` plus the two window timestamps: deriving it here would put the visitor's
+   * own clock in charge of whether a deadline has passed, and a skewed laptop would offer a form
+   * the server refuses.
    */
-  // Display only facts from the active publication. The separately loaded form supplies
-  // fields for submission, but may have advanced after this projection response was read.
   const cfpVersionMatches =
     liveCfp !== null &&
     liveCfp.version === snapshot?.publication?.provenance?.cfpVersion &&
@@ -1210,6 +1212,16 @@ export function PublicEventApp() {
             }
             status={cfpStatus}
             statusLine={cfpStatusLine}
+            // From `liveCfp`, not `versionedCfp`: the window is live state that reaches applicants
+            // without a republish, so it is stated even when the form itself is withheld.
+            schedule={
+              liveCfp
+                ? {
+                    opensAt: liveCfp.opensAt ?? null,
+                    closesAt: liveCfp.closesAt ?? null,
+                  }
+                : null
+            }
             title={cfpTitle}
             description={cfpDescription}
             timezone={model.timezone}

@@ -226,6 +226,7 @@ describe("what the applicant is shown when the call is not open", () => {
       <PublicCfpView
         eventId={eventId}
         liveCfp={form(overrides) as never}
+        schedule={form(overrides) as never}
         unavailable={null}
         status={status}
         statusLine={status === "open" ? "Open for submissions." : "Not open."}

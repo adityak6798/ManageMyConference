@@ -104,6 +104,7 @@ function mount(
   render(
     <PublicCfpView
       eventId={eventId}
+      schedule={liveCfp as never}
       liveCfp={
         {
           ...liveCfp,
