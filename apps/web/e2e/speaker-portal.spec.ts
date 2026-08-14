@@ -677,3 +677,192 @@ test("an organizer chases outstanding work once per deadline", async ({ page }) 
   await filters.getByLabel("Speaker").selectOption({ label: "Jordan Bell" });
   await expect(page.getByRole("heading", { name: "Nothing matches this view" })).toBeVisible();
 });
+
+/** The organization the demo event belongs to, which is how its delivery history is addressed. */
+const ORGANIZATION_ID = "00000000-0000-4000-8000-000000000010";
+/** The second seeded speaker, invited alongside Sam below so one press covers two profiles. */
+const JORDAN = "10000000-0000-4000-8000-000000000002";
+
+/** The roster's own phrasing for a count, so an assertion reads back what the cell says. */
+const invitations = (count: number) => `${count} ${count === 1 ? "invitation" : "invitations"}`;
+
+interface RosterSpeaker {
+  id: string;
+  name: string;
+  email: string;
+  /** Optional the way the contract declares it: a profile written before `1408` carries none. */
+  invitationsSent?: number;
+}
+
+interface InvitationDelivery {
+  id: string;
+  idempotencyKey: string;
+  triggerType: string;
+  recipientRef: string;
+  renderedBody: string | null;
+  payload: Record<string, unknown>;
+}
+
+/** One speaker as the organizer's roster reports them, including their invitation count. */
+async function rosterEntry(page: Page, profileId: string): Promise<RosterSpeaker> {
+  const response = await page.request.get(`/api/events/${EVENT_ID}/content`);
+  expect(response.ok(), `reading the content workspace failed: ${await response.text()}`).toBe(
+    true,
+  );
+  const { speakers } = (await response.json()) as { speakers: RosterSpeaker[] };
+  const entry = speakers.find(({ id }) => id === profileId);
+  if (!entry) throw new Error(`${profileId} is not on this event's roster`);
+  return entry;
+}
+
+/**
+ * Every delivery this event has ever filed under one speaker's invitation key.
+ *
+ * History is ordered oldest first and this fixture accumulates, so the page an invitation just
+ * landed on is the last one — the cursor is walked rather than assuming the newest rows are on
+ * the first page, the same way `crm.spec.ts` walks it.
+ */
+async function invitationsFor(page: Page, profileId: string): Promise<InvitationDelivery[]> {
+  const prefix = `speaker-invite:${EVENT_ID}:${profileId}`;
+  const found: InvitationDelivery[] = [];
+  let cursor: string | null = null;
+  for (let index = 0; index < 20; index += 1) {
+    const response = await page.request.get(
+      `/api/communications/history?organizationId=${ORGANIZATION_ID}&eventId=${EVENT_ID}&limit=50${
+        cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""
+      }`,
+    );
+    expect(response.ok(), `reading the delivery history failed: ${await response.text()}`).toBe(
+      true,
+    );
+    const body = (await response.json()) as {
+      history: { delivery: InvitationDelivery }[];
+      nextCursor: string | null;
+    };
+    for (const { delivery } of body.history)
+      if (delivery.idempotencyKey.startsWith(prefix)) found.push(delivery);
+    cursor = body.nextCursor;
+    if (!cursor) break;
+  }
+  return found;
+}
+
+/*
+ * The portal invitation an organizer sends on purpose (#189).
+ *
+ * A speaker was written to exactly once — when their proposal was accepted — under a key that
+ * names the *person*, `speaker-invite:{event}:{profile}`. Deduplication then did what it was built
+ * to do and refused every later invitation to them, so a speaker who deleted that mail had no way
+ * back into the portal and no organizer had a control to offer them. The second press below is the
+ * whole point of this journey: it has to produce a second delivery, at the next occurrence of this
+ * profile's own counter, while acceptance's welcome stays exactly as idempotent as it always was.
+ *
+ * Nothing here is hard-coded to `n1` and `n2`. `invitations_sent` is durable, this suite shares one
+ * mutable fixture, and there is no un-invite for a journey to hand back with — so it reads where
+ * the numbering stands before it presses anything and asserts that the presses are the *next* two
+ * occurrences. Straight out of `npm run reset` those are literally 1 and 2; on the fifth run of the
+ * day they are not, and a spec insisting otherwise would be asserting that somebody had reset the
+ * database rather than that the product works (issue #72's discipline).
+ */
+test("an organizer invites a speaker into the portal, and can invite the same speaker again", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Continue as organizer" }).click();
+  await expect(page.getByRole("combobox", { name: "Event workspace" })).toBeVisible();
+
+  const before = (await rosterEntry(page, SAM)).invitationsSent ?? 0;
+  const jordanBefore = (await rosterEntry(page, JORDAN)).invitationsSent ?? 0;
+
+  await page.goto(SESSIONS);
+  await expect(page.getByRole("heading", { level: 1, name: "Sessions & speakers" })).toBeVisible();
+  // Exact: an accessible name matches by substring, and the operations panel below this one
+  // carries a region called "Import speakers".
+  const roster = page.getByRole("region", { name: "Speakers", exact: true });
+  const samRow = roster.getByRole("row", { name: /Sam Speaker/ });
+  const tickSam = roster.getByRole("checkbox", {
+    name: "Select Sam Speaker for a portal invitation",
+  });
+
+  // Nobody ticked: the control names no count and cannot be pressed, because "Invite 0 speakers"
+  // reads as an offer to do nothing rather than as "choose somebody first".
+  await expect(roster.getByRole("button", { name: "Invite to the portal" })).toBeDisabled();
+
+  await tickSam.check();
+  await roster.getByRole("button", { name: "Invite 1 speaker" }).click();
+  await expect(roster.getByRole("status")).toContainText("1 invitation queued");
+  /*
+   * The roster's own count, which is the organizer's answer to "have we written to this person",
+   * and it is also what makes the next press a *second* press. The announcement says the same
+   * words both times and lingers for six seconds, so a journey that only re-read the message could
+   * pass having pressed the button once and watched the first answer twice.
+   */
+  await expect(samRow).toContainText(invitations(before + 1));
+
+  await tickSam.check();
+  await roster.getByRole("button", { name: "Invite 1 speaker" }).click();
+  await expect(roster.getByRole("status")).toContainText("1 invitation queued");
+  await expect(samRow).toContainText(invitations(before + 2));
+
+  // Delivery state, from the domain that owns it.
+  const history = await invitationsFor(page, SAM);
+  const numbered = history.filter(({ idempotencyKey }) => /:n\d+$/.test(idempotencyKey));
+  const first = numbered.find(({ idempotencyKey }) => idempotencyKey.endsWith(`:n${before + 1}`));
+  const second = numbered.find(({ idempotencyKey }) => idempotencyKey.endsWith(`:n${before + 2}`));
+  expect(first, `the first press should have queued occurrence ${before + 1}`).toBeDefined();
+  expect(second, `the second press should have queued occurrence ${before + 2}`).toBeDefined();
+  // Two messages, not one message reported twice — which is exactly what the old key produced.
+  expect(first?.id).not.toBe(second?.id);
+  for (const delivery of [first, second]) {
+    expect(delivery?.recipientRef).toBe("sam@example.test");
+    // Filed under what it is. An operator reading the delivery log for "what have we sent this
+    // person" must not find an invitation shelved under the task-reminder trigger.
+    expect(delivery?.triggerType).toBe("speaker.invited");
+    // A real message rather than an empty envelope: the template rendered against this speaker.
+    expect(delivery?.renderedBody).toContain("Sam Speaker");
+  }
+  // The retained payload says which invitation it was, so the history stays readable months later
+  // without re-deriving the number from the key.
+  expect(first?.payload.invitationNumber).toBe(before + 1);
+  expect(second?.payload.invitationNumber).toBe(before + 2);
+  // No occurrence is ever handed out twice: two presses sharing a number would converge into one
+  // delivery, and the organizer who pressed second would be told the speaker "has already been
+  // invited" about a message they never asked for.
+  expect(new Set(numbered.map(({ idempotencyKey }) => idempotencyKey)).size).toBe(numbered.length);
+  // And acceptance's welcome is untouched: still exactly one delivery on the unnumbered key it has
+  // always had. That is what stops "here is your portal again" converging into "your talk is in".
+  expect(history.filter(({ idempotencyKey }) => !/:n\d+$/.test(idempotencyKey))).toHaveLength(1);
+
+  /*
+   * Two speakers in one press. The occurrence belongs to the profile rather than to the action, so
+   * these two are at their own numbers and not at a shared one — and both are reported, which is
+   * the property that stops a selection quietly reaching fewer people than were ticked.
+   */
+  await tickSam.check();
+  await roster
+    .getByRole("checkbox", { name: "Select Jordan Bell for a portal invitation" })
+    .check();
+  await roster.getByRole("button", { name: "Invite 2 speakers" }).click();
+  await expect(roster.getByRole("status")).toContainText("2 invitations queued");
+  await expect(samRow).toContainText(invitations(before + 3));
+  await expect(roster.getByRole("row", { name: /Jordan Bell/ })).toContainText(
+    invitations(jordanBefore + 1),
+  );
+  expect(
+    (await invitationsFor(page, JORDAN)).some(({ idempotencyKey }) =>
+      idempotencyKey.endsWith(`:n${jordanBefore + 1}`),
+    ),
+    "Jordan Bell's invitation should be numbered on their own profile, not on Sam's",
+  ).toBe(true);
+
+  /*
+   * The other clause of that same announcement — "no address for <name>" — is deliberately not
+   * driven here, and the reason belongs in the file rather than in somebody's memory. An
+   * invitation is addressed from `speaker_profiles.email`, and every path the product has for
+   * creating a profile — accepting a proposal, importing a CSV, converting a prospect — needs
+   * an address, so no speaker this fixture can hold is unreachable *to an invitation*. Jordan
+   * Bell has no address on their *identity*, which is a different column feeding a different
+   * audience: `communications.spec.ts` asserts the naming there, on the surface that resolves
+   * through identity, where an unreachable speaker is real.
+   */
+});
