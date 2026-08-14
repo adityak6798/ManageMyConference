@@ -1117,6 +1117,33 @@ export default {
         );
       },
     };
+    /*
+     * Resolve a lifecycle recipient without letting the lookup fail the thing that already happened.
+     *
+     * `recordLifecycle` and `notifyLifecycle` each swallow their own failures, and every lifecycle
+     * port's docstring says an implementation must not throw — but the recipient read sat *between*
+     * the two, unwrapped, so a transient D1 error answered 500 over an action that had already
+     * committed. For a submitted proposal that is the worst shape available: submission is one-way,
+     * so the applicant's retry is then refused with "already submitted" and no confirmation is ever
+     * queued. Both ports below resolve through this instead.
+     *
+     * A failure logs here and the caller then logs `unaddressable` — two lines for one incident,
+     * deliberately: this one carries the reason, and that one is also true, because the caller
+     * genuinely has no address to use.
+     */
+    const recipientFor = async (userId: string, subject: Record<string, string>) => {
+      try {
+        return await identityDirectory.findRecipient(userId);
+      } catch (error) {
+        // ERROR-INTENT: reported at error level with the identifiers needed to send the message by
+        // hand, and swallowed so the committed action is still reported as the success it was.
+        logger.error(
+          { ...subject, error: error instanceof Error ? error.message : String(error) },
+          "lifecycle.notification.failed",
+        );
+        return null;
+      }
+    };
     const reviewNotifications: ReviewNotificationPort = {
       async reviewerAssigned(fact) {
         // Recorded before the message is resolved, deliberately: a reviewer with no linked
@@ -1127,7 +1154,10 @@ export default {
           targetType: "review-round",
           targetId: `${fact.reviewerId}:r${fact.round}`,
         });
-        const reviewer = await identityDirectory.findRecipient(fact.reviewerId);
+        const reviewer = await recipientFor(fact.reviewerId, {
+          eventId: fact.eventId,
+          reviewerId: fact.reviewerId,
+        });
         // No address means nobody to write to. Logged rather than queued, because a delivery to
         // a non-address would burn an attempt and fail terminally with a code that describes the
         // provider's refusal rather than the reason: this reviewer has no email linked.
@@ -1203,7 +1233,10 @@ export default {
           targetType: "proposal",
           targetId: fact.proposalId,
         });
-        const submitter = await identityDirectory.findRecipient(fact.submitterUserId);
+        const submitter = await recipientFor(fact.submitterUserId, {
+          eventId: fact.eventId,
+          proposalId: fact.proposalId,
+        });
         if (!submitter?.email) {
           logger.warn(
             { eventId: fact.eventId, proposalId: fact.proposalId },
@@ -1453,7 +1486,11 @@ export default {
             version: form.version,
             title: form.title,
             description: form.description,
-            status: form.status === "closed" ? "closed" : "open",
+            // The state applicants are in, not the publication flag. Reading `form.status` alone
+            // put "open for submissions" on the published site and in the organizer's publication
+            // preview for a call whose deadline had passed — the same misleading claim the composer
+            // was corrected for, on the one surface a visitor actually reads.
+            status: form.effectiveStatus === "open" ? "open" : "closed",
             publishedAt: form.publishedAt,
           };
         },

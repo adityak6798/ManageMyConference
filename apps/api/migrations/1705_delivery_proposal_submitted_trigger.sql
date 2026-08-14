@@ -17,12 +17,12 @@
 -- full; the account binding in issue #190 answers the recipient question, and this answers the
 -- vocabulary one.
 --
--- ## Why it rebuilds three tables
+-- ## Why it rebuilds four tables
 --
 -- SQLite cannot widen a CHECK in place, and D1 does not honour `PRAGMA foreign_keys` between
--- statements — so the obvious create/copy/drop/rename recipe fails as soon as one
--- `communication_attempts` row references the delivery being dropped. Migration `1703` worked that
--- out and this repeats its ordering exactly:
+-- statements — so the obvious create/copy/drop/rename recipe fails as soon as one child row
+-- references the delivery being dropped. Migration `1703` worked that out and this repeats its
+-- ordering exactly:
 --
 --   1. build the new parent and copy into it;
 --   2. build new children pointing at the new parent and copy into them;
@@ -31,11 +31,21 @@
 --   5. rename the new parent into place, which rewrites the new children's REFERENCES to it,
 --      then rename the children.
 --
--- `communication_attempts` and `outbound_projection_state` are restated verbatim from `1703`,
--- which restated them from `0019`. Neither gains or loses anything here; they are rebuilt only
--- because they point at the table that had to be. `apps/api/test/d1-migration-rebuild.integration.test.ts`
--- replays this file over the seeded fixture — rows in all three tables — because an empty-database
--- migration test cannot see the failure this ordering exists to avoid.
+-- **`1703` had two children and this has three**, which is the one thing a copy of that migration
+-- gets wrong. Migration `1704` added `calendar_invite_states`, whose `delivery_id` references this
+-- table; a first draft of this file rebuilt only the two `1703` knew about, and step 4 was then
+-- false — a single `calendar_invite_states` row is enough to make `DROP TABLE
+-- communication_deliveries` fail with `FOREIGN KEY constraint failed`, on exactly the deployments
+-- that have ever sent a calendar invitation. The suite could not see it, because
+-- `apps/api/seed/reset.sql` leaves that table empty. So the replay in
+-- `apps/api/test/d1-migration-rebuild.integration.test.ts` now populates **every** table with a
+-- foreign key to the parent before applying this file, and asserts it did — a rebuild's test is
+-- worth only as much as the rows it runs against.
+--
+-- `communication_attempts` and `outbound_projection_state` are restated verbatim from `1703`, which
+-- restated them from `0019`; `calendar_invite_states` is restated verbatim from `1704`. None of the
+-- three gains or loses anything here; they are rebuilt only because they point at the table that
+-- had to be.
 
 CREATE TABLE communication_deliveries_next (
   id TEXT PRIMARY KEY NOT NULL,
@@ -105,13 +115,39 @@ INSERT INTO outbound_projection_state_next (
 SELECT destination, event_id, resource_ref, version, delivery_id, projected_at
 FROM outbound_projection_state;
 
+-- Restated verbatim from `1704`, including the UNIQUE on `delivery_id` and the composite primary
+-- key. This is the child a copy of `1703` forgets, and forgetting it is what makes step 4 below
+-- fail on every deployment that has sent one calendar invitation.
+CREATE TABLE calendar_invite_states_next (
+  organization_id TEXT NOT NULL REFERENCES organizations(id),
+  event_id TEXT NOT NULL REFERENCES events(id),
+  session_id TEXT NOT NULL,
+  speaker_profile_id TEXT NOT NULL,
+  schedule_ref TEXT NOT NULL,
+  recipient_ref TEXT NOT NULL,
+  sequence INTEGER NOT NULL CHECK (sequence >= 0),
+  delivery_id TEXT NOT NULL UNIQUE REFERENCES communication_deliveries_next(id),
+  PRIMARY KEY (organization_id, event_id, session_id, speaker_profile_id)
+);
+
+INSERT INTO calendar_invite_states_next (
+  organization_id, event_id, session_id, speaker_profile_id, schedule_ref,
+  recipient_ref, sequence, delivery_id
+)
+SELECT
+  organization_id, event_id, session_id, speaker_profile_id, schedule_ref,
+  recipient_ref, sequence, delivery_id
+FROM calendar_invite_states;
+
 DROP TABLE communication_attempts;
 DROP TABLE outbound_projection_state;
+DROP TABLE calendar_invite_states;
 DROP TABLE communication_deliveries;
 
 ALTER TABLE communication_deliveries_next RENAME TO communication_deliveries;
 ALTER TABLE communication_attempts_next RENAME TO communication_attempts;
 ALTER TABLE outbound_projection_state_next RENAME TO outbound_projection_state;
+ALTER TABLE calendar_invite_states_next RENAME TO calendar_invite_states;
 
 CREATE INDEX communication_deliveries_worker_idx
   ON communication_deliveries(state, next_attempt_at, lease_token);

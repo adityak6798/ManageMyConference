@@ -554,3 +554,38 @@ describe("the reviewer's queue", () => {
     expect(await screen.findByRole("heading", { name: "Hallway track" })).toBeInTheDocument();
   });
 });
+
+describe("staffing a reviewer", () => {
+  /*
+   * Assign and Distribute are both disabled with an empty reviewer team, and an organizer met two
+   * greyed-out controls and no account of why or what to do. Issue #190 asks for a usable
+   * provisioning path or a clear route into the existing one; provisioning already exists whole in
+   * the members workspace, so this is the route rather than a second way to do it.
+   */
+  it("names where a reviewer comes from when none is staffed, and stops once one is", async () => {
+    stubApi((url) => (url.includes("/review/organizer") ? jsonResponse(workspace()) : undefined));
+    render(<OrganizerReviewWorkspace eventId={eventId} />);
+
+    const notice = await screen.findByText(/No reviewers are staffed on this event yet/);
+    expect(notice).toBeVisible();
+    // The link carries the event, so the members workspace opens on the one being staffed rather
+    // than on whichever event the switcher last held.
+    expect(screen.getByRole("link", { name: /Members & access/ })).toHaveAttribute(
+      "href",
+      `/members?event=${eventId}`,
+    );
+    // And it names the role, because "invite somebody" is the half an organizer already knew.
+    expect(notice.textContent).toContain("reviewer");
+
+    cleanup();
+    stubApi((url) =>
+      url.includes("/review/organizer")
+        ? jsonResponse(workspace({ reviewers: [{ id: "user-ravi", name: "Ravi Reviewer" }] }))
+        : undefined,
+    );
+    render(<OrganizerReviewWorkspace eventId={eventId} />);
+    await screen.findByLabelText("Select Hallway track");
+    // Advice that outlives the condition it describes is clutter on every later visit.
+    expect(screen.queryByText(/No reviewers are staffed/)).toBeNull();
+  });
+});

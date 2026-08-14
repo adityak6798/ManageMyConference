@@ -38,6 +38,7 @@
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 
 ### `ACC-CFP`
+- `test` / `repository-fact`: [apps/api/test/cfp-draft-isolation.test.ts](../../apps/api/test/cfp-draft-isolation.test.ts)
 - `test` / `repository-fact`: [apps/api/test/cfp-http.test.ts](../../apps/api/test/cfp-http.test.ts)
 - `test` / `repository-fact`: [apps/api/test/cfp-service.test.ts](../../apps/api/test/cfp-service.test.ts)
 - `test` / `repository-fact`: [apps/api/test/cfp-submitter-http.test.ts](../../apps/api/test/cfp-submitter-http.test.ts)

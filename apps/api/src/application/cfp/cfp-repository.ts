@@ -55,7 +55,25 @@ export interface CfpRepository {
    * date, not editing a document, and last write wins is the honest answer for that.
    */
   saveWindow(eventId: string, window: CfpSubmissionWindow): Promise<boolean>;
-  findSubmission(eventId: string, idempotencyKey: string): Promise<ProposalSubmission | null>;
+  /**
+   * An **anonymous, submitted** proposal by its idempotency key.
+   *
+   * Scoped to `submitter_user_id IS NULL` and to `lifecycle = 'submitted'`, and both halves are
+   * load-bearing. `UNIQUE (event_id, idempotency_key)` is not owner-scoped and the key is supplied
+   * by the caller, so an unscoped read is how an anonymous retry ends up answered with somebody
+   * else's draft — a confirmation identifier for a proposal that was never submitted, belonging to
+   * an account the caller has no relationship with. Two reviewers reproduced exactly that.
+   */
+  findAnonymousSubmission(
+    eventId: string,
+    idempotencyKey: string,
+  ): Promise<ProposalSubmission | null>;
+  /** A proposal **this account** owns, by its idempotency key. Any lifecycle. */
+  findOwnedProposalByKey(
+    eventId: string,
+    idempotencyKey: string,
+    submitterUserId: string,
+  ): Promise<ProposalSubmission | null>;
   /** A **submitted** proposal by id. A draft is not one, and is invisible here. */
   findSubmissionById(eventId: string, proposalId: string): Promise<ProposalSubmission | null>;
   createSubmission(submission: ProposalSubmission): Promise<ProposalSubmission | null>;

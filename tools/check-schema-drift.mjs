@@ -60,6 +60,9 @@ export const UNMODELLED_OBJECTS = [
   "trigger:cfp_submission_lifecycle_update_guard",
   "trigger:cfp_submission_lifecycle_no_regression",
   "trigger:cfp_submission_owner_is_immutable",
+  // And the one that keeps the default triage status configured while a draft still needs it, so
+  // an organizer's status edit cannot make an applicant's Submit fail (issue #190, migration 1201).
+  "trigger:cfp_default_status_delete_guard",
   "trigger:review_assignment_requires_plan",
   "trigger:review_completion_rejects_conflict",
   "trigger:review_conflict_rejects_completion",

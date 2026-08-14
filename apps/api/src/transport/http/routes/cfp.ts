@@ -16,6 +16,8 @@ import {
   saveCfpInputSchema,
   saveProposalInputSchema,
   submitProposalInputSchema,
+  submitterProposalResponseSchema,
+  submitterProposalsResponseSchema,
 } from "@greenroom/contracts";
 import {
   CfpClosedError,
@@ -27,7 +29,7 @@ import {
   CfpValidationError,
 } from "../../../application/cfp/public";
 import { clientAddress, submissionThrottle } from "../throttle";
-import { envelope, validationFields, readJson } from "../runtime";
+import { envelope, type HttpContext, validationFields, readJson } from "../runtime";
 import type { HttpApp, HttpDependencies, RouteModule } from "./contract";
 
 const routes = [
@@ -147,7 +149,38 @@ export const cfpRoutes: RouteModule = {
      * confirmation these writes queue safe to send — see `docs/architecture/data-flows.md` and the
      * note on `#132` in `CfpNotificationPort`.
      */
+
+    /**
+     * These five routes are authorized by ownership rather than by an event capability, which means
+     * they are the only event-addressed routes that never call `requireEventCapability` — and that
+     * makes every *other* credential grammar a problem rather than a nicety.
+     *
+     * An event-scoped bearer token is documented as "restricted to one event they can read"
+     * (`ARC-AUTH-001`), and `resolveEventToken` enforces that by narrowing `eventAccess` — which
+     * these routes do not read, so a token minted for one event would work against every other. An
+     * API-client credential is worse: it satisfies "is there an actor" with no scopes at all, and
+     * its `id` is a client row rather than a user, so it reaches `submitter_user_id REFERENCES
+     * users(id)` and dies as an opaque 500.
+     *
+     * Both are refused here rather than patched into the service, because the distinction is about
+     * *how the caller authenticated* and the transport is the only layer that knows. Proposing a
+     * talk is a person's act; a machine identity has no business owning one.
+     */
+    const requiresPersonalSession = (context: HttpContext) => {
+      if (context.get("authentication") !== "bearer") return null;
+      return context.json(
+        envelope(
+          "FORBIDDEN",
+          "Proposals belong to a person's account. Sign in rather than using an API credential or an event token.",
+          context.get("correlationId"),
+        ),
+        403,
+      );
+    };
+
     app.get("/api/events/:eventId/cfp/proposals", async (context) => {
+      const refused = requiresPersonalSession(context);
+      if (refused) return refused;
       if (!cfpService) throw new CfpUnavailableError("CFP service is unavailable");
       const params = eventIdParamsSchema.safeParse(context.req.param());
       if (!params.success)
@@ -155,11 +188,23 @@ export const cfpRoutes: RouteModule = {
           envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
           400,
         );
-      return context.json({
-        proposals: await cfpService.myProposals(context.get("actor"), params.data.eventId),
-      });
+      /*
+       * `private, no-store` on one person's proposals, which the shared `/api/public/*` policy does
+       * not cover because these deliberately live outside that namespace. This page is reached from
+       * a public link and its own sign-out control reasons about a shared or borrowed machine, so
+       * leaving a drafts payload in a browser or proxy cache is the one storage decision worth
+       * making explicitly. `routes/content.ts` sets the same header for the same reason.
+       */
+      context.header("cache-control", "private, no-store");
+      return context.json(
+        submitterProposalsResponseSchema.parse({
+          proposals: await cfpService.myProposals(context.get("actor"), params.data.eventId),
+        }),
+      );
     });
     app.post("/api/events/:eventId/cfp/proposals", async (context) => {
+      const refused = requiresPersonalSession(context);
+      if (refused) return refused;
       if (!cfpService) throw new CfpUnavailableError("CFP service is unavailable");
       const params = eventIdParamsSchema.safeParse(context.req.param());
       if (!params.success)
@@ -179,18 +224,20 @@ export const cfpRoutes: RouteModule = {
           400,
         );
       return context.json(
-        {
+        submitterProposalResponseSchema.parse({
           proposal: await cfpService.createDraft(
             context.get("actor"),
             params.data.eventId,
             parsed.data.idempotencyKey,
             parsed.data.answers,
           ),
-        },
+        }),
         201,
       );
     });
     app.get("/api/events/:eventId/cfp/proposals/:proposalId", async (context) => {
+      const refused = requiresPersonalSession(context);
+      if (refused) return refused;
       if (!cfpService) throw new CfpUnavailableError("CFP service is unavailable");
       const params = cfpProposalParamsSchema.safeParse(context.req.param());
       if (!params.success)
@@ -198,15 +245,20 @@ export const cfpRoutes: RouteModule = {
           envelope("VALIDATION_FAILED", "Proposal ID is malformed.", context.get("correlationId")),
           400,
         );
-      return context.json({
-        proposal: await cfpService.myProposal(
-          context.get("actor"),
-          params.data.eventId,
-          params.data.proposalId,
-        ),
-      });
+      context.header("cache-control", "private, no-store");
+      return context.json(
+        submitterProposalResponseSchema.parse({
+          proposal: await cfpService.myProposal(
+            context.get("actor"),
+            params.data.eventId,
+            params.data.proposalId,
+          ),
+        }),
+      );
     });
     app.put("/api/events/:eventId/cfp/proposals/:proposalId", async (context) => {
+      const refused = requiresPersonalSession(context);
+      if (refused) return refused;
       if (!cfpService) throw new CfpUnavailableError("CFP service is unavailable");
       const params = cfpProposalParamsSchema.safeParse(context.req.param());
       if (!params.success)
@@ -225,17 +277,21 @@ export const cfpRoutes: RouteModule = {
           ),
           400,
         );
-      return context.json({
-        proposal: await cfpService.saveProposal(
-          context.get("actor"),
-          params.data.eventId,
-          params.data.proposalId,
-          parsed.data.answers,
-          parsed.data.expectedRevision,
-        ),
-      });
+      return context.json(
+        submitterProposalResponseSchema.parse({
+          proposal: await cfpService.saveProposal(
+            context.get("actor"),
+            params.data.eventId,
+            params.data.proposalId,
+            parsed.data.answers,
+            parsed.data.expectedRevision,
+          ),
+        }),
+      );
     });
     app.post("/api/events/:eventId/cfp/proposals/:proposalId/submit", async (context) => {
+      const refused = requiresPersonalSession(context);
+      if (refused) return refused;
       if (!cfpService) throw new CfpUnavailableError("CFP service is unavailable");
       const params = cfpProposalParamsSchema.safeParse(context.req.param());
       if (!params.success)
@@ -254,15 +310,17 @@ export const cfpRoutes: RouteModule = {
           ),
           400,
         );
-      return context.json({
-        proposal: await cfpService.submitProposal(
-          context.get("actor"),
-          params.data.eventId,
-          params.data.proposalId,
-          parsed.data.answers,
-          parsed.data.expectedRevision,
-        ),
-      });
+      return context.json(
+        submitterProposalResponseSchema.parse({
+          proposal: await cfpService.submitProposal(
+            context.get("actor"),
+            params.data.eventId,
+            params.data.proposalId,
+            parsed.data.answers,
+            parsed.data.expectedRevision,
+          ),
+        }),
+      );
     });
     app.post("/api/events/:eventId/cfp/state", async (context) => {
       if (!cfpService) throw new CfpUnavailableError("CFP service is unavailable");

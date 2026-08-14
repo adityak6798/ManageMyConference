@@ -21,7 +21,6 @@ import {
   D1SubmittedProposalAdapter,
 } from "../src/adapters/persistence/d1-submitted-proposal-adapter";
 import type { CfpForm } from "../src/domain/cfp/cfp";
-import { renderTemplate } from "../src/domain/communications/template";
 import { applyMigrationFile, createMigratedDatabase } from "./support/seeded-d1";
 
 const eventId = "00000000-0000-4000-8000-000000000001";
@@ -63,7 +62,7 @@ const draftOf = (id: string, owner: string, at: string, key: string) => ({
   updatedAt: at,
   lifecycle: "draft" as const,
   revision: 1,
-  status: "draft",
+  status: "cfp:draft",
   submitterUserId: owner,
   at,
 });
@@ -398,7 +397,7 @@ describe("D1: migration 1201's guards", () => {
         ...base,
         id: "40000000-0000-4000-8000-000000000001",
         idempotency_key: "unowned-draft",
-        status: "draft",
+        status: "cfp:draft",
         lifecycle: "draft",
         submitter_user_id: null,
       }),
@@ -410,7 +409,7 @@ describe("D1: migration 1201's guards", () => {
         ...base,
         id: "40000000-0000-4000-8000-000000000002",
         idempotency_key: "half-draft",
-        status: "draft",
+        status: "cfp:draft",
         lifecycle: "submitted",
         submitter_user_id: PAT,
       }),
@@ -425,6 +424,51 @@ describe("D1: migration 1201's guards", () => {
         submitter_user_id: PAT,
       }),
     ).rejects.toThrow(/CFP_PROPOSAL_LIFECYCLE_INVALID/);
+  });
+
+  it("holds the default triage status open while a draft still needs it", async () => {
+    const migrated = await createMigratedDatabase({ label: "cfp-default-status", seed: true });
+    runtime = migrated.runtime;
+    /*
+     * Submitting a draft is an `UPDATE` that sets `status = 'submitted'`, and `0011` aborts it
+     * unless that key is still configured. `0013` only self-heals on *insert*, and the
+     * in-use guard looks for a submission carrying the key — which a draft does not, since it
+     * carries `cfp:draft`. So on an event whose proposals are all drafts, deleting `submitted`
+     * used to leave the applicant's Submit failing with a trigger name.
+     */
+    /*
+     * On the second seeded event, first move its one submitted proposal off `submitted` so the
+     * *pre-existing* in-use guard (`0012`) has nothing to object to — otherwise this would pass
+     * for the wrong reason and prove nothing about the guard added here.
+     */
+    const secondEvent = "00000000-0000-4000-8000-000000000002";
+    await migrated.database
+      .prepare("UPDATE cfp_submissions SET status = 'accepted' WHERE event_id = ?")
+      .bind(secondEvent)
+      .run();
+    const withoutDraft = await migrated.database
+      .prepare("DELETE FROM cfp_statuses WHERE event_id = ? AND key = 'submitted'")
+      .bind(secondEvent)
+      .run();
+    expect(withoutDraft.success).toBe(true);
+
+    // Now a draft arrives, which re-creates the key through `0013`'s insert trigger and needs it
+    // to survive until the moment it is submitted.
+    await insertRow(migrated.database, {
+      ...base,
+      event_id: secondEvent,
+      id: "40000000-0000-4000-8000-000000000030",
+      idempotency_key: "draft-holding-status",
+      status: "cfp:draft",
+      lifecycle: "draft",
+      submitter_user_id: PAT,
+    });
+    await expect(
+      migrated.database
+        .prepare("DELETE FROM cfp_statuses WHERE event_id = ? AND key = 'submitted'")
+        .bind(secondEvent)
+        .run(),
+    ).rejects.toThrow(/CFP_STATUS_IN_USE/);
   });
 
   it("refuses to unsubmit a proposal or to move it to another account", async () => {
@@ -442,7 +486,9 @@ describe("D1: migration 1201's guards", () => {
 
     await expect(
       migrated.database
-        .prepare("UPDATE cfp_submissions SET lifecycle = 'draft', status = 'draft' WHERE id = ?")
+        .prepare(
+          "UPDATE cfp_submissions SET lifecycle = 'draft', status = 'cfp:draft' WHERE id = ?",
+        )
         .bind(id)
         .run(),
     ).rejects.toThrow(/CFP_PROPOSAL_LIFECYCLE_REGRESSION/);

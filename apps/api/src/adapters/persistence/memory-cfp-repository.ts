@@ -51,8 +51,22 @@ export class MemoryCfpRepository implements CfpRepository {
     this.windows.set(eventId, { ...window });
     return Promise.resolve(true);
   }
-  findSubmission(eventId: string, key: string) {
-    return Promise.resolve(this.submissions.get(`${eventId}:${key}`) ?? null);
+  /**
+   * Both scoped reads, faithful to the adapter down to *why* they are scoped.
+   *
+   * The map is keyed on `(eventId, idempotencyKey)` exactly as `UNIQUE (event_id,
+   * idempotency_key)` is — so a fake that looked up by that key alone would reproduce the
+   * cross-account leak silently, which is what it did until two reviewers found it.
+   */
+  findAnonymousSubmission(eventId: string, key: string) {
+    const found = this.submissions.get(`${eventId}:${key}`);
+    return Promise.resolve(
+      found && found.submitterUserId == null && found.lifecycle !== "draft" ? found : null,
+    );
+  }
+  findOwnedProposalByKey(eventId: string, key: string, submitterUserId: string) {
+    const found = this.submissions.get(`${eventId}:${key}`);
+    return Promise.resolve(found?.submitterUserId === submitterUserId ? found : null);
   }
   findSubmissionById(eventId: string, proposalId: string) {
     return Promise.resolve(
@@ -84,7 +98,12 @@ export class MemoryCfpRepository implements CfpRepository {
   createSubmission(proposal: ProposalSubmission) {
     const key = `${proposal.eventId}:${proposal.idempotencyKey}`;
     const prior = this.submissions.get(key);
-    if (prior) return Promise.resolve(prior);
+    // A key held by anything else — an owned draft, another account's proposal — is a skipped
+    // insert converging on nothing, not a success. Same as `INSERT OR IGNORE` plus a scoped read.
+    if (prior)
+      return Promise.resolve(
+        prior.submitterUserId == null && prior.lifecycle !== "draft" ? prior : null,
+      );
     const published = this.findPublishedNow(proposal.eventId);
     if (!published || published.version !== proposal.cfpVersion) return Promise.resolve(null);
     if (cfpEffectiveState(published, new Date(proposal.submittedAt)) !== "open")
@@ -103,7 +122,9 @@ export class MemoryCfpRepository implements CfpRepository {
   createDraft(draft: ProposalDraftCreate) {
     const key = `${draft.eventId}:${draft.idempotencyKey}`;
     const prior = this.submissions.get(key);
-    if (prior) return Promise.resolve(prior);
+    // Converges only on this account's own row; anything else is a refusal.
+    if (prior)
+      return Promise.resolve(prior.submitterUserId === draft.submitterUserId ? prior : null);
     if (!this.openAt(draft.eventId, draft.at)) return Promise.resolve(null);
     const stored: ProposalSubmission = {
       ...draft,

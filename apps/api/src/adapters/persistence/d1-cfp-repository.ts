@@ -220,15 +220,27 @@ export class D1CfpRepository implements CfpRepository {
       throw new Error(`D1 failed to save the CFP window: ${result.error ?? "unknown error"}`);
     return changedRows(result, "save the CFP window") === 1;
   }
-  async findSubmission(eventId: string, key: string) {
+  async findAnonymousSubmission(eventId: string, key: string) {
     const result = await this.database
       .prepare(
-        `SELECT ${PROPOSAL_COLUMNS} FROM cfp_submissions WHERE event_id = ? AND idempotency_key = ? LIMIT 1`,
+        `SELECT ${PROPOSAL_COLUMNS} FROM cfp_submissions WHERE event_id = ? AND idempotency_key = ? AND submitter_user_id IS NULL AND lifecycle = 'submitted' LIMIT 1`,
       )
       .bind(eventId, key)
       .all<SubmissionRow>();
     if (!result.success)
       throw new Error(`D1 failed to find submission: ${result.error ?? "unknown error"}`);
+    const row = result.results?.[0];
+    return row ? submission(row) : null;
+  }
+  async findOwnedProposalByKey(eventId: string, key: string, submitterUserId: string) {
+    const result = await this.database
+      .prepare(
+        `SELECT ${PROPOSAL_COLUMNS} FROM cfp_submissions WHERE event_id = ? AND idempotency_key = ? AND submitter_user_id = ? LIMIT 1`,
+      )
+      .bind(eventId, key, submitterUserId)
+      .all<SubmissionRow>();
+    if (!result.success)
+      throw new Error(`D1 failed to find an owned proposal: ${result.error ?? "unknown error"}`);
     const row = result.results?.[0];
     return row ? submission(row) : null;
   }
@@ -292,7 +304,10 @@ export class D1CfpRepository implements CfpRepository {
       .run();
     if (!result.success)
       throw new Error(`D1 failed to create submission: ${result.error ?? "unknown error"}`);
-    return this.findSubmission(proposal.eventId, proposal.idempotencyKey);
+    // Converged on an *anonymous, submitted* row, never on whatever else holds that key. An
+    // `INSERT OR IGNORE` is skipped for a duplicate key regardless of who owns it, so an unscoped
+    // read here is how a guest submission gets answered with somebody's draft.
+    return this.findAnonymousSubmission(proposal.eventId, proposal.idempotencyKey);
   }
   async createDraft(draft: ProposalDraftCreate) {
     const result = await this.database
@@ -315,7 +330,10 @@ export class D1CfpRepository implements CfpRepository {
       .run();
     if (!result.success)
       throw new Error(`D1 failed to create a proposal draft: ${result.error ?? "unknown error"}`);
-    return this.findSubmission(draft.eventId, draft.idempotencyKey);
+    // Scoped to this account, so a key another account already holds converges on nothing and the
+    // caller is refused rather than handed a stranger's proposal. `CfpService.createDraft` also
+    // namespaces the stored key by owner, which is what keeps two accounts from colliding at all.
+    return this.findOwnedProposalByKey(draft.eventId, draft.idempotencyKey, draft.submitterUserId);
   }
   async saveProposalAnswers(write: ProposalOwnerWrite) {
     const result = await this.database

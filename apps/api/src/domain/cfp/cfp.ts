@@ -110,12 +110,20 @@ export function cfpEffectiveState(
 export type ProposalLifecycle = "draft" | "submitted";
 
 /**
- * The `status` a draft row carries, which no event may configure as a triage destination.
+ * The `status` a draft row carries, and it is **unspellable** as a configured triage status.
  *
- * Defence in depth rather than a second lifecycle marker: `lifecycle` is what every reader
- * filters on, and this is what keeps a draft out of a status-keyed triage read that forgot to.
+ * Defence in depth rather than a second lifecycle marker: `lifecycle` is what every reader filters
+ * on, and this is what keeps a draft out of a status-keyed triage read that forgot to.
+ *
+ * The colon is the point. A first version used the bare word `draft`, and asserted in a migration
+ * header that no event configures such a status — an assumption nothing enforced:
+ * `proposalStatusSchema` accepts `^[a-z0-9_-]+$`, so `draft` is a perfectly legal triage key, and an
+ * organizer who configured one turned three legitimate writes into 500s (a bulk transition into that
+ * bucket, a routed submission, and a status delete pinned by a draft nobody could see). A key
+ * containing `:` cannot pass that pattern, so the property is now enforced by review's own input
+ * schema rather than asserted about it — and no `cfp_statuses` row can ever collide with this value.
  */
-export const CFP_DRAFT_STATUS = "draft";
+export const CFP_DRAFT_STATUS = "cfp:draft";
 
 export interface ProposalSubmission {
   readonly id: string;

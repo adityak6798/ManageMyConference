@@ -382,6 +382,11 @@ describe("the public submission form", () => {
   const openForm = form({
     status: "open",
     publishedStatus: "open",
+    // The applicant surface branches on `effectiveStatus`, not `status`: a published call whose
+    // deadline has passed is `open` and `closed` at the same time, and only the second answer is
+    // the one an applicant experiences. A fixture that set only `status` described a call that
+    // cannot exist.
+    effectiveStatus: "open",
     publishedAt: "2026-08-01T12:00:00.000Z",
     fields: [
       field(),
@@ -427,6 +432,7 @@ describe("the public submission form", () => {
     const conditional = form({
       status: "open",
       publishedStatus: "open",
+      effectiveStatus: "open",
       fields: [
         field({ id: "category", type: "select", label: "Category", options: ["Talk", "Workshop"] }),
         field({

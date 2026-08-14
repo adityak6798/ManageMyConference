@@ -11,8 +11,8 @@ Status: canonical | Owner: product | Last verified: 2026-08-12
 
 ## P0 journeys
 
-- `JNY-001` Organizer creates an event, configures CFP fields, previews, and publishes the form.
-- `JNY-002` Applicant submits a proposal and receives field-level success or failure feedback.
+- `JNY-001` Organizer creates an event, configures CFP fields, previews, publishes the form, and schedules the submission window that decides when applicants may answer it.
+- `JNY-002` Applicant submits a proposal and receives field-level success or failure feedback. With an account they also keep it: a draft survives a closed browser and is resumed, a submitted proposal can be revised while the call is open, and the organizer's decision appears on the applicant's own proposals page. Guest submission stays available and stays anonymous — it produces a confirmation identifier and nothing an account could later claim.
 - `JNY-003` Organizer triages submissions and assigns reviewers; reviewer scores against an evaluation plan.
 - `JNY-004` Organizer accepts content, creates/links speaker records, requests tasks/assets, and records communication.
 - `JNY-005` Speaker completes profile, task, asset, and calendar-download work in the portal.

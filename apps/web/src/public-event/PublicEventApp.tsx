@@ -324,8 +324,12 @@ export function PublicEventApp() {
    *
    * The answer is `effectiveStatus`, which the server computes, rather than `status` plus the two
    * window timestamps: deriving it here would put the visitor's own clock in charge of whether a
-   * deadline has passed, and a skewed laptop would offer a form the server refuses. `status` is
-   * the fallback for a deployment older than that field.
+   * deadline has passed, and a skewed laptop would offer a form the server refuses.
+   *
+   * The `?? status` branch is unreachable and is kept as a type-level total rather than as a
+   * compatibility story: `cfpFormSchema` requires `effectiveStatus`, and `loadCfp` decodes through
+   * it, so a response without the field fails decoding and lands in `cfpUnavailable` long before
+   * this line. The Worker serves this bundle, so a browser cannot outrun its own API either.
    */
   // Display only facts from the active publication. The separately loaded form supplies
   // fields for submission, but may have advanced after this projection response was read.

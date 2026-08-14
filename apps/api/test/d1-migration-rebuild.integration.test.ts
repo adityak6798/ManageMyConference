@@ -109,25 +109,119 @@ describe("communication_deliveries rebuild", () => {
    * communications one (issue #190). It gets its own replay for the reason the case above exists at
    * all: the ordering is what makes a rebuild survive a populated database, and a second migration
    * that copies the recipe is a second chance to get the ordering wrong.
+   *
+   * **It takes the row census from `sqlite_master`, not from a list**, and that is the whole lesson
+   * of this case. The first draft of `1705` rebuilt the two children `1703` knew about and left
+   * `calendar_invite_states` — added by `1704`, after `1703` — pointing at the table being dropped.
+   * The case above could not see it, because the seed leaves that table empty and the assertion only
+   * named the two tables the migration under test happened to rebuild. So the fixture here is built
+   * from whichever tables *actually* reference the parent, and the test fails if any of them is
+   * empty when the replay starts: a rebuild's test is worth only as much as the rows it runs against,
+   * and the next migration to add a child gets caught by this rather than by a deployment.
    */
   it("widens the trigger vocabulary again over a populated database", async () => {
     const migrated = await createMigratedDatabase({ label: "rebuild-1705", seed: true });
     runtime = migrated.runtime;
 
-    const counts = () =>
-      migrated.database
+    /*
+     * Every table the runtime *resolves* a foreign key from, rather than every table whose stored
+     * DDL happens to spell the parent's current name.
+     *
+     * `pragma_foreign_key_list` is the authority and the difference is not academic: after a
+     * rebuild the children are created against `communication_deliveries_next` and the parent is
+     * renamed over them, and whether the stored `CREATE TABLE` text is rewritten to match depends
+     * on the SQLite build. It is not rewritten by the `sqlite3` CLI on this machine and it *is*
+     * under workerd, so a `sqlite_master LIKE` scan finds three children in production and none in
+     * a local check — which is the kind of disagreement a census must not be built on.
+     */
+    const parentsOf = async (table: string): Promise<{ parent: string; column: string }[]> => {
+      // Two statements rather than a join: D1 refuses `sqlite_master JOIN pragma_foreign_key_list(…)`
+      // with `SQLITE_AUTH`, so the table name is interpolated one at a time from the list below.
+      const keys = await migrated.database
         .prepare(
-          "SELECT (SELECT COUNT(*) FROM communication_deliveries) AS deliveries, (SELECT COUNT(*) FROM communication_attempts) AS attempts, (SELECT COUNT(*) FROM outbound_projection_state) AS projections, (SELECT COUNT(*) FROM communication_attempts a JOIN communication_deliveries d ON d.id = a.delivery_id) AS joined",
+          `SELECT "table" AS parent, "from" AS column FROM pragma_foreign_key_list('${table}')`,
         )
-        .all<{ deliveries: number; attempts: number; projections: number; joined: number }>();
-    const before = await counts();
-    expect(before.results?.[0]?.attempts).toBeGreaterThan(0);
-    expect(before.results?.[0]?.projections).toBeGreaterThan(0);
+        .all<{ parent: string; column: string }>();
+      return keys.results ?? [];
+    };
+    const tables = await migrated.database
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' AND name <> 'communication_deliveries' ORDER BY name",
+      )
+      .all<{ name: string }>();
+    const children: string[] = [];
+    for (const { name } of tables.results ?? [])
+      if ((await parentsOf(name)).some((key) => key.parent === "communication_deliveries"))
+        children.push(name);
+    // If this list is ever empty the test proves nothing, so it is asserted rather than assumed.
+    expect(children).toEqual([
+      "calendar_invite_states",
+      "communication_attempts",
+      "outbound_projection_state",
+    ]);
+
+    // The seed leaves `calendar_invite_states` empty, so the fixture supplies the row it lacks —
+    // one calendar invite, pointing at a seeded delivery, exactly as a deployment that has sent one.
+    await migrated.database
+      .prepare(
+        "INSERT INTO calendar_invite_states (organization_id, event_id, session_id, speaker_profile_id, schedule_ref, recipient_ref, sequence, delivery_id) SELECT organization_id, event_id, 'session-1', 'profile-1', 'schedule-1', recipient_ref, 3, id FROM communication_deliveries LIMIT 1",
+      )
+      .run();
+
+    const census = async () => {
+      const rows = await Promise.all(
+        children.map((table) =>
+          migrated.database.prepare(`SELECT COUNT(*) AS total FROM ${table}`).all<{
+            total: number;
+          }>(),
+        ),
+      );
+      const attempts = await migrated.database
+        .prepare(
+          "SELECT (SELECT COUNT(*) FROM communication_deliveries) AS deliveries, (SELECT COUNT(*) FROM communication_attempts a JOIN communication_deliveries d ON d.id = a.delivery_id) AS joined, (SELECT COUNT(*) FROM calendar_invite_states c JOIN communication_deliveries d ON d.id = c.delivery_id) AS invitesJoined",
+        )
+        .all<{ deliveries: number; joined: number; invitesJoined: number }>();
+      return {
+        ...Object.fromEntries(
+          children.map((table, index) => [table, rows[index]?.results?.[0]?.total]),
+        ),
+        ...attempts.results?.[0],
+      };
+    };
+    const before = await census();
+    // Every child populated before the replay — the condition the first draft's failure needed.
+    for (const table of children)
+      expect({ table, rows: before[table] }).toEqual({ table, rows: expect.any(Number) });
+    for (const table of children) expect(before[table]).toBeGreaterThan(0);
 
     await applyMigrationFile(migrated.database, "1705_delivery_proposal_submitted_trigger.sql");
 
-    const after = await counts();
-    expect(after.results?.[0]).toEqual(before.results?.[0]);
+    // Every row survives, and every child still resolves to the delivery it named.
+    const after = await census();
+    expect(after).toEqual(before);
+
+    /*
+     * And the foreign keys are still *live*, not merely still written down.
+     *
+     * A rebuild can leave a child pointing at a name that no longer exists, in which case the
+     * constraint silently stops constraining — so this drives both directions through the child the
+     * first draft of the migration forgot: a delivery id that does not exist must be refused, and a
+     * real one must be accepted.
+     */
+    for (const table of children) {
+      const resolved = (await parentsOf(table)).find((key) => key.column === "delivery_id");
+      expect({ table, parent: resolved?.parent }).toEqual({
+        table,
+        parent: "communication_deliveries",
+      });
+    }
+    await expect(
+      migrated.database
+        .prepare(
+          "INSERT INTO calendar_invite_states (organization_id, event_id, session_id, speaker_profile_id, schedule_ref, recipient_ref, sequence, delivery_id) VALUES ('00000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-000000000001', 'dangling', 'p', 'r', 'a@b.test', 0, 'no-such-delivery')",
+        )
+        .run(),
+    ).rejects.toThrow();
 
     // The value the CFP lane came for, and no widening beyond it.
     const submitted = await migrated.database

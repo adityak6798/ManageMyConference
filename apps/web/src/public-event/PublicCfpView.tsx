@@ -367,12 +367,22 @@ export function PublicCfpView({
         </section>
       ) : null}
 
-      {formOpen && !signedIn ? (
+      {/*
+        The door is offered whenever the call can be *read*, not only while it is open.
+        Gating it on `formOpen` left a signed-out applicant on a closed call with neither their
+        dashboard nor any way to reach it — and a decision is normally recorded *after* the call
+        closes, which makes that the main occasion for coming back at all. The invitation changes
+        wording rather than disappearing.
+      */}
+      {liveCfp !== null && status !== "unknown" && !signedIn ? (
         <section className="pub-signin" aria-labelledby="pub-cfp-signin">
-          <h2 id="pub-cfp-signin">Keep track of your proposal</h2>
+          <h2 id="pub-cfp-signin">
+            {formOpen ? "Keep track of your proposal" : "Already proposed something?"}
+          </h2>
           <p className="pub-note">
-            Sign in and your drafts, revisions and decision stay on this page. You can submit
-            without an account, but an anonymous proposal cannot be edited or followed afterwards.
+            {formOpen
+              ? "Sign in and your drafts, revisions and decision stay on this page. You can submit without an account, but an anonymous proposal cannot be edited or followed afterwards."
+              : "Submissions are not open, but signing in shows the proposals on your account and any decision the organizers have recorded."}
           </p>
           <div className="pub-signin-doors">
             {doors?.google ? (

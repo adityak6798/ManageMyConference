@@ -1142,3 +1142,60 @@ decision plus storage, and was not taken here.
 `GAP-027` records the three residuals: nothing announces a deadline before it passes, this deployment
 offers a submitter one sign-in door and it is a seeded persona, and no confirmation has reached a real
 mailbox.
+
+#### What the review passes changed, and one of them was a blocker
+
+Three adversarial passes ran against the risk map. The design survived all three; five defects in
+its execution did not, and they are recorded because each is a shape that will recur.
+
+**A rebuild migration copied a recipe that had gone out of date.** `1705` follows `1703`'s ordering
+statement for statement — and `1703` had *two* child tables, while `1704` had since added a third.
+`calendar_invite_states` was left pointing at the parent being dropped, so `DROP TABLE
+communication_deliveries` fails with `FOREIGN KEY constraint failed` on exactly the deployments that
+have ever sent a calendar invitation, and a fresh database is fine. That is verbatim the failure
+`1703`'s own header exists to prevent. The suite could not see it because `seed/reset.sql` leaves
+that table empty and the existing replay asserted rows only in the two tables the migration under
+test happened to rebuild. The replay now discovers children through `pragma_foreign_key_list`,
+refuses to run unless **every** one of them is populated, and checks afterwards that each foreign
+key still resolves to the parent and still refuses a dangling id. Reverting the fix reproduces the
+production error against that test, which is how the fix was confirmed rather than assumed.
+
+**A caller-supplied idempotency key was unique per event, not per account.** `UNIQUE (event_id,
+idempotency_key)` made a second account's `INSERT OR IGNORE` a no-op, and the convergence read that
+followed was not owner-scoped — so the second caller was handed the *first account's* proposal: id,
+answers and decision state, with a 201. Two reviewers reproduced it independently, one through the
+fake and one through D1. Both halves are fixed, because either alone leaves something wrong: the
+reads are scoped (a collision is now a refusal rather than a disclosure) *and* an owned proposal's
+stored key is namespaced by its owner (so a collision between two accounts cannot happen, and an
+unlucky key does not lock somebody out of creating a draft at all).
+
+**A migration header asserted an invariant nothing enforced.** The draft sentinel was the bare word
+`draft`, and the header said no event configures a triage status by that name — but
+`proposalStatusSchema` accepts `^[a-z0-9_-]+$`, so it is a perfectly legal key, and an organizer who
+configured one turned a bulk transition, a routed submission and a status delete into failures. The
+sentinel is now `cfp:draft`, which that pattern cannot express: the property is enforced by review's
+own input schema instead of asserted about it. The general lesson is the one worth keeping — a
+comment claiming a guarantee is worse than no comment, because it stops the next reader looking.
+
+**Routing was a third door into a decision.** `accepted` and `declined` are configured on every
+event (migration `0021`), so a routing rule could name one, and until this issue nothing showed an
+applicant their triage status. The submitter dashboard reads it, so "track = Keynote → Accepted"
+would have told somebody they were accepted with no decision recorded, no session and no organizer
+having decided anything. `save` now refuses such a rule, `resolveRoute` ignores one already stored,
+and the composer stops offering the two as destinations.
+
+**And three smaller ones**: the five submitter routes accepted an event-scoped bearer token without
+ever consulting the event it was scoped to (and an API-client credential reached them and died on a
+foreign key as a 500) — both are refused at the transport now, because *how the caller
+authenticated* is a fact only the transport holds; `identityDirectory.findRecipient` sat between the
+two swallow wrappers in the composition root, so a transient read could answer 500 over a submission
+that had already committed and whose retry is then refused as "already submitted"; and the console's
+own applicant form branched on `status` rather than `effectiveStatus`, offering a working form over
+a call past its deadline.
+
+**One cross-domain UI edit, announced here as the rules require.** `OrganizerReviewWorkspace.tsx` is
+review-owned and gains a notice routing an organizer into the members workspace when no reviewer is
+staffed — issue #190's reviewer-provisioning discoverability, which the issue allows to be satisfied
+by routing into the existing workflow rather than building a second one. It is covered by
+`apps/web/test/review-decisions.test.tsx`, which asserts both that the notice names the role and the
+event and that it disappears once a reviewer exists.

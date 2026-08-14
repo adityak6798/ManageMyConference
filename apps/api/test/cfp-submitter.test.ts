@@ -164,6 +164,112 @@ describe("the scheduled submission window", () => {
       ).resolves.toMatchObject({ closesAt: "2026-09-30T21:59:00.000Z" });
   });
 
+  it("refuses a routing rule that would announce a decision nobody recorded", async () => {
+    const statuses = {
+      listStatuses: async () => [
+        { key: "submitted", label: "Submitted", sortOrder: 0 },
+        { key: "accepted", label: "Accepted", sortOrder: 90 },
+        { key: "declined", label: "Declined", sortOrder: 91 },
+      ],
+    };
+    const repository = new MemoryCfpRepository();
+    const service = new CfpService(
+      repository,
+      () => crypto.randomUUID(),
+      () => new Date("2026-08-10T12:00:00.000Z"),
+      statuses,
+    );
+    const routed = (status: string) => ({
+      eventId,
+      title: "Speak",
+      description: "",
+      fields,
+      routing: [
+        {
+          id: "keynote",
+          when: { fieldId: "title", operator: "notEmpty" as const, values: [] },
+          routeTo: { status },
+        },
+      ],
+      expectedVersion: 0,
+    });
+
+    /*
+     * `accepted` is configured on every event (migration `0021`), so it passed the "is this a
+     * configured status" check and was offered in the composer's dropdown. Reaching it is the
+     * *effect* of a recorded decision, and the submitter's dashboard now reads that status — so
+     * such a rule told an applicant they were accepted with no decision, no session and nobody
+     * having decided.
+     */
+    await expect(service.save(organizer, routed("accepted"))).rejects.toThrow(/cannot route to/);
+    await expect(service.save(organizer, routed("declined"))).rejects.toThrow(/cannot route to/);
+    // An ordinary triage destination is unaffected.
+    await expect(service.save(organizer, routed("submitted"))).resolves.toMatchObject({
+      status: "draft",
+    });
+  });
+
+  it("ignores a decision route already stored, rather than announcing it", async () => {
+    // A rule saved before `save` refused them is still in a published snapshot. The submission
+    // takes no route at all, so the proposal lands in the default status and the submitter is told
+    // "under consideration" — refusing the submission instead would punish the applicant for the
+    // organizer's configuration.
+    const repository = new MemoryCfpRepository();
+    const service = new CfpService(
+      repository,
+      () => crypto.randomUUID(),
+      () => new Date("2026-08-10T12:00:00.000Z"),
+    );
+    await repository.saveForm(
+      {
+        eventId,
+        title: "Speak",
+        description: "",
+        fields,
+        routing: [
+          {
+            id: "legacy",
+            when: { fieldId: "title", operator: "notEmpty", values: [] },
+            routeTo: { status: "accepted" },
+          },
+        ],
+        status: "open",
+        version: 1,
+        publishedAt: "2026-08-01T00:00:00.000Z",
+        publishedStatus: "open",
+        opensAt: null,
+        closesAt: null,
+      },
+      0,
+    );
+    await repository.savePublished(
+      {
+        eventId,
+        title: "Speak",
+        description: "",
+        fields,
+        routing: [
+          {
+            id: "legacy",
+            when: { fieldId: "title", operator: "notEmpty", values: [] },
+            routeTo: { status: "accepted" },
+          },
+        ],
+        status: "open",
+        version: 1,
+        publishedAt: "2026-08-01T00:00:00.000Z",
+        publishedStatus: "open",
+        opensAt: null,
+        closesAt: null,
+      },
+      false,
+      1,
+    );
+    const submitted = await service.submit(eventId, "legacy-route", complete);
+    expect(submitted.resolvedRoute).toBeNull();
+    expect(submitted.status).toBe("submitted");
+  });
+
   it("refuses a window that closes before it opens", async () => {
     const { service } = await open();
     await expect(
@@ -341,6 +447,47 @@ describe("a proposal that belongs to an account", () => {
     const retry = await service.createDraft(pat, eventId, "same-key", { title: "One" });
     expect(retry.id).toBe(first.id);
     await expect(service.myProposals(pat, eventId)).resolves.toHaveLength(1);
+  });
+
+  it("never hands one account's proposal to another that names the same idempotency key", async () => {
+    const { service } = await open();
+    /*
+     * The key is caller-supplied and `UNIQUE (event_id, idempotency_key)` is not owner-scoped, so
+     * the second `INSERT OR IGNORE` is a no-op and everything then depends on what the convergence
+     * read is scoped to. Unscoped, it answered Sam with Pat's proposal — id, answers and all — with
+     * a 201. Two review passes reproduced exactly this.
+     */
+    const mine = await service.createDraft(pat, eventId, "shared-key", {
+      title: "Pat's unsent proposal",
+    });
+    const theirs = await service.createDraft(sam, eventId, "shared-key", { title: "Sam's own" });
+
+    expect(theirs.id).not.toBe(mine.id);
+    expect(theirs.answers).toEqual({ title: "Sam's own" });
+    expect(JSON.stringify(theirs)).not.toContain("Pat's unsent proposal");
+    // Each account sees one proposal: its own.
+    await expect(service.myProposals(pat, eventId)).resolves.toMatchObject([
+      { answers: { title: "Pat's unsent proposal" } },
+    ]);
+    await expect(service.myProposals(sam, eventId)).resolves.toMatchObject([
+      { answers: { title: "Sam's own" } },
+    ]);
+  });
+
+  it("does not answer a guest with somebody's unsent draft when the keys collide", async () => {
+    const { service } = await open();
+    const draft = await service.createDraft(pat, eventId, "guest-collision", { title: "Private" });
+    // An anonymous retry converges only on an anonymous, already-submitted proposal. Reading the
+    // key unscoped returned this draft's id as a confirmation for something nobody submitted.
+    const guest = await service.submit(eventId, "guest-collision", complete);
+    expect(guest.id).not.toBe(draft.id);
+    expect(guest.submitterUserId).toBeNull();
+    expect(guest.answers).toEqual(complete);
+    // And the draft is untouched and still Pat's.
+    await expect(service.myProposal(pat, eventId, draft.id)).resolves.toMatchObject({
+      answers: { title: "Private" },
+      lifecycle: "draft",
+    });
   });
 
   it("answers a second submitter's read and write exactly as it answers an unknown id", async () => {

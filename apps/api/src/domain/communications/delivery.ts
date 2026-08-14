@@ -84,7 +84,18 @@ export const isProjectionChannel = (
  * transaction as the publication itself.
  */
 export const REQUESTABLE_TRIGGERS = (Object.keys(TRIGGER_CHANNELS) as TriggerType[]).filter(
-  (trigger) => !triggerAllowsChannel(trigger, "event"),
+  (trigger) =>
+    !triggerAllowsChannel(trigger, "event") &&
+    /*
+     * `proposal.submitted` is the second exclusion, and it is narrower than the domain-event one.
+     * A submission confirmation's recipient is resolved from the session that submitted the
+     * proposal — that is the whole property that made it shippable (`#132`, decision `D5`) — so a
+     * request naming an arbitrary address would hand back exactly the mail primitive the account
+     * binding removes. `requestTriggerTypeSchema` in the contracts package states the same
+     * exclusion at the HTTP boundary; this keeps the derived set from disagreeing with it, which
+     * it silently did until a review pass compared the two.
+     */
+    trigger !== "proposal.submitted",
 );
 
 export interface MessageTemplate {

@@ -22,9 +22,9 @@ import {
   enqueueDueTaskReminders,
 } from "../src/application/communications/task-reminders";
 import { CommunicationsConflictError } from "../src/application/communications/errors";
-import { TRIGGER_CHANNELS } from "../src/domain/communications/delivery";
+import { REQUESTABLE_TRIGGERS, TRIGGER_CHANNELS } from "../src/domain/communications/delivery";
 import type { Actor } from "../src/application/identity/actor";
-import { triggerChannels } from "@greenroom/contracts";
+import { requestTriggerTypeSchema, triggerChannels } from "@greenroom/contracts";
 
 const organizationId = "00000000-0000-4000-8000-000000000010";
 const eventId = "00000000-0000-4000-8000-000000000001";
@@ -141,6 +141,13 @@ describe("the trigger and channel vocabulary", () => {
     // what stops them drifting: a trigger added to one and forgotten in the other fails here,
     // rather than becoming a 400 nobody can explain or a CHECK violation in production.
     expect(triggerChannels).toEqual(TRIGGER_CHANNELS);
+    /*
+     * And the *requestable* sets agree too, which the channel comparison above does not cover.
+     * `REQUESTABLE_TRIGGERS` is derived by exclusion and `requestTriggerTypeSchema` is written out,
+     * so the two drift silently: adding `proposal.submitted` to the domain put it in the derived
+     * set while the contract deliberately withheld it, and nothing failed.
+     */
+    expect([...REQUESTABLE_TRIGGERS].sort()).toEqual([...requestTriggerTypeSchema.options].sort());
   });
 });
 

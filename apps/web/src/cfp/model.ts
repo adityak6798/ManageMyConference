@@ -26,6 +26,18 @@ import "../styles/cfp.css";
 
 const DEFAULT_TITLE = "Call for proposals";
 
+/**
+ * The two statuses a routing rule may not name, mirrored from the review domain's reserved keys.
+ *
+ * Migration `0021` configures both on every event, so they pass "is this a configured status" and
+ * used to appear in the routing destination dropdown. Reaching one is the *effect* of a recorded
+ * decision — it is what creates the session and notifies the submitter — so a rule that assigned it
+ * told an applicant they had been accepted with nothing behind it. `CfpService.save` refuses such a
+ * rule; this keeps the control from offering one. Restated rather than imported for the same reason
+ * `MemorySubmittedProposalAdapter` restates them: the CFP surface does not reach into review.
+ */
+const DECISION_STATUSES = ["accepted", "declined"];
+
 const starter: CfpField[] = [
   {
     id: "title",
@@ -204,6 +216,7 @@ export function fromZonedInput(local: string, timeZone: string): string | null {
 
 export type { FormShape };
 export {
+  DECISION_STATUSES,
   DEFAULT_TITLE,
   cfpConditionMatches as conditionMatches,
   describe,

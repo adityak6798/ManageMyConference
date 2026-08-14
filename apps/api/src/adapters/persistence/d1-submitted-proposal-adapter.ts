@@ -172,15 +172,20 @@ const audit = (row: AuditRow): ProposalStatusAudit => ({
 /**
  * The predicate that keeps an unsubmitted draft out of every organizer and reviewer projection.
  *
- * It is on **every** read below rather than on the two that seemed to need it. A proposal a
- * submitter is still writing has no place in triage, in a reviewer's queue, in a status count or
+ * It is on **every** read and write below rather than on the two that seemed to need it. A proposal
+ * a submitter is still writing has no place in triage, in a reviewer's queue, in a status count or
  * in an accept/decline — and the failure of forgetting one is silent: the draft simply appears,
- * looking like a submission nobody sent. `cfp-draft-isolation.integration.test.ts` enumerates the
- * read paths of this class and asserts a draft is invisible to each, so a fifth one added later
- * without the predicate fails rather than leaks (`GAP-025`'s lesson about siblings).
+ * looking like a submission nobody sent (`GAP-025`'s lesson about siblings).
  *
- * A draft additionally carries `status = 'draft'`, which no event configures, so a status-filtered
- * read could not reach one even without this. Both are deliberate; migration `1201` says why.
+ * Two things assert it, because one of them is not enough. `d1-cfp-account-binding.integration.test.ts`
+ * drives each of these paths against a real draft and proves it is invisible; and
+ * `cfp-draft-isolation.test.ts` reads *this file* and fails if any statement naming
+ * `cfp_submissions` omits the predicate — which is the half that catches a fifth path added later,
+ * since a hand-written enumeration cannot.
+ *
+ * A draft additionally carries `status = 'cfp:draft'`, a value no configured triage status can
+ * equal because `proposalStatusSchema` forbids the colon, so a status-filtered read could not reach
+ * one even without this. Both are deliberate; migration `1201` says why.
  */
 const SUBMITTED_ONLY = "lifecycle = 'submitted'";
 

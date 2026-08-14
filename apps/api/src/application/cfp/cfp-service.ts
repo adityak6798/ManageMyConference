@@ -95,6 +95,9 @@ export type SubmitterProposalState = "draft" | "under_consideration" | "accepted
  */
 const ACCEPTED_STATUS = "accepted";
 const DECLINED_STATUS = "declined";
+/** A status only a recorded decision may put a proposal into. Never a routing destination. */
+const isDecisionStatus = (status: string): boolean =>
+  status === ACCEPTED_STATUS || status === DECLINED_STATUS;
 
 const submitterStateOf = (proposal: ProposalSubmission): SubmitterProposalState => {
   if (proposal.lifecycle === "draft") return "draft";
@@ -270,6 +273,22 @@ export class CfpService {
         throw new CfpRoutingConfigurationError(
           `Choose a configured proposal status for routing rule ${invalid.id}`,
         );
+      /*
+       * Routing may not name a decision, and this is the third door onto the same rule.
+       *
+       * `accepted` and `declined` are configured on every event (migration `0021`), so they passed
+       * the check above and were offered in the composer's dropdown. Reaching one is the *effect* of
+       * a recorded decision — `bulkTransition` refuses a transition straight into it for exactly
+       * that reason — and routing was the way in that nobody had closed, because until this issue
+       * nothing showed the applicant what their triage status was. Now the submitter's dashboard
+       * reads it, so a rule like "track = Keynote → Accepted" tells an applicant they were accepted
+       * with no decision recorded, no session created and no organizer having decided anything.
+       */
+      const decided = editable.routing.find(({ routeTo }) => isDecisionStatus(routeTo.status));
+      if (decided)
+        throw new CfpRoutingConfigurationError(
+          `Routing rule ${decided.id} cannot route to “${decided.routeTo.status}”: an accept or decline is recorded as a decision, which creates the session and tells the submitter. Route to a triage status instead.`,
+        );
     }
     const form: CfpForm = {
       ...editable,
@@ -390,7 +409,10 @@ export class CfpService {
     idempotencyKey: string,
     answers: Record<string, string>,
   ): Promise<ProposalSubmission> {
-    const prior = await this.repository.findSubmission(eventId, idempotencyKey);
+    // Only an anonymous, already-submitted proposal counts as this call's own retry. Reading the
+    // key unscoped answered a guest with whatever else held it — including an account's unsent
+    // draft, handed back as a confirmation identifier for something nobody submitted.
+    const prior = await this.repository.findAnonymousSubmission(eventId, idempotencyKey);
     if (prior) return prior;
     const form = await this.openForm(eventId);
     const fieldErrors = validateAnswers(form.fields, answers);
@@ -443,6 +465,15 @@ export class CfpService {
    * `idempotencyKey` is the CFP command's existing deterministic key (`PRD-CFP-002`), reused
    * rather than joined by a second one: a retried create converges on the draft the first attempt
    * made instead of leaving two half-written proposals on the dashboard.
+   *
+   * **It is namespaced by owner before it is stored**, and that is a fix rather than a flourish.
+   * `UNIQUE (event_id, idempotency_key)` is not owner-scoped and the key comes from the request, so
+   * two accounts naming the same key on one event collided: the second `INSERT OR IGNORE` was
+   * skipped as a duplicate and the second caller was handed the *first account's* proposal — id,
+   * answers and decision state. Two independent reviewers reproduced it. Scoping the convergence
+   * read (`findOwnedProposalByKey`) makes that a refusal instead of a disclosure; namespacing the
+   * stored key means the collision cannot happen between accounts in the first place, so an
+   * unlucky choice of key does not lock somebody out of creating a draft at all.
    */
   async createDraft(
     actor: Actor | null,
@@ -459,7 +490,7 @@ export class CfpService {
       id: this.newId(),
       eventId,
       cfpVersion: form.version,
-      idempotencyKey,
+      idempotencyKey: ownedProposalKey(submitter.id, idempotencyKey),
       answers,
       fields: [],
       resolvedRoute: null,
@@ -471,7 +502,17 @@ export class CfpService {
       submitterUserId: submitter.id,
       at,
     });
-    if (!created) throw new CfpStateError("The CFP changed before this draft was saved");
+    // Only one cause is left: the storage guard saw a call that is no longer open. The window is the
+    // one member of that conjunction the service read *before* the write, and a call closing in
+    // between is a conflict with the resource's state — the same 409 the other two writes answer,
+    // rather than the 400 this used to give, which told the applicant their input was wrong.
+    if (!created) {
+      const live = await this.getPublished(eventId);
+      throw new CfpClosedError(
+        "This call for proposals closed before the draft was saved.",
+        live.effectiveStatus,
+      );
+    }
     return viewOf(created, form.fields);
   }
   /** One proposal this account owns, or an indistinguishable 404. */
@@ -633,6 +674,22 @@ export class CfpService {
 }
 
 /**
+ * The stored idempotency key for a proposal an account owns.
+ *
+ * `UNIQUE (event_id, idempotency_key)` is the whole of the duplicate-suppression contract and it is
+ * not owner-scoped, so a client-supplied key is only unique per *event* — which made one account's
+ * key able to answer another account's create. Prefixing with the owner makes the namespace
+ * per-account, so a retry still converges and a collision between two people cannot occur.
+ *
+ * The anonymous path deliberately keeps the bare key: its rows are the ones already stored that way,
+ * and its convergence read is scoped to `submitter_user_id IS NULL` instead. An anonymous caller
+ * could still *spell* a prefixed key and squat one, which costs the owner a refusal rather than any
+ * disclosure and requires guessing a user id and a UUID; that residual is recorded in `GAP-027`.
+ */
+const ownedProposalKey = (submitterUserId: string, clientKey: string): string =>
+  `proposal:${submitterUserId}:${clientKey}`;
+
+/**
  * An instant, or a refusal — never a re-interpretation.
  *
  * The schema at the transport boundary already requires an ISO-8601 date-time, so this is not
@@ -657,12 +714,25 @@ export function conditionMatches(
   return condition.values.includes(value);
 }
 
+/**
+ * The first matching rule's destination — unless that destination is a decision.
+ *
+ * `save` now refuses such a rule outright, but a rule stored *before* it did is still in a published
+ * snapshot, and this is what a submission meeting one does: it takes no route, so the proposal lands
+ * in the default triage status and the submitter is told "under consideration" rather than
+ * "accepted". Refusing the submission instead would punish the applicant for the organizer's
+ * configuration, and honouring it would tell them they had been accepted by nobody.
+ *
+ * The rule is deliberately dropped rather than skipped-and-continued: the applicant's answers
+ * matched it, and the next rule down is not the one the organizer meant for them either.
+ */
 function resolveRoute(
   routing: readonly CfpRoutingRule[],
   answers: Readonly<Record<string, string>>,
 ) {
   const rule = routing.find(({ when }) => conditionMatches(when, answers));
-  return rule ? { ruleId: rule.id, status: rule.routeTo.status } : null;
+  if (!rule || isDecisionStatus(rule.routeTo.status)) return null;
+  return { ruleId: rule.id, status: rule.routeTo.status };
 }
 /**
  * `requireComplete: false` skips the required-field rule and nothing else.

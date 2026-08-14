@@ -32,6 +32,7 @@ import { Card, EmptyState, Notice, Pill, Tabs, useActionFeedback } from "../ui/p
 import { ApplicantCfpForm } from "./ApplicantCfpForm";
 import { PublicFormPreview } from "./controls";
 import {
+  DECISION_STATUSES,
   DEFAULT_TITLE,
   describe,
   FIELD_TYPES,
@@ -1188,11 +1189,21 @@ export function CfpWorkspace({
                             )
                           }
                         >
-                          {routingStatuses.map((status) => (
-                            <option key={status.key} value={status.key}>
-                              {status.label}
-                            </option>
-                          ))}
+                          {/*
+                            Accepted and Declined are configured on every event but are not
+                            routable: reaching one is the effect of a recorded decision, which is
+                            what creates the session and tells the submitter. Offering them here
+                            let an organizer build a rule that told an applicant "Accepted" with
+                            no decision behind it — the API refuses such a rule, and the control
+                            should not propose one.
+                          */}
+                          {routingStatuses
+                            .filter((status) => !DECISION_STATUSES.includes(status.key))
+                            .map((status) => (
+                              <option key={status.key} value={status.key}>
+                                {status.label}
+                              </option>
+                            ))}
                         </select>
                       </label>
                     </div>

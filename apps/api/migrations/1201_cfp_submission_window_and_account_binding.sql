@@ -35,12 +35,17 @@
 --
 -- `lifecycle` is the authoritative draft/submitted marker and every reader of `cfp_submissions`
 -- outside this domain filters on it — `D1SubmittedProposalAdapter` does so in all four of its
--- read paths, which `cfp-draft-isolation.integration.test.ts` enumerates. A draft additionally
--- carries `status = 'draft'`, which is defence in depth rather than a second source of truth:
--- no event configures a triage status keyed `draft`, so a status-filtered triage read cannot
--- reach a draft even if a future reader forgets the lifecycle predicate, and a draft cannot pin
--- a configured status against deletion through `cfp_status_delete_rejects_in_use`. The two are
--- held in agreement by the guard triggers below rather than by convention.
+-- read paths, which `d1-cfp-account-binding.integration.test.ts` enumerates one by one.
+--
+-- A draft additionally carries `status = 'cfp:draft'`, which is defence in depth rather than a
+-- second source of truth. The colon is load-bearing: `proposalStatusSchema` accepts
+-- `^[a-z0-9_-]+$`, so this value can never be a configured triage status, which means a
+-- status-filtered triage read cannot reach a draft even if a future reader forgets the lifecycle
+-- predicate, and a draft can never pin a configured status against deletion through
+-- `cfp_status_delete_rejects_in_use`. An earlier draft of this migration used the bare word
+-- `draft` and asserted that property instead of enforcing it — and `draft` is a legal triage key,
+-- so an organizer who configured one turned a bulk transition, a routed submission and a status
+-- delete into failures. The two columns are held in agreement by the guard triggers below.
 --
 -- `revision` is the optimistic-concurrency token for a proposal, in the same shape
 -- `cfp_forms.version` already uses for the composer: every write names the revision it read,
@@ -78,7 +83,7 @@ CREATE INDEX cfp_submissions_event_lifecycle_idx ON cfp_submissions(event_id, li
 -- the insert is exactly the sibling `GAP-025` was filed about.
 CREATE TRIGGER cfp_submission_lifecycle_insert_guard
 BEFORE INSERT ON cfp_submissions
-WHEN (NEW.lifecycle = 'draft') <> (NEW.status = 'draft')
+WHEN (NEW.lifecycle = 'draft') <> (NEW.status = 'cfp:draft')
   OR (NEW.lifecycle = 'draft' AND NEW.submitter_user_id IS NULL)
 BEGIN
   SELECT RAISE(ABORT, 'CFP_PROPOSAL_LIFECYCLE_INVALID');
@@ -86,7 +91,7 @@ END;
 
 CREATE TRIGGER cfp_submission_lifecycle_update_guard
 BEFORE UPDATE ON cfp_submissions
-WHEN (NEW.lifecycle = 'draft') <> (NEW.status = 'draft')
+WHEN (NEW.lifecycle = 'draft') <> (NEW.status = 'cfp:draft')
   OR (NEW.lifecycle = 'draft' AND NEW.submitter_user_id IS NULL)
 BEGIN
   SELECT RAISE(ABORT, 'CFP_PROPOSAL_LIFECYCLE_INVALID');
@@ -109,4 +114,28 @@ BEFORE UPDATE OF submitter_user_id ON cfp_submissions
 WHEN COALESCE(OLD.submitter_user_id, '') <> COALESCE(NEW.submitter_user_id, '')
 BEGIN
   SELECT RAISE(ABORT, 'CFP_PROPOSAL_OWNER_IMMUTABLE');
+END;
+
+-- A draft holds the default status open for the moment it is submitted.
+--
+-- `0013` creates `submitted` whenever a submission is *inserted*, which self-healed the only path
+-- that existed before this migration. Submitting a draft is an `UPDATE`, and `0011`'s
+-- `cfp_transition_requires_configured_status` aborts it unless the destination is still configured.
+-- Nothing kept it configured: `cfp_status_delete_rejects_in_use` looks for a submission carrying the
+-- key, and a draft carries `cfp:draft`, so on an event whose proposals are all drafts an organizer
+-- could delete `submitted` and the applicant's Submit would then fail with a trigger name.
+--
+-- The refusal belongs at the organizer's action rather than at the applicant's, so this is a delete
+-- guard: it raises the same `CFP_STATUS_IN_USE` the sibling guard does, which the CFP status
+-- configuration path already translates into "Configured statuses must include every status
+-- currently in use" — true here, because a draft is about to need it.
+CREATE TRIGGER cfp_default_status_delete_guard
+BEFORE DELETE ON cfp_statuses
+WHEN OLD.key = 'submitted'
+  AND EXISTS (
+    SELECT 1 FROM cfp_submissions
+    WHERE event_id = OLD.event_id AND lifecycle = 'draft'
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'CFP_STATUS_IN_USE');
 END;
