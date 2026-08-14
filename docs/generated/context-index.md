@@ -183,11 +183,14 @@
 - `test` / `repository-fact`: [apps/webhook-egress/test/http.test.ts](../../apps/webhook-egress/test/http.test.ts)
 - `test` / `repository-fact`: [apps/webhook-egress/test/ip.test.ts](../../apps/webhook-egress/test/ip.test.ts)
 - `test` / `repository-fact`: [apps/webhook-egress/test/resolver.test.ts](../../apps/webhook-egress/test/resolver.test.ts)
+- `test` / `repository-fact`: [apps/webhook-egress/test/runtime.test.ts](../../apps/webhook-egress/test/runtime.test.ts)
+- `test` / `repository-fact`: [apps/webhook-egress/test/server.test.ts](../../apps/webhook-egress/test/server.test.ts)
 - `specification` / `normative`: [docs/README.md](../../docs/README.md)
 - `specification` / `normative`: [docs/exec-plans/competition-waves.md](../../docs/exec-plans/competition-waves.md)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
+- `test` / `repository-fact`: [tools/tests/deploy.test.mjs](../../tools/tests/deploy.test.mjs)
 
 ### `ACC-OPS`
 - `test` / `repository-fact`: [apps/api/test/d1-platform-repository.integration.test.ts](../../apps/api/test/d1-platform-repository.integration.test.ts)
@@ -322,6 +325,7 @@
 - `code` / `repository-fact`: [tools/check-evidence.mjs](../../tools/check-evidence.mjs)
 - `code` / `repository-fact`: [tools/check-gate-drift.mjs](../../tools/check-gate-drift.mjs)
 - `code` / `repository-fact`: [tools/compose-seed.mjs](../../tools/compose-seed.mjs)
+- `code` / `repository-fact`: [tools/deploy.mjs](../../tools/deploy.mjs)
 - `code` / `repository-fact`: [tools/greenroom_tools/context.py](../../tools/greenroom_tools/context.py)
 - `code` / `repository-fact`: [tools/record-run.mjs](../../tools/record-run.mjs)
 - `code` / `repository-fact`: [tools/remote-demo-reset.mjs](../../tools/remote-demo-reset.mjs)
@@ -329,6 +333,7 @@
 - `test` / `repository-fact`: [tools/tests/check-evidence.test.mjs](../../tools/tests/check-evidence.test.mjs)
 - `test` / `repository-fact`: [tools/tests/check-gate-drift.test.mjs](../../tools/tests/check-gate-drift.test.mjs)
 - `test` / `repository-fact`: [tools/tests/compose-seed.test.mjs](../../tools/tests/compose-seed.test.mjs)
+- `test` / `repository-fact`: [tools/tests/deploy.test.mjs](../../tools/tests/deploy.test.mjs)
 - `test` / `repository-fact`: [tools/tests/remote-demo-reset.test.mjs](../../tools/tests/remote-demo-reset.test.mjs)
 - `test` / `repository-fact`: [tools/tests/test_context.py](../../tools/tests/test_context.py)
 
@@ -651,6 +656,8 @@
 - `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 - `code` / `repository-fact`: [packages/contracts/src/domains/communications-integrations.ts](../../packages/contracts/src/domains/communications-integrations.ts)
+- `code` / `repository-fact`: [tools/deploy.mjs](../../tools/deploy.mjs)
+- `test` / `repository-fact`: [tools/tests/deploy.test.mjs](../../tools/tests/deploy.test.mjs)
 
 ### `PRD-OPS-001`
 - `code` / `repository-fact`: [apps/api/src/application/platform/operations-service.ts](../../apps/api/src/application/platform/operations-service.ts)

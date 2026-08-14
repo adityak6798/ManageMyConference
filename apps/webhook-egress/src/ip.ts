@@ -16,8 +16,8 @@ const ipv4In = (address: number, network: string, bits: number): boolean => {
 };
 
 /**
- * The deny list is intentionally broader than RFC1918: no special-purpose address is a webhook
- * destination. Public unicast is the allowlisted remainder, so new reserved blocks fail closed.
+ * The deny list is intentionally broader than RFC1918: the current special-purpose registry is
+ * not webhook destination space, even when a block is syntactically unicast.
  */
 const forbiddenIpv4 = [
   ["0.0.0.0", 8],
@@ -66,7 +66,62 @@ const parseIpv6 = (input: string): bigint | null => {
   return result;
 };
 
-/** Only 2000::/3 global unicast is eligible; IPv4-mapped addresses use the IPv4 policy. */
+const ipv6In = (address: bigint, network: string, bits: number): boolean => {
+  const start = parseIpv6(network);
+  if (start === null) return false;
+  const shift = BigInt(128 - bits);
+  return address >> shift === start >> shift;
+};
+
+/** Special-purpose subranges inside allocations that are otherwise eligible. */
+const forbiddenIpv6 = [
+  ["2001:db8::", 32], // Documentation.
+  ["2620:4f:8000::", 48], // Direct-delegation AS112 service.
+] as const;
+
+/**
+ * RIR allocations from IANA's global-unicast registry (snapshot 2025-10-10). Unlisted 2000::/3
+ * space remains reserved, so an allocation must be added deliberately rather than silently
+ * becoming a destination. IANA protocol/special allocations are excluded or denied above.
+ */
+const allocatedIpv6 = [
+  ["2001:200::", 23],
+  ["2001:400::", 23],
+  ["2001:600::", 23],
+  ["2001:800::", 22],
+  ["2001:c00::", 23],
+  ["2001:e00::", 23],
+  ["2001:1200::", 23],
+  ["2001:1400::", 22],
+  ["2001:1800::", 23],
+  ["2001:1a00::", 23],
+  ["2001:1c00::", 22],
+  ["2001:2000::", 19],
+  ["2001:4000::", 23],
+  ["2001:4200::", 23],
+  ["2001:4400::", 23],
+  ["2001:4600::", 23],
+  ["2001:4800::", 23],
+  ["2001:4a00::", 23],
+  ["2001:4c00::", 23],
+  ["2001:5000::", 20],
+  ["2001:8000::", 19],
+  ["2001:a000::", 20],
+  ["2001:b000::", 20],
+  ["2003::", 18],
+  ["2400::", 12],
+  ["2410::", 12],
+  ["2600::", 12],
+  ["2610::", 23],
+  ["2620::", 23],
+  ["2630::", 12],
+  ["2800::", 12],
+  ["2a00::", 12],
+  ["2a10::", 12],
+  ["2c00::", 12],
+] as const;
+
+/** Only allocated ordinary global unicast is eligible; mapped addresses use the IPv4 policy. */
 export const globallyRoutable = (address: string): boolean => {
   const ipv4 = ipv4Number(address);
   if (ipv4 !== null) return !forbiddenIpv4.some(([network, bits]) => ipv4In(ipv4, network, bits));
@@ -77,17 +132,8 @@ export const globallyRoutable = (address: string): boolean => {
     return !forbiddenIpv4.some(([network, bits]) => ipv4In(embedded, network, bits));
   }
   return (
-    ipv6 >= 0x2000_0000_0000_0000_0000_0000_0000_0000n &&
-    ipv6 <= 0x3fff_ffff_ffff_ffff_ffff_ffff_ffff_ffffn &&
-    // Documentation prefix and discard-only prefix are inside 2000::/3 but not destinations.
-    !(
-      ipv6 >= 0x2001_0db8_0000_0000_0000_0000_0000_0000n &&
-      ipv6 <= 0x2001_0db8_ffff_ffff_ffff_ffff_ffff_ffffn
-    ) &&
-    !(
-      ipv6 >= 0x0100_0000_0000_0000_0000_0000_0000_0000n &&
-      ipv6 <= 0x0100_0000_0000_0000_0000_0000_0000_00ffn
-    )
+    allocatedIpv6.some(([network, bits]) => ipv6In(ipv6, network, bits)) &&
+    !forbiddenIpv6.some(([network, bits]) => ipv6In(ipv6, network, bits))
   );
 };
 

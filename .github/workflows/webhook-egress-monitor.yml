@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Probe trusted webhook egress
         env:
-          WEBHOOK_EGRESS_ENDPOINT: ${{ secrets.WEBHOOK_EGRESS_ENDPOINT }}
+          WEBHOOK_EGRESS_ENDPOINT: ${{ vars.WEBHOOK_EGRESS_ENDPOINT }}
           WEBHOOK_EGRESS_TOKEN: ${{ secrets.WEBHOOK_EGRESS_TOKEN }}
           WEBHOOK_EGRESS_PROBE_TARGET: ${{ vars.WEBHOOK_EGRESS_PROBE_TARGET }}
         run: node tools/probe-webhook-egress.mjs --monitor

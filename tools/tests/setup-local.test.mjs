@@ -10,9 +10,15 @@
  */
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { declaredKeys, withGoogleBindings } from "../setup-local.mjs";
+import { declaredKeys, withGoogleBindings, withWebhookBindings } from "../setup-local.mjs";
 
 const GOOGLE = ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_REDIRECT_URI"];
+const WEBHOOK = [
+  "WEBHOOK_EGRESS_ENDPOINT",
+  "WEBHOOK_EGRESS_TOKEN",
+  "WEBHOOK_WRAPPING_KEY_VERSION",
+  "WEBHOOK_WRAPPING_KEYS",
+];
 
 test("a file that declares none of them gets all three, blank", () => {
   const { text, added } = withGoogleBindings("ENVIRONMENT=development\nSESSION_SECRET=abc\n");
@@ -55,4 +61,17 @@ test("keys are read whatever surrounds them", () => {
   // A comment mentioning a binding does not count as declaring it, or a developer who wrote a
   // note about Google would get a half-applied configuration and a Worker that refuses everything.
   assert.equal(declaredKeys("# GOOGLE_CLIENT_ID goes here\n").has("GOOGLE_CLIENT_ID"), false);
+});
+
+test("deployed webhook configuration is overridden locally as one blank unit", () => {
+  const existing = "SESSION_SECRET=abc\nWEBHOOK_EGRESS_TOKEN=developer-token\n";
+  const { text, added } = withWebhookBindings(existing);
+  assert.deepEqual(added, [
+    "WEBHOOK_EGRESS_ENDPOINT",
+    "WEBHOOK_WRAPPING_KEY_VERSION",
+    "WEBHOOK_WRAPPING_KEYS",
+  ]);
+  assert.match(text, /^WEBHOOK_EGRESS_TOKEN=developer-token$/m);
+  for (const name of WEBHOOK.filter((value) => value !== "WEBHOOK_EGRESS_TOKEN"))
+    assert.match(text, new RegExp(`^${name}=$`, "m"));
 });

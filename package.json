@@ -15,7 +15,7 @@
     "check": "npm run gate:integrity && npm run gate:test-build && npm run gate:d1 && npm run gate:evidence",
     "context": "uv run greenroom-context",
     "dev": "npm run setup:local && npm run build --workspace @greenroom/web && concurrently -n api,web -c blue,green \"npm run dev --workspace @greenroom/api\" \"npm run dev --workspace @greenroom/web\"",
-    "deploy": "npm run migrate:remote --workspace @greenroom/api && npm run build --workspace @greenroom/web && npm run deploy --workspace @greenroom/api",
+    "deploy": "node tools/deploy.mjs",
     "deploy:assert-current": "node tools/assert-current-main.mjs",
     "format": "biome format --write . && uv run ruff format tools",
     "format:check": "biome format . && uv run ruff format --check tools",

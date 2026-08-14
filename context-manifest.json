@@ -225,8 +225,7 @@
         "apps/api/src/transport"
       ],
       "egress": [
-        "apps/webhook-egress/src",
-        "apps/webhook-egress/api"
+        "apps/webhook-egress/src"
       ],
       "ui": [
         "apps/web/src"
@@ -292,11 +291,17 @@
         "zod"
       ],
       "egress": [
+        "@cloudflare/containers",
+        "cloudflare:workers",
         "node:crypto",
         "node:dns",
         "node:dns/promises",
+        "node:http",
         "node:https",
-        "node:net"
+        "node:net",
+        "node:stream",
+        "node:stream/web",
+        "node:url"
       ]
     },
     "resources": [

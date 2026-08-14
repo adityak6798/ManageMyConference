@@ -29,7 +29,7 @@ const dispatch = (url, timeoutMs = 1_000) =>
     timeoutMs,
     headers: {
       "content-type": "application/json",
-      "Greenroom-Signature": "t=1,v1=probe",
+      "Greenroom-Signature": `t=1,v1=${"0".repeat(64)}`,
       "Greenroom-Event-Id": "probe-event",
       "Greenroom-Event-Type": "schedule.published",
       "Greenroom-Delivery-Id": "probe-delivery",

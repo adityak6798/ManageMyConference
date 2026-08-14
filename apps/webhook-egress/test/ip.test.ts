@@ -24,14 +24,29 @@ describe("globallyRoutable", () => {
     "fe80::1",
     "ff02::1",
     "2001:db8::1",
+    "2001:2::1",
+    "2001:20::1",
+    "2002:0a00:0001::1",
+    "2620:4f:8000::1",
+    "3ffe::1",
+    "3fff::1",
+    "5f00::1",
+    "2d00::1",
+    "3000::1",
+    "3f00::1",
   ])("rejects special-purpose address %s", (address) => {
     expect(globallyRoutable(address)).toBe(false);
   });
 
-  it.each(["1.1.1.1", "8.8.8.8", "2606:4700:4700::1111", "2001:4860:4860::8888"])(
-    "accepts global unicast address %s",
-    (address) => {
-      expect(globallyRoutable(address)).toBe(true);
-    },
-  );
+  it.each([
+    "1.1.1.1",
+    "8.8.8.8",
+    "2001:4860:4860::8888",
+    "2404:6800:4003::200e",
+    "2606:4700:4700::1111",
+    "2a00:1450:4009::200e",
+    "2c0f:f248::1",
+  ])("accepts global unicast address %s", (address) => {
+    expect(globallyRoutable(address)).toBe(true);
+  });
 });
