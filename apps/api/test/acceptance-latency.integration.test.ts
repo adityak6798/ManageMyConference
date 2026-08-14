@@ -298,9 +298,13 @@ describe("the cost of confirming a speaker acceptance", () => {
     expect(sequential.decide).toBeLessThanOrEqual(DECIDE_SEQUENTIAL_BUDGET);
     expect(sequential.accept).toBeLessThanOrEqual(ACCEPT_SEQUENTIAL_BUDGET);
     expect(sequential.reload).toBeLessThanOrEqual(RELOAD_SEQUENTIAL_BUDGET);
-    expect(sequential.request).toBeLessThanOrEqual(
-      DECIDE_SEQUENTIAL_BUDGET + ACCEPT_SEQUENTIAL_BUDGET,
-    );
+    /*
+     * Pinned as its own constant rather than as the sum of the two above, which is the number
+     * every document quotes and was therefore the one number nothing asserted. The sum is 33
+     * against a measurement of 30, so two serialized reads could be added — one to each phase —
+     * with both phase budgets still passing and the quoted figure quietly false.
+     */
+    expect(sequential.request).toBeLessThanOrEqual(REQUEST_SEQUENTIAL_BUDGET);
   });
 
   /**
@@ -368,14 +372,27 @@ describe("the cost of confirming a speaker acceptance", () => {
  * | phase                          | before | after |
  * |--------------------------------|--------|-------|
  * | decide                         |     13 |    12 |
- * | accept (what the route calls)  |     52 |    18 |
- * | **the acceptance request**     | **65** |**30** |
+ * | accept (what the route calls)  |     52 |    23 |
+ * | **the acceptance request**     | **65** |**35** |
  * | the console's reload afterwards|      2 |     2 |
  * | a repeated acceptance          |      — |    14 |
+ *
+ * `accept` was 18 and the request 30 until a review pass found what that cost: the three
+ * announcements were issued as one wave, and a delivery's `created_at` is stamped inside its own
+ * enqueue, so the invitation could be queued behind the task notices it explains. Ordering the
+ * invitation ahead of them is worth its five round trips.
  *
  * The budgets sit one or two above each measurement, so ordinary drift is visible without the
  * suite failing on a statement legitimately added. What they exist to catch is the class of
  * change this issue found: a serialized read added to the busiest write in the product.
+ *
+ * **How to reproduce the "before" column**, because this harness postdates the change it measures
+ * and the numbers would otherwise rest on one person's word: check out the four source files the
+ * fix touched at the base commit — `d1-content-repository.ts`, `content-repository.ts`,
+ * `content-service.ts`, `memory-content-repository.ts` and `index.ts` — point this test's
+ * `acceptSession` calls at `accept`, drop the `organizationOf` memo from the fixture below so it
+ * mirrors the composition root as it then was, and run it. The "after" column reproduces by
+ * running the suite unchanged.
  *
  * **Three costs were measured and deliberately not taken**, so a later reader does not re-derive
  * them from the numbers:
@@ -396,6 +413,8 @@ describe("the cost of confirming a speaker acceptance", () => {
  *   for that to be said with the measurement rather than optimized away.
  */
 const DECIDE_SEQUENTIAL_BUDGET = 13;
-const ACCEPT_SEQUENTIAL_BUDGET = 20;
+const ACCEPT_SEQUENTIAL_BUDGET = 25;
 const RELOAD_SEQUENTIAL_BUDGET = 3;
 const REPEAT_SEQUENTIAL_BUDGET = 16;
+/** The figure every document quotes, so the one that has to be asserted directly. */
+const REQUEST_SEQUENTIAL_BUDGET = 37;

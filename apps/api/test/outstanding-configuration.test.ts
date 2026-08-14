@@ -35,7 +35,7 @@ const slice = (
   outcome: string,
   label = key,
   reason = "",
-): AppliedTemplateRecord["slices"][number] => ({ key, label, outcome, reason });
+): AppliedTemplateRecord["slices"][number] => ({ key, label, outcome, reason, incompatible: [] });
 
 describe("outstandingConfiguration", () => {
   /**

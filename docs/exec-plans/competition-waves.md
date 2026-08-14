@@ -602,7 +602,9 @@ holding a pointer at another domain's row.
 person silently remove work from a colleague's list. The primary key is
 `(event_id, item_key, actor_id)` for that reason, and the service suite asserts it.
 
-**Four of five categories populate from the seed, and the fifth honestly cannot.** The seeded event
+**Four of five categories populate from the seed, and the fifth honestly cannot.**
+(A sixth, `configuration`, was added by #203; it does not populate from the seed either, and
+the scorecard's `ACC-OPS` row now names both absences.) The seeded event
 is published and its draft matches its snapshot, so nothing is awaiting publication — which is the
 correct answer, not a missing fixture. #99 is not permitted to add a platform seed fragment, so
 rather than assert a row into existence the browser spec creates an event and reads its inbox,
@@ -1007,7 +1009,7 @@ content entry that closed here is annotated with the collision rather than silen
 `apps/api/test/acceptance-latency.integration.test.ts` counts **sequential round trips to D1**,
 which is the unit that survives the trip to a deployment: locally D1 is a SQLite file and a
 statement costs microseconds, while in the Worker every statement is a request and a serialized
-chain costs its own length in latencies. One acceptance went from **65 sequential waits to 30**,
+chain costs its own length in latencies. One acceptance went from **65 sequential waits to 35**,
 with the phase table and the budgets in that file's footer.
 
 Four things moved it, none of them touching the decision/session atomicity the issue forbids
@@ -1016,9 +1018,11 @@ the "has this speaker any work yet" question is a one-row existence check rather
 the event's whole workspace; the composed route calls a new `ContentService.acceptSession` and so
 stops producing a projection it discarded; and the composition root memoizes "which organization
 runs this event" for the life of one request, where eight announcements each resolved it again.
-The console's own change is **perceptual and is named as such**: it announces from the response it
-already holds and refreshes in the background, rather than making the organizer wait through a
-second request first.
+A perceptual change — announcing from the response and refreshing in the background — was
+built and **backed out**. Not awaiting the reload re-enables every control, and unguards the
+dialog, over a table that still shows the abstract undecided; the bulk dialog reaches `done`
+before the rows it annotates exist; and `useLoad`'s polite status speaks over the
+confirmation. The saving was one round trip against a request already cut by thirty.
 
 **Three costs were measured and deliberately not taken**, and the reason is the same in two of
 them: `decide` reads the statuses and the proposals twice because `transitionAtomically`

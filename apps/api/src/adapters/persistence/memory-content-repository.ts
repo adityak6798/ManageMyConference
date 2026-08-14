@@ -275,8 +275,10 @@ export class MemoryContentRepository
     }
     this.comments = this.comments.filter(({ assetId: candidate }) => candidate !== assetId);
   }
-  async hasSpeakerWork(profileId: string) {
-    return this.tasks.some(({ speakerProfileId }) => speakerProfileId === profileId);
+  async hasSpeakerWork(eventId: string, profileId: string) {
+    return this.tasks.some(
+      (task) => task.eventId === eventId && task.speakerProfileId === profileId,
+    );
   }
   async addTask(task: SpeakerTask) {
     this.tasks = [...this.tasks, task];

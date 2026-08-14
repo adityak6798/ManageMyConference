@@ -304,9 +304,14 @@ export class D1SubmittedProposalAdapter implements SubmittedProposalInterface {
      * `INSERT … SELECT` writes no audit row when its subject is not there, and a transition
      * whose audit trail is missing is precisely the claim this domain must not make.
      *
-     * Zero from *either* half fails the whole transition rather than trimming the answer,
-     * because the two are one atomic act: `transitionAtomically` promises the caller that a
-     * partial result is not one of the outcomes.
+     * **Be exact about what this refuses, because it is the report rather than the write.** The
+     * batch has already returned by the time this runs, so D1 has committed it — unlike every
+     * other throw in this method, which fires on a batch D1 rolled back. What is refused is the
+     * *answer*: over several proposals, one whose row vanished in the read-to-batch gap leaves
+     * the others durably transitioned, and this refuses to hand back a list claiming all of them
+     * moved. The caller's retry is what converges, exactly as it does for a decision whose
+     * session failed — every statement here is idempotent, so re-posting the same transition
+     * writes the missing rows and answers cleanly.
      */
     const changes = results.map((result, index) =>
       changedRows(
@@ -315,7 +320,9 @@ export class D1SubmittedProposalAdapter implements SubmittedProposalInterface {
       ),
     );
     if (changes.some((count) => count === 0))
-      throw new Error("Atomic proposal transition matched no submission");
+      throw new Error(
+        "A proposal in this transition matched no submission; the batch committed, so retry to converge",
+      );
     return current.map((item) => ({ ...item, status: input.toStatus }));
   }
   async listAudit(eventId: string) {

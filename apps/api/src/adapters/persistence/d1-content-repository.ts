@@ -225,15 +225,31 @@ export class D1ContentRepository
    * SQLite counts a row it rewrote to the same values as changed, so this distinguishes "no such
    * row" from "no visible difference" rather than refusing an edit that changed nothing.
    *
-   * **Every conditional writer in this file now reads the count** (issue #202, which is the
-   * second filing of the same divergence). `run` survives for the writers where a count decides
-   * nothing — inserts, whose failure mode is a raised constraint rather than a quiet zero, and
-   * the two `ON CONFLICT DO UPDATE` upserts, which converge by design. The three exceptions that
-   * do go through `write` and deliberately discard the number say so at their own sites:
-   * `deleteTaskTemplate` and `deleteSession`, where a row already gone is the outcome asked for,
-   * and the batch path, which reports each statement's count to its caller. `updateProfile` and
-   * `updateSession` are the only writers left on a bare `.run()`, and they are fixture-only with
-   * no production caller to mislead — stated on both, here and in `content-repository.ts`.
+   * **Every writer in this file that addresses one row by id goes through here** (issue #202,
+   * the second filing of the same divergence). That is the rule, and it is stated as what it is
+   * rather than as "every conditional writer", which an earlier draft of this comment claimed and
+   * which was not true — a review pass found three writers the claim did not cover. The list
+   * below is the whole of it, so a later reader can check rather than trust:
+   *
+   * - **Reads the count and answers with it**: `updateProfilePhoto`, `updateProfileWorkflow`,
+   *   `updateTask`, `updateAsset`, `updateResource`, `updateTaskTemplate`, `completeSpeakerImport`.
+   *   Each has a caller that reports success to a person.
+   * - **Reads the count and deliberately discards it**: `deleteSession`, `deleteResource`,
+   *   `deleteTaskTemplate`. A row already gone is the outcome the caller asked for, so zero is
+   *   not a failure — but a driver that cannot report a count still is, which is the half worth
+   *   keeping.
+   * - **Plain inserts**, whose failure mode is a raised constraint rather than a quiet zero, and
+   *   the two `ON CONFLICT DO UPDATE` upserts, which converge by design. `beginSpeakerImport` is
+   *   an `INSERT OR IGNORE` and so *does* converge on a quiet zero — deliberately: it claims the
+   *   ledger row, and a row another attempt already claimed is the same outcome. Its caller reads
+   *   the state back through `findSpeakerImport` rather than inferring it from a count.
+   * - **The batch paths**: the private `batch()` used by `revise` reports each statement's count
+   *   to its caller, while `accept`, `addTasks`, `replaceLatestAsset` and `deleteAsset` go
+   *   straight to `database.batch` and read only `success`. The first two are inserts. The two
+   *   asset writes carry a conditional `is_latest` update whose zero means "no other version to
+   *   promote", which is an ordinary state rather than a lost write.
+   * - **On a bare `.run()`**: `updateProfile` and `updateSession` alone, both fixture-only with
+   *   no production caller to mislead — stated here and in `content-repository.ts`.
    */
   private async write(query: string, ...values: unknown[]) {
     const result = await this.database
@@ -378,9 +394,11 @@ export class D1ContentRepository
      * when a portal caller owns no profile on this event, and the six scoped queries below are
      * meaningless before that is known.
      *
-     * The rows a caller sees are still one consistent read of the event under D1's snapshot
-     * semantics for the statements in flight; ordering these seven against each other never
-     * meant anything, because a concurrent writer could land between any two of them in the old
+     * This buys no *less* consistency than before, and it is worth stating that way rather than
+     * claiming a snapshot: D1 gives no cross-statement isolation, so seven `prepare().all()`
+     * calls are seven independent reads whether they are issued serially or together — only
+     * `batch()` is one transaction. Ordering them against each other therefore never meant
+     * anything, because a concurrent writer could land between any two of them in the old
      * arrangement just as easily.
      */
     const [sessionRows, taskRows, assetRows, messageRows, resourceRows, commentRows, revisionRows] =
@@ -609,13 +627,20 @@ export class D1ContentRepository
     if (results.some((result) => !result.success))
       throw new Error("Content asset deletion batch failed");
   }
-  async hasSpeakerWork(profileId: string) {
+  async hasSpeakerWork(eventId: string, profileId: string) {
     // `LIMIT 1` and no columns beyond the constant: the caller wants existence, and the index on
     // `speaker_profile_id` answers it without reading a row's payload.
+    //
+    // The event predicate is redundant *today* — a `speaker_profiles` row belongs to exactly one
+    // event, so every task on a profile is on that profile's event — and it is here because
+    // `speaker_tasks.event_id` is an independent foreign key with nothing constraining it to the
+    // profile's own event. Without it the port's promise ("on this event") would be true by an
+    // invariant no column enforces, and the caller already holds the id.
     return (
       (
         await this.rows(
-          "SELECT 1 FROM speaker_tasks WHERE speaker_profile_id = ? LIMIT 1",
+          "SELECT 1 FROM speaker_tasks WHERE event_id = ? AND speaker_profile_id = ? LIMIT 1",
+          eventId,
           profileId,
         )
       ).length > 0
@@ -722,7 +747,14 @@ export class D1ContentRepository
     return changedRows(result, "update a speaker resource") > 0;
   }
   async deleteResource(resourceId: string) {
-    await this.run("DELETE FROM speaker_resources WHERE id=?", resourceId);
+    // The same reading as `deleteSession` and `deleteTaskTemplate`: a resource already gone is
+    // the outcome the caller asked for, so the count is read and discarded rather than returned.
+    // What that keeps is the other half — a driver that cannot report one is a failure here
+    // rather than a silent success. This was the one conditional delete #202 left out.
+    changedRows(
+      await this.write("DELETE FROM speaker_resources WHERE id=?", resourceId),
+      "delete a speaker resource",
+    );
   }
   async findResource(resourceId: string) {
     const row = (

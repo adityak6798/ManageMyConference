@@ -647,6 +647,13 @@ export function EventTemplatesWorkspace({
                     </Pill>
                   </div>
                   <span className="sub">{category.reason}</span>
+                  {/* The entities the destination named in refusing. The first draft of the
+                      per-category card dropped these, leaving the reason sentence without the
+                      list of rooms, slots or rules it refers to. */}
+                  <SliceEntries
+                    title={`${eventName} would not accept`}
+                    entries={category.incompatible}
+                  />
                   <div className="toolbar">
                     <button
                       type="button"

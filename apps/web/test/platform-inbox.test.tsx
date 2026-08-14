@@ -128,6 +128,62 @@ describe("the operational inbox", () => {
     expect(reviews.getByText(/Every assignment has a completed evaluation/)).toBeInTheDocument();
   });
 
+  /**
+   * The sixth category (issue #203), which has no browser assertion and cannot get one cheaply.
+   *
+   * `seed/reset.sql` deletes `event_template_applications`, so the seeded event owes nothing, and
+   * populating it in the browser would mean applying a template engineered to half-fail. That
+   * leaves this tier as the only place the rendered section is proven at all, which the
+   * `ACC-OPS` scorecard row now says outright rather than implying browser coverage it lacks.
+   */
+  it("renders configuration this event was cloned into and never received", async () => {
+    stubFetch([
+      answer({
+        configuration: {
+          state: "ok",
+          items: [
+            {
+              key: `template-category:${eventId}:agenda:2026-08-01T09:00:00.000Z`,
+              category: "configuration",
+              title:
+                "Rooms and time slots was not configured from \u201cAnnual summit starter\u201d",
+              subtitle: "The destination has no room matching \u201cGrand Hall\u201d.",
+              priority: "high",
+              status: "open",
+              href: `/event-templates?event=${eventId}`,
+            },
+          ],
+        },
+      }),
+    ]);
+    render(<InboxWorkspace eventId={eventId} />);
+
+    const configuration = within(
+      (await screen.findByRole("region", { name: "Event configuration" })) as HTMLElement,
+    );
+    // The link goes where the repair lives, which is the whole point of raising it here: an
+    // operator who never opens Event templates is told, and taken there.
+    expect(
+      configuration.getByRole("link", {
+        name: /Rooms and time slots was not configured/,
+      }),
+    ).toHaveAttribute("href", `/event-templates?event=${eventId}`);
+    expect(configuration.getByText(/no room matching/)).toBeInTheDocument();
+    expect(configuration.getByText("high")).toBeInTheDocument();
+  });
+
+  it("says an event nothing was cloned into owes nothing, rather than showing a bare heading", async () => {
+    stubFetch([withTask("open")]);
+    render(<InboxWorkspace eventId={eventId} />);
+
+    const configuration = within(
+      (await screen.findByRole("region", { name: "Event configuration" })) as HTMLElement,
+    );
+    expect(
+      configuration.getByText(/Every category this event was cloned from arrived/),
+    ).toBeInTheDocument();
+  });
+
   it("reports the category that failed and keeps the others usable", async () => {
     stubFetch([withTask("open")]);
     render(<InboxWorkspace eventId={eventId} />);

@@ -172,21 +172,26 @@ export function OrganizerReviewWorkspace({
         note,
       });
       /*
-       * The workspace is refreshed, but the organizer is not made to wait through it (#207).
+       * Awaited, and issue #207 is the reason it is worth saying why.
        *
-       * The response already carries the outcome of every proposal in this decision — that is
-       * what `acceptances` is — so everything announced below is decided from it and nothing
-       * below reads `data`. Awaiting the reload first meant the confirmation appeared one
-       * further request after the work was already done, on the busiest write in the product.
+       * That issue asks whether a perceptual fix is available where the work is inherent, and one
+       * looked available here: everything announced below is decided from `result`, so the
+       * confirmation could be spoken before the reload and the refresh left to catch up. It was
+       * built that way and backed out, because review found three things that ride on this await
+       * and are not visible from this function.
        *
-       * This is the **perceptual** half of #207 and is named as such: the server-side work is
-       * unchanged and the reload still happens, so the audit tail and the score columns catch up
-       * exactly as they did. What changes is that the organizer is told the moment the server
-       * has finished rather than the moment the console has re-read everything.
+       * `setBusy(false)` runs in the `finally`, so not awaiting re-enables every control — and
+       * unguards `closeDecision` — while the table below still shows the abstract undecided.
+       * `pendingDecisions` is derived from `data.decisions`, so a bulk dialog would reach `done`
+       * before those rows exist and the recorded-decision annotations would pop in a request
+       * later. And `useLoad` renders a polite "Updating abstract triage…" status for the whole
+       * reload, which would then be speaking at the same instant as the confirmation.
+       *
+       * The saving was one HTTP round trip whose server side measures two sequential D1 waits,
+       * on top of a request this branch already took from 65 to 30. That is not worth a control
+       * that is live over state it does not yet reflect.
        */
-      // ERROR-INTENT: a failed refresh is `useLoad`'s to report — it keeps the last good data
-      // and renders its own error state; rejecting here would hide a confirmed decision instead.
-      void load().catch(() => undefined);
+      await load();
       // Absent for a decline, and — for a response that predates the composed route — absent for
       // an acceptance too, which is reported as unfinished rather than announced as done.
       const acceptances = result.acceptances ?? [];

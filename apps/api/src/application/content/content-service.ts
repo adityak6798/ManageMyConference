@@ -992,7 +992,7 @@ export class ContentService {
     const speaker = await this.resolveSpeaker(accepted, authorized.id, correlationId);
     // The conversion port owns the profile row, so the onboarding checklist is keyed off the
     // work already assigned to this person rather than off "did I just insert the profile".
-    const isNew = !(await this.dependencies.repository.hasSpeakerWork(speaker.id));
+    const isNew = !(await this.dependencies.repository.hasSpeakerWork(command.eventId, speaker.id));
     const session: ContentSession = {
       id: this.dependencies.newId(),
       eventId: command.eventId,
@@ -1036,27 +1036,39 @@ export class ContentService {
      * acceptance — the delivering domain deduplicates too, but not announcing it twice is
      * cheaper than deduplicating it twice.
      *
-     * The three announcements are issued **together** rather than one after another (issue
-     * #207). Each is an independent fact about work that has already committed, each carries its
-     * own idempotency key, and the port promises exactly one delivery per key however they are
-     * ordered — so the sequence between them never meant anything. What it cost was real: every
-     * announcement resolves the owning organization, writes an audit record, reads a template,
-     * inserts a delivery and writes a second audit record, and three of those chains end to end
-     * was 21 of the acceptance path's 65 sequential round trips.
+     * **The invitation goes first, and the task notices go together after it** (issue #207).
      *
-     * `Promise.all` rather than `allSettled`, deliberately: the port already documents that an
-     * implementation must not throw, and a chain of `await`s propagated the first rejection just
-     * as this does. The failure behaviour is unchanged along with everything else.
+     * Every announcement resolves the owning organization, writes an audit record, reads a
+     * template, inserts a delivery and writes a second audit record, and three of those chains
+     * end to end was 21 of the acceptance path's 65 sequential round trips — so the obvious move
+     * was to issue all three at once. Review found what that costs, and it is not nothing. A
+     * delivery's `created_at` and `next_attempt_at` are stamped inside the enqueue, *after* its
+     * own reads, and the sender claims one delivery at a time ordered on exactly those two
+     * columns. Three chains in flight together are stamped in completion order rather than in
+     * acceptance order, and ties are then broken by insert order, which is no longer fixed. A
+     * speaker could receive "Upload a headshot" before the invitation that explains what the
+     * tasks are for.
+     *
+     * Two waves rather than three keeps the ordering that carries meaning and most of the saving:
+     * nothing orders the two task notices against *each other* — they are two deliverables with
+     * their own dates — while the invitation genuinely precedes both.
+     *
+     * `Promise.all` rather than `allSettled` for the second wave: the port documents that an
+     * implementation must not throw, and the composition root's does not. Worth being exact about
+     * what that changes, because a chain of `await`s and a `Promise.all` are not the same on a
+     * rejection — sequential awaits meant the second task notice was never *invoked* if the first
+     * threw, where this invokes both and surfaces the first rejection. Unreachable through the
+     * bound port, and it is the port's contract rather than this line that makes it so.
      */
-    await Promise.all([
-      this.dependencies.speakerNotifications?.speakerAccepted({
-        eventId: command.eventId,
-        profileId: speaker.id,
-        speakerName: speaker.name,
-        speakerEmail: speaker.email,
-        sessionTitle: session.title,
-      }),
-      ...tasks.map((task) =>
+    await this.dependencies.speakerNotifications?.speakerAccepted({
+      eventId: command.eventId,
+      profileId: speaker.id,
+      speakerName: speaker.name,
+      speakerEmail: speaker.email,
+      sessionTitle: session.title,
+    });
+    await Promise.all(
+      tasks.map((task) =>
         this.dependencies.speakerNotifications?.taskAssigned({
           eventId: command.eventId,
           profileId: speaker.id,
@@ -1067,7 +1079,7 @@ export class ContentService {
           dueAt: task.dueAt,
         }),
       ),
-    ]);
+    );
     return session.id;
   }
 

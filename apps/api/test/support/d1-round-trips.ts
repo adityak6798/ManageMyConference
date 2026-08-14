@@ -118,8 +118,16 @@ export function recordRoundTrips<T extends Database>(
     return tracked;
   };
 
-  const proxy = {
-    ...database,
+  /*
+   * A `Proxy` rather than `{ ...database, prepare, batch }`.
+   *
+   * Spreading a class instance keeps only its own enumerable properties, so every prototype
+   * method other than the two overridden here — `exec`, `dump`, `withSession` on a real D1
+   * handle — is silently dropped. Nothing reaches for them today, so the spread passed; what it
+   * would have produced is a repository failing with "not a function" *only inside this suite*,
+   * which is a confusing signal from a gate whose whole subject is counting round trips.
+   */
+  const overrides: Record<string, unknown> = {
     prepare: (query: string) => track(database.prepare(query), query),
     batch: <R>(statements: Statement[]) =>
       record(
@@ -131,7 +139,14 @@ export function recordRoundTrips<T extends Database>(
             statements.map((statement) => underlying.get(statement) ?? statement),
           ) as Promise<R>,
       ),
-  } as unknown as T;
+  };
+  const proxy = new Proxy(database as object, {
+    get: (target, property, receiver) => {
+      if (property in overrides) return overrides[property as string];
+      const value = Reflect.get(target, property, receiver);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  }) as unknown as T;
 
   return {
     database: proxy,

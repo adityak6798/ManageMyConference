@@ -127,7 +127,7 @@ export interface ContentRepository {
    * that makes a retried acceptance assign the checklist once: the conversion port owns the
    * profile row, so a second attempt finds the profile already there either way.
    */
-  hasSpeakerWork(profileId: string): Promise<boolean>;
+  hasSpeakerWork(eventId: string, profileId: string): Promise<boolean>;
   addTask(task: SpeakerTask): Promise<void>;
   addTasks(tasks: readonly SpeakerTask[]): Promise<void>;
   addMessage(message: SpeakerMessage): Promise<void>;

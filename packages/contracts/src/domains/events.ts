@@ -277,6 +277,8 @@ export const outstandingConfigurationCategorySchema = z.object({
   label: z.string(),
   outcome: z.enum(["failed", "incompatible", "unauthorized"]),
   reason: z.string(),
+  /** What the destination named in refusing — the same entries the result card renders. */
+  incompatible: z.array(sliceEntrySchema),
   templateId: z.string().uuid(),
   templateName: z.string(),
   /** An archived template cannot be applied, so a surface offering the repair must know. */

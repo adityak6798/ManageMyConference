@@ -321,6 +321,7 @@ describe("event templates", () => {
       version: 1,
       outstandingSince: "2027-01-05T12:00:00.000Z",
       destination: { startsOn: "2027-03-08", endsOn: "2027-03-10" },
+      incompatible: [{ id: "room-grand-hall", label: "Room: Grand Hall" }],
     };
 
     it("says so on a page nobody applied anything on, and names what is missing", async () => {
@@ -333,6 +334,9 @@ describe("event templates", () => {
       // The category that did not land, with the destination's own reason for refusing it.
       expect(card.getAllByText("Rooms and time slots").length).toBeGreaterThan(0);
       expect(card.getByText(/no room matching/)).toBeInTheDocument();
+      // The entities the destination named, not only the sentence about them: a multi-entity
+      // refusal has to be enumerable without re-applying.
+      expect(card.getByText("Room: Grand Hall")).toBeInTheDocument();
       // And not the one that did: this card is what is still outstanding, not a full history.
       expect(card.queryByText("CFP form and routing")).toBeNull();
       // The version that owes it, because "which clone left this" is the first thing an

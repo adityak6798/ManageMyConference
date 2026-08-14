@@ -40,6 +40,8 @@ export interface AppliedCategoryReport {
   readonly label: string;
   readonly outcome: string;
   readonly reason: string;
+  /** What the destination would not accept, named. Empty for a refusal with no named entities. */
+  readonly incompatible: readonly { readonly id: string; readonly label: string }[];
 }
 
 /** Exactly the fields of a stored application this fold reads. */
@@ -68,6 +70,15 @@ export interface OutstandingCategory {
   /** The refusal the deciding application recorded, and what it said about it. */
   readonly outcome: Refusal;
   readonly reason: string;
+  /**
+   * The entities the destination named in refusing, carried rather than summarised.
+   *
+   * The per-application card rendered these beside each refused category, and the first draft of
+   * the per-category fold dropped them — leaving the organizer the reason sentence but not the
+   * list of rooms, slots or rules it refers to, so a multi-entity refusal needed a re-apply to
+   * enumerate. They are stored on the slice already; nothing here has to derive them.
+   */
+  readonly incompatible: readonly { readonly id: string; readonly label: string }[];
   readonly templateId: string;
   readonly templateName: string;
   /** An archived template cannot be applied, so a surface offering the repair must know. */
@@ -121,6 +132,7 @@ export function outstandingConfiguration(
               label: slice.label,
               outcome: slice.outcome,
               reason: slice.reason,
+              incompatible: slice.incompatible,
               templateId: application.templateId,
               templateName: application.templateName,
               templateState: application.templateState,
