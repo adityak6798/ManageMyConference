@@ -1640,11 +1640,13 @@ it — a real organization on this deployment could send **nothing**, for four i
 and fixing any one of them alone left the outcome exactly where it started. They ship together for
 that reason and no other.
 
-**Migration numbers taken.** Communications `1706` (default lifecycle templates) and `1707`
+**Migration numbers taken.** Communications `1706` (default lifecycle templates), `1707`
 (`trigger_type` widened by `cfp.deadline_approaching` and `cfp.call_closed`, following `1705`'s
-four-table rebuild recipe). Identity `1005` (`identity_oauth_attempts.workspace_intent`). `1707` is
-the second worked example of the cross-domain rule in `apps/api/migrations/README.md`: the table is
-communications', and half the reason to change it is CFP's.
+four-table rebuild recipe) and `1708` (`communication_deliveries.recipient_trust`, an `ADD COLUMN`
+defaulting to `account` with a covering index for the cap's read). Identity `1005`
+(`identity_oauth_attempts.workspace_intent`). `1707` is the second worked example of the
+cross-domain rule in `apps/api/migrations/README.md`: the table is communications', and half the
+reason to change it is CFP's.
 
 **Where the four fixes drew their lines.**
 
@@ -1656,8 +1658,12 @@ communications', and half the reason to change it is CFP's.
   it when that batch fails (#164) — a template written at creation makes that `DELETE` fail on a
   foreign key and leaves the orphan `GAP-019` refuses on for ever.
 - **The provider split.** Per channel, each channel still all-or-nothing, `demandHttpsUrl` intact.
-  An unconfigured channel is deterministic everywhere except a deployment naming itself production,
-  where it refuses each delivery instead. Refusing at *resolution* there was the other option and is
+  An unconfigured channel is deterministic on a **named development environment** and refuses each
+  delivery everywhere else. The rule is an allow-list rather than a production deny-list, and that
+  is a repair: the first version asked whether `ENVIRONMENT` named production, so `production-eu` —
+  or any value nobody anticipated — handed an unconfigured channel a provider that reports `fake:`
+  success and writes projection state. A deployment that has not said which environment it is gets
+  the safe answer. Refusing at *resolution* rather than per delivery was the other option and is
   worse: it takes the whole drain down, so the channel the operator did configure stops sending too.
 - **The reset scoping.** Every cleanup names the ids the seed inserts, and `tools/compose-seed.mjs`
   now refuses a bare `DELETE` in any fragment. `#208`'s guard is deliberately untouched — it reads
@@ -1666,7 +1672,12 @@ communications', and half the reason to change it is CFP's.
   that is recorded in `GAP-019` rather than fixed by relaxing a guard on the strength of SQL
   somebody could edit tomorrow.
 - **#132.** Shipped as a durable per-`(event, address)` cap on messages to an address nobody proved
-  they control, derived from the deliveries themselves rather than a counter. **Left open**, and
+  they control, derived from the deliveries themselves rather than a counter. Two properties of it
+  are load-bearing and each came out of the review pass. The address is compared as a **mailbox**,
+  lower-cased with any `+tag` removed, because `Victim@x`, `vIctim@x` and `victim+1@x` are one
+  person's inbox and three buckets would have made "a hundred proposals cost three messages" false.
+  And only a delivery the caller marked `declared` counts (migration `1708`), because counting the
+  verified ones let a speaker's three messages refuse a legitimate decline to the same address. **Left open**, and
   deliberately: the issue's outcome is an address somebody has *proven or confirmed*, and a cap is a
   bound on amplification rather than a verification. Double opt-in — the issue's other mechanism —
   does not close it either while the guest door must keep working, because the confirmation mail is
@@ -1677,6 +1688,15 @@ communications', and half the reason to change it is CFP's.
 a conference workspace (a `GAP-027` residual of #190 that no lane owned), because the lane was
 already deciding what happens when an organization is created; and #222's post-mutation state
 convergence, because it is the same surface as #210 and #211.
+
+**#222 drew one line worth recording.** The public page re-reads the server's `effectiveStatus`
+when its tab returns to the front rather than polling, which converges the case that happens — the
+deadline is moved in one tab while the public page sits in another — and adds nothing to a page
+left open on a conference screen all day. A page in the foreground across a deadline still shows
+the previous answer until the visitor acts; the server refuses the submission either way, so what
+is at stake is the wording rather than the enforcement. The browser spec that proves it states its
+own limit: headless Chromium keeps a background tab `visible`, so `bringToFront` fires no
+`visibilitychange` and the spec dispatches the event on the real document.
 
 **What is still not proven.** No mail has ever left this codebase. Every provider test stubs
 `fetch`, and this lane adds none that do not — the per-channel split is verified against stubs and

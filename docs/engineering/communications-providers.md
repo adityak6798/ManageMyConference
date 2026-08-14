@@ -34,16 +34,26 @@ Three rules, and none of them is a softening:
   would put a bearer credential on the wire in clear text, and it is refused at resolution rather
   than per delivery.
 - **A channel nobody configured never becomes a silent fake on a deployment that believes it is
-  live.** Where `ENVIRONMENT` names production (`production`, `prod`, `live`, any case) an
-  unconfigured channel gets `UnconfiguredProvider`, which refuses every delivery terminally with
-  `PROVIDER_NOT_CONFIGURED` and never reports a `fake:` reference. Anywhere else it gets
-  `DeterministicProvider`, which is what lets this deployment run the demo's Airtable and
-  Accelevents projections beside real mail.
+  live.** Where `ENVIRONMENT` names a **development** deployment — `development`, `dev`, `local`,
+  `test`, `ci`, `preview`, any case — an unconfigured channel gets `DeterministicProvider`, which
+  is what lets this deployment run the demo's Airtable and Accelevents projections beside real
+  mail. **Everywhere else, including a value nobody recognizes**, it gets `UnconfiguredProvider`,
+  which refuses every delivery terminally with `PROVIDER_NOT_CONFIGURED` and never reports a
+  `fake:` reference.
 
-Refusing *at resolution* for the production case was the other option and is worse: it takes the
-whole drain down, so the channel the operator did configure would stop sending too. Refusing per
-delivery keeps the failure where an organizer can see it, in the delivery history, and the
-console's retry is the recovery once the bindings are set.
+  The question is "is this development?" rather than "is this production?" on purpose, and asking
+  it the other way round is a defect this lane shipped and then repaired. A deny-list fails open on
+  a name nobody anticipated: `ENVIRONMENT=production-eu` matched no production spelling, so an
+  unconfigured channel there answered `fake:` for every delivery *and* wrote projection state
+  recording it as pushed — green console, nothing off the machine. Under the all-or-nothing switch
+  the split replaced, that same configuration refused to resolve at all, which made the split
+  quietly worse for exactly one configuration. An operator who wants fakes now says so in a word
+  the set contains.
+
+Refusing *at resolution* was the other option and is worse: it takes the whole drain down, so the
+channel the operator did configure would stop sending too. Refusing per delivery keeps the failure
+where an organizer can see it, in the delivery history, and the console's retry is the recovery
+once the bindings are set.
 
 `ACCELEVENTS_TOKEN` belongs to two channels — the outbound projection and the inbound
 registration read — so it is deliberately **not** read as a request for either. What marks a
@@ -81,8 +91,11 @@ A `live` channel missing some of its variables **throws**, naming every missing 
 it never falls back to a fake. The failure this rule exists to prevent is a deployment that
 believes it is mailing speakers while appending to an in-memory array. In the same spirit,
 `fixture` is refused when `ENVIRONMENT` names a production deployment (`production`, `prod` or
-`live`, in any case), and under `live` the same deployment gets a refusing provider rather than a
-deterministic one for any channel it has not configured.
+`live`, in any case), and under `live` any deployment that has *not* named itself a development
+one gets a refusing provider rather than a deterministic one for each channel it has not
+configured. The two questions are deliberately different: refusing a whole deployment on an
+unrecognized name would take `fixture` down for anybody who spelled their environment unusually,
+while refusing one unconfigured channel there costs nothing that was working.
 
 **Where that throw happens, precisely.** `resolveProviders` is called from `drainOutbox`, which
 the one-minute scheduled trigger invokes — **not** at module load and **not** on the request path.
@@ -178,7 +191,7 @@ history means one thing across all three:
 | `MALFORMED_PROVIDER_RESPONSE` | terminal | 2xx we cannot parse, or with no reference | inspect the provider's own logs; the effect may have happened |
 | `RECIPIENT_NOT_ADDRESSABLE` | terminal | `recipient_ref` is not a mail address | correct the recipient reference at the source |
 | `MESSAGE_NOT_RENDERED` | terminal | an email delivery carrying no rendered body | a bug: the delivery was written outside the service |
-| `PROVIDER_NOT_CONFIGURED` | terminal | `live` on a deployment naming itself production, on a channel with none of its bindings set | set that channel's bindings and retry the delivery, or accept that the channel is not in use. Never a fake success |
+| `PROVIDER_NOT_CONFIGURED` | terminal | `live` on any deployment that has not named itself a development environment, on a channel with none of its bindings set | set that channel's bindings and retry the delivery, or accept that the channel is not in use. Never a fake success |
 | `CALENDAR_INVITE_MALFORMED` | terminal | `payload.calendarInvite` is present but unusable | a bug: the invitation was built outside `buildSpeakerInvite`. Sending the covering note without the invitation would tell a speaker a meeting exists and give them no way to accept it, so nothing is sent |
 | `RETRY_EXHAUSTED:<code>` | terminal | three retryable attempts | the underlying code names the cause |
 

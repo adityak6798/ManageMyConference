@@ -141,8 +141,10 @@ feature-by-feature verdict.
   per channel** (2026-08-14): `live` used to demand all eight bindings at once, so a deployment
   with a mail provider and no Airtable account could not turn email on at all. Each channel is
   decided on its own bindings and is still all-or-nothing, and a channel nobody configured is
-  the deterministic fake everywhere except a deployment naming itself production, where it
-  refuses every delivery rather than reporting a `fake:` reference. That removes the reason this
+  the deterministic fake only where `ENVIRONMENT` names a development deployment; anywhere else,
+  including a name nobody anticipated, it refuses every delivery rather than reporting a `fake:`
+  reference. That direction is deliberate — a production deny-list failed open on `production-eu`
+  and wrote projection state claiming a push that never happened. That removes the reason this
   deployment could not send; it does not make a send observed. **The `calendar` field is the
   least portable part and is now stated as a residual**: an invitation reaches a calendar as a
   `text/calendar; method=REQUEST` alternative part, providers express that differently or not at
@@ -676,7 +678,12 @@ feature-by-feature verdict.
   A guest proposal's address is a form answer, and the decision notification is the one message
   the product sends to one. An event may now write at most three such messages to one address —
   so a hundred guest proposals naming one victim cost that person three messages rather than a
-  hundred — and a refused one is reported on the event's timeline rather than swallowed. That is
+  hundred — and a refused one is reported on the event's timeline rather than swallowed. The
+  address is compared as a mailbox rather than as a string: lower-cased, with any `+tag` removed,
+  because one inbox spelled three ways would otherwise be three separate budgets. Only a delivery
+  the caller marked `declared` is counted (`communication_deliveries.recipient_trust`, migration
+  `1708`), so a speaker's messages to the same address cannot exhaust a guest's budget or be
+  exhausted by it. That is
   a bound on amplification and **not** a verification, which is why `#132` stays open: closing it
   needs an address the applicant has confirmed, and a confirmation mail on a public form is
   itself the send primitive the cap exists to bound. `DEBT-012` and `DEBT-013` stand unchanged.

@@ -97,6 +97,7 @@
         "apps/api/test/cfp-deadline-notices.test.ts",
         "apps/web/e2e/00-seed-state.spec.ts",
         "apps/web/e2e/cfp.spec.ts",
+        "apps/web/e2e/cfp-window.spec.ts",
         "apps/web/e2e/cfp-submitter.spec.ts",
         "apps/web/e2e/lifecycle.spec.ts"
       ]
@@ -170,6 +171,7 @@
         "apps/web/e2e/public-itinerary.spec.ts",
         "apps/web/e2e/publishing.spec.ts",
         "apps/web/e2e/00-seed-state.spec.ts",
+        "apps/web/e2e/cfp-window.spec.ts",
         "apps/web/e2e/lifecycle.spec.ts"
       ]
     },
