@@ -232,6 +232,19 @@ feature-by-feature verdict.
   than the four earlier sightings supported, and one that raises this from an annoyance to
   something that blocks the branch-protection work `GAP-003` describes.
 
+  A sixth sighting, and the first **local** one since the fix above: 2026-08-14, issue #196's
+  branch. The same bare `✘ [ERROR]` with no message, 23 specs into an otherwise ordinary run —
+  every request after it `socket hang up` and then `ECONNREFUSED 127.0.0.1:20388`, 47 of 73 tests
+  failed, and the suite took 19.8 minutes instead of its usual two because most of the failures
+  were 30-second timeouts. It is recorded because it satisfies the discriminator the fifth sighting
+  just introduced, from the other side: the *same commit* had failed 14 specs for real reasons in
+  the run before, and passed 72 in the run after, with nothing changed between them. Two disjoint
+  outcomes for one tree.
+
+  One detail the earlier sightings do not carry: the port was this checkout's own derived one, so
+  `GAP-004`'s per-worktree isolation had done its job and the runtime died anyway. It is a runtime
+  fault rather than a contention one, which narrows where a fix would have to go.
+
   **One cause of this is now found and fixed: the D1 harness was exhausting the machine's
   ephemeral ports.** Every call on a D1 database is an HTTP request to the workerd process over
   its own TCP connection, and `apps/api/test/support/seeded-d1.ts` ran every migration statement

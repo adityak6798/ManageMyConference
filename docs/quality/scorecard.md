@@ -39,7 +39,7 @@ Three terms are used precisely:
 
 ## What was measured
 
-Everything below was run on 2026-08-11, in this order, against the commit this document names.
+Everything below was run on 2026-08-14, in this order, against the commit this document names.
 Each run wrote a record under `.evidence/`, and `gate:evidence` refuses these rows if a record is
 missing, failed, or was produced against a different commit — so the numbers here are checkable
 rather than asserted.
@@ -51,12 +51,23 @@ issues #28 and #90).
 
 | Command | Result |
 |---|---|
-| `npm run check` | exit 0 — `gate:integrity` (gate drift over 6 gates, Biome/Ruff format, `greenroom-context check`, Python CLI tests, lint + AST error policy, typecheck, OpenAPI drift, declared-schema drift over 34 tables and 22 migrations), then `gate:test-build` (376 tests across the `node --test` tool suite, `@greenroom/api` and `@greenroom/web`, plus both production builds), then `gate:d1` (28 tests in 12 files), then `gate:evidence` |
-| `npm run gate:browser` (`setup:local`, production web build, `reset`, then the suite) | 30 passed, on derived ports with no manual port assignment. This is the clean-reset run; building first also proves Wrangler can serve the production frontend artifact from a clean checkout |
-| `npm run test:e2e` again against the same still-running servers | 30 passed — re-runnable on one fixture without a reset |
-| `npm run test:quality` | 3 passed |
+| `npm run check` | exit 0 — `gate:integrity` (gate drift over 6 gates, Biome/Ruff format, `greenroom-context check`, Python CLI tests, lint + AST error policy, typecheck, OpenAPI drift, declared-schema drift over 94 tables and 66 migrations), then `gate:test-build` (1003 tests in `@greenroom/api`, 371 in `@greenroom/web`, and the `node --test` tool suite, plus both production builds), then `gate:d1` (242 tests in 27 files), then `gate:evidence` |
+| `npm run gate:browser` (`setup:local`, production web build, `reset`, then the suite) | 72 passed, on derived ports with no manual port assignment. This is the clean-reset run; building first also proves Wrangler can serve the production frontend artifact from a clean checkout |
+| `npm run test:quality` | 7 passed |
 | `npm run gate:security` | exit 0 — `npm audit --audit-level=high` found 0 vulnerabilities |
 | gitleaks | **not runnable locally.** It is a marketplace action; it succeeded in the `security` job of run `31471037575` at head `10eab436` |
+
+The **re-runnable** property — a second `npm run test:e2e` against the same still-running servers,
+with no reset — was measured on 2026-08-11 at 30 passed and has **not** been re-measured since the
+suite grew to 73. It is listed here rather than in the table above because it is an older
+measurement of a property that is still claimed, and dropping it silently would be indistinguishable
+from withdrawing it.
+
+The 2026-08-14 measurement above is the *fourth* run of that commit's suite. The first found three
+real defects and is why they are fixed; the third collapsed 23 specs in when the local Worker died
+with a bare `✘ [ERROR]`, failing 47 tests in 19.8 minutes, and the fourth passed 72 in 1.5 minutes
+with nothing changed between them. That is `GAP-017`, and this pair of runs is the clearest
+before-and-after that entry has.
 
 The earlier measurement of two `wrangler dev` instances of one worktree corrupting each other —
 2 failures across 5 runs, a different spec each time — is **no longer reproducible and is not
