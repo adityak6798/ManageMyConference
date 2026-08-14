@@ -584,7 +584,7 @@ feature-by-feature verdict.
 
   Owner: content. Governing ID: `PRD-SPK-001`, `PRD-SPK-002`, `PRD-CNT-001`.
 
-- `GAP-027` **The submission window has no operator surface for a call that closes while nobody is watching, and the account door is narrower than the product implies.** Issue #190 made the CFP lifecycle account-bound: a scheduled window, owned proposals, drafts, revisions, a submitter dashboard, a confirmation whose recipient comes from the session, and a decision message addressed to the owning account rather than to a form answer. Three limits survive it, and they are stated together because they share a cause — the surrounding deployment rather than the domain. A fourth belongs to `#132` rather than here: a *guest* proposal has no account, so its decision is still addressed to an unverified form answer.
+- `GAP-027` **The submission window has no operator surface for a call that closes while nobody is watching, and the account door is narrower than the product implies.** Issue #190 made the CFP lifecycle account-bound: a scheduled window, owned proposals, drafts, revisions, a submitter dashboard, a confirmation whose recipient comes from the session, and a decision message addressed to the owning account rather than to a form answer. Five limits survive it, and they are stated together because they share a cause — the surrounding deployment rather than the domain. A fourth belongs to `#132` rather than here: a *guest* proposal has no account, so its decision is still addressed to an unverified form answer.
 
   **Nothing announces the deadline before it passes.** The window is enforced at the application boundary and displayed on both surfaces, but no reminder reaches anybody: an organizer who set a deadline and forgot it discovers the call closed from a quiet inbox, and a submitter with an unsubmitted draft is never told it is about to become unsubmittable. Both would be `proposal.submitted`-shaped deliveries with a scheduled trigger, which is a communications-owned decision (which trigger, whose cadence, and whether a draft holder has consented to be reminded) rather than a CFP one.
 
@@ -597,13 +597,20 @@ feature-by-feature verdict.
   **Two smaller residuals on the applicant's own screen, both found by the fifteenth review pass
   and both left deliberately.** Pressing `Continue` on the proposal already being edited reloads
   its stored answers over anything typed and unsaved, saying only "Editing …" — silent loss of the
-  applicant's work on a surface whose spec is otherwise emphatic that drops are announced. And
-  `CfpWorkspace` seeds its two window inputs from the loaded form in a passive effect whose deps
-  move `undefined → null` when the load lands, so an organizer who types a deadline before that
-  resolves has it cleared; the card renders before the read returns. Neither persists anything
-  wrong and both are visible on screen. They are recorded rather than repaired because the five
-  repair commits before them each introduced the defect the next review pass found, and neither of
-  these is worth that risk on this branch. Owner: cfp.
+  applicant's work on a surface whose spec is otherwise emphatic that drops are announced. Nothing
+  wrong is persisted and the loss is visible on screen; it is recorded rather than repaired because
+  the five repair commits before it each introduced the defect the next review pass found, and it
+  is not worth that risk on this branch. Owner: cfp.
+
+  **A second one was recorded here and then withdrawn**, which is worth leaving written down. The
+  claim was that `CfpWorkspace` seeds its window inputs in a passive effect and so an organizer
+  typing a deadline before the form load resolves has it cleared. The next pass checked it: the
+  card is behind a `loadingCfp` skeleton, so the read *has* returned before the control exists, and
+  the only remaining window is between that commit and the effect — sub-frame, reachable by a
+  synchronous `fireEvent` and not by a person typing. It is a test-driver artifact, which is
+  exactly what the flake fix treated it as. Left here because a withdrawn residual is otherwise
+  indistinguishable from one nobody looked at, and because the commit that recorded it existed to
+  deflate over-claims and introduced one.
 
   Owner: cfp, with the first limit shared with communications-integrations. Governing ID:
   `PRD-CFP-003`, `PRD-CFP-004`, `PRD-COM-001`, `ACC-CFP`. Closure: a scheduled deadline reminder
