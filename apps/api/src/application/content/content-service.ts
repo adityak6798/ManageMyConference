@@ -269,6 +269,15 @@ const CALENDAR_LINE_OCTETS = 75;
 const DAY_MILLISECONDS = 24 * 60 * 60 * 1000;
 
 /**
+ * What a CSV import reports for a row whose speaker or ledger row was deleted while it ran.
+ *
+ * Distinct from the generic `Import failed; retry this row safely` on purpose: that one is any
+ * thrown fault, and this one is the specific outcome `PRD-SPK-001` decides — the row matched no
+ * row, so nothing was written, and the import says so instead of counting it.
+ */
+const VANISHED_MID_IMPORT = "Speaker record removed during import; retry this row";
+
+/**
  * RFC 5545 section 3.1 admits every character except CONTROL (%x00-08, %x0A-1F, %x7F) in a
  * TEXT value; HTAB is the one C0 character that survives. Line breaks are escaped before this
  * runs, so whatever is left is a control character no conforming parser would accept.
@@ -415,13 +424,24 @@ export class ContentService {
             idempotencyKey: `content-csv:${input.eventId}:${row.email}`,
           });
           const profile = await this.dependencies.repository.findProfile(speakerId);
-          if (profile) {
-            const parseFields = (value?: string) =>
-              value ? (JSON.parse(value) as Record<string, string>) : {};
-            // The three columns the import owns, and only those. Writing the whole row would
-            // carry a name, bio and headshot from the read above, so a long import could
-            // quietly revert an organizer editing the same speaker while it ran.
-            await this.dependencies.repository.updateProfileWorkflow(profile.id, {
+          const parseFields = (value?: string) =>
+            value ? (JSON.parse(value) as Record<string, string>) : {};
+          // The three columns the import owns, and only those. Writing the whole row would
+          // carry a name, bio and headshot from the read above, so a long import could
+          // quietly revert an organizer editing the same speaker while it ran.
+          //
+          // The decision issue #202 was waiting on, and it is stated in `PRD-SPK-001`: a row
+          // whose speaker vanished between `createOrLink` and this write is **refused and
+          // reported**, not skipped and not fatal to the rest of the file. Skipping is what
+          // this code used to do — `if (profile)` fell through to `completeSpeakerImport` and
+          // `imported += 1`, so a deleted speaker was counted as imported and the ledger
+          // recorded a run that wrote nothing. Failing the whole batch would throw away every
+          // row that did land for one that did not. Refusing one row loses nothing, because
+          // the ledger is keyed on the normalized address: it stays `pending`, so re-running
+          // the same file re-attempts exactly this row and converges.
+          const written =
+            profile !== null &&
+            (await this.dependencies.repository.updateProfileWorkflow(profile.id, {
               workflowStatus: (["invited", "onboarding", "ready", "blocked"].includes(
                 row.workflowStatus ?? "",
               )
@@ -429,9 +449,16 @@ export class ContentService {
                 : "onboarding") as SpeakerWorkflowFields["workflowStatus"],
               logistics: parseFields(row.logistics),
               customFields: parseFields(row.customFields),
-            });
+            }));
+          // Same reading for the ledger's own row: a count of zero means the mark of completion
+          // landed on nothing, so this run may not claim the import finished.
+          if (
+            !written ||
+            !(await this.dependencies.repository.completeSpeakerImport(input.eventId, row.email))
+          ) {
+            row.errors.push(VANISHED_MID_IMPORT);
+            continue;
           }
-          await this.dependencies.repository.completeSpeakerImport(input.eventId, row.email);
           imported += 1;
         } catch {
           // ERROR-INTENT: imports are idempotent per normalized email; expose the failed row so a retry is explicit and safe.
@@ -1165,7 +1192,13 @@ export class ContentService {
       throw new SpeakerPhotoInvalidError({
         assetId: [`“${asset.name}” is not an image. A profile photo must be a PNG or JPEG.`],
       });
-    await this.dependencies.repository.updateProfilePhoto(profile.id, asset.id);
+    // No row matched: the profile went between `requireProfileSteward` reading it and this
+    // write, so the choice was recorded on nothing. Answered exactly as a profile that never
+    // existed is, because that is what it now is (`ARC-AUTH-001`) — and specifically not with
+    // the object this method could construct, which is how a 200 came to report a headshot on
+    // a deleted speaker (issue #202).
+    if (!(await this.dependencies.repository.updateProfilePhoto(profile.id, asset.id)))
+      throw new CapabilityDeniedError("Speaker profile access denied");
     // Answered from the store rather than from the copy read a moment ago. Now that this writes
     // one column, an organizer's edit landing alongside it survives — and a response assembled
     // from the earlier read would report the bio it replaced as though it were still there.
@@ -1187,7 +1220,10 @@ export class ContentService {
   async clearProfilePhoto(actor: Actor | null, profileId: string): Promise<SpeakerProfile> {
     const profile = await this.requireProfileSteward(actor, profileId);
     const { photoAssetId: _removed, ...withoutPhoto } = profile;
-    await this.dependencies.repository.updateProfilePhoto(profile.id, null);
+    // As in `setProfilePhoto`: withdrawing a choice from a profile that has gone is refused
+    // rather than reported as done.
+    if (!(await this.dependencies.repository.updateProfilePhoto(profile.id, null)))
+      throw new CapabilityDeniedError("Speaker profile access denied");
     return (await this.dependencies.repository.findProfile(profile.id)) ?? withoutPhoto;
   }
 
@@ -1412,7 +1448,13 @@ export class ContentService {
     if (!asset) throw new CapabilityDeniedError("Organizer asset access denied");
     requireEventCapability(actor, asset.eventId, "content:manage");
     const updated: SpeakerAsset = { ...asset, visibility };
-    await this.dependencies.repository.updateAsset(updated);
+    // The whole reason this method reads a count. It answers with the object it just built, so
+    // a write that matched nothing used to report an asset another organizer had already
+    // deleted as private — a 200 describing a row that is not there (issue #202). An asset that
+    // has gone answers identically to one that never existed, which is what `deleteAsset` and
+    // the read above already do.
+    if (!(await this.dependencies.repository.updateAsset(updated)))
+      throw new CapabilityDeniedError("Organizer asset access denied");
     return updated;
   }
 
@@ -1439,6 +1481,9 @@ export class ContentService {
     );
     if (!isOwner && !hasEventRole(authorized, asset.eventId, "organizer"))
       throw new CapabilityDeniedError("Speaker asset access denied");
+    // The one caller that reads no count and should not: if the profile went between the read
+    // above and this write, the pointer at this asset went with it, which is the outcome this
+    // line exists to reach. Nothing is reported to the caller from it either way.
     if (profile?.photoAssetId === asset.id)
       await this.dependencies.repository.updateProfilePhoto(profile.id, null);
     await this.dependencies.assetStorage.delete(asset.storageKey);

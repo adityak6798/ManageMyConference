@@ -24,6 +24,7 @@ import type {
   SpeakerTaskTemplate,
 } from "../../domain/content/content";
 import { changedRows, type D1WriteResult } from "./d1-write-result";
+
 interface D1Result<T = unknown> {
   results?: T[];
   success: boolean;
@@ -135,11 +136,12 @@ export class D1ContentRepository
     );
   }
   async completeSpeakerImport(eventId: string, email: string) {
-    await this.run(
+    const result = await this.write(
       "UPDATE content_speaker_import_rows SET status='complete' WHERE event_id=? AND normalized_email=?",
       eventId,
       email,
     );
+    return changedRows(result, "complete a speaker import row") > 0;
   }
   async listSchedulableSessions(eventId: string) {
     const sessions = await this.rows(
@@ -223,16 +225,15 @@ export class D1ContentRepository
    * SQLite counts a row it rewrote to the same values as changed, so this distinguishes "no such
    * row" from "no visible difference" rather than refusing an edit that changed nothing.
    *
-   * **Four unguarded writers still use `run` and do not read the count**, and it is worth naming
-   * them rather than claiming this is already the whole file's rule: `updateProfilePhoto`,
-   * `updateProfileWorkflow`, `updateAsset` and `completeSpeakerImport`. Each has the same
-   * read-then-write gap. `updateProfilePhoto` and `updateAsset` want the same answer as the
-   * writers here; `completeSpeakerImport` is the mildest, because nothing deletes the row it
-   * writes; and the one that keeps all four waiting is `updateProfileWorkflow`, the CSV import's
-   * writer, because what an import should do with a row that vanished mid-run is a product
-   * decision about imports rather than a repair to this rule. Recorded in `docs/quality/known-gaps.md` as `GAP-025` rather than
-   * half-done — with the two whole-row writers `content-repository.ts` documents as fixture-only
-   * explicitly outside it, since they have no production caller to mislead.
+   * **Every conditional writer in this file now reads the count** (issue #202, which is the
+   * second filing of the same divergence). `run` survives for the writers where a count decides
+   * nothing — inserts, whose failure mode is a raised constraint rather than a quiet zero, and
+   * the two `ON CONFLICT DO UPDATE` upserts, which converge by design. The three exceptions that
+   * do go through `write` and deliberately discard the number say so at their own sites:
+   * `deleteTaskTemplate` and `deleteSession`, where a row already gone is the outcome asked for,
+   * and the batch path, which reports each statement's count to its caller. `updateProfile` and
+   * `updateSession` are the only writers left on a bare `.run()`, and they are fixture-only with
+   * no production caller to mislead — stated on both, here and in `content-repository.ts`.
    */
   private async write(query: string, ...values: unknown[]) {
     const result = await this.database
@@ -443,22 +444,34 @@ export class D1ContentRepository
         ...(where?.values ?? [profile.id]),
       );
   }
+  /**
+   * No count, because there is no caller to mislead: `ContentRepository` documents this as
+   * fixture-only, and a fixture asserting its own setup landed is the test's job rather than
+   * this adapter's. A production caller appearing here is a caller that has bypassed attributed
+   * history, and it should be given `reviseProfile` rather than a row count.
+   */
   async updateProfile(profile: SpeakerProfile) {
     const result = await this.profileWrite(profile).run();
     if (!result.success)
       throw new Error(`D1 content write failed: ${result.error ?? "unknown error"}`);
   }
   async updateProfilePhoto(profileId: string, assetId: string | null) {
-    await this.run("UPDATE speaker_profiles SET photo_asset_id=? WHERE id=?", assetId, profileId);
+    const result = await this.write(
+      "UPDATE speaker_profiles SET photo_asset_id=? WHERE id=?",
+      assetId,
+      profileId,
+    );
+    return changedRows(result, "record a speaker headshot") > 0;
   }
   async updateProfileWorkflow(profileId: string, fields: SpeakerWorkflowFields) {
-    await this.run(
+    const result = await this.write(
       "UPDATE speaker_profiles SET workflow_status=?,logistics_json=?,custom_fields_json=? WHERE id=?",
       fields.workflowStatus,
       JSON.stringify(fields.logistics),
       JSON.stringify(fields.customFields),
       profileId,
     );
+    return changedRows(result, "write imported speaker workflow fields") > 0;
   }
   async updateTask(task: SpeakerTask) {
     const result = await this.write(
@@ -485,16 +498,23 @@ export class D1ContentRepository
         ...(where?.values ?? [session.id]),
       );
   }
+  /** Fixture-only, for the same reason as `updateProfile`; `reviseSession` is the real writer. */
   async updateSession(session: ContentSession) {
     const result = await this.sessionWrite(session).run();
     if (!result.success)
       throw new Error(`D1 content write failed: ${result.error ?? "unknown error"}`);
   }
   async deleteSession(sessionId: string) {
-    await this.run("DELETE FROM content_sessions WHERE id=?", sessionId);
+    // The count is read but not returned: a session already gone is the outcome the caller
+    // asked for. A driver that cannot report one is still a failure rather than a silent
+    // success, which is the half of the rule that matters here.
+    changedRows(
+      await this.write("DELETE FROM content_sessions WHERE id=?", sessionId),
+      "delete a content session",
+    );
   }
   async updateAsset(asset: SpeakerAsset) {
-    await this.run(
+    const result = await this.write(
       "UPDATE speaker_assets SET visibility=?,task_id=?,session_id=?,version_group_id=?,version_number=?,is_latest=? WHERE id=?",
       asset.visibility,
       asset.taskId ?? null,
@@ -504,6 +524,7 @@ export class D1ContentRepository
       asset.isLatest === false ? 0 : 1,
       asset.id,
     );
+    return changedRows(result, "update a speaker asset") > 0;
   }
   async addAsset(asset: SpeakerAsset) {
     await this.run(

@@ -9,15 +9,15 @@ import { DeterministicAssetStorage } from "../src/adapters/storage/deterministic
 import { R2AssetStorage } from "../src/adapters/storage/r2-asset-storage";
 import type { PublishedSchedule } from "../src/application/agenda/agenda-repository";
 import { AgendaService } from "../src/application/agenda/agenda-service";
+import type {
+  ContentActorDirectoryPort,
+  SpeakerNotificationPort,
+} from "../src/application/content/content-service";
 import {
   ContentService,
   SpeakerChecklistTitleTakenError,
   SpeakerIdentityUnavailableError,
   SpeakerPhotoInvalidError,
-} from "../src/application/content/content-service";
-import type {
-  ContentActorDirectoryPort,
-  SpeakerNotificationPort,
 } from "../src/application/content/content-service";
 import { FixtureSchedulableContentQuery } from "../src/application/content/public";
 import type { SpeakerConversionPort } from "../src/application/content/speaker-conversion";
@@ -1305,8 +1305,12 @@ describe("speaker checklist authoring", () => {
    * nothing", so before the affected-row count was read these answered 200 and reported a save
    * over a projection that no longer contains the thing.
    *
-   * Four *other* unguarded writers in the same adapter still have the gap. `GAP-025` names them
-   * and says why one of them cannot be closed without a decision about import semantics.
+   * The four *other* writers this comment used to name as still unguarded are closed by issue
+   * #202: `updateProfilePhoto`, `updateProfileWorkflow`, `updateAsset` and
+   * `completeSpeakerImport` all read the count now, and their evidence lives in
+   * `d1-content-repository.integration.test.ts` and `content-csv-import.test.ts` — against real
+   * D1 for the three storage writers, because a row deleted out from under a caller is the
+   * subject and a memory repository has no row count to report.
    */
   it("refuses an edit to a line, a resource or a task that has gone since it was read", async () => {
     const { repository, service } = setup();

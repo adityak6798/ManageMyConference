@@ -3,10 +3,9 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { Miniflare } from "miniflare";
 import { afterEach, describe, expect, it } from "vitest";
-import { applySeedData, createMigratedDatabase, statements } from "./support/seeded-d1";
 import {
-  D1CfpRepository,
   type D1CfpDatabasePort,
+  D1CfpRepository,
 } from "../src/adapters/persistence/d1-cfp-repository";
 import {
   type ContentDatabasePort,
@@ -17,6 +16,8 @@ import {
   D1SubmittedProposalAdapter,
 } from "../src/adapters/persistence/d1-submitted-proposal-adapter";
 import { ContentConflictError } from "../src/application/content/content-repository";
+import { applySeedData, createMigratedDatabase, statements } from "./support/seeded-d1";
+
 describe("D1CfpRepository", () => {
   let runtime: Miniflare | undefined;
   afterEach(async () => runtime?.dispose());
@@ -243,6 +244,87 @@ describe("D1CfpRepository", () => {
         idempotencyKey: "after-close",
       }),
     ).resolves.toBeNull();
+  });
+
+  /**
+   * The sibling of `GAP-025` outside content, found by the sweep issue #202 asked for.
+   *
+   * `transitionAtomically` reads the proposals, then batches an audit `INSERT … SELECT` and an
+   * `UPDATE`, both conditional on `WHERE event_id = ? AND id = ?` — and it answers with the rows
+   * it read, rewritten to the new status. A statement that matched nothing is `success: true`
+   * exactly like one that landed, so without the affected-row count this reported every proposal
+   * transitioned and every audit row written, from a batch that wrote neither.
+   *
+   * Driven through the port rather than by deleting a submission, because nothing in the product
+   * deletes one and the subject here is the adapter's reading of the driver's answer. The real
+   * statements still run against real D1; only the counts they come back with are replaced.
+   */
+  it("refuses a proposal transition whose statements matched no submission", async () => {
+    const migrated = await createMigratedDatabase({ label: "cfp-transition-count", seed: true });
+    runtime = migrated.runtime;
+    const database = migrated.database as D1ProposalDatabasePort;
+    const eventId = "00000000-0000-4000-8000-000000000001";
+    const proposalId = "10000000-0000-4000-8000-000000000002";
+    // A fresh audit id per attempt: `cfp_status_audit.id` is a primary key, and a reused one
+    // would refuse the batch for a reason that has nothing to do with the row count.
+    let audit = 0;
+    const transition = (input: { eventId: string; proposalIds: readonly string[] }) => ({
+      ...input,
+      toStatus: "accepted" as const,
+      actorId: "seed-organizer",
+      occurredAt: "2026-08-10T12:00:00.000Z",
+      auditIds: input.proposalIds.map(
+        () => `c0000000-0000-4000-8000-${String(++audit).padStart(12, "0")}`,
+      ),
+    });
+
+    // The honest baseline: a real transition over real rows reports the new status.
+    await expect(
+      new D1SubmittedProposalAdapter(database).transitionAtomically(
+        transition({ eventId, proposalIds: [proposalId] }),
+      ),
+    ).resolves.toMatchObject([{ id: proposalId, status: "accepted" }]);
+
+    const withCounts = (changes: readonly number[]): D1ProposalDatabasePort => ({
+      prepare: (query) => database.prepare(query),
+      batch: async <T>(statements: Parameters<D1ProposalDatabasePort["batch"]>[0]) =>
+        (await database.batch<T>(statements)).map((result, index) => ({
+          ...result,
+          meta: { changes: changes[index] ?? 1 },
+        })),
+    });
+
+    // The audit row landed nowhere: a transition whose trail is missing is precisely the claim
+    // this domain must not make, so the whole act is refused rather than trimmed.
+    await expect(
+      new D1SubmittedProposalAdapter(withCounts([0, 1])).transitionAtomically(
+        transition({ eventId, proposalIds: [proposalId] }),
+      ),
+    ).rejects.toThrow(/matched no submission/);
+
+    // And the update itself.
+    await expect(
+      new D1SubmittedProposalAdapter(withCounts([1, 0])).transitionAtomically(
+        transition({ eventId, proposalIds: [proposalId] }),
+      ),
+    ).rejects.toThrow(/matched no submission/);
+
+    // A driver that will not say how many rows it touched is refused too, rather than read as
+    // either zero or one — the whole contract in `d1-write-result.ts`.
+    const silent: D1ProposalDatabasePort = {
+      prepare: (query) => database.prepare(query),
+      batch: async <T>(statements: Parameters<D1ProposalDatabasePort["batch"]>[0]) =>
+        (await database.batch<T>(statements)).map(({ results, success, error }) => ({
+          ...(results ? { results } : {}),
+          success,
+          ...(error ? { error } : {}),
+        })),
+    };
+    await expect(
+      new D1SubmittedProposalAdapter(silent).transitionAtomically(
+        transition({ eventId, proposalIds: [proposalId] }),
+      ),
+    ).rejects.toThrow(/reported no row count/);
   });
 });
 

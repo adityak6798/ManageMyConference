@@ -76,8 +76,13 @@ export interface ContentRepository {
    * `logistics` would be stored as `{}`, not left alone. They are required in the type for
    * exactly that reason: `SpeakerProfile` has all three optional, so a `Pick` of it would let a
    * caller pass one field and silently erase the other two.
+   *
+   * `false` when no row matched — the profile has gone since the import read it. What an import
+   * does with that is decided at the call site in `ContentService.importSpeakers` and stated in
+   * `PRD-SPK-001`: the row is refused and reported, never silently skipped and never fatal to
+   * the rest of the batch.
    */
-  updateProfileWorkflow(profileId: string, fields: SpeakerWorkflowFields): Promise<void>;
+  updateProfileWorkflow(profileId: string, fields: SpeakerWorkflowFields): Promise<boolean>;
   /**
    * Point a profile at one of its uploads, or at none — and touch nothing else.
    *
@@ -85,8 +90,12 @@ export interface ContentRepository {
    * last read, so choosing a headshot through it would put a bio, a workflow status and a
    * logistics field back the way they were at that read, silently undoing an organizer's edit
    * that landed in between. A speaker choosing a picture should write the picture.
+   *
+   * `false` when no row matched — the profile has gone since the caller read it, so the choice
+   * was recorded on nothing. A caller that reports the choice back to a person must refuse
+   * rather than answer with the object it constructed.
    */
-  updateProfilePhoto(profileId: string, assetId: string | null): Promise<void>;
+  updateProfilePhoto(profileId: string, assetId: string | null): Promise<boolean>;
   /** `false` when no row matched — the task has gone since the caller read it. */
   updateTask(task: SpeakerTask): Promise<boolean>;
   /**
@@ -100,7 +109,8 @@ export interface ContentRepository {
   updateSession(session: ContentSession): Promise<void>;
   /** Remove a withdrawn session. Its speaker, their tasks, and their uploads are untouched. */
   deleteSession(sessionId: string): Promise<void>;
-  updateAsset(asset: SpeakerAsset): Promise<void>;
+  /** `false` when no row matched — the asset has gone since the caller read it. */
+  updateAsset(asset: SpeakerAsset): Promise<boolean>;
   addAsset(asset: SpeakerAsset): Promise<void>;
   replaceLatestAsset(asset: SpeakerAsset, previous?: SpeakerAsset): Promise<void>;
   deleteAsset(assetId: string): Promise<void>;
@@ -178,7 +188,16 @@ export interface ContentRepository {
   findRevision(revisionId: string): Promise<ContentRevision | null>;
   findSpeakerImport(eventId: string, email: string): Promise<"pending" | "complete" | null>;
   beginSpeakerImport(eventId: string, email: string): Promise<void>;
-  completeSpeakerImport(eventId: string, email: string): Promise<void>;
+  /**
+   * Mark this event's import of one normalized address as finished.
+   *
+   * `false` when no row matched — the ledger row `beginSpeakerImport` wrote has gone since. The
+   * import treats that exactly as it treats a profile that vanished: the row is refused and
+   * reported rather than counted, because a row counted as imported that nothing recorded as
+   * complete is a claim the store does not support. Refusing is safe in the same way the
+   * `catch` around it is safe — the ledger is keyed on the address, so a retry converges.
+   */
+  completeSpeakerImport(eventId: string, email: string): Promise<boolean>;
 }
 
 export class ContentConflictError extends Error {}

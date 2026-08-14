@@ -540,35 +540,24 @@ feature-by-feature verdict.
   that effect plus a fixture that is reset by rebuilding rather than by deleting. The narrow failed-delivery query on communications' public interface closes the fifth, and
   its test is an inbox that shows a failure older than one page of history.
 
-- `GAP-025` **Four unguarded content writers do not read the affected-row count, and three of them report a save for a write that matched no row.**
-  `d1-content-repository.ts` reads the affected-row count on the unguarded `UPDATE`s a caller reads
-  a row for first, except four: `updateProfilePhoto`, `updateProfileWorkflow`, `updateAsset` and
-  `completeSpeakerImport`. (Two others — `updateProfile` and `updateSession` — also drop the count,
-  and are outside this entry because the port documents both as fixture-only with no production
-  caller. The batch writes and the two `ON CONFLICT DO UPDATE` upserts are conditional or
-  converging by design, where matching nothing is the correct answer rather than a lost one.)
-  Each has the same read-then-write gap the others closed, and the same consequence — a successful
-  statement that matched nothing is indistinguishable from one that landed, so the response is a
-  200 describing a change to a row that is not there. Concretely: unpublishing an asset another
-  organizer deleted a moment earlier answers 200 and reports it private; naming a headshot on a
-  profile deleted mid-edit reports the headshot set, because the service falls back to the object
-  it constructed rather than to what the store did.
+- `GAP-025` (content) **Closed by issue #202.** Every conditional writer in
+  `d1-content-repository.ts` now reads the affected-row count. The four this entry named —
+  `updateProfilePhoto`, `updateProfileWorkflow`, `updateAsset` and `completeSpeakerImport` —
+  answer `false` when no row matched, and each caller that reports success to a person refuses
+  instead: naming or clearing a headshot on a profile that has gone, and publishing or
+  unpublishing an asset that has gone, now answer exactly as a record that never existed does.
+  The decision the entry was waiting on is made and stated in `PRD-SPK-001`: **a CSV import
+  refuses the row and reports it**, rather than skipping it or failing the batch — the ledger is
+  keyed on the normalized address, so the row stays `pending` and re-running the file converges.
+  That also closed the same defect one level up, where `if (profile)` fell through to counting a
+  deleted speaker as imported. `updateProfile` and `updateSession` remain on a bare `.run()` and
+  are the only writers that do, which both the port and the adapter now say at their own sites.
+  Proven by `d1-content-repository.integration.test.ts` (a row deleted between the caller's read
+  and its write, one assertion per writer, each verified to fail with its own guard removed) and
+  two cases in `content-csv-import.test.ts`.
 
-  `completeSpeakerImport` is the mildest of the four and is named rather than excused: nothing
-  deletes a `content_speaker_import_rows` row today, so its write cannot currently match nothing —
-  but neither does anything delete a `speaker_profiles` row, and two of the other three are profile
-  writers, so "the row cannot vanish" is not the criterion that separates them. What separates them
-  is that the other three have a caller who reports success to a person.
+  **Note for whoever reads the register next: this id was allocated twice.** The webhook
+  wrapping-key entry above is also `GAP-025`, and it is the one that survives. The collision is
+  recorded here rather than silently resolved by the deletion.
 
-  The four were left rather than swept up with the writers that were fixed because one of them
-  cannot be closed without a decision this repository has not made. `updateProfileWorkflow` is the CSV import's
-  writer, and what an import should do with a row that vanished mid-run — skip it, refuse the row,
-  fail the batch — is a product question about imports rather than a repair to the write rule. The
-  other two want the same answer as the writers that were fixed, and are held with the import so
-  that all four are decided together: a file that applies one rule to some of its writers and a
-  different rule to the rest is exactly the divergence this entry exists to end, and closing two of
-  four would recreate it in miniature.
-
-  Owner: content. Governing ID: `PRD-SPK-001`, `PRD-SPK-002`, `PRD-CNT-001`. Closure: all four read
-  the count; the import's behaviour on a vanished row is decided and stated where the import is
-  documented; and a test per writer drives a row deleted between the read and the write.
+  Owner: content. Governing ID: `PRD-SPK-001`, `PRD-SPK-002`, `PRD-CNT-001`.

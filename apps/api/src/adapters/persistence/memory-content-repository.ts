@@ -71,7 +71,11 @@ export class MemoryContentRepository
       this.imports.set(`${eventId}:${email}`, "pending");
   }
   async completeSpeakerImport(eventId: string, email: string) {
+    // The row count the D1 adapter reads, expressed as the presence of the key. Mirrored here so
+    // a service test can drive the vanished-row branch without a database.
+    if (!this.imports.has(`${eventId}:${email}`)) return false;
     this.imports.set(`${eventId}:${email}`, "complete");
+    return true;
   }
   async accept(content: AcceptedContent) {
     // Mirrors `UNIQUE(event_id, proposal_id)` in D1 so acceptance idempotency is exercised here
@@ -96,6 +100,17 @@ export class MemoryContentRepository
   /** Out-of-band profile creation, the way `SpeakerConversionPort` writes one in D1. */
   async addProfile(profile: SpeakerProfile) {
     this.speakers = [...this.speakers, profile];
+  }
+  /**
+   * Fixture affordances, not port methods: nothing in the product deletes a speaker or an import
+   * ledger row. They exist so a test can put a writer in the gap between a caller's read and its
+   * write, which is the only place the affected-row count is observable (issue #202).
+   */
+  async deleteProfile(profileId: string) {
+    this.speakers = this.speakers.filter(({ id }) => id !== profileId);
+  }
+  async deleteSpeakerImport(eventId: string, email: string) {
+    this.imports.delete(`${eventId}:${email}`);
   }
   async workspace(eventId: string, userId?: string): Promise<ContentWorkspace> {
     const speakers = this.speakers.filter(
@@ -212,16 +227,20 @@ export class MemoryContentRepository
     this.speakers = this.speakers.map((item) => (item.id === profile.id ? profile : item));
   }
   async updateProfileWorkflow(profileId: string, fields: SpeakerWorkflowFields) {
+    if (!this.speakers.some(({ id }) => id === profileId)) return false;
     this.speakers = this.speakers.map((item) =>
       item.id === profileId ? { ...item, ...fields } : item,
     );
+    return true;
   }
   async updateProfilePhoto(profileId: string, assetId: string | null) {
+    if (!this.speakers.some(({ id }) => id === profileId)) return false;
     this.speakers = this.speakers.map((item) => {
       if (item.id !== profileId) return item;
       const { photoAssetId: _replaced, ...withoutPhoto } = item;
       return assetId ? { ...withoutPhoto, photoAssetId: assetId } : withoutPhoto;
     });
+    return true;
   }
   async updateTask(task: SpeakerTask) {
     if (!this.tasks.some(({ id }) => id === task.id)) return false;
@@ -235,7 +254,9 @@ export class MemoryContentRepository
     this.sessions = this.sessions.filter(({ id }) => id !== sessionId);
   }
   async updateAsset(asset: SpeakerAsset) {
+    if (!this.assets.some(({ id }) => id === asset.id)) return false;
     this.assets = this.assets.map((item) => (item.id === asset.id ? asset : item));
+    return true;
   }
   async addAsset(asset: SpeakerAsset) {
     this.assets = [...this.assets, asset];
