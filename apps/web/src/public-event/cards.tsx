@@ -116,6 +116,29 @@ const SOCIAL_LABELS: Readonly<Record<string, string>> = {
   youtube: "YouTube",
 };
 
+/**
+ * Is this something we are willing to put in an `href`?
+ *
+ * The server already refuses anything but `http:` and `https:` when the link is *written*
+ * (`socialLinkSchema`), so on the shipping path this is redundant — and it is here anyway,
+ * because the cost of being wrong is unusually asymmetric. This component renders a value that
+ * originated with a speaker, on a public page, into an attribute where `javascript:` executes;
+ * the write-time rule is one validator away from every row that predates it, from a restored
+ * revision, and from anything that reaches the projection without passing through that schema.
+ * A link this refuses is dropped rather than rendered inert, because a dead link an organizer can
+ * see is a bug report and an inert one is a mystery.
+ */
+function isRenderableLink(url: string): boolean {
+  try {
+    const { protocol } = new URL(url);
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    // ERROR-INTENT: `URL` reports "not a URL at all" by throwing, and a value that cannot be
+    // parsed is exactly one this must not put in an `href`. Refusing is the answer, not a crash.
+    return false;
+  }
+}
+
 /*
  * A speaker's own links.
  *
@@ -125,7 +148,9 @@ const SOCIAL_LABELS: Readonly<Record<string, string>> = {
  * gallery of "Website, Website, Website" tells a screen-reader user nothing about whose it is.
  */
 function SpeakerLinks({ speaker }: { speaker: PublicSpeaker }) {
-  const links = Object.entries(speaker.socialLinks ?? {}).filter(([, url]) => Boolean(url));
+  const links = Object.entries(speaker.socialLinks ?? {}).filter(
+    ([, url]) => Boolean(url) && isRenderableLink(url),
+  );
   if (links.length === 0) return null;
   const ordered = links.toSorted(([left], [right]) => {
     const keys = Object.keys(SOCIAL_LABELS);
