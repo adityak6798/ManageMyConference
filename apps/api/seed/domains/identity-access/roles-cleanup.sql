@@ -16,9 +16,11 @@ WHERE client_id IN (
   )
 )
   OR event_id IN (
-    '00000000-0000-4000-8000-000000000001',
-    '00000000-0000-4000-8000-000000000002',
-    '00000000-0000-4000-8000-000000000099'
+    SELECT id FROM events
+    WHERE organization_id IN (
+      '00000000-0000-4000-8000-000000000010',
+      '00000000-0000-4000-8000-000000000020'
+    )
   );
 DELETE FROM api_client_scopes
 WHERE client_id IN (
@@ -46,9 +48,11 @@ WHERE organization_id IN (
 -- failed`, which is how this pass found them.
 DELETE FROM event_roles
 WHERE event_id IN (
-  '00000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000000002',
-  '00000000-0000-4000-8000-000000000099'
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
 )
   OR user_id IN (
     'seed-organizer',

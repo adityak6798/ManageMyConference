@@ -4,9 +4,11 @@
 -- reset exists to restore stays broken until someone deletes the row by hand.
 DELETE FROM accelevents_sync_runs
 WHERE event_id IN (
-  '00000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000000002',
-  '00000000-0000-4000-8000-000000000099'
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
 );
 
 -- Webhook state is organization-scoped, and the three child tables are scoped **through their own
@@ -53,9 +55,11 @@ WHERE organization_id IN (
 );
 DELETE FROM outbound_projection_state
 WHERE event_id IN (
-  '00000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000000002',
-  '00000000-0000-4000-8000-000000000099'
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
 );
 DELETE FROM communication_attempts
 WHERE delivery_id IN (

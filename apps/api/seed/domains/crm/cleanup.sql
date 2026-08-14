@@ -24,9 +24,11 @@ WHERE contact_id IN (
 -- failure this file exists to prevent.
 DELETE FROM crm_contact_events
 WHERE event_id IN (
-  '00000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000000002',
-  '00000000-0000-4000-8000-000000000099'
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
 )
   OR contact_id IN (
     SELECT id FROM crm_organization_contacts
@@ -38,9 +40,11 @@ WHERE event_id IN (
   OR prospect_id IN (
     SELECT id FROM crm_prospects
     WHERE event_id IN (
-      '00000000-0000-4000-8000-000000000001',
-      '00000000-0000-4000-8000-000000000002',
-      '00000000-0000-4000-8000-000000000099'
+      SELECT id FROM events
+      WHERE organization_id IN (
+        '00000000-0000-4000-8000-000000000010',
+        '00000000-0000-4000-8000-000000000020'
+      )
     )
   );
 DELETE FROM crm_contact_fields
@@ -78,18 +82,22 @@ DELETE FROM crm_activities
 WHERE prospect_id IN (
   SELECT id FROM crm_prospects
   WHERE event_id IN (
-    '00000000-0000-4000-8000-000000000001',
-    '00000000-0000-4000-8000-000000000002',
-    '00000000-0000-4000-8000-000000000099'
+    SELECT id FROM events
+    WHERE organization_id IN (
+      '00000000-0000-4000-8000-000000000010',
+      '00000000-0000-4000-8000-000000000020'
+    )
   )
 );
 DELETE FROM crm_contacts
 WHERE prospect_id IN (
   SELECT id FROM crm_prospects
   WHERE event_id IN (
-    '00000000-0000-4000-8000-000000000001',
-    '00000000-0000-4000-8000-000000000002',
-    '00000000-0000-4000-8000-000000000099'
+    SELECT id FROM events
+    WHERE organization_id IN (
+      '00000000-0000-4000-8000-000000000010',
+      '00000000-0000-4000-8000-000000000020'
+    )
   )
 );
 -- The pipeline pair from migration `1501`, both event-scoped, in the order that file's own
@@ -103,9 +111,11 @@ WHERE event_id IN (
 );
 DELETE FROM crm_prospects
 WHERE event_id IN (
-  '00000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000000002',
-  '00000000-0000-4000-8000-000000000099'
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
 );
 DELETE FROM crm_pipeline_stages
 WHERE event_id IN (

@@ -8,20 +8,25 @@
 -- this table. A reset is also the right moment to drop them — they are attendee state
 -- against a demo snapshot, and no seeded itinerary exists to restore.
 --
--- Scoped to the seeded events, which is the whole point of the scoping pass: an itinerary an
--- attendee built against a *real* conference sharing this deployment is not demo state and is not
--- the reset's to destroy. The reasoning above holds exactly as far as the demo's own events.
+-- Scoped to the demo's own events — every event in a seeded organization, resolved through the
+-- same subquery every cleanup here uses. An itinerary an attendee built against a *real*
+-- conference sharing this deployment is not demo state and is not the reset's to destroy. The
+-- reasoning above holds exactly as far as the demo's own events.
 DELETE FROM attendee_itineraries
 WHERE event_id IN (
-  '00000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000000002',
-  '00000000-0000-4000-8000-000000000099'
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
 );
 DELETE FROM public_event_projections
 WHERE event_id IN (
-  '00000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000000002',
-  '00000000-0000-4000-8000-000000000099'
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
 );
 
 -- Last-sync state is product-written, not seeded, so nothing here recreates it — but it holds a
@@ -30,9 +35,11 @@ WHERE event_id IN (
 -- reset exists to restore stays broken until someone deletes the row by hand.
 DELETE FROM accelevents_sync_runs
 WHERE event_id IN (
-  '00000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000000002',
-  '00000000-0000-4000-8000-000000000099'
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
 );
 
 -- Webhook state is organization-scoped, and the three child tables are scoped **through their own
@@ -79,9 +86,11 @@ WHERE organization_id IN (
 );
 DELETE FROM outbound_projection_state
 WHERE event_id IN (
-  '00000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000000002',
-  '00000000-0000-4000-8000-000000000099'
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
 );
 DELETE FROM communication_attempts
 WHERE delivery_id IN (
@@ -109,9 +118,11 @@ WHERE organization_id IN (
 
 DELETE FROM agenda_session_schedules
 WHERE event_id IN (
-  '00000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000000002',
-  '00000000-0000-4000-8000-000000000099'
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
 );
 -- Before the publications, so the delete trigger `1602` declares has nothing left to invalidate.
 -- It also has to be before the events cleanup below: this table references events(id) and does not
@@ -119,21 +130,27 @@ WHERE event_id IN (
 -- names no table.
 DELETE FROM agenda_schedule_materializations
 WHERE event_id IN (
-  '00000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000000002',
-  '00000000-0000-4000-8000-000000000099'
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
 );
 DELETE FROM agenda_publications
 WHERE event_id IN (
-  '00000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000000002',
-  '00000000-0000-4000-8000-000000000099'
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
 );
 DELETE FROM agenda_drafts
 WHERE event_id IN (
-  '00000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000000002',
-  '00000000-0000-4000-8000-000000000099'
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
 );
 
 -- CRM has two roots and they are scoped differently, which is why this file is longer than the
@@ -162,9 +179,11 @@ WHERE contact_id IN (
 -- failure this file exists to prevent.
 DELETE FROM crm_contact_events
 WHERE event_id IN (
-  '00000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000000002',
-  '00000000-0000-4000-8000-000000000099'
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
 )
   OR contact_id IN (
     SELECT id FROM crm_organization_contacts
@@ -176,9 +195,11 @@ WHERE event_id IN (
   OR prospect_id IN (
     SELECT id FROM crm_prospects
     WHERE event_id IN (
-      '00000000-0000-4000-8000-000000000001',
-      '00000000-0000-4000-8000-000000000002',
-      '00000000-0000-4000-8000-000000000099'
+      SELECT id FROM events
+      WHERE organization_id IN (
+        '00000000-0000-4000-8000-000000000010',
+        '00000000-0000-4000-8000-000000000020'
+      )
     )
   );
 DELETE FROM crm_contact_fields
@@ -216,18 +237,22 @@ DELETE FROM crm_activities
 WHERE prospect_id IN (
   SELECT id FROM crm_prospects
   WHERE event_id IN (
-    '00000000-0000-4000-8000-000000000001',
-    '00000000-0000-4000-8000-000000000002',
-    '00000000-0000-4000-8000-000000000099'
+    SELECT id FROM events
+    WHERE organization_id IN (
+      '00000000-0000-4000-8000-000000000010',
+      '00000000-0000-4000-8000-000000000020'
+    )
   )
 );
 DELETE FROM crm_contacts
 WHERE prospect_id IN (
   SELECT id FROM crm_prospects
   WHERE event_id IN (
-    '00000000-0000-4000-8000-000000000001',
-    '00000000-0000-4000-8000-000000000002',
-    '00000000-0000-4000-8000-000000000099'
+    SELECT id FROM events
+    WHERE organization_id IN (
+      '00000000-0000-4000-8000-000000000010',
+      '00000000-0000-4000-8000-000000000020'
+    )
   )
 );
 -- The pipeline pair from migration `1501`, both event-scoped, in the order that file's own
@@ -241,9 +266,11 @@ WHERE event_id IN (
 );
 DELETE FROM crm_prospects
 WHERE event_id IN (
-  '00000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000000002',
-  '00000000-0000-4000-8000-000000000099'
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
 );
 DELETE FROM crm_pipeline_stages
 WHERE event_id IN (
@@ -252,105 +279,138 @@ WHERE event_id IN (
   '00000000-0000-4000-8000-000000000099'
 );
 
--- Every content table is event-scoped, so every statement here carries the same three seeded event
--- ids and the ordering is unchanged: children before the `speaker_profiles` and `content_sessions`
--- they reference, all of them before the events cleanup further down.
+-- Every content table is event-scoped, so every statement here resolves the same set — the events
+-- of the seeded organizations, which is what `events-cleanup.sql` deletes — and the ordering is
+-- unchanged: children before the `speaker_profiles` and `content_sessions` they reference, all of
+-- them before the events cleanup further down.
 DELETE FROM speaker_resources
 WHERE event_id IN (
-  '00000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000000002',
-  '00000000-0000-4000-8000-000000000099'
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
 );
 DELETE FROM speaker_task_templates
 WHERE event_id IN (
-  '00000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000000002',
-  '00000000-0000-4000-8000-000000000099'
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
 );
 DELETE FROM content_asset_comments
 WHERE event_id IN (
-  '00000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000000002',
-  '00000000-0000-4000-8000-000000000099'
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
 );
 DELETE FROM content_revisions
 WHERE event_id IN (
-  '00000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000000002',
-  '00000000-0000-4000-8000-000000000099'
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
 );
 DELETE FROM content_speaker_import_rows
 WHERE event_id IN (
-  '00000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000000002',
-  '00000000-0000-4000-8000-000000000099'
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
 );
 DELETE FROM speaker_conversion_sources
 WHERE event_id IN (
-  '00000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000000002',
-  '00000000-0000-4000-8000-000000000099'
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
 );
 DELETE FROM speaker_conversion_claims
 WHERE event_id IN (
-  '00000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000000002',
-  '00000000-0000-4000-8000-000000000099'
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
 );
 DELETE FROM speaker_email_claims
 WHERE event_id IN (
-  '00000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000000002',
-  '00000000-0000-4000-8000-000000000099'
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
 );
 DELETE FROM speaker_messages
 WHERE event_id IN (
-  '00000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000000002',
-  '00000000-0000-4000-8000-000000000099'
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
 );
 DELETE FROM speaker_assets
 WHERE event_id IN (
-  '00000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000000002',
-  '00000000-0000-4000-8000-000000000099'
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
 );
 DELETE FROM speaker_tasks
 WHERE event_id IN (
-  '00000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000000002',
-  '00000000-0000-4000-8000-000000000099'
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
 );
 DELETE FROM content_sessions
 WHERE event_id IN (
-  '00000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000000002',
-  '00000000-0000-4000-8000-000000000099'
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
 );
 DELETE FROM speaker_profiles
 WHERE event_id IN (
-  '00000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000000002',
-  '00000000-0000-4000-8000-000000000099'
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
 );
 
 DELETE FROM review_events
 WHERE event_id IN (
-  '00000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000000002',
-  '00000000-0000-4000-8000-000000000099'
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
 );
 DELETE FROM review_decisions
 WHERE event_id IN (
-  '00000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000000002',
-  '00000000-0000-4000-8000-000000000099'
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
 );
 DELETE FROM review_outcomes
 WHERE event_id IN (
-  '00000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000000002',
-  '00000000-0000-4000-8000-000000000099'
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
 );
 -- `review_suggestions` sits between two foreign keys and has to be deleted between them:
 -- `review_evaluations.suggestion_id` points *at* it, so evaluations go first, and
@@ -365,66 +425,84 @@ DELETE FROM review_evaluations
 WHERE assignment_id IN (
   SELECT id FROM review_assignments
   WHERE event_id IN (
-    '00000000-0000-4000-8000-000000000001',
-    '00000000-0000-4000-8000-000000000002',
-    '00000000-0000-4000-8000-000000000099'
+    SELECT id FROM events
+    WHERE organization_id IN (
+      '00000000-0000-4000-8000-000000000010',
+      '00000000-0000-4000-8000-000000000020'
+    )
   )
 );
 DELETE FROM review_suggestions
 WHERE event_id IN (
-  '00000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000000002',
-  '00000000-0000-4000-8000-000000000099'
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
 );
 DELETE FROM review_conflicts
 WHERE assignment_id IN (
   SELECT id FROM review_assignments
   WHERE event_id IN (
-    '00000000-0000-4000-8000-000000000001',
-    '00000000-0000-4000-8000-000000000002',
-    '00000000-0000-4000-8000-000000000099'
+    SELECT id FROM events
+    WHERE organization_id IN (
+      '00000000-0000-4000-8000-000000000010',
+      '00000000-0000-4000-8000-000000000020'
+    )
   )
 );
 DELETE FROM review_assignments
 WHERE event_id IN (
-  '00000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000000002',
-  '00000000-0000-4000-8000-000000000099'
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
 );
 DELETE FROM review_plans
 WHERE event_id IN (
-  '00000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000000002',
-  '00000000-0000-4000-8000-000000000099'
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
 );
 
 DELETE FROM cfp_status_audit
 WHERE event_id IN (
-  '00000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000000002',
-  '00000000-0000-4000-8000-000000000099'
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
 );
--- Every submission on a seeded event goes, seeded or not. A proposal somebody submitted to the
+-- Every submission on one of the demo's events goes, seeded or not. A proposal somebody submitted to the
 -- demo call *is* demo state — its event is about to be replaced — and no scoping by submitter
 -- would be right here: an account-bound proposal from a real person against the demo event still
 -- points at a row this reset deletes.
 DELETE FROM cfp_submissions
 WHERE event_id IN (
-  '00000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000000002',
-  '00000000-0000-4000-8000-000000000099'
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
 );
 DELETE FROM cfp_statuses
 WHERE event_id IN (
-  '00000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000000002',
-  '00000000-0000-4000-8000-000000000099'
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
 );
 DELETE FROM cfp_forms
 WHERE event_id IN (
-  '00000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000000002',
-  '00000000-0000-4000-8000-000000000099'
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
 );
 
 -- Before `events` and `organizations`, which this references, and for the reason the users
@@ -445,9 +523,11 @@ WHERE client_id IN (
   )
 )
   OR event_id IN (
-    '00000000-0000-4000-8000-000000000001',
-    '00000000-0000-4000-8000-000000000002',
-    '00000000-0000-4000-8000-000000000099'
+    SELECT id FROM events
+    WHERE organization_id IN (
+      '00000000-0000-4000-8000-000000000010',
+      '00000000-0000-4000-8000-000000000020'
+    )
   );
 DELETE FROM api_client_scopes
 WHERE client_id IN (
@@ -475,9 +555,11 @@ WHERE organization_id IN (
 -- failed`, which is how this pass found them.
 DELETE FROM event_roles
 WHERE event_id IN (
-  '00000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000000002',
-  '00000000-0000-4000-8000-000000000099'
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
 )
   OR user_id IN (
     'seed-organizer',
@@ -507,9 +589,11 @@ WHERE organization_id IN (
 -- real organization, or the events cleanup below fails on it.
 DELETE FROM event_template_applications
 WHERE event_id IN (
-  '00000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000000002',
-  '00000000-0000-4000-8000-000000000099'
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
 )
   OR template_version_id IN (
     SELECT id FROM event_template_versions
@@ -530,9 +614,11 @@ WHERE template_id IN (
   )
 )
   OR source_event_id IN (
-    '00000000-0000-4000-8000-000000000001',
-    '00000000-0000-4000-8000-000000000002',
-    '00000000-0000-4000-8000-000000000099'
+    SELECT id FROM events
+    WHERE organization_id IN (
+      '00000000-0000-4000-8000-000000000010',
+      '00000000-0000-4000-8000-000000000020'
+    )
   );
 DELETE FROM event_templates
 WHERE organization_id IN (
@@ -540,14 +626,24 @@ WHERE organization_id IN (
   '00000000-0000-4000-8000-000000000020'
 );
 
--- The three events the seed inserts, by id. An event a real conference created — including one
--- created inside a seeded organization — is not the demo's to delete, which is why this scopes on
--- the event ids rather than on their organization.
+-- Every event in a seeded organization, not only the three the seed inserts by id.
+--
+-- The narrower rule was tried first and it breaks the reset. The demo *creates* events — the
+-- browser journey does, the event-template journey does — and an event created inside "Greenroom
+-- Labs" is demo state with no seeded id. Leaving it behind makes the organizations cleanup below
+-- fail on a foreign key, so the second `npm run reset` refuses and the demo can never be restored
+-- again.
+--
+-- Scoping by owning organization is also the honest line. A real conference does not live in the
+-- demo's organization: a self-serve signup provisions an organization of its own and puts its
+-- first event there, which is what makes this rule safe and what
+-- `demo-reset-guard.integration.test.ts` asserts by running a restore against a live signup. Every
+-- event-scoped cleanup above resolves its ids through this same subquery, so nothing can be
+-- deleted here that a child cleanup did not already clear.
 DELETE FROM events
-WHERE id IN (
-  '00000000-0000-4000-8000-000000000001',
-  '00000000-0000-4000-8000-000000000002',
-  '00000000-0000-4000-8000-000000000099'
+WHERE organization_id IN (
+  '00000000-0000-4000-8000-000000000010',
+  '00000000-0000-4000-8000-000000000020'
 );
 
 -- Emailed-code challenges are keyed by address, so they are scoped to the seeded personas'
@@ -612,9 +708,11 @@ WHERE actor_user_id IN (
     '00000000-0000-4000-8000-000000000020'
   )
   OR event_id IN (
-    '00000000-0000-4000-8000-000000000001',
-    '00000000-0000-4000-8000-000000000002',
-    '00000000-0000-4000-8000-000000000099'
+    SELECT id FROM events
+    WHERE organization_id IN (
+      '00000000-0000-4000-8000-000000000010',
+      '00000000-0000-4000-8000-000000000020'
+    )
   );
 
 -- Before `users`: these reference it, and D1 does not honour `PRAGMA foreign_keys` between
