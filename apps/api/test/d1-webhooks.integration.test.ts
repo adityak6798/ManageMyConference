@@ -284,6 +284,11 @@ describe("signed webhook D1 lifecycle", () => {
                 title: "Designing the calm conference",
                 speakerIds: ["10000000-0000-4000-8000-000000000001"],
               },
+              {
+                id: "20000000-0000-4000-8000-000000000002",
+                title: "Accessible by default",
+                speakerIds: ["10000000-0000-4000-8000-000000000002"],
+              },
             ],
           ],
         ]),

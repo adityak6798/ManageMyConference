@@ -3,7 +3,7 @@
 -- missed notification can be repaired without comparing unrelated domain tables here.
 ALTER TABLE public_event_projections
   ADD COLUMN projection_version INTEGER NOT NULL DEFAULT 0
-  CHECK (projection_version >= 0);
+  CONSTRAINT projection_refresh_version_changed CHECK (projection_version >= 0);
 
 ALTER TABLE public_event_projections ADD COLUMN agenda_version INTEGER;
 ALTER TABLE public_event_projections ADD COLUMN agenda_published_at TEXT;
@@ -69,3 +69,18 @@ WHERE state = 'published' AND published_json IS NOT NULL;
 
 CREATE INDEX public_event_projection_versions_activated_idx
   ON public_event_projection_versions(event_id, activated_at);
+
+CREATE TRIGGER public_event_projection_versions_no_update
+BEFORE UPDATE ON public_event_projection_versions
+BEGIN
+  SELECT RAISE(ABORT, 'public projection history is immutable');
+END;
+
+CREATE TRIGGER public_event_projection_versions_no_delete
+BEFORE DELETE ON public_event_projection_versions
+WHEN EXISTS (
+  SELECT 1 FROM public_event_projections WHERE event_id = OLD.event_id
+)
+BEGIN
+  SELECT RAISE(ABORT, 'public projection history is immutable');
+END;

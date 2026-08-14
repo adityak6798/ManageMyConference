@@ -179,8 +179,8 @@ export async function updateContentSession(
  * Organizer-only, and the reverse of accepting the proposal: the session goes, and with it
  * every agenda placement holding it, so the board is not left with a slot for a session that
  * no longer exists. The speaker profile and their tasks and uploads stay — the same person may
- * be speaking elsewhere — and the public page keeps the session until the organizer publishes
- * again, because a published snapshot is immutable.
+ * be speaking elsewhere — and an already-live page appends a reconciled immutable projection
+ * version on its next public read, so the withdrawn session cannot remain visible.
  */
 export async function withdrawContentSession(
   sessionId: string,

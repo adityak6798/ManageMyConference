@@ -512,10 +512,11 @@ export async function reconcileScheduleMaterializations(
 }
 
 export function pruneItineraries(environment: Environment): Promise<void> {
-  return new ItineraryService(
-    new D1ItineraryRepository(environment.DB),
-    new D1PublicationRepository(environment.DB),
-  ).prune();
+  const repository = new D1PublicationRepository(environment.DB);
+  return new ItineraryService(new D1ItineraryRepository(environment.DB), {
+    currentPublicBySlug: (slug) => repository.findPublicBySlug(slug),
+    currentPublicByEventId: (eventId) => repository.findByEventId(eventId),
+  }).prune();
 }
 
 export function runtimeAuth(
@@ -1337,10 +1338,7 @@ export default {
           }),
       },
     );
-    const itineraries = new ItineraryService(
-      new D1ItineraryRepository(environment.DB),
-      publicationRepository,
-    );
+    const itineraries = new ItineraryService(new D1ItineraryRepository(environment.DB), publishing);
     // --- events (issue #102) ---
     /*
      * The orchestration seam for reusable event templates.

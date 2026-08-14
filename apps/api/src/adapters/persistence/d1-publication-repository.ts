@@ -1,5 +1,8 @@
 import type { PublicationRepository } from "../../application/publishing/publication-repository";
-import { PublicationSlugTakenError } from "../../application/publishing/publication-service";
+import {
+  PublicationProjectionConflictError,
+  PublicationSlugTakenError,
+} from "../../application/publishing/publication-service";
 import type {
   ProjectionRefresh,
   Publication,
@@ -63,6 +66,11 @@ const fromRow = (row: PublicationRow): Publication => ({
 const isPublicationSlugConstraint = (error: unknown) =>
   /(UNIQUE constraint failed:.*public_event_projections(?:\.slug|_draft_slug_idx)|publication slug taken)/i.test(
     error instanceof Error ? error.message : String(error),
+  );
+
+const isProjectionVersionConstraint = (error: unknown) =>
+  /projection_refresh_version_changed/i.test(
+    error instanceof Error ? `${error.message} ${String(error.cause ?? "")}` : String(error ?? ""),
   );
 
 // @spec PRD-PUB-001
@@ -166,6 +174,7 @@ export class D1PublicationRepository implements PublicationRepository {
       contentDigest: "legacy:unknown",
       cause: "site-published",
     },
+    expectedProjectionVersion = 0,
   ): Promise<Publication | null> {
     let results: Array<D1WriteResult & { results?: unknown[] }>;
     try {
@@ -183,7 +192,11 @@ export class D1PublicationRepository implements PublicationRepository {
           draft_json = excluded.draft_json,
           published_json = excluded.published_json,
           published_at = excluded.published_at,
-          projection_version = public_event_projections.projection_version + 1,
+          projection_version = CASE
+            WHEN public_event_projections.projection_version = ?
+              THEN public_event_projections.projection_version + 1
+            ELSE -1
+          END,
           agenda_version = excluded.agenda_version,
           agenda_published_at = excluded.agenda_published_at,
           cfp_version = excluded.cfp_version,
@@ -203,16 +216,21 @@ export class D1PublicationRepository implements PublicationRepository {
             provenance.cfpPublishedAt,
             provenance.contentDigest,
             provenance.cause,
+            expectedProjectionVersion,
           ),
         this.snapshotStatement(eventId),
       ]);
     } catch (error) {
       if (isPublicationSlugConstraint(error))
         throw new PublicationSlugTakenError("That public address is already taken.");
+      if (isProjectionVersionConstraint(error))
+        throw new PublicationProjectionConflictError("The active public programme changed.");
       throw error;
     }
     const constraint = results.find((result) => isPublicationSlugConstraint(result.error));
     if (constraint) throw new PublicationSlugTakenError("That public address is already taken.");
+    if (results.some((result) => isProjectionVersionConstraint(result.error)))
+      throw new PublicationProjectionConflictError("The active public programme changed.");
     const failure = results.find((result) => !result.success);
     if (failure)
       throw new Error(`D1 failed to publish projection: ${failure.error ?? "unknown error"}`);
@@ -229,8 +247,7 @@ export class D1PublicationRepository implements PublicationRepository {
          SELECT event_id, projection_version, published_at, published_json, agenda_version,
                 agenda_published_at, cfp_version, cfp_published_at, content_digest, activation_cause
          FROM public_event_projections
-         WHERE event_id = ? AND state = 'published' AND published_json IS NOT NULL
-         ON CONFLICT(event_id, version) DO NOTHING`,
+         WHERE event_id = ? AND state = 'published' AND published_json IS NOT NULL`,
       )
       .bind(eventId);
   }
@@ -252,7 +269,10 @@ export class D1PublicationRepository implements PublicationRepository {
           `UPDATE public_event_projections SET
              published_json = ?,
              published_at = ?,
-             projection_version = projection_version + 1,
+             projection_version = CASE
+               WHEN projection_version = ? THEN projection_version + 1
+               ELSE -1
+             END,
              agenda_version = ?,
              agenda_published_at = ?,
              cfp_version = ?,
@@ -270,6 +290,7 @@ export class D1PublicationRepository implements PublicationRepository {
         .bind(
           projection,
           refresh.activatedAt,
+          refresh.expectedProjectionVersion,
           source.agendaVersion,
           source.agendaPublishedAt,
           source.cfpVersion,
@@ -289,7 +310,16 @@ export class D1PublicationRepository implements PublicationRepository {
   }
 
   async refreshPublished(refresh: ProjectionRefresh): Promise<Publication | null> {
-    const results = await this.database.batch([...this.prepareRefreshStatements(refresh)]);
+    let results: Array<D1WriteResult & { results?: unknown[] }>;
+    try {
+      results = await this.database.batch([...this.prepareRefreshStatements(refresh)]);
+    } catch (error) {
+      if (isProjectionVersionConstraint(error))
+        throw new PublicationProjectionConflictError("The active public programme changed.");
+      throw error;
+    }
+    if (results.some((result) => isProjectionVersionConstraint(result.error)))
+      throw new PublicationProjectionConflictError("The active public programme changed.");
     const failure = results.find((result) => !result.success);
     if (failure)
       throw new Error(

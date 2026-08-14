@@ -34,6 +34,7 @@ export interface PublicationRepository {
     publishedAt: string,
     projection: PublicEventProjection,
     provenance?: PublicationProvenance,
+    expectedProjectionVersion?: number,
   ): Promise<Publication | null>;
   /**
    * Activate a newly composed source-driven snapshot only while the event is already live.

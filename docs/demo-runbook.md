@@ -296,7 +296,7 @@ Re-runnable is not the same as leaving no trace. Each run adds rows it does not 
 
 `test:quality` builds the web app, resets the shared fixture, and asks the Worker to serve that
 artifact. It runs axe WCAG A/AA checks over every organizer destination, the reviewer and speaker
-shells, all seven public routes, and all four embeds. It also proves skip links and landmarks, focus
+shells, all seven public routes, and all five embeds. It also proves skip links and landmarks, focus
 after client navigation, live navigation destinations, and 390px layout across every organizer and
 public route. On `/events/greenroom-demo-summit`, DOMContentLoaded must stay under 1.5 seconds,
 transferred bytes under 300 KiB, and resource requests under 12. Those ceilings were set after a

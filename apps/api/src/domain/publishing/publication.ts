@@ -77,6 +77,8 @@ export interface Publication {
 /** A fully composed snapshot ready for the publishing repository to activate. */
 export interface ProjectionRefresh {
   readonly eventId: string;
+  /** Compare-and-swap guard for the active composition this refresh was derived from. */
+  readonly expectedProjectionVersion: number;
   readonly activatedAt: string;
   readonly projection: PublicEventProjection;
   readonly provenance: PublicationProvenance;

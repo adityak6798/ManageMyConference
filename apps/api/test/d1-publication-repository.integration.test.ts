@@ -1,4 +1,4 @@
-// @acceptance ACC-PUBLIC
+// @acceptance ACC-PUBLIC ACC-AGENDA
 import { Miniflare } from "miniflare";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { D1AgendaRepository } from "../src/adapters/persistence/d1-agenda-repository";
@@ -21,6 +21,7 @@ import { ContentService } from "../src/application/content/content-service";
 import { EventService } from "../src/application/events/event-service";
 import { ReviewService } from "../src/application/review/review-service";
 import {
+  PublicationProjectionConflictError,
   PublicationService,
   PublicationSlugTakenError,
 } from "../src/application/publishing/publication-service";
@@ -149,6 +150,7 @@ describe("D1PublicationRepository", () => {
     await expect(
       repository.refreshPublished({
         eventId: DEMO_EVENT,
+        expectedProjectionVersion: 1,
         activatedAt: "2026-08-10T20:00:00.000Z",
         projection: safeProjection,
         provenance: {
@@ -344,17 +346,6 @@ describe("D1PublicationRepository", () => {
       event: { name: "Safe Event" },
       speakers: [{ name: "Speaker" }],
     });
-
-    await database
-      .prepare("DELETE FROM public_event_projections WHERE event_id = ?")
-      .bind(DEMO_EVENT)
-      .run();
-    const repository = new D1PublicationRepository(database);
-    await repository.publish(DEMO_EVENT, "2026-08-11T00:00:00.000Z", safeProjection);
-    await expect(repository.findByEventId(DEMO_EVENT)).resolves.toMatchObject({
-      state: "published",
-      slug: "safe-event",
-    });
   });
 
   /*
@@ -542,6 +533,81 @@ describe("D1PublicationRepository", () => {
     expect((await publicationRepository.findByEventId(DEMO_EVENT))?.projectionVersion).toBe(
       history.results?.at(-1)?.version,
     );
+  });
+
+  it("refuses a stale recomposition without overwriting a concurrent site publication", async () => {
+    runtime = new Miniflare({
+      modules: true,
+      script: "export default { fetch() {} }",
+      d1Databases: { DB: "publishing-projection-cas" },
+    });
+    const database = await runtime.getD1Database("DB");
+    await applySeed(database);
+    const { publicationRepository: repository, publishing } = publishingFor(database as never);
+    await publishing.publicBySlug(DEMO_SLUG);
+    const before = await repository.findByEventId(DEMO_EVENT);
+    expect(before?.published).not.toBeNull();
+    const expected = before?.projectionVersion ?? 0;
+    const provenance = before?.provenance;
+    expect(provenance).not.toBeNull();
+
+    const explicit = {
+      ...(before?.published ?? safeProjection),
+      event: { ...(before?.published ?? safeProjection).event, summary: "Concurrent site edit" },
+    };
+    await repository.publish(
+      DEMO_EVENT,
+      "2026-08-10T21:00:00.000Z",
+      explicit,
+      provenance ?? undefined,
+      expected,
+    );
+
+    await expect(
+      repository.refreshPublished({
+        eventId: DEMO_EVENT,
+        expectedProjectionVersion: expected,
+        activatedAt: "2026-08-10T21:01:00.000Z",
+        projection: {
+          ...(before?.published ?? safeProjection),
+          event: { ...(before?.published ?? safeProjection).event, summary: "Stale bytes" },
+        },
+        provenance: provenance ?? {
+          agendaVersion: null,
+          agendaPublishedAt: null,
+          cfpVersion: null,
+          cfpPublishedAt: null,
+          contentDigest: "legacy:unknown",
+          cause: "source-reconciled",
+        },
+      }),
+    ).rejects.toBeInstanceOf(PublicationProjectionConflictError);
+    expect((await repository.findByEventId(DEMO_EVENT))?.published?.event.summary).toBe(
+      "Concurrent site edit",
+    );
+  });
+
+  it("enforces immutable projection history in storage", async () => {
+    runtime = new Miniflare({
+      modules: true,
+      script: "export default { fetch() {} }",
+      d1Databases: { DB: "publishing-projection-history-immutable" },
+    });
+    const database = await runtime.getD1Database("DB");
+    await applySeed(database);
+    await publishingFor(database as never).publishing.publicBySlug(DEMO_SLUG);
+    await expect(
+      database
+        .prepare("UPDATE public_event_projection_versions SET activated_at = ? WHERE event_id = ?")
+        .bind("2026-08-11T00:00:00.000Z", DEMO_EVENT)
+        .run(),
+    ).rejects.toThrow("public projection history is immutable");
+    await expect(
+      database
+        .prepare("DELETE FROM public_event_projection_versions WHERE event_id = ?")
+        .bind(DEMO_EVENT)
+        .run(),
+    ).rejects.toThrow("public projection history is immutable");
   });
 
   it("does not create a public projection when an unpublished event publishes its agenda", async () => {

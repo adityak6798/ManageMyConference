@@ -128,7 +128,9 @@ test("publishes a clean agenda, explains draft conflicts, and keeps publication 
 
   // Put the session back on its seeded second day with the same keyboard path used above.
   await page.getByRole("tab", { name: /^Room/ }).click();
-  await page.getByLabel("Day", { exact: true }).selectOption({ label: "Wednesday, September 2" });
+  await page
+    .getByRole("combobox", { name: "Day", exact: true })
+    .selectOption({ label: "Wed, Sep 2" });
   const restore = page.getByRole("button", { name: /Accessible by default\. Not scheduled/ });
   await restore.focus();
   await restore.press("Enter");

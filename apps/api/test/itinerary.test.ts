@@ -6,10 +6,10 @@ import type {
 } from "../src/application/publishing/itinerary-repository";
 import {
   hashItineraryToken,
+  type ItineraryPublicationQuery,
   ItineraryNotFoundError,
   ItineraryService,
 } from "../src/application/publishing/itinerary-service";
-import type { PublicationRepository } from "../src/application/publishing/publication-repository";
 import type { Publication, PublicEventProjection } from "../src/domain/publishing/publication";
 
 const EVENT_ID = "00000000-0000-4000-8000-000000000001";
@@ -57,14 +57,10 @@ function fixture(state: Publication["state"] = "published") {
   };
   const rows = new Map<string, StoredItinerary>();
   const pruneCalls: Array<{ emptyBefore: string; endedBefore: string }> = [];
-  const publications: PublicationRepository = {
-    findPublicBySlug: async (slug) =>
+  const publications: ItineraryPublicationQuery = {
+    currentPublicBySlug: async (slug) =>
       slug === publication.slug && publication.state === "published" ? publication : null,
-    findByEventId: async () => publication,
-    findEventIdBySlug: async () => null,
-    saveSettings: async () => publication,
-    publish: async () => publication,
-    unpublish: async () => publication,
+    currentPublicByEventId: async () => (publication.state === "published" ? publication : null),
   };
   const itineraries: ItineraryRepository = {
     create: async (tokenHash, eventId, sessionSlugs, now) => {

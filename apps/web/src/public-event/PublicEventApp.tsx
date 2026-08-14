@@ -16,7 +16,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CfpApiError, type CfpFormDto, loadCfp } from "../api/cfp";
-import { getPublicEvent, PublicApiError } from "../api/publication";
+import { getPublicEventSnapshot, PublicApiError } from "../api/publication";
 import "../public-event.css";
 import "../styles/public-pages.css";
 import { useLoad } from "../ui/primitives";
@@ -61,13 +61,14 @@ import { PublicCfpView } from "./PublicCfpView";
 // presentational fragments. Reused cards, formatting, and routing live in cards.tsx/model.tsx.
 export function PublicEventApp() {
   const { embedded, slug, section, detail } = usePublicRoute();
-  const fetchProjection = useCallback((eventSlug: string) => getPublicEvent(eventSlug), []);
+  const fetchProjection = useCallback((eventSlug: string) => getPublicEventSnapshot(eventSlug), []);
   const describeProjectionFailure = useCallback(
     (reason: unknown) =>
       reason instanceof PublicApiError ? reason.message : "The event could not be loaded.",
     [],
   );
-  const { data: projection, error } = useLoad(slug, fetchProjection, describeProjectionFailure);
+  const { data: snapshot, error } = useLoad(slug, fetchProjection, describeProjectionFailure);
+  const projection = snapshot?.projection;
   const [liveCfp, setLiveCfp] = useState<CfpFormDto | null>(null);
   // Kept apart from `submissionNotice`: "we could not read the call" is not "your
   // proposal was not submitted", and it can now happen on a page that has no form.
@@ -119,18 +120,9 @@ export function PublicEventApp() {
   }
 
   /*
-   * The projection is a snapshot frozen at publish time; whether the call is accepting
-   * submissions is live state that the CFP domain enforces on submit. The two disagree
-   * from the moment an organizer closes or reopens the call, so the live form is loaded
-   * for the whole public surface rather than only for the CFP page — the home page used
-   * to offer “Submit a proposal” one click away from a CFP page reporting the call closed.
-   *
-   * A call that cannot be read leaves every view saying nothing about open or closed,
-   * rather than falling back to a snapshot that may contradict the form itself.
-   *
-   * It is read on entering either view that mentions the call — not once per visit and
-   * not on the schedule or the gallery, which never speak for it — so a visitor who
-   * arrives on the home page and clicks through later is told the state as it is then.
+   * The live CFP read supplies submission fields, not display metadata. The title, description,
+   * and status all stay on the active publishing version; below, the form is admitted only when
+   * its CFP version is the same one recorded by that snapshot.
    */
   useEffect(() => {
     setLiveCfp(null);
@@ -196,23 +188,19 @@ export function PublicEventApp() {
         : `Speakers · ${projection.event.name}`,
       gallery: `Speaker gallery · ${projection.event.name}`,
       itinerary: `My itinerary · ${projection.event.name}`,
-      // The tab, the heading, and the meta description all name the live call once it
-      // has loaded, so a republished title cannot show up in one place and not another.
-      cfp: `${liveCfp?.title ?? projection.cfp.title} · ${projection.event.name}`,
+      cfp: `${projection.cfp.title} · ${projection.event.name}`,
     } satisfies Record<View, string>;
     document.title = titles[section];
     description.content =
       session?.abstract ??
       speaker?.bio ??
-      (section === "cfp"
-        ? (liveCfp?.description ?? projection.cfp.description)
-        : projection.event.summary);
+      (section === "cfp" ? projection.cfp.description : projection.event.summary);
     return () => {
       document.title = originalTitle;
       if (existingDescription) description.content = originalDescription ?? "";
       else description.remove();
     };
-  }, [detail, liveCfp, projection, section]);
+  }, [detail, projection, section]);
 
   const model = useMemo(() => {
     if (!projection) return null;
@@ -334,21 +322,24 @@ export function PublicEventApp() {
    * the snapshot only supplies wording until it arrives. "unknown" is a real state and is
    * rendered as one: no pill, and a link that promises reading rather than submitting.
    */
-  const cfpStatus: "open" | "closed" | "unknown" = liveCfp
-    ? liveCfp.status === "open"
-      ? "open"
-      : "closed"
-    : "unknown";
-  const cfpTitle = liveCfp?.title ?? projection.cfp.title;
-  const cfpDescription = liveCfp?.description ?? projection.cfp.description;
+  // Display only facts from the active publication. The separately loaded form supplies
+  // fields for submission, but may have advanced after this projection response was read.
+  const cfpVersionMatches =
+    liveCfp !== null &&
+    liveCfp.version === snapshot?.publication?.provenance?.cfpVersion &&
+    liveCfp.title === projection.cfp.title &&
+    liveCfp.description === projection.cfp.description &&
+    (liveCfp.status === "closed" ? "closed" : "open") === projection.cfp.status;
+  const versionedCfp = cfpVersionMatches ? liveCfp : null;
+  const cfpStatus: "open" | "closed" = projection.cfp.status;
+  const cfpTitle = projection.cfp.title;
+  const cfpDescription = projection.cfp.description;
   const cfpStatusLine =
     cfpStatus === "open"
       ? "Open for submissions."
       : cfpStatus === "closed"
         ? "Submissions closed."
-        : cfpUnavailable
-          ? "Whether this call is accepting submissions could not be checked."
-          : "Checking whether submissions are open…";
+        : "Submissions closed.";
   const needle = sessionQuery.trim().toLowerCase();
   const visibleSessions = model.ordered.filter((item) => {
     if (trackFilter !== "all" && item.track !== trackFilter) return false;
@@ -598,15 +589,12 @@ export function PublicEventApp() {
                 <h2 id="home-cfp">{cfpTitle}</h2>
                 <p>{cfpDescription}</p>
               </div>
-              {/* The invitation is only extended when the call can actually take it: this
-                  block reads the live form, the same source the CFP page and the submit
-                  endpoint read, so the two can no longer contradict each other. */}
+              {/* The invitation and status come from the same active publication version as
+                  every other fact on this page. */}
               <div className="pub-cta-side">
-                {cfpStatus === "unknown" ? null : (
-                  <Pill tone={cfpStatus === "open" ? "ok" : "neutral"}>
-                    {cfpStatus === "open" ? "Open" : "Closed"}
-                  </Pill>
-                )}
+                <Pill tone={cfpStatus === "open" ? "ok" : "neutral"}>
+                  {cfpStatus === "open" ? "Open" : "Closed"}
+                </Pill>
                 <a className="pub-button" {...linkProps(`${base}/cfp`)}>
                   {cfpStatus === "open" ? "Submit a proposal" : "Read the CFP"}
                 </a>
@@ -1164,8 +1152,13 @@ export function PublicEventApp() {
           <PublicCfpView
             key={projection.event.eventId}
             eventId={projection.event.eventId}
-            liveCfp={liveCfp}
-            unavailable={cfpUnavailable}
+            liveCfp={versionedCfp}
+            unavailable={
+              cfpUnavailable ??
+              (liveCfp && !cfpVersionMatches
+                ? "The call changed while this programme loaded. Reload to use its latest form."
+                : null)
+            }
             status={cfpStatus}
             statusLine={cfpStatusLine}
             title={cfpTitle}

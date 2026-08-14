@@ -559,7 +559,26 @@ describe("what the public surface says about the call for proposals", () => {
       const url = String(input);
       if (url === `/api/public/events/${EVENT_ID}/cfp`) return cfp();
       if (url.includes(`/api/public/events/${SLUG}`))
-        return Promise.resolve(new Response(JSON.stringify({ projection }), { status: 200 }));
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              projection,
+              publication: {
+                version: 7,
+                publishedAt: null,
+                provenance: {
+                  agendaVersion: 3,
+                  agendaPublishedAt: "2026-08-01T15:00:00.000Z",
+                  cfpVersion: 4,
+                  cfpPublishedAt: "2026-08-01T16:00:00.000Z",
+                  contentDigest: "fnv1a32:12345678",
+                  cause: "source-reconciled",
+                },
+              },
+            }),
+            { status: 200 },
+          ),
+        );
       return Promise.resolve(new Response("{}", { status: 404 }));
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -568,30 +587,22 @@ describe("what the public surface says about the call for proposals", () => {
   const answering = (status: "open" | "closed") => () =>
     Promise.resolve(new Response(JSON.stringify(liveForm(status)), { status: 200 }));
 
-  it("never offers to submit into a call the CFP page will report as closed", async () => {
-    // The snapshot in `projection` still says "open": this is the state an organizer
-    // leaves behind by closing the call without republishing the event.
+  it("does not mix a later closed form into an open programme version", async () => {
     expect(projection.cfp.status).toBe("open");
     serve(answering("closed"));
     const { container } = mountAt(`/events/${SLUG}`);
     await screen.findByRole("heading", { level: 1, name: "Greenroom Demo Summit" });
 
-    const side = await waitFor(() => {
-      const node = container.querySelector(".pub-cta-side");
-      expect(node?.textContent).toContain("Closed");
-      return node as HTMLElement;
-    });
-    expect(side.textContent).not.toContain("Open");
-    expect(within(side).queryByRole("link", { name: "Submit a proposal" })).toBeNull();
-
-    // And the page one click away agrees with the page that sent them there.
-    fireEvent.click(within(side).getByRole("link", { name: "Read the CFP" }));
+    const side = container.querySelector(".pub-cta-side") as HTMLElement;
+    expect(side.textContent).toContain("Open");
+    fireEvent.click(within(side).getByRole("link", { name: "Submit a proposal" }));
     await screen.findByRole("heading", { level: 1, name: "Share what you learned" });
-    expect(container.textContent).toContain("Submissions closed.");
+    expect(container.textContent).toContain("Open for submissions.");
+    expect(await screen.findByRole("alert")).toHaveTextContent("programme loaded");
     expect(screen.queryByRole("button", { name: "Submit proposal" })).toBeNull();
   });
 
-  it("advertises a reopened call the snapshot still calls closed", async () => {
+  it("does not mix a later reopened form into a closed programme version", async () => {
     fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url === `/api/public/events/${EVENT_ID}/cfp`) return answering("open")();
@@ -610,15 +621,15 @@ describe("what the public surface says about the call for proposals", () => {
     const { container } = mountAt(`/events/${SLUG}`);
     await screen.findByRole("heading", { level: 1, name: "Greenroom Demo Summit" });
 
-    const cta = await screen.findByRole("link", { name: "Submit a proposal" });
-    expect(container.querySelector(".pub-cta-side")?.textContent).toContain("Open");
+    const cta = await screen.findByRole("link", { name: "Read the CFP" });
+    expect(container.querySelector(".pub-cta-side")?.textContent).toContain("Closed");
     fireEvent.click(cta);
     await screen.findByRole("heading", { level: 1, name: "Share what you learned" });
-    expect(await screen.findByRole("button", { name: "Submit proposal" })).toBeVisible();
-    expect(container.textContent).toContain("Open for submissions.");
+    expect(screen.queryByRole("button", { name: "Submit proposal" })).toBeNull();
+    expect(container.textContent).toContain("Submissions closed.");
   });
 
-  it("claims neither state while the live call cannot be read", async () => {
+  it("keeps the versioned state while explaining that its form cannot be read", async () => {
     serve(() =>
       Promise.resolve(
         new Response(
@@ -637,17 +648,12 @@ describe("what the public surface says about the call for proposals", () => {
     await screen.findByRole("heading", { level: 1, name: "Greenroom Demo Summit" });
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
 
-    // No pill either way, and the link promises only what it can deliver.
     const side = container.querySelector(".pub-cta-side") as HTMLElement;
-    expect(side.textContent).toBe("Read the CFP");
+    expect(side.textContent).toBe("OpenSubmit a proposal");
 
-    fireEvent.click(within(side).getByRole("link", { name: "Read the CFP" }));
+    fireEvent.click(within(side).getByRole("link", { name: "Submit a proposal" }));
     await screen.findByRole("heading", { level: 1, name: "Share what you learned" });
-    expect(container.textContent).toContain(
-      "Whether this call is accepting submissions could not be checked.",
-    );
-    expect(container.textContent).not.toContain("Open for submissions.");
-    expect(container.textContent).not.toContain("Submissions closed.");
+    expect(container.textContent).toContain("Open for submissions.");
     // The reason is stated as a reading failure, not as a rejected submission.
     expect(await screen.findByRole("alert")).toHaveTextContent("The CFP is not published.");
     expect(container.textContent).not.toContain("Not submitted");

@@ -191,7 +191,18 @@ function uniquenessFailureOn(error: unknown, column: string): boolean {
  * command key must never be. Matching the table alone would make a replayed command retry
  * until it exhausted its attempts and then report contention that does not exist.
  */
-const isVersionTaken = (error: unknown) => uniquenessFailureOn(error, "version");
+const isVersionTaken = (error: unknown) => {
+  const text =
+    error instanceof Error ? `${error.message} ${String(error.cause ?? "")}` : String(error ?? "");
+  /*
+   * An opaque publication-event writer may protect its own active snapshot with this named
+   * compare-and-swap constraint. Agenda knows only that the event-side write lost a race and
+   * should retry its whole batch; it does not learn the writer's tables or representation.
+   */
+  return (
+    uniquenessFailureOn(error, "version") || text.includes("projection_refresh_version_changed")
+  );
+};
 /** This exact command already committed a publication. */
 const isCommandReplayed = (error: unknown) => uniquenessFailureOn(error, "command_key");
 

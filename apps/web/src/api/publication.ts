@@ -9,6 +9,8 @@ import { decodeResponse, apiFetch as fetch } from "./config";
 
 export class PublicApiError extends Error {}
 
+export type PublicEventSnapshotDto = ReturnType<typeof publicEventResponseSchema.parse>;
+
 /** A publishing failure that still carries the server's correlation reference. */
 export class PublicationApiError extends Error {
   constructor(readonly envelope: ApiErrorEnvelope) {
@@ -124,4 +126,17 @@ export async function getPublicEvent(
       (envelope) => new PublicApiError(envelope.error.message),
     )
   ).projection;
+}
+
+/** Projection bytes and the exact publishing version that owns them. */
+export async function getPublicEventSnapshot(
+  slug: string,
+  fetcher: typeof fetch = fetch,
+): Promise<PublicEventSnapshotDto> {
+  const response = await fetcher(`/api/public/events/${encodeURIComponent(slug)}`);
+  return decodeResponse(
+    response,
+    publicEventResponseSchema,
+    (envelope) => new PublicApiError(envelope.error.message),
+  );
 }

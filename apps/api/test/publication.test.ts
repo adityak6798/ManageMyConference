@@ -318,6 +318,46 @@ async function composedFixture() {
 }
 
 describe("publication snapshots", () => {
+  it("returns projection bytes and version metadata from one repository read", async () => {
+    const first: Publication = {
+      eventId: EVENT_ID,
+      slug: "safe-event",
+      state: "published",
+      draft: safeProjection,
+      published: safeProjection,
+      publishedAt: "2026-08-01T00:00:00.000Z",
+      projectionVersion: 4,
+    };
+    const second: Publication = {
+      ...first,
+      published: {
+        ...safeProjection,
+        event: { ...safeProjection.event, summary: "A later composition" },
+      },
+      projectionVersion: 5,
+    };
+    const findPublicBySlug = vi
+      .fn<PublicationRepository["findPublicBySlug"]>()
+      .mockResolvedValueOnce(first)
+      .mockResolvedValue(second);
+    const repository = {
+      findPublicBySlug,
+      findByEventId: vi.fn(async () => first),
+      findEventIdBySlug: vi.fn(async () => null),
+      saveSettings: vi.fn(async () => first),
+      publish: vi.fn(async () => first),
+      unpublish: vi.fn(async () => first),
+    } satisfies PublicationRepository;
+
+    await expect(
+      new PublicationService(repository).publicSnapshotBySlug("safe-event"),
+    ).resolves.toMatchObject({
+      projection: { event: { summary: "Public" } },
+      version: 4,
+    });
+    expect(findPublicBySlug).toHaveBeenCalledTimes(1);
+  });
+
   it("serves only the immutable published snapshot and hides unpublished events", async () => {
     let record: Publication = {
       eventId: "00000000-0000-4000-8000-000000000001",

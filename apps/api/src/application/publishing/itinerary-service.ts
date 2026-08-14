@@ -4,7 +4,7 @@ import {
   reconcileItinerary,
 } from "../../domain/publishing/itinerary";
 import type { ItineraryRepository } from "./itinerary-repository";
-import type { PublicationRepository } from "./publication-repository";
+import type { Publication } from "../../domain/publishing/publication";
 
 /** The event is not published, or the token names nothing. One answer, deliberately. */
 export class ItineraryNotFoundError extends Error {}
@@ -15,6 +15,11 @@ const TOKEN_BYTES = 32;
 export const EMPTY_ITINERARY_RETENTION_MS = 24 * 60 * 60 * 1_000;
 /** Keep ended-event plans for at least one full UTC day so timezone edges cannot prune mid-event. */
 export const ENDED_EVENT_RETENTION_MS = 24 * 60 * 60 * 1_000;
+
+export interface ItineraryPublicationQuery {
+  currentPublicBySlug(slug: string): Promise<Publication | null>;
+  currentPublicByEventId(eventId: string): Promise<Publication | null>;
+}
 
 const base64url = (bytes: Uint8Array): string =>
   btoa(String.fromCharCode(...bytes))
@@ -51,7 +56,7 @@ export async function hashItineraryToken(token: string): Promise<string> {
 export class ItineraryService {
   constructor(
     private readonly itineraries: ItineraryRepository,
-    private readonly publications: PublicationRepository,
+    private readonly publications: ItineraryPublicationQuery,
     private readonly now: () => Date = () => new Date(),
     private readonly randomBytes: (length: number) => Uint8Array = (length) =>
       crypto.getRandomValues(new Uint8Array(length)),
@@ -68,7 +73,7 @@ export class ItineraryService {
 
   /** The published projection's session slugs, or null when the event is not public. */
   private async publishedSlugs(eventSlug: string): Promise<{ eventId: string; slugs: string[] }> {
-    const publication = await this.publications.findPublicBySlug(eventSlug);
+    const publication = await this.publications.currentPublicBySlug(eventSlug);
     if (!publication?.published) throw new ItineraryNotFoundError("This event is not published.");
     return {
       eventId: publication.eventId,
@@ -105,7 +110,7 @@ export class ItineraryService {
   async read(token: string): Promise<AttendeeItinerary> {
     const stored = await this.itineraries.findByTokenHash(await hashItineraryToken(token));
     if (!stored) throw new ItineraryNotFoundError("This itinerary was not found.");
-    const publication = await this.publications.findByEventId(stored.eventId);
+    const publication = await this.publications.currentPublicByEventId(stored.eventId);
     // An event taken down takes its itineraries with it, exactly as it takes its public
     // page: an unpublished snapshot must not stay readable through a side door.
     if (!publication?.published || publication.state !== "published")
@@ -126,7 +131,7 @@ export class ItineraryService {
     const tokenHash = await hashItineraryToken(token);
     const stored = await this.itineraries.findByTokenHash(tokenHash);
     if (!stored) throw new ItineraryNotFoundError("This itinerary was not found.");
-    const publication = await this.publications.findByEventId(stored.eventId);
+    const publication = await this.publications.currentPublicByEventId(stored.eventId);
     if (!publication?.published || publication.state !== "published")
       throw new ItineraryNotFoundError("This itinerary was not found.");
     const reconciled = reconcileItinerary(

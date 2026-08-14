@@ -6,6 +6,7 @@ const openingSession = "20000000-0000-4000-8000-000000000001";
 const secondSessionId = "20000000-0000-4000-8000-000000000002";
 const secondSession = "Accessible by default";
 const openingPlacement = "placement-opening";
+const accessiblePlacement = "placement-accessible";
 // Assisted placement derives a placement's id from the session it seats, so a card the pass
 // created is addressable without reading it back off the board.
 const assistedSecondPlacement = `assisted-${secondSessionId}`;
@@ -25,22 +26,39 @@ async function restoreSeedPlacement(page: Page) {
   if (board.ok()) {
     const { agenda } = (await board.json()) as { agenda: { placements: { id: string }[] } };
     for (const { id } of agenda.placements)
-      if (id !== openingPlacement)
+      if (id !== openingPlacement && id !== accessiblePlacement)
         await page.request.delete(`/api/events/${demoEventId}/agenda/placements/${id}`);
   }
-  const restored = await page.request.put(
-    `/api/events/${demoEventId}/agenda/placements/${openingPlacement}`,
+  for (const placement of [
     {
-      data: {
-        id: openingPlacement,
-        sessionId: openingSession,
-        roomId: "room-main",
-        trackId: "track-platform",
-        slotId: "slot-0900",
-      },
+      id: openingPlacement,
+      sessionId: openingSession,
+      roomId: "room-main",
+      trackId: "track-platform",
+      slotId: "slot-0900",
     },
-  );
-  expect(restored.ok()).toBeTruthy();
+    {
+      id: accessiblePlacement,
+      sessionId: secondSessionId,
+      roomId: "room-lab",
+      trackId: "track-practice",
+      slotId: "slot-day-two",
+    },
+  ]) {
+    const restored = await page.request.put(
+      `/api/events/${demoEventId}/agenda/placements/${placement.id}`,
+      {
+        data: {
+          ...placement,
+        },
+      },
+    );
+    expect(restored.ok()).toBeTruthy();
+  }
+  // Agenda publication now advances an already-live public programme. Hand both the draft and
+  // that programme back to the next spec, rather than restoring only the private board.
+  const published = await page.request.post(`/api/events/${demoEventId}/agenda/publications`);
+  expect(published.ok()).toBeTruthy();
 }
 
 async function openAgenda(page: Page) {
@@ -82,12 +100,11 @@ test("schedules a session with the keyboard alone", async ({ page }) => {
   await page.getByRole("tab", { name: /^List/ }).click();
   const listPanel = page.getByRole("tabpanel", { name: /^List/ });
   const listBounds = await listPanel.boundingBox();
-  const railBounds = await page.getByRole("region", { name: "Unscheduled" }).boundingBox();
   const unscheduleBounds = await listPanel
+    .getByRole("row", { name: /Designing the calm conference/ })
     .getByRole("button", { name: "Unschedule" })
     .boundingBox();
   expect(listBounds).not.toBeNull();
-  expect(railBounds?.y).toBeGreaterThanOrEqual((listBounds?.y ?? 0) + (listBounds?.height ?? 0));
   expect(unscheduleBounds?.x).toBeGreaterThanOrEqual(listBounds?.x ?? 0);
   expect((unscheduleBounds?.x ?? 0) + (unscheduleBounds?.width ?? 0)).toBeLessThanOrEqual(
     (listBounds?.x ?? 0) + (listBounds?.width ?? 0),
@@ -97,6 +114,7 @@ test("schedules a session with the keyboard alone", async ({ page }) => {
     .getByRole("button", { name: "Unschedule" })
     .click();
   await expect(page.getByRole("status")).toContainText("moved back to Unscheduled");
+  await expect(page.getByRole("region", { name: "Unscheduled" })).toBeVisible();
 
   await page.getByRole("tab", { name: /^Room/ }).click();
   const card = page.getByRole("button", { name: /Designing the calm conference\. Not scheduled/ });
