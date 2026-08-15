@@ -12,10 +12,11 @@ import {
   Pill,
   Skeleton,
 } from "../src/ui/primitives";
-import { HUB_PATHS, hubTabHref } from "../src/workspaces/contract";
+import { scheduleAgendaHref, scheduleAgendaTab } from "../src/workspaces/agenda";
 import { programFormsHref, programFormsTab } from "../src/workspaces/cfp";
 import { scheduleSessionsHref, scheduleSessionsTab } from "../src/workspaces/content";
-import { scheduleAgendaHref, scheduleAgendaTab } from "../src/workspaces/agenda";
+import { HUB_PATHS, hubTabHref } from "../src/workspaces/contract";
+import { hubTabForSelection, hubTabsFor } from "../src/workspaces/registry";
 import {
   programReviewHref,
   programReviewTab,
@@ -75,6 +76,15 @@ describe("design foundation", () => {
     expect(screen.getByRole("navigation", { name: "Program jobs" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Forms 2" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: "Review" })).not.toHaveAttribute("aria-current");
+  });
+
+  it("resolves compatibility aliases to an advertised current tab", () => {
+    const visible = hubTabsFor("people", "organizer");
+    const selected = hubTabForSelection("people", "files", "organizer");
+
+    expect(visible.map(({ tab }) => tab)).toContain("speakers");
+    expect(visible.map(({ tab }) => tab)).not.toContain("files");
+    expect(selected?.tab).toBe("speakers");
   });
 
   it("composes list/detail, dense rows, status, and stable loading semantics", () => {

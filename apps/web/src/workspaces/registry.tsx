@@ -81,12 +81,12 @@ export const hubTabModules: readonly HubTabModule[] = [
     label: "Review",
     header: programReviewTab.header,
   },
-  { ...programReviewTab, hidden: true },
+  { ...programReviewTab, hidden: true, canonicalTab: programSubmissionsTab.tab },
   crmHubTab,
   directoryHubTab,
   speakersHubTab,
-  { ...tasksHubTab, hidden: true },
-  { ...filesHubTab, hidden: true },
+  { ...tasksHubTab, hidden: true, canonicalTab: speakersHubTab.tab },
+  { ...filesHubTab, hidden: true, canonicalTab: speakersHubTab.tab },
   scheduleSessionsTab,
   scheduleAgendaTab,
   {
@@ -98,8 +98,8 @@ export const hubTabModules: readonly HubTabModule[] = [
       subtitle: "Compose event messages, manage their templates, and inspect delivery outcomes.",
     }),
   },
-  { ...communicationTemplatesHubTab, hidden: true },
-  { ...deliveryHubTab, hidden: true },
+  { ...communicationTemplatesHubTab, hidden: true, canonicalTab: composeHubTab.tab },
+  { ...deliveryHubTab, hidden: true, canonicalTab: composeHubTab.tab },
   {
     ...eventSiteHubTab,
     label: "Publishing",
@@ -110,7 +110,7 @@ export const hubTabModules: readonly HubTabModule[] = [
     }),
   },
   portalsHubTab,
-  { ...embedsHubTab, hidden: true },
+  { ...embedsHubTab, hidden: true, canonicalTab: eventSiteHubTab.tab },
   eventSettingsHubTab,
   teamHubTab,
   rolesHubTab,
@@ -148,9 +148,17 @@ export function hubTabForSelection(
   persona: string,
 ): HubTabModule | undefined {
   if (!tab) return undefined;
-  return hubTabModules.find(
+  const selected = hubTabModules.find(
     (module) =>
       module.hub === hub && module.tab === tab && module.personas.includes(persona as never),
+  );
+  if (!selected?.hidden) return selected;
+  return hubTabModules.find(
+    (module) =>
+      module.hub === hub &&
+      module.tab === selected.canonicalTab &&
+      !module.hidden &&
+      module.personas.includes(persona as never),
   );
 }
 

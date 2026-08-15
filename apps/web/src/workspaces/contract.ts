@@ -107,6 +107,8 @@ export interface HubTabModule {
   readonly personas: readonly Persona[];
   /** Compatibility-only route aliases are resolvable but not advertised as distinct jobs. */
   readonly hidden?: boolean;
+  /** Visible tab that owns a hidden compatibility alias. */
+  readonly canonicalTab?: string;
   /** Old console paths that should resolve to this tab after cutover. */
   readonly legacyPaths: readonly string[];
   canAccess?(access: WorkspaceAccess): boolean;
