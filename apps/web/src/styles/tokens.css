@@ -1,21 +1,20 @@
 /*
- * Greenroom design system — one token set, two surfaces.
+ * Greenroom design system — one token set, several job-specific surfaces.
  *
  * Console (organizer/reviewer/speaker operations) uses cool paper neutrals and high
  * density. Public event pages use warm paper and editorial rhythm. Both draw from the
  * same scale, radii, and status colours so they read as one product.
  *
- * Typography is deliberately not Inter/Roboto: an old-style serif carries the brand
- * voice, a grotesque carries data. Both resolve from system faces so the app stays
- * fast and works with no network — the competition rewards speed and offline demos.
+ * Typography resolves entirely from system faces so the app stays fast, works without
+ * a font request, and reads as one operational product from marketing through delivery.
  */
 
 :root {
   /* ---- type ---- */
-  --font-display: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
   --font-ui:
     ui-sans-serif, -apple-system, "Segoe UI Variable Text", "Segoe UI", Roboto, "Helvetica Neue",
     Arial, sans-serif;
+  --font-display: var(--font-ui);
   --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
 
   --text-2xs: 0.6875rem;
@@ -45,10 +44,10 @@
   --s-16: 64px;
 
   /* ---- radius ---- */
-  --r-sm: 6px;
-  --r-md: 9px;
-  --r-lg: 14px;
-  --r-xl: 20px;
+  --r-sm: 5px;
+  --r-md: 8px;
+  --r-lg: 12px;
+  --r-xl: 16px;
   --r-full: 999px;
 
   /* ---- brand ---- */
@@ -57,6 +56,7 @@
   --green-700: #0f5c3f;
   --green-600: #14724f;
   --green-500: #1c8a61;
+  --green-200: #b9ddc8;
   --green-100: #dbeee3;
   --green-50: #eef7f1;
 
@@ -77,23 +77,23 @@
   --neutral-bg: #e8ece8;
 
   /* ---- console surface (cool paper) ---- */
-  --ink: #0f1a15;
-  --ink-2: #35443b;
-  --ink-3: #5c6b62;
-  --ink-4: #86958c;
-  --muted: #64736a;
-  --canvas: #f3f6f3;
+  --ink: #171a18;
+  --ink-2: #363b38;
+  --ink-3: #606862;
+  --ink-4: #8b938e;
+  --muted: #68716b;
+  --canvas: #f6f7f6;
   --surface: #ffffff;
-  --surface-2: #f8faf8;
-  --line: #e1e7e2;
-  --line-strong: #cbd5cd;
+  --surface-2: #fafbfa;
+  --line: #e7e9e7;
+  --line-strong: #d5d9d6;
 
   --focus: #1c8a61;
   --focus-ring: 0 0 0 3px rgba(28, 138, 97, 0.32);
 
-  --shadow-sm: 0 1px 2px rgba(15, 26, 21, 0.06);
-  --shadow-md: 0 1px 3px rgba(15, 26, 21, 0.08), 0 6px 16px -8px rgba(15, 26, 21, 0.14);
-  --shadow-lg: 0 2px 6px rgba(15, 26, 21, 0.08), 0 18px 40px -18px rgba(15, 26, 21, 0.28);
+  --shadow-sm: 0 1px 1px rgba(15, 26, 21, 0.04);
+  --shadow-md: 0 8px 24px -16px rgba(15, 26, 21, 0.24);
+  --shadow-lg: 0 24px 64px -28px rgba(15, 26, 21, 0.34);
 
   --sidebar-w: 244px;
   --topbar-h: 56px;

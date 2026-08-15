@@ -6,7 +6,16 @@
  * land everywhere at once.
  */
 
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import {
+  type ComponentPropsWithoutRef,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
+import { useLinkProps } from "../router";
 import { IconInbox } from "./icons";
 
 export function PageHeader({
@@ -109,6 +118,201 @@ export function Tabs({
         </button>
       ))}
     </div>
+  );
+}
+
+export type HubTabItem = { id: string; label: string; href: string; count?: number };
+
+/** Stable sibling jobs rendered as links because every selection must remain shareable. */
+export function HubTabs({
+  items,
+  active,
+  label,
+}: {
+  items: readonly HubTabItem[];
+  active: string;
+  label: string;
+}) {
+  const linkProps = useLinkProps();
+  return (
+    <nav className="hub-tabs" aria-label={label}>
+      {items.map((item) => (
+        <a
+          key={item.id}
+          className="hub-tab"
+          aria-current={item.id === active ? "page" : undefined}
+          {...linkProps(item.href)}
+        >
+          <span>{item.label}</span>
+          {item.count === undefined ? null : <span className="count">{item.count}</span>}
+        </a>
+      ))}
+    </nav>
+  );
+}
+
+export function Toolbar({
+  children,
+  label,
+  className,
+  ...props
+}: ComponentPropsWithoutRef<"div"> & { label?: string }) {
+  const classes = ["toolbar", className].filter(Boolean).join(" ");
+  if (label)
+    return (
+      <div {...props} className={classes} role="toolbar" aria-label={label}>
+        {children}
+      </div>
+    );
+  return (
+    <div {...props} className={classes}>
+      {children}
+    </div>
+  );
+}
+
+/** Two-column operational layout with a readable stacked fallback on narrow screens. */
+export function ListDetail({
+  list,
+  detail,
+  listLabel,
+  detailLabel,
+}: {
+  list: ReactNode;
+  detail: ReactNode;
+  listLabel: string;
+  detailLabel: string;
+}) {
+  return (
+    <div className="list-detail">
+      <section className="list-detail-list" aria-label={listLabel}>
+        {list}
+      </section>
+      <aside className="list-detail-panel" aria-label={detailLabel}>
+        {detail}
+      </aside>
+    </div>
+  );
+}
+
+/**
+ * Platform-dialog drawer. The browser owns modality and focus containment; this component owns
+ * labelling, close affordances, Escape policy, and returning the close request to its caller.
+ */
+export function Drawer({
+  open,
+  title,
+  description,
+  children,
+  footer,
+  busy = false,
+  onClose,
+}: {
+  open: boolean;
+  title: string;
+  /** Plain supporting copy; block content belongs in the drawer body. */
+  description?: string;
+  children: ReactNode;
+  footer?: ReactNode;
+  busy?: boolean;
+  onClose: () => void;
+}) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
+  const descriptionId = useId();
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    if (open && !dialog.open) dialog.showModal();
+    if (!open && dialog.open) dialog.close();
+  }, [open]);
+
+  return (
+    <dialog
+      ref={dialogRef}
+      className="drawer"
+      aria-labelledby={titleId}
+      aria-describedby={description ? descriptionId : undefined}
+      aria-busy={busy || undefined}
+      onCancel={(event) => {
+        event.preventDefault();
+        if (!busy) onClose();
+      }}
+      onClose={() => {
+        if (open && !busy) onClose();
+      }}
+    >
+      <header className="drawer-header">
+        <div>
+          <h2 id={titleId}>{title}</h2>
+          {description ? <p id={descriptionId}>{description}</p> : null}
+        </div>
+        <button
+          type="button"
+          className="secondary small drawer-close"
+          onClick={onClose}
+          disabled={busy}
+          aria-label={`Close ${title}`}
+        >
+          <span aria-hidden="true">×</span>
+        </button>
+      </header>
+      <div className="drawer-body">{children}</div>
+      {footer ? <footer className="drawer-footer">{footer}</footer> : null}
+    </dialog>
+  );
+}
+
+export function DataList({ children, label }: { children: ReactNode; label?: string }) {
+  return (
+    <ul className="data-list" aria-label={label}>
+      {children}
+    </ul>
+  );
+}
+
+export function DataListRow({
+  title,
+  metadata,
+  status,
+  actions,
+  children,
+}: {
+  title: ReactNode;
+  metadata?: ReactNode;
+  status?: ReactNode;
+  actions?: ReactNode;
+  children?: ReactNode;
+}) {
+  return (
+    <li className="data-list-row">
+      <div className="data-list-primary">
+        <div className="data-list-title">{title}</div>
+        {metadata ? <div className="data-list-metadata">{metadata}</div> : null}
+        {children ? <div className="data-list-content">{children}</div> : null}
+      </div>
+      {status ? <div className="data-list-status">{status}</div> : null}
+      {actions ? <div className="data-list-actions">{actions}</div> : null}
+    </li>
+  );
+}
+
+export function Skeleton({
+  width = "100%",
+  height = "1rem",
+  label = "Loading",
+}: {
+  width?: string | number;
+  height?: string | number;
+  label?: string;
+}) {
+  return (
+    <span className="skeleton" style={{ width, height }} role="status" aria-label={label}>
+      <span className="visually-hidden" aria-hidden="true">
+        {label}
+      </span>
+    </span>
   );
 }
 
