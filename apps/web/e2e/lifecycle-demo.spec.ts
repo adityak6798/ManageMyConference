@@ -587,6 +587,16 @@ test("audits every public and embed surface, focus transition, landmarks, and mo
     await expectNoHorizontalOverflow(page, `public ${surface.path || "/"}`);
   }
   await openOrganizer(page);
+  const mobileNavigationTrigger = page.getByRole("button", {
+    name: "Open workspace navigation",
+  });
+  await mobileNavigationTrigger.click();
+  const skipLink = page.getByRole("link", { name: "Skip to main content" });
+  await expect(skipLink).toHaveJSProperty("inert", true);
+  await page.keyboard.press("Shift+Tab");
+  await expect(skipLink).not.toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(mobileNavigationTrigger).toBeFocused();
   const organizerPaths = await page
     .getByRole("navigation", { name: "Workspace navigation" })
     .getByRole("link")
@@ -598,11 +608,15 @@ test("audits every public and embed surface, focus transition, landmarks, and mo
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
     await expectNoHorizontalOverflow(page, organizerSurface(path));
   }
-  const role = page.getByRole("combobox", { name: "Signed-in role" });
-  await role.selectOption("reviewer");
+  const openRoleControl = async () => {
+    const role = page.getByRole("combobox", { name: "Signed-in role" });
+    if (!(await role.isVisible())) await page.locator(".account-menu summary").click();
+    return role;
+  };
+  await (await openRoleControl()).selectOption("reviewer");
   await expect(page.getByRole("heading", { name: "Review assignments" })).toBeVisible();
   await expectNoHorizontalOverflow(page, "reviewer assignments");
-  await role.selectOption("speaker");
+  await (await openRoleControl()).selectOption("speaker");
   await expect(page.getByRole("heading", { name: "Speaker portal" })).toBeVisible();
   await expectNoHorizontalOverflow(page, "speaker portal");
 });

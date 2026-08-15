@@ -426,6 +426,7 @@
         "apps/web/src/router.ts",
         "apps/web/test/router.test.tsx",
         "apps/web/test/api-config.test.ts",
+        "apps/web/test/design-foundation.test.tsx",
         "apps/web/src/ui/primitives.tsx",
         "apps/web/e2e/event-scoped-loading.spec.ts",
         "apps/web/src/ui/icons.tsx",

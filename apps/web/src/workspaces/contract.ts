@@ -16,6 +16,36 @@ export type WorkspaceRole = Persona | "custom";
 /** Sidebar grouping. `home` is the ungrouped first item. */
 export type NavGroupName = "home" | "Program" | "Audience";
 
+/**
+ * The stable, job-shaped destinations of the redesigned organizer console.
+ *
+ * Existing workspaces keep using `WorkspaceModule` until their owning lane is ready. A lane may
+ * export `HubTabModule`s without registering them; the final #237 cutover composes the complete
+ * set in one place so a partially rebuilt hub is never exposed in primary navigation.
+ */
+export type WorkspaceHub =
+  | "program"
+  | "people"
+  | "schedule"
+  | "communications"
+  | "publish"
+  | "settings";
+
+export const HUB_PATHS: Readonly<Record<WorkspaceHub, string>> = {
+  program: "/program",
+  people: "/people",
+  schedule: "/schedule",
+  communications: "/communications",
+  publish: "/publish",
+  settings: "/settings",
+};
+
+/** Build a shareable hub URL without owning event or record query state. */
+export function hubTabHref(hub: WorkspaceHub, tab: string): string {
+  const query = new URLSearchParams({ tab });
+  return `${HUB_PATHS[hub]}?${query.toString()}`;
+}
+
 /** What a workspace may consult to decide whether this identity can open it. */
 export interface WorkspaceAccess {
   session: SessionDto | null;
@@ -61,6 +91,22 @@ export interface WorkspaceModule {
    */
   readonly personas: readonly Persona[];
   /** Absent means the persona check is the whole gate. */
+  canAccess?(access: WorkspaceAccess): boolean;
+  header(context: WorkspaceContext): WorkspaceHeader;
+  render(context: WorkspaceContext): ReactNode;
+}
+
+/** A domain-owned contribution to one job-shaped hub, registered only at final cutover. */
+export interface HubTabModule {
+  readonly domain: string;
+  readonly hub: WorkspaceHub;
+  readonly tab: string;
+  readonly label: string;
+  readonly order: number;
+  readonly icon?: ReactNode;
+  readonly personas: readonly Persona[];
+  /** Old console paths that should resolve to this tab after cutover. */
+  readonly legacyPaths: readonly string[];
   canAccess?(access: WorkspaceAccess): boolean;
   header(context: WorkspaceContext): WorkspaceHeader;
   render(context: WorkspaceContext): ReactNode;
