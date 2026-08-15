@@ -6,6 +6,7 @@
       "!**/dist",
       "!**/coverage",
       "!**/.venv",
+      "!**/.evidence",
       "!**/.wrangler",
       "!**/node_modules",
       "!**/playwright-report",
