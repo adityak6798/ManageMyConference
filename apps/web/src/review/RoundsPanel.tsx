@@ -11,7 +11,13 @@
 
 import type { OrganizerReviewWorkspaceDto } from "@greenroom/contracts";
 import { type FormEvent, useState } from "react";
-import { createReviewRound, setReviewRoundPool, updateReviewRound } from "../api/review";
+import {
+  createReviewRound,
+  inviteReviewRound,
+  recomputeReviewRound,
+  setReviewRoundPool,
+  updateReviewRound,
+} from "../api/review";
 import "../styles/review.css";
 import { IconPlus, IconReview, IconWarning } from "../ui/icons";
 import { Card, EmptyState, Notice, Pill, useActionFeedback } from "../ui/primitives";
@@ -25,6 +31,8 @@ import { fieldErrorsOf, message, type Round, ROUND_STATE, roundDate } from "./sh
  */
 type Terms = {
   name: string;
+  instructions: string;
+  aiPersona: string;
   opensAt: string;
   closesAt: string;
   state: Round["state"];
@@ -32,6 +40,13 @@ type Terms = {
   poolMode: Round["poolMode"];
   /** Whether this round overrides the event plan. The criteria themselves are edited in the rubric. */
   ownScorecard: boolean;
+  visibleFieldIds: string;
+  filesVisible: boolean;
+  maxEvaluationsPerProposal: number;
+  weeklyReminderWeekday: string;
+  weeklyReminderHour: string;
+  reminderTimezone: string;
+  filters: string;
 };
 
 /** ISO instant to the `datetime-local` value the browser control wants, in the viewer's zone. */
@@ -46,13 +61,39 @@ const toInstant = (local: string) => (local ? new Date(local).toISOString() : nu
 
 const termsOf = (round: Round): Terms => ({
   name: round.name,
+  instructions: round.instructions,
+  aiPersona: round.aiPersona,
   opensAt: toLocalInput(round.opensAt),
   closesAt: toLocalInput(round.closesAt),
   state: round.state,
   anonymized: round.anonymized,
   poolMode: round.poolMode,
   ownScorecard: round.criteria !== null,
+  visibleFieldIds: round.visibleFieldIds.join(", "),
+  filesVisible: round.filesVisible,
+  maxEvaluationsPerProposal: round.maxEvaluationsPerProposal,
+  weeklyReminderWeekday: round.weeklyReminderWeekday?.toString() ?? "",
+  weeklyReminderHour: round.weeklyReminderHour?.toString() ?? "",
+  reminderTimezone: round.reminderTimezone ?? "",
+  filters: round.filters.map(({ field, values }) => `${field}=${values.join(",")}`).join("\n"),
 });
+
+const filtersOf = (text: string) =>
+  text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [field = "", ...tail] = line.split("=");
+      return {
+        field: field.trim(),
+        values: tail
+          .join("=")
+          .split(",")
+          .map((value) => value.trim())
+          .filter(Boolean),
+      };
+    });
 
 export function RoundsPanel({
   eventId,
@@ -74,6 +115,24 @@ export function RoundsPanel({
   const [busy, setBusy] = useState(false);
   const [errors, setErrors] = useState<Record<string, string[]>>({});
   const feedback = useActionFeedback();
+
+  async function invite(sequence: number, mode: "new" | "all") {
+    setBusy(true);
+    try {
+      const result = await inviteReviewRound(eventId, sequence, { mode });
+      const count = (state: string) =>
+        result.invitations.filter((invitation) => invitation.state === state).length;
+      feedback.announce(
+        "success",
+        `Invitations: ${count("queued")} queued, ${count("already_sent")} already sent, ${count("unaddressable")} unaddressable.`,
+      );
+    } catch (reason) {
+      // ERROR-INTENT: the shared live region reports this organizer-triggered delivery failure.
+      feedback.announce("error", message(reason, "Reviewer invitations could not be queued."));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   // The assignable list, which withholds the signed-in organizer: a pool is who may be *given*
   // work, and the organizer console has no reviewer queue to open it in.
@@ -140,10 +199,22 @@ export function RoundsPanel({
       !(await act(() => setReviewRoundPool(eventId, editing, pool), "Pool saved."))
     )
       return;
+    const filters = filtersOf(terms.filters);
+    const filtersChanged = JSON.stringify(filters) !== JSON.stringify(round.filters);
+    if (
+      filtersChanged &&
+      !(await act(
+        () => recomputeReviewRound(eventId, editing, { filters }),
+        "Filter membership recomputed as a new snapshot version.",
+      ))
+    )
+      return;
     const saved = await act(
       () =>
         updateReviewRound(eventId, editing, {
           name: terms.name,
+          instructions: terms.instructions,
+          aiPersona: terms.aiPersona,
           opensAt: toInstant(terms.opensAt),
           closesAt: toInstant(terms.closesAt),
           state: terms.state,
@@ -152,11 +223,60 @@ export function RoundsPanel({
           // the plan as it stands right now, which is the snapshot semantics the round type
           // documents: the event plan can go on changing without restating a round's rubric.
           criteria: terms.ownScorecard ? (round.criteria ?? data.plan?.criteria ?? null) : null,
+          // A changed definition was recomputed immediately above. Sending the same definition
+          // here keeps this terms write coherent with the new snapshot instead of silently
+          // restoring the pre-edit value or tripping the service's recompute-only guard.
+          filters,
+          visibleFieldIds: terms.visibleFieldIds
+            .split(",")
+            .map((value) => value.trim())
+            .filter(Boolean),
+          filesVisible: terms.filesVisible,
+          maxEvaluationsPerProposal: terms.maxEvaluationsPerProposal,
+          weeklyReminderWeekday:
+            terms.weeklyReminderWeekday === "" ? null : Number(terms.weeklyReminderWeekday),
+          weeklyReminderHour:
+            terms.weeklyReminderHour === "" ? null : Number(terms.weeklyReminderHour),
+          reminderTimezone: terms.reminderTimezone.trim() || null,
           poolMode: terms.poolMode,
         }),
       `“${terms.name}” saved.`,
     );
     if (saved) setEditing(null);
+  }
+
+  async function recompute() {
+    if (editing === null || !terms) return;
+    await act(
+      () => recomputeReviewRound(eventId, editing, { filters: filtersOf(terms.filters) }),
+      "Filter membership recomputed as a new snapshot version.",
+    );
+  }
+
+  async function duplicate(round: Round) {
+    await act(
+      () =>
+        createReviewRound(eventId, {
+          name: `${round.name} copy`,
+          instructions: round.instructions,
+          aiPersona: round.aiPersona,
+          opensAt: round.opensAt,
+          closesAt: round.closesAt,
+          state: "draft",
+          anonymized: round.anonymized,
+          criteria: round.criteria,
+          poolMode: round.poolMode,
+          reviewerIds: round.reviewerIds,
+          filters: round.filters,
+          visibleFieldIds: round.visibleFieldIds,
+          filesVisible: round.filesVisible,
+          maxEvaluationsPerProposal: round.maxEvaluationsPerProposal,
+          weeklyReminderWeekday: round.weeklyReminderWeekday,
+          weeklyReminderHour: round.weeklyReminderHour,
+          reminderTimezone: round.reminderTimezone,
+        }),
+      `“${round.name}” duplicated as configuration only.`,
+    );
   }
 
   async function create(event: FormEvent) {
@@ -303,6 +423,39 @@ export function RoundsPanel({
                     <button
                       type="button"
                       className="ghost small"
+                      disabled={busy || countIn(round.sequence) === 0}
+                      onClick={() => {
+                        // ERROR-INTENT: invite reports failures through the shared panel feedback.
+                        void invite(round.sequence, "new");
+                      }}
+                    >
+                      Invite new
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost small"
+                      disabled={busy || countIn(round.sequence) === 0}
+                      onClick={() => {
+                        // ERROR-INTENT: invite reports failures through the shared panel feedback.
+                        void invite(round.sequence, "all");
+                      }}
+                    >
+                      Invite all
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost small"
+                      disabled={busy}
+                      onClick={() => {
+                        // ERROR-INTENT: duplicate reports failures through the shared panel feedback.
+                        void duplicate(round);
+                      }}
+                    >
+                      Duplicate<span className="visually-hidden"> {round.name}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost small"
                       disabled={busy}
                       onClick={() => (editing === round.sequence ? setEditing(null) : open(round))}
                       aria-expanded={editing === round.sequence}
@@ -341,6 +494,30 @@ export function RoundsPanel({
               maxLength={80}
               onChange={(event) => setTerms({ ...terms, name: event.target.value })}
             />
+          </div>
+          <div className="field">
+            <label htmlFor="round-instructions">Reviewer instructions</label>
+            <textarea
+              id="round-instructions"
+              rows={4}
+              maxLength={5000}
+              value={terms.instructions}
+              onChange={(event) => setTerms({ ...terms, instructions: event.target.value })}
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="round-ai-persona">AI evaluator perspective</label>
+            <textarea
+              id="round-ai-persona"
+              rows={3}
+              maxLength={2000}
+              value={terms.aiPersona}
+              onChange={(event) => setTerms({ ...terms, aiPersona: event.target.value })}
+            />
+            <p className="hint">
+              Guides distinguishable AI drafts only. It never creates or completes a human
+              evaluation.
+            </p>
           </div>
           <div className="round-editor-row">
             <div className="field">
@@ -403,6 +580,111 @@ export function RoundsPanel({
               contact details and no co-author list, rather than hiding them on screen. Organizer
               surfaces, including this console and the CSV export, always show the author. The
               review assistant never receives one in any round.
+            </p>
+          </fieldset>
+          <fieldset className="field">
+            <legend className="group-label">Proposal membership snapshot</legend>
+            <label htmlFor="round-filters">Filters</label>
+            <textarea
+              id="round-filters"
+              rows={4}
+              value={terms.filters}
+              placeholder={"track=Platform, Practice\nformat=Workshop\nstatus=under_review"}
+              onChange={(event) => setTerms({ ...terms, filters: event.target.value })}
+            />
+            <p className="hint">
+              One field=value list per line. Snapshot v
+              {rounds.find((item) => item.sequence === editing)?.filterVersion ?? 1} currently
+              includes{" "}
+              {rounds.find((item) => item.sequence === editing)?.includedProposalIds.length ?? 0}{" "}
+              proposals. Source edits never change it silently.
+            </p>
+            {errors.filters?.length ? (
+              <p className="field-error" role="alert">
+                {errors.filters.join(" ")}
+              </p>
+            ) : null}
+            <button
+              type="button"
+              className="secondary small"
+              disabled={busy}
+              onClick={() => {
+                // ERROR-INTENT: recompute reports failures through the shared panel feedback.
+                void recompute();
+              }}
+            >
+              Recompute membership
+            </button>
+          </fieldset>
+          <fieldset className="field">
+            <legend className="group-label">Reviewer visibility and cap</legend>
+            <label htmlFor="round-visible-fields">Visible CFP field IDs</label>
+            <input
+              id="round-visible-fields"
+              value={terms.visibleFieldIds}
+              placeholder="level, language, format"
+              onChange={(event) => setTerms({ ...terms, visibleFieldIds: event.target.value })}
+            />
+            <p className="hint">Leave empty to show every non-authorship answer.</p>
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={terms.filesVisible}
+                onChange={(event) => setTerms({ ...terms, filesVisible: event.target.checked })}
+              />
+              Permit uploaded proposal files when the CFP supports them
+            </label>
+            <label htmlFor="round-proposal-cap">Maximum evaluations per proposal</label>
+            <input
+              id="round-proposal-cap"
+              type="number"
+              min={1}
+              max={100}
+              value={terms.maxEvaluationsPerProposal}
+              onChange={(event) =>
+                setTerms({ ...terms, maxEvaluationsPerProposal: Number(event.target.value) || 1 })
+              }
+            />
+          </fieldset>
+          <fieldset className="field">
+            <legend className="group-label">Weekly reminder</legend>
+            <div className="round-editor-row">
+              <label>
+                Weekday (0–6)
+                <input
+                  type="number"
+                  min={0}
+                  max={6}
+                  value={terms.weeklyReminderWeekday}
+                  onChange={(event) =>
+                    setTerms({ ...terms, weeklyReminderWeekday: event.target.value })
+                  }
+                />
+              </label>
+              <label>
+                Local hour
+                <input
+                  type="number"
+                  min={0}
+                  max={23}
+                  value={terms.weeklyReminderHour}
+                  onChange={(event) =>
+                    setTerms({ ...terms, weeklyReminderHour: event.target.value })
+                  }
+                />
+              </label>
+              <label>
+                Timezone
+                <input
+                  value={terms.reminderTimezone}
+                  placeholder="America/Los_Angeles"
+                  onChange={(event) => setTerms({ ...terms, reminderTimezone: event.target.value })}
+                />
+              </label>
+            </div>
+            <p className="hint">
+              A scheduled tick sends only while this round is open and work remains; each local week
+              is one occurrence.
             </p>
           </fieldset>
           <fieldset className="field">

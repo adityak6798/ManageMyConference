@@ -92,7 +92,9 @@ describe("accepting an invitation from its link", () => {
     // Prefilled from `?token=`, so following the link is the whole interaction.
     expect(screen.getByLabelText("Invitation token")).toHaveValue("the-token");
 
-    fireEvent.click(screen.getByRole("button", { name: "Accept" }));
+    const accept = screen.getByRole("button", { name: "Accept" });
+    await waitFor(() => expect(accept).toBeEnabled());
+    fireEvent.click(accept);
     await waitFor(() => expect(stubbed.calls).toHaveLength(1));
     // The body carries the token and nothing else: the token says which invitation and the
     // session says who. A field naming the person would be the address-lookup acceptance the
@@ -120,7 +122,9 @@ describe("accepting an invitation from its link", () => {
     expect(
       await screen.findByRole("heading", { level: 1, name: "Accept an invitation" }),
     ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Accept" }));
+    const accept = screen.getByRole("button", { name: "Accept" });
+    await waitFor(() => expect(accept).toBeEnabled());
+    fireEvent.click(accept);
 
     const refusal = await screen.findByText(/That invitation is not valid/);
     // The correlation reference, as every console failure carries.
@@ -142,15 +146,15 @@ describe("accepting an invitation from its link", () => {
     const field = screen.getByLabelText("Invitation token");
     // Nothing to submit until there is a token, so the control says so rather than failing.
     // Awaited rather than asserted at once: the field is seeded from the link in a passive
-    // effect, so it is findable before that effect has run — and the effect's `setToken("")` then
-    // lands *after* the change below and silently clears what was typed, leaving the Accept
-    // button disabled and no request made at all. 1 failure in 86 loaded runs; see issue #200,
-    // which this does not close.
+    // effect, so it is findable before that effect has run — and the effect's `setToken("")` can
+    // otherwise land after the change below and silently clear what was typed (issue #200).
     await waitFor(() => expect(field).toHaveValue(""));
     await waitFor(() => expect(screen.getByRole("button", { name: "Accept" })).toBeDisabled());
     fireEvent.change(field, { target: { value: "pasted-token" } });
     await waitFor(() => expect(field).toHaveValue("pasted-token"));
-    fireEvent.click(screen.getByRole("button", { name: "Accept" }));
+    const accept = screen.getByRole("button", { name: "Accept" });
+    await waitFor(() => expect(accept).toBeEnabled());
+    fireEvent.click(accept);
     await waitFor(() => expect(stubbed.calls[0]?.body).toEqual({ token: "pasted-token" }));
   });
 });

@@ -14,8 +14,14 @@
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import {
   bulkRequestSpeakerTasks,
+  configureContentWorkflowStatuses,
+  createProfileShare,
+  draftProfileRemix,
   importSpeakerCsv,
+  listProfileShares,
   restoreContentRevision,
+  revokeProfileShare,
+  setProfileCollaborators,
   updateSpeakerWorkflow,
 } from "../api/content";
 import { EmptyState, Notice, useActionFeedback } from "../ui/primitives";
@@ -73,6 +79,16 @@ export function ContentOperations({
   // Which speaker's workflow is being edited. One form is mounted at a time, so the panel does
   // not grow with the roster the way the old column did.
   const [workflowSpeakerId, setWorkflowSpeakerId] = useState("");
+  const [profileShares, setProfileShares] = useState<Awaited<ReturnType<typeof listProfileShares>>>(
+    [],
+  );
+  const [newShareUrl, setNewShareUrl] = useState("");
+  const [remixDraft, setRemixDraft] = useState<Awaited<
+    ReturnType<typeof draftProfileRemix>
+  > | null>(null);
+  const [collaborators, setCollaborators] = useState<
+    readonly { userId: string; access: "view" | "edit" }[]
+  >([]);
   function csv(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
@@ -124,20 +140,80 @@ export function ContentOperations({
     // ERROR-INTENT: run() owns rejection handling and exposes failures through shared action state.
     void run(() =>
       updateSpeakerWorkflow(speakerId, {
-        workflowStatus: String(data.get("workflowStatus")) as
-          | "invited"
-          | "onboarding"
-          | "ready"
-          | "blocked",
+        workflowStatus: String(data.get("workflowStatus")),
         logistics: entries("logistics"),
         customFields: entries("customFields"),
       }),
     );
   }
 
+  function saveWorkflowStatuses(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const rows = String(new FormData(event.currentTarget).get("statuses"))
+      .split("\n")
+      .map((line) => line.split("|").map((part) => part.trim()))
+      .filter(([key, label, category]) => key && label && category)
+      .map(([key, label, category]) => ({
+        key: key ?? "",
+        label: label ?? "",
+        // Keep invalid input invalid so the shared contract can name it; silently turning a
+        // typo into `open` changes the organizer's workflow rather than refusing the typo.
+        category: category as "open" | "ready" | "blocked",
+      }));
+    // ERROR-INTENT: run() owns rejection handling and exposes failures through shared action state.
+    void run(() => configureContentWorkflowStatuses(eventId, { statuses: rows }));
+  }
+
+  function refreshShares(profileId: string) {
+    // ERROR-INTENT: run() owns rejection handling and exposes failures through shared action state.
+    void run(async () => setProfileShares([...(await listProfileShares(profileId))]));
+  }
+
+  function shareProfile(event: FormEvent<HTMLFormElement>, profileId: string) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    // ERROR-INTENT: run() owns rejection handling and exposes failures through shared action state.
+    void run(async () => {
+      const created = await createProfileShare(profileId, {
+        lifetimeHours: Number(form.get("lifetimeHours")),
+        ...(form.get("viewLimit") ? { viewLimit: Number(form.get("viewLimit")) } : {}),
+        ...(form.get("password") ? { password: String(form.get("password")) } : {}),
+      });
+      setNewShareUrl(created.url);
+      setProfileShares([...(await listProfileShares(profileId))]);
+    });
+  }
+
+  function remixProfile(event: FormEvent<HTMLFormElement>, profileId: string) {
+    event.preventDefault();
+    const instruction = String(new FormData(event.currentTarget).get("instruction"));
+    // ERROR-INTENT: run() owns rejection handling and the returned text remains an explicit draft.
+    void run(async () => setRemixDraft(await draftProfileRemix(profileId, instruction)));
+  }
+
+  function saveCollaborators(event: FormEvent<HTMLFormElement>, profileId: string) {
+    event.preventDefault();
+    const parsed = String(new FormData(event.currentTarget).get("collaborators"))
+      .split("\n")
+      .map((line) => line.split("|").map((part) => part.trim()))
+      .filter(([userId]) => userId)
+      .map(([userId, access]) => ({
+        userId: userId ?? "",
+        access: access === "view" ? ("view" as const) : ("edit" as const),
+      }));
+    // ERROR-INTENT: run() owns rejection handling and exposes failures through shared action state.
+    void run(async () => setCollaborators(await setProfileCollaborators(profileId, parsed)));
+  }
+
   const filteredSpeakers = workspace.speakers.filter(
     (speaker) => workflowFilter === "all" || speaker.workflowStatus === workflowFilter,
   );
+  const workflowStatuses = workspace.workflowStatuses ?? [
+    { key: "invited", label: "Invited", category: "open" as const },
+    { key: "onboarding", label: "Onboarding", category: "open" as const },
+    { key: "ready", label: "Ready", category: "ready" as const },
+    { key: "blocked", label: "Blocked", category: "blocked" as const },
+  ];
   // The chosen speaker, or the first one the filter still admits — so narrowing the filter past
   // the current selection lands on a real speaker rather than an empty form.
   //
@@ -229,6 +305,25 @@ export function ContentOperations({
         title="Speaker workflow"
         hint="Filter progress and maintain logistics for one speaker at a time."
       >
+        <form className="stack" onSubmit={saveWorkflowStatuses}>
+          <label>
+            Workflow columns
+            <textarea
+              name="statuses"
+              rows={Math.max(4, workflowStatuses.length)}
+              defaultValue={workflowStatuses
+                .map((status) => `${status.key}|${status.label}|${status.category ?? "open"}`)
+                .join("\n")}
+              aria-describedby="workflow-status-format"
+            />
+          </label>
+          <p id="workflow-status-format" className="hint">
+            One stable-key|Label|category per line. Categories are open, ready, or blocked.
+          </p>
+          <button className="secondary" type="submit" disabled={busy}>
+            Save progress columns
+          </button>
+        </form>
         <div className="workflow-picker">
           <label>
             Progress filter
@@ -237,10 +332,11 @@ export function ContentOperations({
               onChange={(event) => setWorkflowFilter(event.target.value)}
             >
               <option value="all">All speakers</option>
-              <option value="invited">Invited</option>
-              <option value="onboarding">Onboarding</option>
-              <option value="ready">Ready</option>
-              <option value="blocked">Blocked</option>
+              {workflowStatuses.map((status) => (
+                <option key={status.key} value={status.key}>
+                  {status.label}
+                </option>
+              ))}
             </select>
           </label>
           {filteredSpeakers.length ? (
@@ -261,6 +357,120 @@ export function ContentOperations({
         </div>
         {workflowSpeaker ? (
           <>
+            <details className="tool-panel">
+              <summary>Private profile share links</summary>
+              <form className="stack" onSubmit={(event) => shareProfile(event, workflowSpeaker.id)}>
+                <label>
+                  Lifetime (hours)
+                  <input name="lifetimeHours" type="number" min="1" max="720" defaultValue="72" />
+                </label>
+                <label>
+                  View limit (optional)
+                  <input name="viewLimit" type="number" min="1" max="1000" />
+                </label>
+                <label>
+                  Password (optional)
+                  <input name="password" type="password" minLength={8} maxLength={200} />
+                </label>
+                <div className="crm-form-actions">
+                  <button type="submit" disabled={busy}>
+                    Create share link
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary"
+                    disabled={busy}
+                    onClick={() => refreshShares(workflowSpeaker.id)}
+                  >
+                    Refresh links
+                  </button>
+                </div>
+              </form>
+              {newShareUrl ? (
+                <p>
+                  <a href={newShareUrl}>Open newly created share link</a> — copy it now; its token
+                  is not stored.
+                </p>
+              ) : null}
+              {profileShares.length ? (
+                <ul>
+                  {profileShares.map((share) => (
+                    <li key={share.id}>
+                      {share.revokedAt
+                        ? "Revoked"
+                        : `${share.views}${share.viewLimit ? `/${share.viewLimit}` : ""} views · expires ${new Date(share.expiresAt).toLocaleString()}`}{" "}
+                      {!share.revokedAt ? (
+                        <button
+                          type="button"
+                          className="ghost"
+                          onClick={() => {
+                            // ERROR-INTENT: run owns rejection handling and visible feedback.
+                            void run(async () => {
+                              await revokeProfileShare(workflowSpeaker.id, share.id);
+                              setProfileShares([...(await listProfileShares(workflowSpeaker.id))]);
+                            });
+                          }}
+                        >
+                          Revoke
+                        </button>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </details>
+            <details className="tool-panel">
+              <summary>AI bio remix</summary>
+              <form className="stack" onSubmit={(event) => remixProfile(event, workflowSpeaker.id)}>
+                <label>
+                  Drafting instruction
+                  <textarea
+                    name="instruction"
+                    maxLength={1000}
+                    placeholder="Make the bio concise and conference-ready"
+                  />
+                </label>
+                <button type="submit" className="secondary" disabled={busy}>
+                  Draft remix
+                </button>
+              </form>
+              {remixDraft ? (
+                <div>
+                  <p className="hint">
+                    Draft from {remixDraft.model}; it has not changed the speaker profile.
+                  </p>
+                  <textarea
+                    readOnly
+                    rows={8}
+                    value={remixDraft.text}
+                    aria-label="AI bio remix draft"
+                  />
+                </div>
+              ) : null}
+            </details>
+            <details className="tool-panel">
+              <summary>Profile collaborators</summary>
+              <form
+                className="stack"
+                onSubmit={(event) => saveCollaborators(event, workflowSpeaker.id)}
+              >
+                <label>
+                  Collaborator identities
+                  <textarea
+                    name="collaborators"
+                    rows={4}
+                    defaultValue={collaborators
+                      .map((item) => `${item.userId}|${item.access}`)
+                      .join("\n")}
+                    placeholder="user-id|edit"
+                  />
+                </label>
+                <p className="hint">One existing event member per line; use view or edit access.</p>
+                <button type="submit" className="secondary" disabled={busy}>
+                  Replace collaborators
+                </button>
+              </form>
+            </details>
             {/*
              * What the speaker wrote, read-only, beside the workflow an organizer maintains.
              *
@@ -320,10 +530,11 @@ export function ContentOperations({
                   name="workflowStatus"
                   defaultValue={workflowSpeaker.workflowStatus ?? "onboarding"}
                 >
-                  <option value="invited">Invited</option>
-                  <option value="onboarding">Onboarding</option>
-                  <option value="ready">Ready</option>
-                  <option value="blocked">Blocked</option>
+                  {workflowStatuses.map((status) => (
+                    <option key={status.key} value={status.key}>
+                      {status.label}
+                    </option>
+                  ))}
                 </select>
               </label>
               <label>

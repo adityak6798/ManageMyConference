@@ -24,6 +24,14 @@ export interface SubmittedProposal {
   readonly eventId: string;
   readonly title: string;
   readonly abstract: string;
+  /**
+   * The proposal's CFP-originating programme track.
+   *
+   * `track` is a reserved published CFP select-field id. It is optional for proposals captured
+   * before that convention existed and is not inferred from arbitrary prose. Review uses this
+   * immutable submitted value for bulk selection; content carries it forward on acceptance.
+   */
+  readonly track?: string;
   /** Display name only. Reviewer projections replace it with a mask. */
   readonly submitterName: string;
   /** Organizer-only contact details, or `null` when the form collected no email. */

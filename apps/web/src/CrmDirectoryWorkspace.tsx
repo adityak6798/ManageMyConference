@@ -19,6 +19,7 @@
 import type {
   ContactFiltersDto,
   ContactSegmentDto,
+  CrmCampaignDto,
   OrganizationContactDto,
   ProspectOwnerDto,
 } from "@greenroom/contracts";
@@ -27,14 +28,18 @@ import {
   CrmApiError,
   commitImport,
   createContact,
+  createCrmCampaign,
+  cancelCrmCampaign,
   createSegment,
   crmFieldErrors,
   getContactDashboard,
   listContacts,
+  listCrmCampaigns,
   listDuplicates,
   listProspectOwners,
   listSegments,
   mergeContacts,
+  launchCrmCampaign,
   previewImport,
   previewOutreach,
   pushContactToEvent,
@@ -160,6 +165,9 @@ export function CrmDirectoryWorkspace({
   const [duplicates, setDuplicates] = useState<DuplicateGroup[] | null>(null);
   const [templateKey, setTemplateKey] = useState("speaker-invite");
   const [outreach, setOutreach] = useState<OutreachPreview | null>(null);
+  const [campaigns, setCampaigns] = useState<CrmCampaignDto[]>([]);
+  const [campaignName, setCampaignName] = useState("");
+  const [campaignAt, setCampaignAt] = useState("");
 
   const directoryFeedback = useActionFeedback();
   const detailFeedback = useActionFeedback();
@@ -167,11 +175,12 @@ export function CrmDirectoryWorkspace({
   const reload = useCallback(
     async (filters: ContactFiltersDto, savedView: string) => {
       const sequence = ++loadSequence.current;
-      const [list, savedViews, metrics, staff] = await Promise.all([
+      const [list, savedViews, metrics, staff, campaignList] = await Promise.all([
         listContacts(organizationId, savedView ? { segmentId: savedView } : filters),
         listSegments(organizationId),
         getContactDashboard(organizationId),
         listProspectOwners(eventId),
+        listCrmCampaigns(organizationId),
       ]);
       // A response that lands after the organizer changed organization describes the old one.
       if (sequence !== loadSequence.current) return;
@@ -180,6 +189,7 @@ export function CrmDirectoryWorkspace({
       setSegments([...savedViews]);
       setDashboard(metrics);
       setOwners([...staff]);
+      setCampaigns([...campaignList]);
       setPushOwner((current) =>
         staff.some(({ id }) => id === current)
           ? current
@@ -429,6 +439,38 @@ export function CrmDirectoryWorkspace({
       return converged
         ? `Queued ${queued}; ${converged} already had a delivery from an earlier send.`
         : `Queued ${queued} message${queued === 1 ? "" : "s"} through communications.`;
+    }, directoryFeedback);
+  }
+
+  async function saveCampaign() {
+    await guard(async () => {
+      await createCrmCampaign(organizationId, {
+        eventId,
+        name: campaignName,
+        templateKey,
+        ...outreachTarget(),
+        ...(campaignAt ? { scheduledAt: new Date(campaignAt).toISOString() } : {}),
+      });
+      setCampaignName("");
+      setCampaignAt("");
+      await reload(applied, segmentId);
+      return campaignAt ? "Campaign scheduled." : "Campaign saved as a draft.";
+    }, directoryFeedback);
+  }
+
+  async function launchCampaign(campaignId: string) {
+    await guard(async () => {
+      await launchCrmCampaign(organizationId, campaignId);
+      await reload(applied, segmentId);
+      return "Campaign completed; each recipient has a durable delivery record.";
+    }, directoryFeedback);
+  }
+
+  async function cancelCampaign(campaignId: string) {
+    await guard(async () => {
+      await cancelCrmCampaign(organizationId, campaignId);
+      await reload(applied, segmentId);
+      return "Campaign cancelled.";
     }, directoryFeedback);
   }
 
@@ -963,6 +1005,74 @@ export function CrmDirectoryWorkspace({
                   ))}
                 </ul>
               ) : null}
+              <div className="field">
+                <label htmlFor="crm-campaign-name">Campaign name</label>
+                <input
+                  id="crm-campaign-name"
+                  value={campaignName}
+                  onChange={(event) => setCampaignName(event.target.value)}
+                  maxLength={160}
+                />
+                <label htmlFor="crm-campaign-at">Schedule (optional)</label>
+                <input
+                  id="crm-campaign-at"
+                  type="datetime-local"
+                  value={campaignAt}
+                  onChange={(event) => setCampaignAt(event.target.value)}
+                />
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={busy || !campaignName.trim()}
+                  onClick={() => {
+                    // ERROR-INTENT: guard owns rejection handling and visible feedback.
+                    void saveCampaign();
+                  }}
+                >
+                  {campaignAt ? "Schedule campaign" : "Save campaign draft"}
+                </button>
+              </div>
+              {campaigns.length ? (
+                <ul className="crm-contacts">
+                  {campaigns.map((campaign) => (
+                    <li key={campaign.id}>
+                      <span className="crm-contact-name">{campaign.name}</span>
+                      <span>
+                        {campaign.state}
+                        {campaign.scheduledAt
+                          ? ` · ${new Date(campaign.scheduledAt).toLocaleString()}`
+                          : ""}
+                      </span>
+                      {campaign.state === "draft" ? (
+                        <button
+                          type="button"
+                          className="ghost"
+                          disabled={busy}
+                          onClick={() => {
+                            // ERROR-INTENT: guard owns rejection handling and visible feedback.
+                            void launchCampaign(campaign.id);
+                          }}
+                        >
+                          Launch
+                        </button>
+                      ) : null}
+                      {campaign.state === "draft" || campaign.state === "scheduled" ? (
+                        <button
+                          type="button"
+                          className="ghost"
+                          disabled={busy}
+                          onClick={() => {
+                            // ERROR-INTENT: guard owns rejection handling and visible feedback.
+                            void cancelCampaign(campaign.id);
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
             </details>
           </section>
         </Card>
@@ -1157,7 +1267,8 @@ export function CrmDirectoryWorkspace({
         <Notice tone="info">
           <span>
             {dashboard.imported} contact{dashboard.imported === 1 ? "" : "s"} arrived by import, and{" "}
-            {dashboard.segments} saved view{dashboard.segments === 1 ? "" : "s"} are available.
+            {dashboard.segments} saved view
+            {dashboard.segments === 1 ? "" : "s"} are available.
           </span>
         </Notice>
       ) : null}

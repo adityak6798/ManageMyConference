@@ -133,6 +133,9 @@ const describeCriterion = (criterion: ReviewCriterion): string => {
 const buildPrompt = (request: SuggestionRequest): string =>
   [
     `This is review round ${request.round}.`,
+    ...(request.persona
+      ? ["", "Organizer-configured evaluator perspective:", request.persona]
+      : []),
     "",
     "Abstract under review:",
     `Title: ${request.title}`,

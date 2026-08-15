@@ -61,7 +61,6 @@ export function defineContentSchema(references: {
       pronouns: text("pronouns").notNull(),
       organization: text("organization").notNull(),
       photoAssetId: text("photo_asset_id"),
-      workflowStatus: text("workflow_status").notNull().default("onboarding"),
       logisticsJson: text("logistics_json").notNull().default("{}"),
       customFieldsJson: text("custom_fields_json").notNull().default("{}"),
       /** A closed set of platform keys the application validates (`1407`). */
@@ -78,6 +77,8 @@ export function defineContentSchema(references: {
       invitationsSent: integer("invitations_sent").notNull().default(0),
       /** Added by `1409`; ALTER TABLE appends it after the earlier invitation counter. */
       jobTitle: text("job_title").notNull().default(""),
+      /** Appended by `1412` after the legacy fixed-status column was rotated out. */
+      workflowStatus: text("workflow_status").notNull().default("onboarding"),
     },
     (table) => [
       unique("speaker_profiles_event_id_source_person_id_unique").on(
@@ -85,10 +86,55 @@ export function defineContentSchema(references: {
         table.sourcePersonId,
       ),
       index("speaker_profiles_event_user_idx").on(table.eventId, table.userId),
+    ],
+  );
+  const contentWorkflowStatuses = sqliteTable(
+    "content_workflow_statuses",
+    {
+      id: text("id").primaryKey().notNull(),
+      eventId: text("event_id")
+        .notNull()
+        .references(() => references.eventsId),
+      key: text("key").notNull(),
+      label: text("label").notNull(),
+      category: text("category").notNull(),
+      sortOrder: integer("sort_order").notNull(),
+      createdAt: text("created_at").notNull(),
+    },
+    (table) => [
+      unique("content_workflow_statuses_event_key_unique").on(table.eventId, table.key),
+      check("content_workflow_statuses_key_length", sql`length(${table.key}) BETWEEN 1 AND 60`),
+      check("content_workflow_statuses_label_length", sql`length(${table.label}) BETWEEN 1 AND 80`),
       check(
-        "speaker_profiles_workflow_status",
-        sql`${table.workflowStatus} IN ('invited','onboarding','ready','blocked')`,
+        "content_workflow_statuses_category",
+        sql`${table.category} IN ('open','ready','blocked')`,
       ),
+      index("content_workflow_statuses_event_order_idx").on(
+        table.eventId,
+        table.sortOrder,
+        table.key,
+      ),
+    ],
+  );
+  const speakerProfileCollaborators = sqliteTable(
+    "speaker_profile_collaborators",
+    {
+      profileId: text("profile_id")
+        .notNull()
+        .references(() => speakerProfiles.id),
+      userId: text("user_id")
+        .notNull()
+        .references(() => references.usersId),
+      access: text("access").notNull(),
+      addedBy: text("added_by")
+        .notNull()
+        .references(() => references.usersId),
+      addedAt: text("added_at").notNull(),
+    },
+    (table) => [
+      primaryKey({ columns: [table.profileId, table.userId] }),
+      check("speaker_profile_collaborators_access", sql`${table.access} IN ('view','edit')`),
+      index("speaker_profile_collaborators_user_idx").on(table.userId, table.profileId),
     ],
   );
   const speakerTasks = sqliteTable(
@@ -327,6 +373,8 @@ export function defineContentSchema(references: {
   return {
     contentSessions,
     speakerProfiles,
+    contentWorkflowStatuses,
+    speakerProfileCollaborators,
     speakerTasks,
     speakerAssets,
     speakerMessages,

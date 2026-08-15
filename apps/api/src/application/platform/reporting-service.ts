@@ -664,6 +664,7 @@ export class ReportingService {
     // sees one refusal whatever went wrong, and the transport translates one thing.
     const link = await spendCapabilityLink(this.dependencies.links, this.dependencies.hash, {
       token,
+      kind: "report",
       password,
       now: this.dependencies.now().toISOString(),
     }).catch(() => {
@@ -671,7 +672,6 @@ export class ReportingService {
       // from an expired, revoked, spent or wrong-password one would say whether a guess landed.
       throw new ReportShareUnavailableError();
     });
-    if (link.kind !== "report") throw new ReportShareUnavailableError();
     const share = shareOf(link);
     const report = await this.dependencies.repository.findById(share.reportId);
     if (!report) throw new ReportShareUnavailableError();

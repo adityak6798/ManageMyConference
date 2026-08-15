@@ -158,6 +158,24 @@ WHERE event_id IN (
 -- **organization**. Every table below reaches one of those two, and each is scoped through the
 -- parent whose rows this reset actually deletes — so a row belonging to a real conference on the
 -- same deployment is left where it is, and no child outlives the parent it points at.
+DELETE FROM crm_engagements
+WHERE organization_id IN (
+  '00000000-0000-4000-8000-000000000010',
+  '00000000-0000-4000-8000-000000000020'
+);
+DELETE FROM crm_contact_suppressions
+WHERE contact_id IN (
+  SELECT id FROM crm_organization_contacts
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
+);
+DELETE FROM crm_campaigns
+WHERE organization_id IN (
+  '00000000-0000-4000-8000-000000000010',
+  '00000000-0000-4000-8000-000000000020'
+);
 DELETE FROM crm_contact_activities
 WHERE contact_id IN (
   SELECT id FROM crm_organization_contacts
@@ -396,7 +414,26 @@ WHERE event_id IN (
     '00000000-0000-4000-8000-000000000020'
   )
 );
+DELETE FROM speaker_profile_collaborators
+WHERE profile_id IN (
+  SELECT id FROM speaker_profiles
+  WHERE event_id IN (
+    SELECT id FROM events
+    WHERE organization_id IN (
+      '00000000-0000-4000-8000-000000000010',
+      '00000000-0000-4000-8000-000000000020'
+    )
+  )
+);
 DELETE FROM speaker_profiles
+WHERE event_id IN (
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
+);
+DELETE FROM content_workflow_statuses
 WHERE event_id IN (
   SELECT id FROM events
   WHERE organization_id IN (
@@ -406,6 +443,14 @@ WHERE event_id IN (
 );
 
 DELETE FROM review_events
+WHERE event_id IN (
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
+);
+DELETE FROM review_decision_history
 WHERE event_id IN (
   SELECT id FROM events
   WHERE organization_id IN (
@@ -999,6 +1044,8 @@ INSERT INTO message_templates (id, organization_id, template_key, version, chann
   ('template-reviewer-reminder-v1', '00000000-0000-4000-8000-000000000010', 'reviewer-reminder', 1, 'email', 'A reminder about your outstanding reviews', 'Hello {{reviewerName}}, you have {{outstanding}} evaluation(s) still open in {{roundName}}. Open your review queue when you have a moment.', '2026-08-10T12:00:00.000Z'),
   ('template-decision-accepted-v1', '00000000-0000-4000-8000-000000000010', 'decision-accepted', 1, 'email', 'Your proposal was accepted', 'Hello {{submitterName}}, we are delighted to tell you that "{{proposalTitle}}" has been accepted. We will be in touch with next steps shortly.', '2026-08-10T12:00:00.000Z'),
   ('template-decision-declined-v1', '00000000-0000-4000-8000-000000000010', 'decision-declined', 1, 'email', 'About your proposal', 'Hello {{submitterName}}, thank you for submitting "{{proposalTitle}}". We had more strong proposals than slots this year and will not be able to programme it. We hope you will submit again.', '2026-08-10T12:00:00.000Z'),
+  ('template-decision-waitlisted-v1', '00000000-0000-4000-8000-000000000010', 'decision-waitlisted', 1, 'email', 'An update about your proposal', 'Hello {{submitterName}}, “{{proposalTitle}}” is on the programme waitlist. We will contact you when a place becomes available.', '2026-08-10T12:00:00.000Z'),
+  ('template-decision-revision-requested-v1', '00000000-0000-4000-8000-000000000010', 'decision-revision-requested', 1, 'email', 'A revision was requested for your proposal', 'Hello {{submitterName}}, the programme team has requested a revision to “{{proposalTitle}}”. Sign in to review the decision note and update your proposal.', '2026-08-10T12:00:00.000Z'),
   ('template-calendar-invite-v1', '00000000-0000-4000-8000-000000000010', 'speaker-calendar-invite', 1, 'email', 'Your session at {{eventName}}', 'Hello {{speakerName}}, here is the calendar invitation for {{sessionTitle}} at {{eventName}}. Accept it to add the session to your calendar; if the time changes we will send an update that replaces this entry.', '2026-08-10T12:00:00.000Z'),
   -- The submission confirmation (issue #190). It says only that the proposal arrived and where to
   -- read its state; it carries no reviewer material and no scores, which is the boundary decision

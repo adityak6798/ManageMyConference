@@ -716,6 +716,7 @@ describe("D1EventTemplateRepository", () => {
         "agenda_drafts",
         "cfp_forms",
         "cfp_statuses",
+        "content_workflow_statuses",
         "event_template_applications",
         "event_template_versions",
         "event_templates",
@@ -740,7 +741,7 @@ describe("D1EventTemplateRepository", () => {
     const expectedForDestination: Record<string, number> = {
       agenda_drafts: 1,
       cfp_forms: 1,
-      cfp_statuses: 6,
+      cfp_statuses: 8,
       event_roles: 1,
       event_template_applications: 1,
       public_event_projections: 1,

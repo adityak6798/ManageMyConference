@@ -18,6 +18,7 @@ export type DeliveryState = "queued" | "retrying" | "succeeded" | "terminal";
 export type TriggerType =
   | "speaker.invited"
   | "reviewer.assigned"
+  | "reviewer.invited"
   /**
    * A reviewer still has outstanding evaluations in a round, and an organizer asked for them to
    * be told.
@@ -30,6 +31,7 @@ export type TriggerType =
    * reviewer already told about the round could never be reminded about it.
    */
   | "reviewer.reminder"
+  | "reviewer.weekly_reminder"
   | "organizer.digest"
   | "projection.requested"
   | "schedule.published"
@@ -80,7 +82,9 @@ export type TriggerType =
 export const TRIGGER_CHANNELS = {
   "speaker.invited": ["email"],
   "reviewer.assigned": ["email"],
+  "reviewer.invited": ["email"],
   "reviewer.reminder": ["email"],
+  "reviewer.weekly_reminder": ["email"],
   "organizer.digest": ["email"],
   "speaker.scheduled": ["email"],
   "speaker.task_assigned": ["email"],
@@ -124,6 +128,8 @@ export const REQUESTABLE_TRIGGERS = (Object.keys(TRIGGER_CHANNELS) as TriggerTyp
      * it silently did until a review pass compared the two.
      */
     trigger !== "proposal.submitted" &&
+    trigger !== "reviewer.invited" &&
+    trigger !== "reviewer.weekly_reminder" &&
     /*
      * The two deadline messages are excluded on the same grounds, and it is worth being explicit
      * about which grounds. Neither is authored by an organizer: the scheduler decides who is

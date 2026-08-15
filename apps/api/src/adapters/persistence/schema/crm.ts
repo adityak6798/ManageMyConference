@@ -111,7 +111,7 @@ export function defineCrmSchema(references: {
     (table) => [
       check(
         "crm_prospect_transitions_source",
-        sql`${table.source} IN ('board', 'detail', 'created', 'conversion', 'migration')`,
+        sql`${table.source} IN ('board', 'detail', 'created', 'interest', 'conversion', 'migration')`,
       ),
       index("crm_prospect_transitions_timeline_idx").on(table.prospectId, table.occurredAt),
     ],
@@ -327,6 +327,89 @@ export function defineCrmSchema(references: {
       index("crm_contact_imports_organization_idx").on(table.organizationId, table.importedAt),
     ],
   );
+  const crmCampaigns = sqliteTable(
+    "crm_campaigns",
+    {
+      id: text("id").primaryKey().notNull(),
+      organizationId: text("organization_id")
+        .notNull()
+        .references(() => references.organizationsId),
+      eventId: text("event_id")
+        .notNull()
+        .references(() => references.eventsId),
+      name: text("name").notNull(),
+      templateKey: text("template_key").notNull(),
+      templateVersion: integer("template_version"),
+      contactIdsJson: text("contact_ids_json").notNull(),
+      segmentId: text("segment_id"),
+      state: text("state").notNull(),
+      scheduledAt: text("scheduled_at"),
+      createdBy: text("created_by")
+        .notNull()
+        .references(() => references.usersId),
+      createdAt: text("created_at").notNull(),
+      updatedAt: text("updated_at").notNull(),
+    },
+    (table) => [
+      check("crm_campaigns_contact_ids_json", sql`json_valid(${table.contactIdsJson})`),
+      check(
+        "crm_campaigns_state",
+        sql`${table.state} IN ('draft','scheduled','running','completed','cancelled')`,
+      ),
+      index("crm_campaigns_organization_state_idx").on(
+        table.organizationId,
+        table.state,
+        table.scheduledAt,
+      ),
+    ],
+  );
+  const crmEngagements = sqliteTable(
+    "crm_engagements",
+    {
+      id: text("id").primaryKey().notNull(),
+      organizationId: text("organization_id")
+        .notNull()
+        .references(() => references.organizationsId),
+      eventId: text("event_id")
+        .notNull()
+        .references(() => references.eventsId),
+      campaignId: text("campaign_id").references(() => crmCampaigns.id),
+      contactId: text("contact_id")
+        .notNull()
+        .references(() => crmOrganizationContacts.id),
+      kind: text("kind").notNull(),
+      providerRef: text("provider_ref").notNull(),
+      occurredAt: text("occurred_at").notNull(),
+      metadataJson: text("metadata_json").notNull(),
+    },
+    (table) => [
+      check("crm_engagements_metadata_json", sql`json_valid(${table.metadataJson})`),
+      check(
+        "crm_engagements_kind",
+        sql`${table.kind} IN ('delivered','opened','clicked','replied','bounced','unsubscribed')`,
+      ),
+      unique("crm_engagements_organization_provider_ref_kind_unique").on(
+        table.organizationId,
+        table.providerRef,
+        table.kind,
+      ),
+      index("crm_engagements_contact_time_idx").on(table.contactId, table.occurredAt),
+    ],
+  );
+  const crmContactSuppressions = sqliteTable(
+    "crm_contact_suppressions",
+    {
+      contactId: text("contact_id")
+        .primaryKey()
+        .notNull()
+        .references(() => crmOrganizationContacts.id),
+      reason: text("reason").notNull(),
+      createdAt: text("created_at").notNull(),
+    },
+    (table) => [
+      check("crm_contact_suppressions_reason", sql`${table.reason} IN ('bounced','unsubscribed')`),
+    ],
+  );
 
   return {
     crmProspects,
@@ -342,5 +425,8 @@ export function defineCrmSchema(references: {
     crmContactActivities,
     crmContactSegments,
     crmContactImports,
+    crmCampaigns,
+    crmEngagements,
+    crmContactSuppressions,
   };
 }

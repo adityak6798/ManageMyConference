@@ -89,7 +89,7 @@ export class DeterministicSuggestionProvider implements ReviewSuggestionPort {
     // file into a binary blob that `git diff` reports as a byte count and no reviewer can read.
     // That is issue #131, and its gate is what caught two of them here.
     const seed = digest(
-      `${request.title}${SEPARATOR}${request.abstract}${SEPARATOR}r${request.round}`,
+      `${request.title}${SEPARATOR}${request.abstract}${SEPARATOR}r${request.round}${SEPARATOR}${request.persona ?? ""}`,
     );
     const scores: SuggestedScore[] = request.criteria.map((criterion) => {
       const local = digest(`${criterion.id}${SEPARATOR}${seed}`);

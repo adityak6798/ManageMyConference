@@ -34,6 +34,7 @@ export const prospectActivityKindSchema = z.enum([
   "email",
   "call",
   "meeting",
+  "engagement",
   "stage-change",
   "conversion",
 ]);
@@ -67,7 +68,10 @@ export const createProspectInputSchema = z.object({
   ownerId: z.string().trim().min(1),
   nextAction: z.string().trim().min(1).max(300).optional(),
   nextActionAt: z.string().datetime().optional(),
-  contact: z.object({ name: z.string().trim().min(1).max(160), email: z.string().email() }),
+  contact: z.object({
+    name: z.string().trim().min(1).max(160),
+    email: z.string().email(),
+  }),
 });
 /*
  * Any key this event configured, refused by the *server* against the board rather than by a
@@ -114,12 +118,29 @@ export const prospectListQuerySchema = z.object({
   overdue: z.enum(["true"]).optional(),
 });
 export const prospectResponseSchema = z.object({ prospect: prospectSchema });
-export const prospectListResponseSchema = z.object({ prospects: z.array(prospectSchema) });
+export const prospectListResponseSchema = z.object({
+  prospects: z.array(prospectSchema),
+});
+/** Public, year-round interest form. `website` is a honeypot and must remain blank. */
+export const submitSpeakerInterestInputSchema = z.object({
+  name: z.string().trim().min(1).max(160),
+  email: z.string().trim().email().max(320),
+  website: z.literal("").optional().default(""),
+});
+export const submitSpeakerInterestResponseSchema = z.object({
+  interest: z.object({
+    confirmationId: z.string().uuid(),
+    submittedAt: z.string().datetime(),
+  }),
+});
 /**
  * A user identity-access reports as assignable on this event. Ids are opaque identity strings
  * (`seed-organizer`), not UUIDs, so the CRM never invents an owner the directory does not know.
  */
-export const prospectOwnerSchema = z.object({ id: z.string(), name: z.string() });
+export const prospectOwnerSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+});
 export const prospectOwnerListResponseSchema = z.object({
   owners: z.array(prospectOwnerSchema),
 });
@@ -187,7 +208,9 @@ export type SavePipelineStagesInput = z.infer<typeof savePipelineStagesInputSche
  * went, and the reason a bare delete is refused at all is that losing track of a prospect is
  * worse than one more question.
  */
-export const deletePipelineStageInputSchema = z.object({ migrateTo: stageKeySchema });
+export const deletePipelineStageInputSchema = z.object({
+  migrateTo: stageKeySchema,
+});
 export type DeletePipelineStageInput = z.infer<typeof deletePipelineStageInputSchema>;
 
 export const prospectTransitionSchema = z.object({
@@ -362,12 +385,16 @@ export const updateContactInputSchema = z
   })
   .refine((value) => Object.keys(value).length > 0, "At least one change is required");
 
-export const contactDirectoryParamsSchema = z.object({ organizationId: z.string().uuid() });
+export const contactDirectoryParamsSchema = z.object({
+  organizationId: z.string().uuid(),
+});
 export const contactPathSchema = z.object({
   organizationId: z.string().uuid(),
   contactId: z.string().uuid(),
 });
-export const contactResponseSchema = z.object({ contact: organizationContactSchema });
+export const contactResponseSchema = z.object({
+  contact: organizationContactSchema,
+});
 export const contactListResponseSchema = z.object({
   contacts: z.array(organizationContactSchema),
   /** Echoed back so a cleared filter and a filter that matched nothing look different. */
@@ -380,7 +407,9 @@ export const duplicateGroupSchema = z.object({
   contactIds: z.array(z.string().uuid()).min(2),
   suggestedPrimaryId: z.string().uuid(),
 });
-export const duplicateListResponseSchema = z.object({ groups: z.array(duplicateGroupSchema) });
+export const duplicateListResponseSchema = z.object({
+  groups: z.array(duplicateGroupSchema),
+});
 /** The primary is named explicitly rather than inferred, because a merge cannot be undone. */
 export const mergeContactsInputSchema = z.object({
   primaryId: z.string().uuid(),
@@ -400,8 +429,12 @@ export const createSegmentInputSchema = z.object({
   name: z.string().trim().min(1).max(80),
   filters: contactFiltersSchema,
 });
-export const segmentResponseSchema = z.object({ segment: contactSegmentSchema });
-export const segmentListResponseSchema = z.object({ segments: z.array(contactSegmentSchema) });
+export const segmentResponseSchema = z.object({
+  segment: contactSegmentSchema,
+});
+export const segmentListResponseSchema = z.object({
+  segments: z.array(contactSegmentSchema),
+});
 
 /**
  * One row as the parser read it. Every field the preview resolves is declared, `notes` and
@@ -507,6 +540,52 @@ export const outreachResponseSchema = z.object({
   sent: z.array(outreachRecipientSchema),
 });
 
+export const crmCampaignStateSchema = z.enum([
+  "draft",
+  "scheduled",
+  "running",
+  "completed",
+  "cancelled",
+]);
+export const crmCampaignSchema = z.object({
+  id: z.string().uuid(),
+  organizationId: z.string().uuid(),
+  eventId: z.string().uuid(),
+  name: z.string(),
+  templateKey: z.string(),
+  templateVersion: z.number().int().positive().nullable(),
+  contactIds: z.array(z.string().uuid()),
+  segmentId: z.string().uuid().nullable(),
+  state: crmCampaignStateSchema,
+  scheduledAt: z.string().datetime().nullable(),
+  createdBy: z.string(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+});
+export type CrmCampaignDto = z.infer<typeof crmCampaignSchema>;
+export const createCrmCampaignInputSchema = z.intersection(
+  outreachInputSchema,
+  z.object({
+    name: z.string().trim().min(1).max(160),
+    scheduledAt: z.string().datetime().optional(),
+  }),
+);
+export const crmCampaignPathSchema = contactDirectoryParamsSchema.extend({
+  campaignId: z.string().uuid(),
+});
+export const crmCampaignListResponseSchema = z.object({
+  campaigns: z.array(crmCampaignSchema).default([]),
+});
+export const crmEngagementInputSchema = z.object({
+  eventId: z.string().uuid(),
+  campaignId: z.string().uuid().optional(),
+  contactId: z.string().uuid(),
+  kind: z.enum(["delivered", "opened", "clicked", "replied", "bounced", "unsubscribed"]),
+  providerRef: z.string().trim().min(1).max(300),
+  occurredAt: z.string().datetime(),
+  metadata: z.record(z.string(), z.string().max(1000)).default({}),
+});
+
 /**
  * Organization-level analytics. Every number is a count over stored rows; none is a constant,
  * which is the property `PRD-CRM-001` asks the dashboard to hold.
@@ -520,6 +599,17 @@ export const contactDashboardResponseSchema = z.object({
   imported: z.number().int().nonnegative(),
   byStage: z.array(z.object({ stage: prospectStageSchema, contacts: z.number().int() })),
   topCompanies: z.array(z.object({ company: z.string(), contacts: z.number().int() })),
+  pipelineTransitions: z.number().int().nonnegative().default(0),
+  averageDaysToConversion: z.number().nonnegative().nullable().default(null),
+  transitionFunnel: z
+    .array(
+      z.object({
+        fromStage: prospectStageSchema.nullable(),
+        toStage: prospectStageSchema,
+        prospects: z.number().int().nonnegative(),
+      }),
+    )
+    .default([]),
 });
 export type ContactDashboardDto = z.infer<typeof contactDashboardResponseSchema>;
 

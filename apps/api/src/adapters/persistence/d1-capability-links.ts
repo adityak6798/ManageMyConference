@@ -136,16 +136,18 @@ export class D1CapabilityLinkStore implements CapabilityLinkStore {
 
   async spend(
     tokenHash: string,
+    kind: CapabilityLinkKind,
     passwordHash: string | null,
     now: string,
   ): Promise<CapabilityLink | null> {
     const spent = await this.rows<LinkRow>(
       "UPDATE capability_links SET views = views + 1 " +
-        "WHERE token_hash = ? AND revoked_at IS NULL AND expires_at > ? " +
+        "WHERE token_hash = ? AND resource_kind = ? AND revoked_at IS NULL AND expires_at > ? " +
         "AND (password_hash IS NULL OR password_hash = ?) " +
         "AND (view_limit IS NULL OR views < view_limit) " +
         `RETURNING ${COLUMNS}`,
       tokenHash,
+      kind,
       now,
       passwordHash,
     );

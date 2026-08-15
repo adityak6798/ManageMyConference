@@ -1,4 +1,6 @@
 import type {
+  CrmCampaign,
+  CrmEngagement,
   CrmRepository,
   ProspectFilters,
   ProspectMove,
@@ -33,6 +35,91 @@ export class MemoryCrmRepository implements CrmRepository {
   private readonly contacts = new Map<string, OrganizationContact>();
   private readonly segments = new Map<string, ContactSegment>();
   private readonly imports: ContactImport[] = [];
+  private readonly campaigns = new Map<string, CrmCampaign>();
+  private readonly engagements = new Map<string, CrmEngagement>();
+  private readonly suppressions = new Set<string>();
+  async listCampaigns(organizationId: string) {
+    return [...this.campaigns.values()].filter(
+      (campaign) => campaign.organizationId === organizationId,
+    );
+  }
+  async listDueCampaigns(now: string, staleRunningBefore: string) {
+    return [...this.campaigns.values()].filter(
+      (campaign) =>
+        (campaign.state === "scheduled" &&
+          campaign.scheduledAt !== null &&
+          campaign.scheduledAt <= now) ||
+        (campaign.state === "running" && campaign.updatedAt <= staleRunningBefore),
+    );
+  }
+  async findCampaign(organizationId: string, campaignId: string) {
+    const campaign = this.campaigns.get(campaignId);
+    return campaign?.organizationId === organizationId ? campaign : null;
+  }
+  async saveCampaign(campaign: CrmCampaign) {
+    this.campaigns.set(campaign.id, campaign);
+  }
+  async transitionCampaign(
+    organizationId: string,
+    campaignId: string,
+    from: readonly CrmCampaign["state"][],
+    to: CrmCampaign["state"],
+    updatedAt: string,
+    expectedUpdatedAt?: string,
+  ) {
+    const campaign = this.campaigns.get(campaignId);
+    if (
+      !campaign ||
+      campaign.organizationId !== organizationId ||
+      !from.includes(campaign.state) ||
+      (expectedUpdatedAt !== undefined && campaign.updatedAt !== expectedUpdatedAt)
+    )
+      return null;
+    const transitioned = { ...campaign, state: to, updatedAt };
+    this.campaigns.set(campaignId, transitioned);
+    return transitioned;
+  }
+  async saveEngagement(
+    engagement: CrmEngagement,
+    contactActivity: ContactActivity,
+    prospectActivity: ProspectActivity,
+  ) {
+    const key = `${engagement.organizationId}:${engagement.providerRef}:${engagement.kind}`;
+    if (this.engagements.has(key)) return false;
+    this.engagements.set(key, engagement);
+    if (engagement.kind === "bounced" || engagement.kind === "unsubscribed")
+      this.suppressions.add(engagement.contactId);
+    await this.recordContactActivities(engagement.organizationId, [
+      { contactId: engagement.contactId, activity: contactActivity },
+    ]);
+    await this.recordProspectEngagement(
+      engagement.organizationId,
+      engagement.contactId,
+      engagement.eventId,
+      prospectActivity,
+    );
+    return true;
+  }
+  async suppressedContactIds(contactIds: readonly string[]) {
+    return new Set(contactIds.filter((id) => this.suppressions.has(id)));
+  }
+  async recordProspectEngagement(
+    organizationId: string,
+    contactId: string,
+    eventId: string,
+    activity: ProspectActivity,
+  ) {
+    const contact = this.contacts.get(contactId);
+    if (!contact || contact.organizationId !== organizationId) return;
+    const link = contact.events.find((candidate) => candidate.eventId === eventId);
+    if (!link) return;
+    const prospect = this.prospects.get(link.prospectId);
+    if (!prospect) return;
+    this.prospects.set(prospect.id, {
+      ...prospect,
+      activities: [...prospect.activities, activity],
+    });
+  }
   async list(eventId: string, filters: ProspectFilters): Promise<readonly Prospect[]> {
     return [...this.prospects.values()].filter(
       (item) =>

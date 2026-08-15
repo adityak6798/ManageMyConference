@@ -25,7 +25,7 @@
  * would add a content session to the demo event and break `lifecycle-demo.spec.ts`'s count of it.
  * See the note at that call.
  */
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 /**
  * Distinguishes this run's proposals from an earlier run's against the same server.

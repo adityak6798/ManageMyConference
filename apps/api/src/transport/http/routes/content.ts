@@ -11,9 +11,15 @@ import {
   addContentCommentInputSchema,
   assignSpeakerChecklistInputSchema,
   bulkDownloadDeliverablesInputSchema,
-  bulkRequestSpeakerTaskInputSchema,
   clearSpeakerPhotoInputSchema,
+  configureContentWorkflowStatusesInputSchema,
+  bulkRequestSpeakerTaskInputSchema,
   contentSessionParamsSchema,
+  contentRemixInputSchema,
+  contentShareInputSchema,
+  contentSharePasswordQuerySchema,
+  contentShareParamsSchema,
+  contentShareTokenParamsSchema,
   createSpeakerResourceInputSchema,
   eventContentParamsSchema,
   inviteSpeakersInputSchema,
@@ -23,12 +29,13 @@ import {
   requestSpeakerTaskInputSchema,
   restoreContentRevisionInputSchema,
   saveSpeakerTaskTemplatesInputSchema,
+  setSpeakerCollaboratorsInputSchema,
+  speakerTaskTemplateIdParamsSchema,
+  speakerTaskTemplateInputSchema,
   setSpeakerPhotoInputSchema,
   speakerAssetParamsSchema,
   speakerCsvImportInputSchema,
   speakerResourceParamsSchema,
-  speakerTaskTemplateIdParamsSchema,
-  speakerTaskTemplateInputSchema,
   taskParamsSchema,
   updateContentSessionInputSchema,
   updateSpeakerProfileInputSchema,
@@ -39,6 +46,7 @@ import {
 import { ContentConflictError } from "../../../application/content/content-repository";
 import {
   ContentNotFoundError,
+  ContentShareUnavailableError,
   ResourceEmbedDeniedError,
   SpeakerChecklistAnchorError,
   SpeakerChecklistTitleTakenError,
@@ -81,6 +89,18 @@ const routes = [
   "POST /api/speaker-imports",
   "POST /api/speaker-tasks/bulk",
   "PATCH /api/speaker-profiles/:profileId/workflow",
+  "PUT /api/events/:eventId/content/workflow-statuses",
+  "PUT /api/speaker-profiles/:profileId/collaborators",
+  "POST /api/speaker-profiles/:profileId/shares",
+  "GET /api/speaker-profiles/:profileId/shares",
+  "DELETE /api/speaker-profiles/:profileId/shares/:shareId",
+  "POST /api/speaker-assets/:assetId/shares",
+  "GET /api/speaker-assets/:assetId/shares",
+  "DELETE /api/speaker-assets/:assetId/shares/:shareId",
+  "GET /api/public/content-shares/profiles/:token",
+  "GET /api/public/content-shares/assets/:token",
+  "POST /api/speaker-profiles/:profileId/remix",
+  "POST /api/content-sessions/:sessionId/remix",
   "POST /api/content-comments",
   "POST /api/content-revisions/restore",
   "POST /api/content-deliverables/bulk-download",
@@ -100,7 +120,6 @@ export const contentRoutes: RouteModule = {
           envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
           400,
         );
-      requireEventCapability(context.get("actor"), parsed.data.eventId, "content:read");
       if (!content) throw new Error("Content service is unavailable");
       return context.json(await content.workspace(context.get("actor"), parsed.data.eventId));
     });
@@ -134,7 +153,6 @@ export const contentRoutes: RouteModule = {
       );
     });
     app.patch("/api/speaker-profiles/:profileId", async (context) => {
-      requireCapability(context.get("actor"), "content:read");
       const params = profileParamsSchema.safeParse(context.req.param());
       if (!params.success)
         return context.json(
@@ -177,7 +195,6 @@ export const contentRoutes: RouteModule = {
      * A file that is not this speaker's, or is not an image, is a 400 naming `assetId`.
      */
     app.put("/api/speaker-profiles/:profileId/photo", async (context) => {
-      requireCapability(context.get("actor"), "content:read");
       const params = profileParamsSchema.safeParse(context.req.param());
       if (!params.success)
         return context.json(
@@ -207,7 +224,6 @@ export const contentRoutes: RouteModule = {
     });
     /* Withdrawing the choice needs no more authority than making it, and keeps the file. */
     app.delete("/api/speaker-profiles/:profileId/photo", async (context) => {
-      requireCapability(context.get("actor"), "content:read");
       const params = profileParamsSchema.safeParse(context.req.param());
       if (!params.success)
         return context.json(
@@ -293,7 +309,9 @@ export const contentRoutes: RouteModule = {
         );
       if (!content) throw new Error("Content service is unavailable");
       return context.json(
-        { message: await content.recordMessage(context.get("actor"), parsed.data) },
+        {
+          message: await content.recordMessage(context.get("actor"), parsed.data),
+        },
         201,
       );
     });
@@ -428,7 +446,6 @@ export const contentRoutes: RouteModule = {
      * identically, so neither reveals the other (`ARC-AUTH-001`).
      */
     app.delete("/api/speaker-assets/:assetId", async (context) => {
-      requireCapability(context.get("actor"), "content:read");
       const params = speakerAssetParamsSchema.safeParse(context.req.param());
       if (!params.success)
         return context.json(
@@ -440,7 +457,6 @@ export const contentRoutes: RouteModule = {
       return context.body(null, 204);
     });
     app.post("/api/speaker-assets", async (context) => {
-      requireCapability(context.get("actor"), "content:read");
       const parsed = uploadSpeakerAssetInputSchema.safeParse(await readJson(context.req));
       if (!parsed.success)
         return context.json(
@@ -456,7 +472,12 @@ export const contentRoutes: RouteModule = {
       const binary = atob(parsed.data.contentBase64);
       const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
       return context.json(
-        { asset: await content.upload(context.get("actor"), { ...parsed.data, bytes }) },
+        {
+          asset: await content.upload(context.get("actor"), {
+            ...parsed.data,
+            bytes,
+          }),
+        },
         201,
       );
     });
@@ -591,7 +612,9 @@ export const contentRoutes: RouteModule = {
         ...parsed.data,
       });
       return context.json(
-        { templates: await content.taskTemplates(context.get("actor"), params.data.eventId) },
+        {
+          templates: await content.taskTemplates(context.get("actor"), params.data.eventId),
+        },
         201,
       );
     });
@@ -731,7 +754,9 @@ export const contentRoutes: RouteModule = {
         );
       if (!content) throw new Error("Content service is unavailable");
       return context.json(
-        { tasks: await content.requestTasks(context.get("actor"), parsed.data) },
+        {
+          tasks: await content.requestTasks(context.get("actor"), parsed.data),
+        },
         201,
       );
     });
@@ -757,6 +782,214 @@ export const contentRoutes: RouteModule = {
         ),
       });
     });
+    app.put("/api/events/:eventId/content/workflow-statuses", async (context) => {
+      const params = eventContentParamsSchema.safeParse(context.req.param());
+      const parsed = configureContentWorkflowStatusesInputSchema.safeParse(
+        await readJson(context.req),
+      );
+      if (!params.success || !parsed.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "Workflow statuses are invalid.",
+            context.get("correlationId"),
+            parsed.success ? undefined : validationFields(parsed.error.issues),
+          ),
+          400,
+        );
+      if (!content) throw new Error("Content service is unavailable");
+      return context.json({
+        statuses: await content.configureWorkflowStatuses(
+          context.get("actor"),
+          params.data.eventId,
+          parsed.data.statuses,
+        ),
+      });
+    });
+    app.put("/api/speaker-profiles/:profileId/collaborators", async (context) => {
+      const params = profileParamsSchema.safeParse(context.req.param());
+      const parsed = setSpeakerCollaboratorsInputSchema.safeParse(await readJson(context.req));
+      if (!params.success || !parsed.success)
+        return context.json(
+          envelope("VALIDATION_FAILED", "Collaborators are invalid.", context.get("correlationId")),
+          400,
+        );
+      if (!content) throw new Error("Content service is unavailable");
+      return context.json({
+        collaborators: await content.setProfileCollaborators(
+          context.get("actor"),
+          params.data.profileId,
+          parsed.data.collaborators,
+        ),
+      });
+    });
+    app.post("/api/speaker-profiles/:profileId/shares", async (context) => {
+      const params = profileParamsSchema.safeParse(context.req.param());
+      const parsed = contentShareInputSchema.safeParse(await readJson(context.req));
+      if (!params.success || !parsed.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "Share settings are invalid.",
+            context.get("correlationId"),
+          ),
+          400,
+        );
+      if (!content) throw new Error("Content service is unavailable");
+      const created = await content.createProfileShare(
+        context.get("actor"),
+        params.data.profileId,
+        parsed.data,
+      );
+      return context.json({ share: created.link, url: created.url }, 201);
+    });
+    app.post("/api/speaker-assets/:assetId/shares", async (context) => {
+      const params = speakerAssetParamsSchema.safeParse(context.req.param());
+      const parsed = contentShareInputSchema.safeParse(await readJson(context.req));
+      if (!params.success || !parsed.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "Share settings are invalid.",
+            context.get("correlationId"),
+          ),
+          400,
+        );
+      if (!content) throw new Error("Content service is unavailable");
+      const created = await content.createAssetShare(
+        context.get("actor"),
+        params.data.assetId,
+        parsed.data,
+      );
+      return context.json({ share: created.link, url: created.url }, 201);
+    });
+    app.get("/api/speaker-profiles/:profileId/shares", async (context) => {
+      const params = profileParamsSchema.safeParse(context.req.param());
+      if (!params.success)
+        return context.json(
+          envelope("VALIDATION_FAILED", "Profile ID is malformed.", context.get("correlationId")),
+          400,
+        );
+      if (!content) throw new Error("Content service is unavailable");
+      return context.json({
+        shares: await content.listProfileShares(context.get("actor"), params.data.profileId),
+      });
+    });
+    app.delete("/api/speaker-profiles/:profileId/shares/:shareId", async (context) => {
+      const profile = profileParamsSchema.safeParse(context.req.param());
+      const share = contentShareParamsSchema.safeParse(context.req.param());
+      if (!profile.success || !share.success)
+        return context.json(
+          envelope("VALIDATION_FAILED", "Share ID is malformed.", context.get("correlationId")),
+          400,
+        );
+      if (!content) throw new Error("Content service is unavailable");
+      return context.json({
+        revoked: await content.revokeProfileShare(
+          context.get("actor"),
+          profile.data.profileId,
+          share.data.shareId,
+        ),
+      });
+    });
+    app.get("/api/speaker-assets/:assetId/shares", async (context) => {
+      const params = speakerAssetParamsSchema.safeParse(context.req.param());
+      if (!params.success)
+        return context.json(
+          envelope("VALIDATION_FAILED", "Asset ID is malformed.", context.get("correlationId")),
+          400,
+        );
+      if (!content) throw new Error("Content service is unavailable");
+      return context.json({
+        shares: await content.listAssetShares(context.get("actor"), params.data.assetId),
+      });
+    });
+    app.delete("/api/speaker-assets/:assetId/shares/:shareId", async (context) => {
+      const asset = speakerAssetParamsSchema.safeParse(context.req.param());
+      const share = contentShareParamsSchema.safeParse(context.req.param());
+      if (!asset.success || !share.success)
+        return context.json(
+          envelope("VALIDATION_FAILED", "Share ID is malformed.", context.get("correlationId")),
+          400,
+        );
+      if (!content) throw new Error("Content service is unavailable");
+      return context.json({
+        revoked: await content.revokeAssetShare(
+          context.get("actor"),
+          asset.data.assetId,
+          share.data.shareId,
+        ),
+      });
+    });
+    app.get("/api/public/content-shares/profiles/:token", async (context) => {
+      const params = contentShareTokenParamsSchema.safeParse(context.req.param());
+      const query = contentSharePasswordQuerySchema.safeParse(context.req.query());
+      if (!params.success || !query.success)
+        return context.json(
+          envelope("NOT_FOUND", "That share is not available.", context.get("correlationId")),
+          404,
+        );
+      if (!content) throw new Error("Content service is unavailable");
+      return context.json(
+        {
+          profile: await content.resolveProfileShare(params.data.token, query.data.password),
+        },
+        200,
+        { "cache-control": "private, no-store" },
+      );
+    });
+    app.get("/api/public/content-shares/assets/:token", async (context) => {
+      const params = contentShareTokenParamsSchema.safeParse(context.req.param());
+      const query = contentSharePasswordQuerySchema.safeParse(context.req.query());
+      if (!params.success || !query.success)
+        return context.json(
+          envelope("NOT_FOUND", "That share is not available.", context.get("correlationId")),
+          404,
+        );
+      if (!content) throw new Error("Content service is unavailable");
+      const found = await content.resolveAssetShare(params.data.token, query.data.password);
+      return context.body(found.bytes as unknown as ArrayBuffer, 200, {
+        "cache-control": "private, no-store",
+        "content-type": found.contentType,
+        "content-length": String(found.bytes.byteLength),
+        "content-security-policy": "default-src 'none'; sandbox",
+        "x-content-type-options": "nosniff",
+      });
+    });
+    app.post("/api/speaker-profiles/:profileId/remix", async (context) => {
+      const params = profileParamsSchema.safeParse(context.req.param());
+      const parsed = contentRemixInputSchema.safeParse(await readJson(context.req));
+      if (!params.success || !parsed.success)
+        return context.json(
+          envelope("VALIDATION_FAILED", "Remix request is invalid.", context.get("correlationId")),
+          400,
+        );
+      if (!content) throw new Error("Content service is unavailable");
+      return context.json({
+        draft: await content.draftProfileRemix(
+          context.get("actor"),
+          params.data.profileId,
+          parsed.data.instruction,
+        ),
+      });
+    });
+    app.post("/api/content-sessions/:sessionId/remix", async (context) => {
+      const params = contentSessionParamsSchema.safeParse(context.req.param());
+      const parsed = contentRemixInputSchema.safeParse(await readJson(context.req));
+      if (!params.success || !parsed.success)
+        return context.json(
+          envelope("VALIDATION_FAILED", "Remix request is invalid.", context.get("correlationId")),
+          400,
+        );
+      if (!content) throw new Error("Content service is unavailable");
+      return context.json({
+        draft: await content.draftSessionRemix(
+          context.get("actor"),
+          params.data.sessionId,
+          parsed.data.instruction,
+        ),
+      });
+    });
     app.post("/api/speaker-resources", async (context) => {
       const parsed = createSpeakerResourceInputSchema.safeParse(await readJson(context.req));
       if (!parsed.success)
@@ -771,7 +1004,9 @@ export const contentRoutes: RouteModule = {
         );
       if (!content) throw new Error("Content service is unavailable");
       return context.json(
-        { resource: await content.createResource(context.get("actor"), parsed.data) },
+        {
+          resource: await content.createResource(context.get("actor"), parsed.data),
+        },
         201,
       );
     });
@@ -1023,6 +1258,12 @@ export const contentRoutes: RouteModule = {
         code: "CONFLICT" as const,
         message: error.message,
         status: 409 as const,
+      };
+    if (error instanceof ContentShareUnavailableError)
+      return {
+        code: "NOT_FOUND" as const,
+        message: "That share is not available.",
+        status: 404 as const,
       };
     return null;
   },

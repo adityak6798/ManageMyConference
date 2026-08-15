@@ -15,7 +15,9 @@ export const proposalStatusDefinitionSchema = z.object({
 export const configureProposalStatusesInputSchema = z.object({
   statuses: z.array(proposalStatusDefinitionSchema).min(1).max(20),
 });
-export const reviewOrganizerQuerySchema = z.object({ status: proposalStatusSchema.optional() });
+export const reviewOrganizerQuerySchema = z.object({
+  status: proposalStatusSchema.optional(),
+});
 export const reviewEventParamsSchema = z.object({ eventId: z.string().uuid() });
 export const reviewAssignmentParamsSchema = z.object({
   eventId: z.string().uuid(),
@@ -35,6 +37,8 @@ export const proposalSchema = z.object({
   eventId: z.string().uuid(),
   title: z.string(),
   abstract: z.string(),
+  /** Reserved CFP select-field value used for stable review filtering. */
+  track: z.string().trim().min(1).max(120).nullable().optional(),
   /** The submitter's display name, or the mask the reviewer projection substitutes for it. */
   submitterName: z.string(),
   /**
@@ -55,7 +59,12 @@ export const proposalSchema = z.object({
   status: proposalStatusSchema,
 });
 // @spec PRD-REV-001 PRD-CNT-001
-export const proposalDecisionOutcomeSchema = z.enum(["accepted", "declined"]);
+export const proposalDecisionOutcomeSchema = z.enum([
+  "accepted",
+  "waitlisted",
+  "revision_requested",
+  "declined",
+]);
 export const proposalDecisionSchema = z.object({
   eventId: z.string().uuid(),
   proposalId: z.string().uuid(),
@@ -63,6 +72,7 @@ export const proposalDecisionSchema = z.object({
   decidedBy: z.string(),
   decidedAt: z.string().datetime(),
   note: z.string(),
+  revision: z.number().int().positive().optional(),
 });
 export const recordProposalDecisionInputSchema = z.object({
   proposalIds: z.array(z.string().uuid()).min(1).max(100),
@@ -147,6 +157,15 @@ export const reviewRoundStateSchema = z.enum(["draft", "open", "closed"]);
  * not carry into another.
  */
 export const reviewRoundPoolModeSchema = z.enum(["event", "named"]);
+export const reviewRoundFilterSchema = z.object({
+  field: z
+    .string()
+    .trim()
+    .min(1)
+    .max(80)
+    .regex(/^[a-zA-Z0-9_-]+$/),
+  values: z.array(z.string().trim().min(1).max(160)).min(1).max(50),
+});
 export const reviewRoundSchema = z.object({
   eventId: z.string().uuid(),
   /**
@@ -159,6 +178,8 @@ export const reviewRoundSchema = z.object({
    */
   sequence: z.number().int().positive(),
   name: z.string().trim().min(1).max(80),
+  instructions: z.string().max(5000).default(""),
+  aiPersona: z.string().max(2000).default(""),
   /** `null` is unbounded on that side. */
   opensAt: z.string().datetime().nullable(),
   closesAt: z.string().datetime().nullable(),
@@ -167,6 +188,16 @@ export const reviewRoundSchema = z.object({
   anonymized: z.boolean(),
   /** This round's own scorecard, or `null` to score against the event plan. */
   criteria: z.array(reviewCriterionSchema).nullable(),
+  filters: z.array(reviewRoundFilterSchema).default([]),
+  includedProposalIds: z.array(z.string().uuid()).default([]),
+  filterVersion: z.number().int().positive().default(1),
+  visibleFieldIds: z.array(z.string().trim().min(1).max(80)).default([]),
+  filesVisible: z.boolean().default(true),
+  maxEvaluationsPerProposal: z.number().int().positive().max(100).default(100),
+  weeklyReminderWeekday: z.number().int().min(0).max(6).nullable().default(null),
+  weeklyReminderHour: z.number().int().min(0).max(23).nullable().default(null),
+  reminderTimezone: z.string().trim().min(1).max(80).nullable().default(null),
+  invitationOccurrence: z.number().int().nonnegative().default(0),
   poolMode: reviewRoundPoolModeSchema,
   reviewerIds: z.array(z.string()),
   createdAt: z.string().datetime(),
@@ -174,6 +205,8 @@ export const reviewRoundSchema = z.object({
 });
 const reviewRoundTermsSchema = z.object({
   name: z.string().trim().min(1).max(80),
+  instructions: z.string().trim().max(5000).default(""),
+  aiPersona: z.string().trim().max(2000).default(""),
   opensAt: z.string().datetime().nullable().optional(),
   closesAt: z.string().datetime().nullable().optional(),
   anonymized: z.boolean(),
@@ -193,6 +226,13 @@ const reviewRoundTermsSchema = z.object({
     .nullable()
     .optional(),
   poolMode: reviewRoundPoolModeSchema,
+  filters: z.array(reviewRoundFilterSchema).max(20).default([]),
+  visibleFieldIds: z.array(z.string().trim().min(1).max(80)).max(100).default([]),
+  filesVisible: z.boolean().default(false),
+  maxEvaluationsPerProposal: z.number().int().positive().max(100).default(100),
+  weeklyReminderWeekday: z.number().int().min(0).max(6).nullable().default(null),
+  weeklyReminderHour: z.number().int().min(0).max(23).nullable().default(null),
+  reminderTimezone: z.string().trim().min(1).max(80).nullable().default(null),
 });
 export const createReviewRoundInputSchema = reviewRoundTermsSchema.extend({
   state: reviewRoundStateSchema.default("draft"),
@@ -203,6 +243,21 @@ export const updateReviewRoundInputSchema = reviewRoundTermsSchema.extend({
 });
 export const setReviewRoundPoolInputSchema = z.object({
   reviewerIds: z.array(z.string().trim().min(1)).max(100),
+});
+export const recomputeReviewRoundInputSchema = z.object({
+  filters: z.array(reviewRoundFilterSchema).max(20),
+});
+export const inviteReviewRoundInputSchema = z.object({
+  mode: z.enum(["new", "all"]),
+});
+export const inviteReviewRoundResponseSchema = z.object({
+  invitations: z.array(
+    z.object({
+      reviewerId: z.string(),
+      assignmentCount: z.number().int().nonnegative(),
+      state: z.enum(["queued", "already_sent", "unaddressable"]),
+    }),
+  ),
 });
 export const reviewRoundParamsSchema = z.object({
   eventId: z.string().uuid(),
@@ -216,9 +271,13 @@ export const reviewRoundParamsSchema = z.object({
  * which needs to know who else is scoring the same abstracts, and a blind round publishing that
  * would answer the one question a double-blind committee exists to keep closed.
  */
-export const reviewerRoundSchema = reviewRoundSchema.omit({ reviewerIds: true });
+export const reviewerRoundSchema = reviewRoundSchema.omit({
+  reviewerIds: true,
+});
 export const reviewRoundResponseSchema = z.object({ round: reviewRoundSchema });
-export const reviewRoundsResponseSchema = z.object({ rounds: z.array(reviewRoundSchema) });
+export const reviewRoundsResponseSchema = z.object({
+  rounds: z.array(reviewRoundSchema),
+});
 /**
  * What became of one reviewer's reminder.
  *
@@ -391,7 +450,10 @@ export const suggestionResponseResponseSchema = z.object({
    */
   evaluation: evaluationSchema.nullable(),
 });
-export const reviewerOptionSchema = z.object({ id: z.string(), name: z.string() });
+export const reviewerOptionSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+});
 export const organizerReviewWorkspaceSchema = z.object({
   proposals: z.array(proposalSchema),
   plan: reviewPlanSchema.nullable(),
@@ -417,6 +479,19 @@ export const organizerReviewWorkspaceSchema = z.object({
   // Optional so a client written against the pre-decision shape still parses this response;
   // the server always sends it.
   decisions: z.array(proposalDecisionSchema).optional(),
+  /** Every numbered decision occurrence, including reversals and reinstatements. */
+  decisionHistory: z.array(proposalDecisionSchema.required({ revision: true })).optional(),
+  /** Aggregate only; suggestion text and scores remain reviewer-private. */
+  aiReport: z
+    .array(
+      z.object({
+        round: z.number().int().positive(),
+        model: z.string(),
+        state: z.enum(["offered", "accepted", "rejected"]),
+        count: z.number().int().nonnegative(),
+      }),
+    )
+    .optional(),
   progress: z.array(reviewProgressSchema).optional(),
   /**
    * Every round of this event with its pool, lowest sequence first. Optional so a client written
@@ -442,7 +517,9 @@ export const reviewConflictSchema = z.object({
   reason: z.string(),
   declaredAt: z.string().datetime(),
 });
-export const declareConflictInputSchema = z.object({ reason: z.string().trim().min(3).max(500) });
+export const declareConflictInputSchema = z.object({
+  reason: z.string().trim().min(3).max(500),
+});
 export const saveEvaluationInputSchema = z.object({
   scores: z.array(evaluationScoreSchema),
   notes: z.string().max(5000).default(""),
@@ -522,8 +599,12 @@ export const proposalDecisionResponseSchema = z.object({
    */
   acceptances: z.array(proposalAcceptanceSchema).default([]),
 });
-export const reviewConflictResponseSchema = z.object({ conflict: reviewConflictSchema });
-export const evaluationResponseSchema = z.object({ evaluation: evaluationSchema });
+export const reviewConflictResponseSchema = z.object({
+  conflict: reviewConflictSchema,
+});
+export const evaluationResponseSchema = z.object({
+  evaluation: evaluationSchema,
+});
 
 export type OrganizerReviewWorkspaceDto = z.infer<typeof organizerReviewWorkspaceSchema>;
 export type ReviewerQueueDto = z.infer<typeof reviewerQueueSchema>;

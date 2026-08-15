@@ -16,6 +16,7 @@ import {
   type ContentRevision,
   type ContentSession,
   type ContentWorkspace,
+  type ContentWorkflowStatus,
   logicalAssetKey,
   type SpeakerAsset,
   type SpeakerSocialLinks,
@@ -88,6 +89,83 @@ export class D1ContentRepository
     CommunicationsContentQuery
 {
   constructor(private readonly database: ContentDatabasePort) {}
+  async listProfileCollaborators(profileId: string) {
+    return (
+      await this.rows(
+        "SELECT user_id,access FROM speaker_profile_collaborators WHERE profile_id=? ORDER BY user_id",
+        profileId,
+      )
+    ).map((row) => ({ userId: row.user_id ?? "", access: row.access as "view" | "edit" }));
+  }
+  async replaceProfileCollaborators(
+    profileId: string,
+    collaborators: readonly { userId: string; access: "view" | "edit" }[],
+    addedBy: string,
+    addedAt: string,
+  ) {
+    const results = await this.database.batch([
+      this.database
+        .prepare("DELETE FROM speaker_profile_collaborators WHERE profile_id=?")
+        .bind(profileId),
+      ...collaborators.map((collaborator) =>
+        this.database
+          .prepare(
+            "INSERT INTO speaker_profile_collaborators(profile_id,user_id,access,added_by,added_at) VALUES(?,?,?,?,?)",
+          )
+          .bind(profileId, collaborator.userId, collaborator.access, addedBy, addedAt),
+      ),
+    ]);
+    for (const result of results) changedRows(result, "replace speaker profile collaborators");
+  }
+  async isProfileCollaborator(profileId: string, userId: string, edit = false) {
+    const rows = await this.rows(
+      `SELECT 1 AS found FROM speaker_profile_collaborators WHERE profile_id=? AND user_id=?${edit ? " AND access='edit'" : ""} LIMIT 1`,
+      profileId,
+      userId,
+    );
+    return rows.length > 0;
+  }
+  async listWorkflowStatuses(eventId: string): Promise<readonly ContentWorkflowStatus[]> {
+    return (
+      await this.rows(
+        "SELECT id,event_id,key,label,category,sort_order,created_at FROM content_workflow_statuses WHERE event_id=? ORDER BY sort_order,key",
+        eventId,
+      )
+    ).map((row) => ({
+      id: row.id ?? "",
+      eventId: row.event_id ?? "",
+      key: row.key ?? "",
+      label: row.label ?? "",
+      category: (row.category ?? "open") as ContentWorkflowStatus["category"],
+      sortOrder: Number(row.sort_order),
+      createdAt: row.created_at ?? "",
+    }));
+  }
+  async saveWorkflowStatuses(
+    eventId: string,
+    statuses: readonly ContentWorkflowStatus[],
+  ): Promise<void> {
+    const statements = [
+      this.database.prepare("DELETE FROM content_workflow_statuses WHERE event_id=?").bind(eventId),
+      ...statuses.map((status) =>
+        this.database
+          .prepare(
+            "INSERT INTO content_workflow_statuses (id,event_id,key,label,category,sort_order,created_at) VALUES (?,?,?,?,?,?,?)",
+          )
+          .bind(
+            status.id,
+            eventId,
+            status.key,
+            status.label,
+            status.category,
+            status.sortOrder,
+            status.createdAt,
+          ),
+      ),
+    ];
+    const results = await this.database.batch(statements);
+    for (const result of results) changedRows(result, "save content workflow statuses");
+  }
   /**
    * Open speaker tasks falling due at or before `dueBefore`, across every event.
    *
@@ -383,9 +461,9 @@ export class D1ContentRepository
   }
   async workspace(eventId: string, userId?: string): Promise<ContentWorkspace> {
     const profileRows = await this.rows(
-      `SELECT profile.*, (SELECT COALESCE(MAX(revision_number),0) FROM content_revisions WHERE entity_type='profile' AND entity_id=profile.id) AS profile_version FROM speaker_profiles AS profile WHERE event_id = ?${userId ? " AND user_id = ?" : ""} ORDER BY name`,
+      `SELECT profile.*, (SELECT COALESCE(MAX(revision_number),0) FROM content_revisions WHERE entity_type='profile' AND entity_id=profile.id) AS profile_version FROM speaker_profiles AS profile WHERE event_id = ?${userId ? " AND (user_id = ? OR EXISTS (SELECT 1 FROM speaker_profile_collaborators collaborator WHERE collaborator.profile_id=profile.id AND collaborator.user_id=?))" : ""} ORDER BY name`,
       eventId,
-      ...(userId ? [userId] : []),
+      ...(userId ? [userId, userId] : []),
     );
     const speakers = profileRows.map((row) => this.profile(row));
     if (userId && speakers.length === 0)
@@ -401,8 +479,9 @@ export class D1ContentRepository
       };
     const scoped = (table: string, order: string) =>
       this.rows(
-        `SELECT owned.* FROM ${table} AS owned INNER JOIN speaker_profiles AS profile ON profile.id = owned.speaker_profile_id WHERE owned.event_id = ? AND profile.event_id = owned.event_id AND profile.user_id = ? ORDER BY ${order}`,
+        `SELECT owned.* FROM ${table} AS owned INNER JOIN speaker_profiles AS profile ON profile.id = owned.speaker_profile_id WHERE owned.event_id = ? AND profile.event_id = owned.event_id AND (profile.user_id = ? OR EXISTS (SELECT 1 FROM speaker_profile_collaborators collaborator WHERE collaborator.profile_id=profile.id AND collaborator.user_id=?)) ORDER BY ${order}`,
         eventId,
+        userId,
         userId,
       );
     /*
@@ -429,10 +508,10 @@ export class D1ContentRepository
       await Promise.all([
         this.rows(
           userId
-            ? "SELECT DISTINCT session.* FROM content_sessions AS session, json_each(session.speaker_profile_ids) AS speaker INNER JOIN speaker_profiles AS profile ON profile.id = speaker.value WHERE session.event_id = ? AND profile.event_id = session.event_id AND profile.user_id = ? ORDER BY session.title"
+            ? "SELECT DISTINCT session.* FROM content_sessions AS session, json_each(session.speaker_profile_ids) AS speaker INNER JOIN speaker_profiles AS profile ON profile.id = speaker.value WHERE session.event_id = ? AND profile.event_id = session.event_id AND (profile.user_id = ? OR EXISTS (SELECT 1 FROM speaker_profile_collaborators collaborator WHERE collaborator.profile_id=profile.id AND collaborator.user_id=?)) ORDER BY session.title"
             : "SELECT * FROM content_sessions WHERE event_id = ? ORDER BY title",
           eventId,
-          ...(userId ? [userId] : []),
+          ...(userId ? [userId, userId] : []),
         ),
         userId
           ? scoped("speaker_tasks", "due_at,title")
@@ -458,10 +537,10 @@ export class D1ContentRepository
         ),
         this.rows(
           userId
-            ? "SELECT comment.* FROM content_asset_comments comment INNER JOIN speaker_assets asset ON asset.id=comment.asset_id INNER JOIN speaker_profiles profile ON profile.id=asset.speaker_profile_id WHERE comment.event_id=? AND profile.user_id=? ORDER BY comment.created_at"
+            ? "SELECT comment.* FROM content_asset_comments comment INNER JOIN speaker_assets asset ON asset.id=comment.asset_id INNER JOIN speaker_profiles profile ON profile.id=asset.speaker_profile_id WHERE comment.event_id=? AND (profile.user_id=? OR EXISTS (SELECT 1 FROM speaker_profile_collaborators collaborator WHERE collaborator.profile_id=profile.id AND collaborator.user_id=?)) ORDER BY comment.created_at"
             : "SELECT * FROM content_asset_comments WHERE event_id=? ORDER BY created_at",
           eventId,
-          ...(userId ? [userId] : []),
+          ...(userId ? [userId, userId] : []),
         ),
         userId
           ? Promise.resolve([] as Row[])

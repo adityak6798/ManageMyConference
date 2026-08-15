@@ -12,8 +12,9 @@
  * or refused by the fixture provider because its recipient is genuinely unaddressable. No
  * assertion here depends on a seeded delivery.
  */
-import { expect, type Locator, type Page, test } from "@playwright/test";
+
 import { resolveWorktreeEnvironment } from "../../../tools/worktree-env.mjs";
+import { expect, type Locator, type Page, test } from "./fixtures";
 
 const EVENT_ID = "00000000-0000-4000-8000-000000000001";
 const ORGANIZATION_ID = "00000000-0000-4000-8000-000000000010";

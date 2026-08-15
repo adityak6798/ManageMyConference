@@ -21,7 +21,7 @@ export default defineConfig({
   },
   webServer: {
     command:
-      "npm run setup:local && npm run build --workspace @greenroom/web && npm run reset && npm run dev --workspace @greenroom/api",
+      "npm run setup:local && npm run build --workspace @greenroom/web && npm run reset && node tools/browser-api-server.mjs",
     cwd: "../..",
     env: { GREENROOM_API_PORT: String(environment.apiPort) },
     url: `http://127.0.0.1:${environment.apiPort}/health`,

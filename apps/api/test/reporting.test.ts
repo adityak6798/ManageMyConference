@@ -235,13 +235,14 @@ function harness(over: { rows?: ReportRow[]; unauthorized?: boolean } = {}) {
       links[index] = { ...(links[index] as (typeof links)[number]), revokedAt: at };
       return 1;
     },
-    spend: async (tokenHash, passwordHash, now) => {
+    spend: async (tokenHash, kind, passwordHash, now) => {
       const index = links.findIndex(
         (link) =>
           link.tokenHash === tokenHash &&
+          link.kind === kind &&
+          (link.passwordHash === null || link.passwordHash === passwordHash) &&
           link.revokedAt === null &&
           link.expiresAt > now &&
-          (link.passwordHash === null || link.passwordHash === passwordHash) &&
           (link.viewLimit === null || link.views < link.viewLimit),
       );
       if (index < 0) return null;

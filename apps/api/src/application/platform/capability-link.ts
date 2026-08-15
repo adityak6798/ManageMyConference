@@ -84,12 +84,13 @@ export interface CapabilityLinkStore {
    * Spend one view of the link this digest names, or answer null.
    *
    * Must be **one statement**: it has to test liveness — not revoked, not expired, a view left —
-   * and verify the password digest together, or a wrong password can consume a finite-view link
-   * before the holder supplies the right one. The supplied digest is already one-way, and the
-   * single equality predicate preserves the same indistinguishable refusal as every other guard.
+   * and increment the view count together, or two concurrent resolves of a one-view link both
+   * pass before either writes. Kind and password are predicates of that statement, so neither a
+   * wrong endpoint nor a wrong password consumes a limited view.
    */
   spend(
     tokenHash: string,
+    kind: CapabilityLinkKind,
     passwordHash: string | null,
     now: string,
   ): Promise<CapabilityLink | null>;
@@ -130,10 +131,16 @@ export const MAX_CAPABILITY_LINK_HOURS = 720;
 export async function spendCapabilityLink(
   store: CapabilityLinkStore,
   hash: (value: string) => Promise<string>,
-  input: { token: string; password?: string | undefined; now: string },
+  input: {
+    token: string;
+    kind: CapabilityLinkKind;
+    password?: string | undefined;
+    now: string;
+  },
 ): Promise<CapabilityLink> {
   const spent = await store.spend(
     await hash(input.token),
+    input.kind,
     input.password ? await hash(input.password) : null,
     input.now,
   );

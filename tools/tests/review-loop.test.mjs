@@ -66,8 +66,21 @@ test("touching a generator alongside its output is not generated-only", () => {
 });
 
 test("harness and gate changes are reviewed deeply", () => {
-  const map = riskMap([".github/workflows/ci.yml", "tools/check-evidence.mjs"], manifest);
+  const map = riskMap(
+    [".github/workflows/ci.yml", "tools/check-evidence.mjs", "apps/web/e2e/fixtures.ts"],
+    manifest,
+  );
   assert.ok(map.deep.includes("harness-and-gates"));
+  assert.ok(
+    map.dimensions
+      .find((dimension) => dimension.id === "harness-and-gates")
+      .files.includes("apps/web/e2e/fixtures.ts"),
+  );
+});
+
+test("deployed egress code is a deep provider effect", () => {
+  const map = riskMap(["apps/webhook-egress/src/ip.ts"], manifest);
+  assert.ok(map.deep.includes("provider-effects"));
 });
 
 const finding = (overrides = {}) => ({
@@ -79,18 +92,42 @@ const finding = (overrides = {}) => ({
 });
 
 test("a finding raised in an early pass survives later passes", () => {
-  let ledger = mergePass(emptyLedger(), { pass: 1, head: "aaa", findings: [finding()] });
+  let ledger = mergePass(emptyLedger(), {
+    pass: 1,
+    head: "aaa",
+    durationMinutes: 4,
+    findings: [finding()],
+  });
   // Pass 2 does not raise it again. Not raising a finding is not the same as fixing it.
-  ledger = mergePass(ledger, { pass: 2, head: "bbb", findings: [] });
+  ledger = mergePass(ledger, { pass: 2, head: "bbb", durationMinutes: 2, findings: [] });
   assert.equal(ledger.findings.length, 1);
   assert.equal(ledger.findings[0].firstSeenPass, 1);
   assert.equal(ledger.findings[0].status, "open");
+});
+
+test("a finding re-raised after a fix reopens and discards stale closure evidence", () => {
+  let ledger = mergePass(emptyLedger(), {
+    pass: 1,
+    head: "aaa",
+    durationMinutes: 4,
+    findings: [finding({ status: "fixed", evidence: "commit abc, pass 1" })],
+  });
+  ledger = mergePass(ledger, {
+    pass: 2,
+    head: "bbb",
+    durationMinutes: 2,
+    findings: [finding()],
+  });
+  assert.equal(ledger.findings[0].status, "open");
+  assert.equal(ledger.findings[0].evidence, undefined);
+  assert.match(publicationProblems(ledger, "bbb")[0], /major still open/);
 });
 
 test("findings are ordered by severity", () => {
   const ledger = mergePass(emptyLedger(), {
     pass: 1,
     head: "aaa",
+    durationMinutes: 3,
     findings: [
       finding({ severity: "note", summary: "n" }),
       finding({ severity: "blocker", summary: "b" }),
@@ -104,51 +141,93 @@ test("findings are ordered by severity", () => {
 });
 
 test("a ledger whose last pass predates the head cannot be published", () => {
-  const ledger = mergePass(emptyLedger(), { pass: 1, head: "aaa", findings: [] });
+  const ledger = mergePass(emptyLedger(), {
+    pass: 1,
+    head: "aaa",
+    durationMinutes: 2,
+    findings: [],
+  });
   const problems = publicationProblems(ledger, "bbb");
   assert.equal(problems.length, 1);
   assert.match(problems[0], /last review pass ran against aaa/);
   assert.match(problems[0], /needs another pass/);
   // Re-reviewing the new head clears it.
-  const reviewed = mergePass(ledger, { pass: 2, head: "bbb", findings: [] });
+  const reviewed = mergePass(ledger, {
+    pass: 2,
+    head: "bbb",
+    durationMinutes: 1,
+    findings: [],
+  });
   assert.deepEqual(publicationProblems(reviewed, "bbb"), []);
 });
 
 test("an open blocker or major cannot be published", () => {
-  const ledger = mergePass(emptyLedger(), { pass: 1, head: "aaa", findings: [finding()] });
+  const ledger = mergePass(emptyLedger(), {
+    pass: 1,
+    head: "aaa",
+    durationMinutes: 2,
+    findings: [finding()],
+  });
   const problems = publicationProblems(ledger, "aaa");
   assert.match(problems[0], /major still open/);
   assert.match(problems[0], /never on self-attestation/);
   assert.equal(unresolved(ledger).length, 1);
 });
 
-test("resolving a finding requires evidence", () => {
+test("closing a finding requires evidence", () => {
   const withoutEvidence = mergePass(emptyLedger(), {
     pass: 1,
     head: "aaa",
-    findings: [finding({ status: "resolved" })],
+    durationMinutes: 2,
+    findings: [finding({ status: "fixed" })],
   });
-  assert.match(publicationProblems(withoutEvidence, "aaa")[0], /marked resolved with no evidence/);
+  assert.match(publicationProblems(withoutEvidence, "aaa")[0], /marked fixed with no evidence/);
 
   const withEvidence = mergePass(emptyLedger(), {
     pass: 1,
     head: "aaa",
-    findings: [finding({ status: "resolved", evidence: "review-http.test.ts, pass 2" })],
+    durationMinutes: 2,
+    findings: [finding({ status: "fixed", evidence: "review-http.test.ts, pass 2" })],
   });
   assert.deepEqual(publicationProblems(withEvidence, "aaa"), []);
 });
 
 test("late-pass findings appear in the rendered comment against the final head", () => {
-  let ledger = mergePass(emptyLedger(), { pass: 1, head: "aaa", findings: [] });
+  let ledger = mergePass(emptyLedger(), {
+    pass: 1,
+    head: "aaa",
+    durationMinutes: 2,
+    findings: [],
+  });
   ledger = mergePass(ledger, {
     pass: 2,
     head: "bbb",
+    durationMinutes: 3,
     findings: [finding({ severity: "minor", summary: "Late finding from the repair pass" })],
   });
   const comment = renderFindings(ledger, "bbb");
   assert.match(comment, /Reviewed head: `bbb`/);
   assert.match(comment, /Late finding from the repair pass/);
+  assert.match(comment, /ship-it-findings/);
   assert.match(comment, /greenroom:findings/);
+  assert.match(comment, /5 review minute/);
+});
+
+test("publication requires review duration for every pass", () => {
+  const ledger = mergePass(emptyLedger(), { pass: 1, head: "aaa", findings: [] });
+  assert.match(publicationProblems(ledger, "aaa")[0], /pass 1 has no duration/);
+});
+
+test("publication rejects impossible review durations", () => {
+  for (const durationMinutes of [Number.NaN, Number.POSITIVE_INFINITY, -1]) {
+    const ledger = mergePass(emptyLedger(), {
+      pass: 1,
+      head: "aaa",
+      durationMinutes,
+      findings: [],
+    });
+    assert.match(publicationProblems(ledger, "aaa")[0], /has no duration/);
+  }
 });
 
 test("pass duration and yield are recorded so the policy can be tuned", () => {

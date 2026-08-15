@@ -17,7 +17,7 @@
  *
  * `TST-006` recorded this scenario as outstanding until it landed.
  */
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "./fixtures";
 
 // One applicant address per spec file; see the note in `00-seed-state.spec.ts`.
 test.use({ extraHTTPHeaders: { "cf-connecting-ip": "198.51.100.3" } });

@@ -59,6 +59,7 @@ const ACTIVITY_TONES: Record<ProspectDto["activities"][number]["kind"], PillTone
   email: "info",
   call: "info",
   meeting: "info",
+  engagement: "ok",
   "stage-change": "warn",
   conversion: "ok",
 };

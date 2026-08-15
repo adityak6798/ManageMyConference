@@ -14,6 +14,7 @@ import {
   roundAdmits,
   sameCriteria,
   type ReviewRound,
+  type ReviewRoundFilter,
   type ReviewRoundPoolMode,
   type ReviewRoundState,
   roundClosedReason,
@@ -96,6 +97,15 @@ export class SuggestionsDisabledError extends Error {}
 export type ReviewReminderResult = "queued" | "already_sent" | "unaddressable";
 
 export interface ReviewNotificationPort {
+  /** Explicit round invitation; the occurrence distinguishes repeated invite-all sends. */
+  inviteReviewer?(fact: {
+    readonly eventId: string;
+    readonly reviewerId: string;
+    readonly round: number;
+    readonly roundName: string;
+    readonly assignmentCount: number;
+    readonly occurrence: number;
+  }): Promise<ReviewReminderResult>;
   /**
    * A reviewer was given abstracts to evaluate in this round.
    *
@@ -127,6 +137,15 @@ export interface ReviewNotificationPort {
     readonly round: number;
     readonly roundName: string;
     readonly outstanding: number;
+  }): Promise<ReviewReminderResult>;
+  /** Scheduled counterpart, keyed by one local calendar occurrence across replay and DST. */
+  weeklyRemindOutstanding?(fact: {
+    readonly eventId: string;
+    readonly reviewerId: string;
+    readonly round: number;
+    readonly roundName: string;
+    readonly outstanding: number;
+    readonly occurrence: string;
   }): Promise<ReviewReminderResult>;
   /**
    * A submitter's proposal was accepted or declined.
@@ -166,6 +185,8 @@ export interface ReviewServiceDependencies {
   events: Pick<EventService, "get">;
   /** Tells reviewers and submitters what happened. Optional; review works unchanged without it. */
   notifications?: ReviewNotificationPort;
+  /** The cron-only reminder binding, kept narrow so a scheduled composition needs no fake ports. */
+  weeklyNotifications?: Pick<ReviewNotificationPort, "weeklyRemindOutstanding">;
   /**
    * Drafts AI suggestions. Optional, and absent is a supported configuration rather than a
    * degraded one: with no port bound, the reviewer's queue offers no Draft control and every
@@ -191,6 +212,27 @@ const formatOf = (proposal: SubmittedProposal) =>
     ({ fieldId, label }) =>
       FORMAT_FIELD_IDS.includes(fieldId.toLowerCase()) || FORMAT_LABEL.test(label),
   )?.value || DEFAULT_SESSION_FORMAT;
+
+/** Apply a round's configured filters to an immutable submitted-proposal projection. */
+const proposalMatchesFilters = (
+  proposal: SubmittedProposal,
+  filters: readonly ReviewRoundFilter[],
+): boolean =>
+  filters.every(({ field, values }) => {
+    const wanted = new Set(values.map((value) => value.trim().toLowerCase()));
+    const key = field.trim().toLowerCase();
+    const raw =
+      key === "status"
+        ? proposal.status
+        : key === "track"
+          ? proposal.track
+          : key === "format"
+            ? formatOf(proposal)
+            : proposal.answers.find(({ fieldId }) => fieldId.trim().toLowerCase() === key)?.value;
+    if (!raw) return false;
+    const candidates = key === "tags" ? raw.split(",").map((value) => value.trim()) : [raw];
+    return candidates.some((value) => wanted.has(value.toLowerCase()));
+  });
 
 /**
  * Whether a CFP field carries the structured co-author list.
@@ -481,11 +523,23 @@ export class ReviewService implements AcceptedProposalQuery {
       eventId,
       sequence: 1,
       name: "Round 1",
+      instructions: "",
+      aiPersona: "",
       opensAt: null,
       closesAt: null,
       state: "open",
       anonymized: true,
       criteria: null,
+      filters: [],
+      includedProposalIds: [],
+      filterVersion: 1,
+      visibleFieldIds: [],
+      filesVisible: false,
+      maxEvaluationsPerProposal: 100,
+      weeklyReminderWeekday: null,
+      weeklyReminderHour: null,
+      reminderTimezone: null,
+      invitationOccurrence: 0,
       poolMode: "event",
       reviewerIds: [],
       createdAt: now,
@@ -582,11 +636,20 @@ export class ReviewService implements AcceptedProposalQuery {
     eventId: string,
     input: {
       readonly name: string;
+      readonly instructions?: string | undefined;
+      readonly aiPersona?: string | undefined;
       readonly opensAt?: string | null | undefined;
       readonly closesAt?: string | null | undefined;
       readonly state?: ReviewRoundState | undefined;
       readonly anonymized?: boolean | undefined;
       readonly criteria?: EvaluationPlan["criteria"] | null | undefined;
+      readonly filters?: readonly ReviewRoundFilter[] | undefined;
+      readonly visibleFieldIds?: readonly string[] | undefined;
+      readonly filesVisible?: boolean | undefined;
+      readonly maxEvaluationsPerProposal?: number | undefined;
+      readonly weeklyReminderWeekday?: number | null | undefined;
+      readonly weeklyReminderHour?: number | null | undefined;
+      readonly reminderTimezone?: string | null | undefined;
       readonly poolMode?: ReviewRoundPoolMode | undefined;
       readonly reviewerIds?: readonly string[] | undefined;
     },
@@ -601,16 +664,33 @@ export class ReviewService implements AcceptedProposalQuery {
     );
     this.validateWindow(input.opensAt ?? null, input.closesAt ?? null);
     if (input.criteria) this.validateCriteria(input.criteria);
+    this.validateReminder(input);
+    const filters = input.filters ?? [];
+    const includedProposalIds = (await this.dependencies.proposals.list(eventId))
+      .filter((proposal) => proposalMatchesFilters(proposal, filters))
+      .map(({ id }) => id);
     const now = this.dependencies.now().toISOString();
     const round: ReviewRound = {
       eventId,
       sequence: Math.max(0, ...existing.map(({ sequence }) => sequence)) + 1,
       name: input.name,
+      instructions: input.instructions ?? "",
+      aiPersona: input.aiPersona ?? "",
       opensAt: input.opensAt ?? null,
       closesAt: input.closesAt ?? null,
       state: input.state ?? "draft",
       anonymized: input.anonymized ?? true,
       criteria: input.criteria ?? null,
+      filters,
+      includedProposalIds,
+      filterVersion: 1,
+      visibleFieldIds: [...new Set(input.visibleFieldIds ?? [])],
+      filesVisible: input.filesVisible ?? false,
+      maxEvaluationsPerProposal: input.maxEvaluationsPerProposal ?? 100,
+      weeklyReminderWeekday: input.weeklyReminderWeekday ?? null,
+      weeklyReminderHour: input.weeklyReminderHour ?? null,
+      reminderTimezone: input.reminderTimezone ?? null,
+      invitationOccurrence: 0,
       // A round an organizer creates is `named` unless they say otherwise, which is what makes
       // "a reviewer in round 1 is absent from round 2 until explicitly added" true by default.
       poolMode: input.poolMode ?? "named",
@@ -672,11 +752,20 @@ export class ReviewService implements AcceptedProposalQuery {
     sequence: number,
     input: {
       readonly name: string;
+      readonly instructions?: string | undefined;
+      readonly aiPersona?: string | undefined;
       readonly opensAt?: string | null | undefined;
       readonly closesAt?: string | null | undefined;
       readonly state: ReviewRoundState;
       readonly anonymized: boolean;
       readonly criteria?: EvaluationPlan["criteria"] | null | undefined;
+      readonly filters?: readonly ReviewRoundFilter[] | undefined;
+      readonly visibleFieldIds?: readonly string[] | undefined;
+      readonly filesVisible?: boolean | undefined;
+      readonly maxEvaluationsPerProposal?: number | undefined;
+      readonly weeklyReminderWeekday?: number | null | undefined;
+      readonly weeklyReminderHour?: number | null | undefined;
+      readonly reminderTimezone?: string | null | undefined;
       readonly poolMode: ReviewRoundPoolMode;
     },
   ): Promise<ReviewRound> {
@@ -689,6 +778,7 @@ export class ReviewService implements AcceptedProposalQuery {
     if (!existing) throw new ReviewNotFoundError("Review round not found");
     this.validateWindow(input.opensAt ?? null, input.closesAt ?? null);
     if (input.criteria) this.validateCriteria(input.criteria);
+    this.validateReminder(input);
     const inRound = (await this.dependencies.repository.listAssignments(eventId)).filter(
       (assignment) => (assignment.round ?? 1) === sequence,
     );
@@ -696,6 +786,11 @@ export class ReviewService implements AcceptedProposalQuery {
     // Zod, which rebuilds each criterion in schema order, so a client that reads a round and
     // writes it straight back would otherwise be refused for an edit it did not make.
     const rubricMoved = !sameCriteria(existing.criteria ?? null, input.criteria ?? null);
+    const nextFilters = input.filters ?? existing.filters;
+    if (JSON.stringify(nextFilters) !== JSON.stringify(existing.filters))
+      throw new ReviewValidationError({
+        filters: ["Use Recompute membership to change filters and create a new snapshot version."],
+      });
     if (inRound.length && rubricMoved)
       throw new ReviewValidationError({
         criteria: [
@@ -728,6 +823,8 @@ export class ReviewService implements AcceptedProposalQuery {
       eventId,
       sequence,
       name: input.name,
+      instructions: input.instructions ?? existing.instructions,
+      aiPersona: input.aiPersona ?? existing.aiPersona,
       opensAt: input.opensAt ?? null,
       closesAt: input.closesAt ?? null,
       state: input.state,
@@ -741,6 +838,17 @@ export class ReviewService implements AcceptedProposalQuery {
        * predicate that exists to catch a *changed* rubric and refuse a no-op edit.
        */
       criteria: rubricMoved ? (input.criteria ?? null) : existing.criteria,
+      filters: existing.filters,
+      includedProposalIds: existing.includedProposalIds,
+      filterVersion: existing.filterVersion,
+      visibleFieldIds: [...new Set(input.visibleFieldIds ?? existing.visibleFieldIds)],
+      filesVisible: input.filesVisible ?? existing.filesVisible,
+      maxEvaluationsPerProposal:
+        input.maxEvaluationsPerProposal ?? existing.maxEvaluationsPerProposal,
+      weeklyReminderWeekday: input.weeklyReminderWeekday ?? null,
+      weeklyReminderHour: input.weeklyReminderHour ?? null,
+      reminderTimezone: input.reminderTimezone ?? null,
+      invitationOccurrence: existing.invitationOccurrence,
       poolMode: input.poolMode,
       updatedAt: this.dependencies.now().toISOString(),
     };
@@ -766,6 +874,37 @@ export class ReviewService implements AcceptedProposalQuery {
       throw error;
     }
     return { ...round, reviewerIds: existing.reviewerIds, createdAt: existing.createdAt };
+  }
+
+  /** Explicitly replace a round's filter definition and proposal-membership snapshot. */
+  async recomputeRound(
+    actor: Actor | null,
+    eventId: string,
+    sequence: number,
+    filters: readonly ReviewRoundFilter[],
+  ): Promise<ReviewRound> {
+    this.organizer(actor, eventId);
+    const existing = await this.dependencies.repository.findRound(eventId, sequence);
+    if (!existing) throw new ReviewNotFoundError("Review round not found");
+    const assigned = (await this.dependencies.repository.listAssignments(eventId)).some(
+      (assignment) => assignment.round === sequence,
+    );
+    if (assigned)
+      throw new ReviewValidationError({
+        filters: ["This round already has assignments. Duplicate it to recompute membership."],
+      });
+    const includedProposalIds = (await this.dependencies.proposals.list(eventId))
+      .filter((proposal) => proposalMatchesFilters(proposal, filters))
+      .map(({ id }) => id);
+    const updated: Omit<ReviewRound, "reviewerIds" | "createdAt"> = {
+      ...existing,
+      filters,
+      includedProposalIds,
+      filterVersion: existing.filterVersion + 1,
+      updatedAt: this.dependencies.now().toISOString(),
+    };
+    await this.dependencies.repository.updateRound(updated);
+    return { ...updated, reviewerIds: existing.reviewerIds, createdAt: existing.createdAt };
   }
 
   /**
@@ -835,6 +974,28 @@ export class ReviewService implements AcceptedProposalQuery {
       throw new ReviewValidationError({ closesAt: ["The round must close after it opens"] });
   }
 
+  private validateReminder(input: {
+    weeklyReminderWeekday?: number | null | undefined;
+    weeklyReminderHour?: number | null | undefined;
+    reminderTimezone?: string | null | undefined;
+  }): void {
+    const configured = [
+      input.weeklyReminderWeekday,
+      input.weeklyReminderHour,
+      input.reminderTimezone,
+    ].filter((value) => value !== null && value !== undefined).length;
+    if (configured !== 0 && configured !== 3)
+      throw new ReviewValidationError({
+        weeklyReminder: ["Choose a weekday, hour and timezone together, or leave all three off."],
+      });
+    if (input.reminderTimezone)
+      try {
+        new Intl.DateTimeFormat("en", { timeZone: input.reminderTimezone }).format();
+      } catch {
+        throw new ReviewValidationError({ reminderTimezone: ["Choose a valid IANA timezone."] });
+      }
+  }
+
   /**
    * The rules `configurePlan` applies to the event rubric, applied to a round's own scorecard.
    *
@@ -860,17 +1021,29 @@ export class ReviewService implements AcceptedProposalQuery {
 
   async organizerWorkspace(actor: Actor | null, eventId: string, status?: ProposalStatus) {
     const authorized = this.organizer(actor, eventId);
-    const [proposals, plan, assignments, outcomes, audit, statuses, reviewers, decisions] =
-      await Promise.all([
-        this.dependencies.proposals.list(eventId, status),
-        this.dependencies.repository.getPlan(eventId),
-        this.dependencies.repository.listAssignments(eventId),
-        this.dependencies.repository.listOutcomes(eventId),
-        this.dependencies.proposals.listAudit(eventId),
-        this.storedStatuses(eventId),
-        this.reviewerLists(authorized, eventId),
-        this.dependencies.repository.listDecisions(eventId),
-      ]);
+    const [
+      proposals,
+      plan,
+      assignments,
+      outcomes,
+      audit,
+      statuses,
+      reviewers,
+      decisions,
+      decisionHistory,
+      aiReport,
+    ] = await Promise.all([
+      this.dependencies.proposals.list(eventId, status),
+      this.dependencies.repository.getPlan(eventId),
+      this.dependencies.repository.listAssignments(eventId),
+      this.dependencies.repository.listOutcomes(eventId),
+      this.dependencies.proposals.listAudit(eventId),
+      this.storedStatuses(eventId),
+      this.reviewerLists(authorized, eventId),
+      this.dependencies.repository.listDecisions(eventId),
+      this.dependencies.repository.listDecisionHistory(eventId),
+      this.dependencies.repository.suggestionReport(eventId),
+    ]);
     const evaluations = await this.dependencies.repository.listEvaluations(eventId);
     const rounds = await this.ensureDefaultRound(eventId);
     /*
@@ -944,6 +1117,8 @@ export class ReviewService implements AcceptedProposalQuery {
       reviewers: reviewers.assignable,
       reviewerDirectory: reviewers.directory,
       decisions,
+      decisionHistory,
+      aiReport,
       progress,
       roundProgress,
     };
@@ -1085,6 +1260,29 @@ export class ReviewService implements AcceptedProposalQuery {
     if (proposals.length !== uniqueProposalIds.length)
       throw new ReviewNotFoundError("Proposal not found");
     const existing = await this.dependencies.repository.listAssignments(eventId);
+    const outsideSnapshot = uniqueProposalIds.filter(
+      (proposalId) =>
+        target.includedProposalIds.length && !target.includedProposalIds.includes(proposalId),
+    );
+    if (outsideSnapshot.length)
+      throw new ReviewValidationError({
+        proposalIds: [
+          `${outsideSnapshot.length} selected proposal${outsideSnapshot.length === 1 ? " is" : "s are"} outside filter snapshot v${target.filterVersion}. Recompute the round before assigning.`,
+        ],
+      });
+    const capped = uniqueProposalIds.filter(
+      (proposalId) =>
+        existing.filter(
+          (assignment) =>
+            assignment.proposalId === proposalId && assignment.round === target.sequence,
+        ).length >= target.maxEvaluationsPerProposal,
+    );
+    if (capped.length)
+      throw new ReviewValidationError({
+        proposalIds: [
+          `${capped.length} selected proposal${capped.length === 1 ? " has" : "s have"} reached this round's evaluation cap.`,
+        ],
+      });
     const now = this.dependencies.now().toISOString();
     const assignments = uniqueProposalIds
       .filter(
@@ -1112,7 +1310,7 @@ export class ReviewService implements AcceptedProposalQuery {
       created = await this.dependencies.repository.createAssignments(assignments);
     } catch (error) {
       if (error instanceof ReviewStateConflictError)
-        throw new ReviewValidationError({ plan: [error.message] });
+        throw new ReviewValidationError({ proposalIds: [error.message] });
       throw error;
     }
     // Nothing new was assigned, so there is nothing to tell anybody. Without this an organizer
@@ -1146,6 +1344,29 @@ export class ReviewService implements AcceptedProposalQuery {
     const existing = await this.dependencies.repository.listAssignments(eventId);
     const targetRound = round ?? Math.max(1, ...existing.map((item) => item.round ?? 1));
     const openTarget = await this.openRound(eventId, targetRound, "round");
+    const outsideSnapshot = proposals.filter(
+      (proposalId) =>
+        openTarget.includedProposalIds.length &&
+        !openTarget.includedProposalIds.includes(proposalId),
+    );
+    if (outsideSnapshot.length)
+      throw new ReviewValidationError({
+        proposalIds: [
+          `${outsideSnapshot.length} selected proposal${outsideSnapshot.length === 1 ? " is" : "s are"} outside filter snapshot v${openTarget.filterVersion}. Recompute the round before distributing.`,
+        ],
+      });
+    const capped = proposals.filter(
+      (proposalId) =>
+        existing.filter(
+          (assignment) => assignment.proposalId === proposalId && assignment.round === targetRound,
+        ).length >= openTarget.maxEvaluationsPerProposal,
+    );
+    if (capped.length)
+      throw new ReviewValidationError({
+        proposalIds: [
+          `${capped.length} selected proposal${capped.length === 1 ? " has" : "s have"} reached this round's evaluation cap.`,
+        ],
+      });
     // Named before the loop, not discovered inside it. Distribution that dropped an inadmissible
     // reviewer silently would answer 201 having quietly given the work to somebody else, and the
     // organizer would learn about it by reading the Reviewers column.
@@ -1209,7 +1430,7 @@ export class ReviewService implements AcceptedProposalQuery {
       );
     } catch (error) {
       if (error instanceof ReviewStateConflictError)
-        throw new ReviewValidationError({ reviewerIds: [error.message] });
+        throw new ReviewValidationError({ proposalIds: [error.message] });
       throw error;
     }
     // One message per reviewer, not one per abstract: a distribution that hands somebody twelve
@@ -1306,6 +1527,18 @@ export class ReviewService implements AcceptedProposalQuery {
           eventId,
           sequence: round,
           name: `Round ${round}`,
+          instructions: previous?.instructions ?? "",
+          aiPersona: previous?.aiPersona ?? "",
+          filters: previous?.filters ?? [],
+          includedProposalIds: proposals.map(({ id }) => id),
+          filterVersion: 1,
+          visibleFieldIds: previous?.visibleFieldIds ?? [],
+          filesVisible: previous?.filesVisible ?? false,
+          maxEvaluationsPerProposal: previous?.maxEvaluationsPerProposal ?? 100,
+          weeklyReminderWeekday: previous?.weeklyReminderWeekday ?? null,
+          weeklyReminderHour: previous?.weeklyReminderHour ?? null,
+          reminderTimezone: previous?.reminderTimezone ?? null,
+          invitationOccurrence: 0,
           opensAt: null,
           closesAt: null,
           state: "open",
@@ -1438,6 +1671,124 @@ export class ReviewService implements AcceptedProposalQuery {
       });
     }
     return results;
+  }
+
+  /**
+   * Run the weekly reminder tick across configured open rounds.
+   *
+   * The occurrence is the scheduled local date (`YYYY-MM-DD`) rather than a UTC instant. During a
+   * DST replay both invocations therefore derive the same key; during the next week they do not.
+   * Nothing is sent for a closed/window-inactive round or a reviewer with no work remaining.
+   */
+  async runWeeklyReminders(at = this.dependencies.now()): Promise<
+    readonly {
+      eventId: string;
+      round: number;
+      reviewerId: string;
+      occurrence: string;
+      state: ReviewReminderResult;
+    }[]
+  > {
+    const notify =
+      this.dependencies.weeklyNotifications?.weeklyRemindOutstanding ??
+      this.dependencies.notifications?.weeklyRemindOutstanding;
+    if (!notify) return [];
+    const rounds = await this.dependencies.repository.listScheduledRounds();
+    const results = [];
+    const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    for (const round of rounds) {
+      if (roundClosedReason(round, at)) continue;
+      const parts = Object.fromEntries(
+        new Intl.DateTimeFormat("en-US", {
+          timeZone: round.reminderTimezone as string,
+          weekday: "short",
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          hourCycle: "h23",
+        })
+          .formatToParts(at)
+          .map(({ type, value }) => [type, value]),
+      );
+      if (
+        weekdays.indexOf(parts.weekday ?? "") !== round.weeklyReminderWeekday ||
+        Number(parts.hour) !== round.weeklyReminderHour
+      )
+        continue;
+      const occurrence = `${parts.year}-${parts.month}-${parts.day}`;
+      const [assignments, evaluations] = await Promise.all([
+        this.dependencies.repository.listAssignments(round.eventId),
+        this.dependencies.repository.listEvaluations(round.eventId),
+      ]);
+      const completed = new Set(
+        evaluations
+          .filter(({ state }) => state === "completed")
+          .map(({ assignmentId }) => assignmentId),
+      );
+      const byReviewer = new Map<string, number>();
+      for (const assignment of assignments)
+        if (assignment.round === round.sequence && !completed.has(assignment.id))
+          byReviewer.set(assignment.reviewerId, (byReviewer.get(assignment.reviewerId) ?? 0) + 1);
+      for (const [reviewerId, outstanding] of byReviewer) {
+        const state = await notify({
+          eventId: round.eventId,
+          reviewerId,
+          round: round.sequence,
+          roundName: round.name,
+          outstanding,
+          occurrence,
+        });
+        results.push({
+          eventId: round.eventId,
+          round: round.sequence,
+          reviewerId,
+          occurrence,
+          state,
+        });
+      }
+    }
+    return results;
+  }
+
+  /** Invite reviewers with work in a round, either once or as an explicit new occurrence. */
+  async inviteRoundReviewers(
+    actor: Actor | null,
+    eventId: string,
+    sequence: number,
+    mode: "new" | "all",
+  ): Promise<
+    readonly { reviewerId: string; assignmentCount: number; state: ReviewReminderResult }[]
+  > {
+    this.organizer(actor, eventId);
+    const round = await this.openRound(eventId, sequence, "round");
+    const notify = this.dependencies.notifications?.inviteReviewer;
+    if (!notify)
+      throw new ReviewConflictError("Reviewer invitations are not configured in this deployment");
+    const assignments = (await this.dependencies.repository.listAssignments(eventId)).filter(
+      (assignment) => assignment.round === sequence,
+    );
+    const counts = new Map<string, number>();
+    for (const assignment of assignments)
+      counts.set(assignment.reviewerId, (counts.get(assignment.reviewerId) ?? 0) + 1);
+    const occurrence =
+      mode === "all"
+        ? await this.dependencies.repository.claimRoundInvitationOccurrence(eventId, sequence)
+        : 0;
+    return Promise.all(
+      [...counts].map(async ([reviewerId, assignmentCount]) => ({
+        reviewerId,
+        assignmentCount,
+        state: await notify({
+          eventId,
+          reviewerId,
+          round: sequence,
+          roundName: round.name,
+          assignmentCount,
+          occurrence,
+        }),
+      })),
+    );
   }
 
   /**
@@ -1636,6 +1987,7 @@ export class ReviewService implements AcceptedProposalQuery {
       title: proposal.title,
       abstract: proposal.abstract,
       format: formatOf(proposal),
+      ...(proposal.track ? { track: proposal.track } : {}),
       submitter: proposal.submitter,
       decidedAt: decision.decidedAt,
     };
@@ -1694,8 +2046,14 @@ export class ReviewService implements AcceptedProposalQuery {
          * publish an author's name, and the failure of masking when we should not have is a
          * reviewer seeing less than they could.
          */
-        const projected =
+        const authored =
           round?.anonymized === false ? withOpenAuthorship(proposal) : blindProjection(proposal);
+        const projected = {
+          ...authored,
+          answers: round?.visibleFieldIds.length
+            ? authored.answers.filter(({ fieldId }) => round.visibleFieldIds.includes(fieldId))
+            : authored.answers,
+        };
         // Recomputed from what the reviewer is about to read, so a suggestion drafted against an
         // earlier version of the abstract can be shown as exactly that rather than presented as
         // current. The comparison is the surface's; supplying both halves is this method's.
@@ -1797,6 +2155,7 @@ export class ReviewService implements AcceptedProposalQuery {
         answers: masked.answers.map(({ label, value }) => ({ label, value })),
         criteria,
         round: assignment.round ?? 1,
+        persona: round?.aiPersona ?? "",
         timeoutMs: this.dependencies.suggestionTimeoutMs ?? SUGGESTION_TIMEOUT_MS,
       }),
       this.dependencies.suggestionTimeoutMs ?? SUGGESTION_TIMEOUT_MS,

@@ -16,6 +16,7 @@
     "apps/api/src/adapters/content/sanitize-resource-html.ts",
     "apps/api/src/adapters/content/parse-speaker-csv.ts",
     "apps/api/src/adapters/content/create-deliverables-zip.ts",
+    "apps/api/src/adapters/content/deterministic-content-remix.ts",
     "apps/api/migrations/0016_crm_speaker_conversion.sql",
     "apps/api/test/d1-speaker-conversion.integration.test.ts",
     "apps/api/src/adapters/persistence/d1-content-repository.ts",

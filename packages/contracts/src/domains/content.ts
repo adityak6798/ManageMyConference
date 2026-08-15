@@ -106,7 +106,7 @@ export const speakerProfileSchema = z.object({
   /** Optimistic version of the canonical profile, derived from its attributed revisions. */
   version: z.number().int().nonnegative(),
   photoAssetId: z.string().uuid().optional(),
-  workflowStatus: z.enum(["invited", "onboarding", "ready", "blocked"]).optional(),
+  workflowStatus: z.string().trim().min(1).max(60).optional(),
   logistics: z.record(z.string()).optional(),
   customFields: z.record(z.string()).optional(),
   socialLinks: z.record(z.string()).optional(),
@@ -206,6 +206,19 @@ export const contentWorkspaceSchema = z.object({
   revisions: z.array(contentRevisionSchema).optional(),
   /** Optional because the speaker-scoped projection carries no revisions to attribute. */
   actorDirectory: z.array(contentActorSchema).optional(),
+  workflowStatuses: z
+    .array(
+      z.object({
+        id: z.string(),
+        eventId: z.string().uuid(),
+        key: z.string().trim().min(1).max(60),
+        label: z.string().trim().min(1).max(80),
+        category: z.enum(["open", "ready", "blocked"]),
+        sortOrder: z.number().int(),
+        createdAt: z.string().datetime(),
+      }),
+    )
+    .optional(),
 });
 export type ContentWorkspaceDto = z.infer<typeof contentWorkspaceSchema>;
 /**
@@ -337,9 +350,71 @@ export const speakerCsvImportResultSchema = z.object({
   ),
 });
 export const updateSpeakerWorkflowInputSchema = z.object({
-  workflowStatus: z.enum(["invited", "onboarding", "ready", "blocked"]),
+  workflowStatus: z.string().trim().min(1).max(60),
   logistics: z.record(z.string().max(1000)),
   customFields: z.record(z.string().max(1000)),
+});
+export const configureContentWorkflowStatusesInputSchema = z.object({
+  statuses: z
+    .array(
+      z.object({
+        key: z
+          .string()
+          .trim()
+          .min(1)
+          .max(60)
+          .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
+        label: z.string().trim().min(1).max(80),
+        category: z.enum(["open", "ready", "blocked"]),
+      }),
+    )
+    .min(1)
+    .max(30),
+});
+export const setSpeakerCollaboratorsInputSchema = z.object({
+  collaborators: z
+    .array(z.object({ userId: z.string().trim().min(1), access: z.enum(["view", "edit"]) }))
+    .max(50),
+});
+export const speakerCollaboratorsResponseSchema = z.object({
+  collaborators: z.array(z.object({ userId: z.string(), access: z.enum(["view", "edit"]) })),
+});
+export const contentShareInputSchema = z.object({
+  lifetimeHours: z.number().int().min(1).max(720),
+  viewLimit: z.number().int().min(1).max(1000).optional(),
+  password: z.string().min(8).max(200).optional(),
+});
+export const contentShareSchema = z.object({
+  id: z.string().uuid(),
+  kind: z.enum(["speaker-profile", "speaker-asset"]),
+  resourceRef: z.string().uuid(),
+  organizationId: z.string().uuid(),
+  eventId: z.string().uuid(),
+  createdBy: z.string(),
+  createdAt: z.string().datetime(),
+  expiresAt: z.string().datetime(),
+  viewLimit: z.number().int().positive().nullable(),
+  views: z.number().int().nonnegative(),
+  revokedAt: z.string().datetime().nullable(),
+  hasPassword: z.boolean(),
+  scope: z.object({ privateSet: z.literal(true) }),
+});
+export const contentShareListResponseSchema = z.object({ shares: z.array(contentShareSchema) });
+export const contentShareParamsSchema = z.object({ shareId: z.string().uuid() });
+export const contentShareTokenParamsSchema = z.object({ token: z.string().min(20).max(200) });
+export const contentSharePasswordQuerySchema = z.object({
+  password: z.string().max(200).optional(),
+});
+export const contentRemixInputSchema = z.object({
+  instruction: z.string().trim().max(1000).default(""),
+});
+export const contentRemixResponseSchema = z.object({
+  draft: z.object({
+    state: z.literal("draft"),
+    field: z.enum(["bio", "abstract"]),
+    text: z.string(),
+    model: z.string(),
+  }),
 });
 export const addContentCommentInputSchema = z.object({
   assetId: z.string().uuid(),

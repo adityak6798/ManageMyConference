@@ -16,7 +16,7 @@
  * `lifecycle-demo.spec.ts`, which discovers destinations from the sidebar — that it passes the
  * accessibility audit.
  */
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 async function openMembers(page: import("@playwright/test").Page) {
   await page.goto("/");

@@ -73,7 +73,6 @@
 - `test` / `repository-fact`: [apps/web/test/crm-owner-assignment.test.tsx](../../apps/web/test/crm-owner-assignment.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/crm-pipeline-stage-editor.test.tsx](../../apps/web/test/crm-pipeline-stage-editor.test.tsx)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
-- `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 
 ### `ACC-DEMO-SMOKE`
@@ -130,6 +129,7 @@
 - `specification` / `normative`: [docs/exec-plans/completed.md](../../docs/exec-plans/completed.md)
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 - `test` / `repository-fact`: [tools/tests/assert-current-main.test.mjs](../../tools/tests/assert-current-main.test.mjs)
+- `test` / `repository-fact`: [tools/tests/browser-api-server.test.mjs](../../tools/tests/browser-api-server.test.mjs)
 - `test` / `repository-fact`: [tools/tests/check-errors.test.mjs](../../tools/tests/check-errors.test.mjs)
 - `test` / `repository-fact`: [tools/tests/check-evidence.test.mjs](../../tools/tests/check-evidence.test.mjs)
 - `test` / `repository-fact`: [tools/tests/check-gate-drift.test.mjs](../../tools/tests/check-gate-drift.test.mjs)
@@ -275,6 +275,7 @@
 - `test` / `repository-fact`: [apps/web/test/review-decisions.test.tsx](../../apps/web/test/review-decisions.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/review-rounds.test.tsx](../../apps/web/test/review-rounds.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/review-suggestions.test.tsx](../../apps/web/test/review-suggestions.test.tsx)
+- `test` / `repository-fact`: [apps/web/test/review-xlsx.test.ts](../../apps/web/test/review-xlsx.test.ts)
 - `specification` / `normative`: [docs/engineering/testing-strategy.md](../../docs/engineering/testing-strategy.md)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
@@ -308,7 +309,6 @@
 - `test` / `repository-fact`: [apps/web/test/speaker-photo.test.tsx](../../apps/web/test/speaker-photo.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/speaker-roster.test.tsx](../../apps/web/test/speaker-roster.test.tsx)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
-- `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 
 ### `ARC-001`
@@ -424,7 +424,6 @@
 ### `JNY-008`
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/product/personas-and-journeys.md](../../docs/product/personas-and-journeys.md)
-- `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 
 ### `JNY-009`
@@ -594,7 +593,6 @@
 - `code` / `repository-fact`: [apps/web/src/workspaces/crm.tsx](../../apps/web/src/workspaces/crm.tsx)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
-- `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `code` / `repository-fact`: [packages/contracts/src/domains/crm.ts](../../packages/contracts/src/domains/crm.ts)
 
 ### `PRD-EVT-001`
@@ -664,6 +662,7 @@
 - `code` / `repository-fact`: [apps/web/src/workspaces/identity.tsx](../../apps/web/src/workspaces/identity.tsx)
 - `specification` / `normative`: [docs/README.md](../../docs/README.md)
 - `specification` / `normative`: [docs/decisions/adr-004-google-oauth-provider.md](../../docs/decisions/adr-004-google-oauth-provider.md)
+- `specification` / `normative`: [docs/exec-plans/tech-debt.md](../../docs/exec-plans/tech-debt.md)
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
 - `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `code` / `repository-fact`: [tools/revoke-sessions.mjs](../../tools/revoke-sessions.mjs)
@@ -873,6 +872,7 @@
 - `code` / `repository-fact`: [apps/api/src/transport/http/routes/content.ts](../../apps/api/src/transport/http/routes/content.ts)
 - `code` / `repository-fact`: [apps/web/src/content/ContentWorkspace.tsx](../../apps/web/src/content/ContentWorkspace.tsx)
 - `code` / `repository-fact`: [apps/web/src/workspaces/content.tsx](../../apps/web/src/workspaces/content.tsx)
+- `specification` / `normative`: [docs/exec-plans/tech-debt.md](../../docs/exec-plans/tech-debt.md)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
 - `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)

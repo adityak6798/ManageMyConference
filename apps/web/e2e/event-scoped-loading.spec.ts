@@ -1,5 +1,5 @@
 // @acceptance ACC-AGENDA ACC-PUBLIC ACC-REVIEW ACC-SPEAKER
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "./fixtures";
 
 const DEMO_EVENT = "00000000-0000-4000-8000-000000000001";
 const WORKSHOP_EVENT = "00000000-0000-4000-8000-000000000002";

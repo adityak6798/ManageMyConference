@@ -16,6 +16,7 @@ import {
   type ContentRevision,
   type ContentSession,
   type ContentWorkspace,
+  type ContentWorkflowStatus,
   logicalAssetKey,
   type SpeakerAsset,
   type SpeakerProfile,
@@ -43,6 +44,33 @@ export class MemoryContentRepository
   // Not part of `ContentWorkspace`: a checklist line is event configuration, not somebody's
   // work, so it is read by `listTaskTemplates` and never lands in a speaker's projection.
   private taskTemplates: readonly SpeakerTaskTemplate[] = [];
+  private workflowStatuses: readonly ContentWorkflowStatus[] = [];
+  private collaborators = new Map<string, readonly { userId: string; access: "view" | "edit" }[]>();
+
+  async listProfileCollaborators(profileId: string) {
+    return this.collaborators.get(profileId) ?? [];
+  }
+  async replaceProfileCollaborators(
+    profileId: string,
+    collaborators: readonly { userId: string; access: "view" | "edit" }[],
+  ) {
+    this.collaborators.set(profileId, collaborators);
+  }
+  async isProfileCollaborator(profileId: string, userId: string, edit = false) {
+    return (this.collaborators.get(profileId) ?? []).some(
+      (item) => item.userId === userId && (!edit || item.access === "edit"),
+    );
+  }
+
+  async listWorkflowStatuses(eventId: string) {
+    return this.workflowStatuses.filter((status) => status.eventId === eventId);
+  }
+  async saveWorkflowStatuses(eventId: string, statuses: readonly ContentWorkflowStatus[]) {
+    this.workflowStatuses = [
+      ...this.workflowStatuses.filter((status) => status.eventId !== eventId),
+      ...statuses,
+    ];
+  }
 
   private profileVersion(profile: SpeakerProfile): SpeakerProfile {
     const version = Math.max(
@@ -156,7 +184,13 @@ export class MemoryContentRepository
   }
   async workspace(eventId: string, userId?: string): Promise<ContentWorkspace> {
     const speakers = this.speakers
-      .filter((item) => item.eventId === eventId && (!userId || item.userId === userId))
+      .filter(
+        (item) =>
+          item.eventId === eventId &&
+          (!userId ||
+            item.userId === userId ||
+            (this.collaborators.get(item.id) ?? []).some(({ userId: id }) => id === userId)),
+      )
       .map((profile) => this.profileVersion(profile));
     const profileIds = new Set(speakers.map(({ id }) => id));
     const sessions = this.sessions.filter(

@@ -1,6 +1,6 @@
 // @acceptance ACC-SPEAKER
 import { text } from "node:stream/consumers";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "./fixtures";
 
 // Both surfaces are event-scoped, so the journey addresses them the way the console
 // links to them: /sessions?event=<uuid> for organizers, /portal?event=<uuid> for speakers.
@@ -852,7 +852,11 @@ test("an organizer edits the canonical profile the speaker and public programme 
   await expect(editor.getByRole("status")).toContainText("headshot was selected");
 
   // The speaker sees both organizer writes in the same controls they use to edit them.
-  await page.getByRole("combobox", { name: "Signed-in role" }).selectOption("speaker");
+  const role = page.getByRole("combobox", { name: "Signed-in role" });
+  await role.selectOption("speaker");
+  // The controlled value changes only after the demo-session request and shell reload finish.
+  // Navigating sooner can race that request and let the stale organizer session win the portal load.
+  await expect(role).toHaveValue("speaker");
   await page.goto(PORTAL);
   const speakerProfile = page.getByRole("region", { name: "Your public profile" });
   await expect(speakerProfile.getByLabel("Bio")).toHaveValue(bio);

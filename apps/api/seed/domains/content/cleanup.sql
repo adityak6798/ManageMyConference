@@ -111,7 +111,26 @@ WHERE event_id IN (
     '00000000-0000-4000-8000-000000000020'
   )
 );
+DELETE FROM speaker_profile_collaborators
+WHERE profile_id IN (
+  SELECT id FROM speaker_profiles
+  WHERE event_id IN (
+    SELECT id FROM events
+    WHERE organization_id IN (
+      '00000000-0000-4000-8000-000000000010',
+      '00000000-0000-4000-8000-000000000020'
+    )
+  )
+);
 DELETE FROM speaker_profiles
+WHERE event_id IN (
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
+);
+DELETE FROM content_workflow_statuses
 WHERE event_id IN (
   SELECT id FROM events
   WHERE organization_id IN (

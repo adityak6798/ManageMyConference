@@ -2,7 +2,16 @@ export type PublicationState = "draft" | "ready" | "published";
 export type TaskStatus = "open" | "complete";
 export type AssetVisibility = "private" | "publishable";
 export type ResourceVisibility = "hidden" | "visible";
-export type SpeakerWorkflowStatus = "invited" | "onboarding" | "ready" | "blocked";
+export type SpeakerWorkflowStatus = string;
+export interface ContentWorkflowStatus {
+  readonly id: string;
+  readonly eventId: string;
+  readonly key: string;
+  readonly label: string;
+  readonly category: "open" | "ready" | "blocked";
+  readonly sortOrder: number;
+  readonly createdAt: string;
+}
 export type SpeakerTaskType = "general" | "file-request";
 
 /**
