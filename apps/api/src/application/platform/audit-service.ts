@@ -32,10 +32,8 @@ import { requireEventCapability } from "../identity/actor";
 /**
  * Who or what performed the action.
  *
- * `human` and `system` are the only two anything produces today — a request that resolved a
- * session, and a consequence with no request behind it. `api` and `agent` are declared because
- * the vocabulary is what other lanes will record against, and a reader must be able to tell a
- * person from a program; nothing in this repository writes either yet, and the surface says so.
+ * Human sessions, delegated API clients, and consequences with no request behind them produce
+ * `human`, `api`, and `system`. `agent` remains reserved for a future attributable agent caller.
  */
 export type AuditSource = "human" | "api" | "agent" | "system";
 
@@ -45,6 +43,8 @@ export interface AuditRecordInput {
   readonly action: string;
   readonly targetType: string;
   readonly targetId: string;
+  /** Canonical entity version when the target is revisioned. */
+  readonly targetVersion?: number;
   /** Derived from the fact, never from the attempt. Unique within the organization. */
   readonly idempotencyKey: string;
   /** Overrides the request's own actor. Used only where the writer knows better. */
@@ -67,6 +67,7 @@ export interface AuditRecord {
   readonly action: string;
   readonly targetType: string;
   readonly targetId: string;
+  readonly targetVersion?: number;
   readonly correlationId: string | null;
   readonly idempotencyKey: string;
 }
@@ -262,7 +263,7 @@ export class AuditRecorder {
     const attribution = input.actor ?? {
       id: actor?.id ?? null,
       name: actor?.name ?? "System",
-      source: (actor ? "human" : "system") satisfies AuditSource,
+      source: (actor ? (actor.requestSource ?? "human") : "system") satisfies AuditSource,
     };
     return {
       id: this.dependencies.newId(),
@@ -275,6 +276,7 @@ export class AuditRecorder {
       action: input.action,
       targetType: input.targetType,
       targetId: input.targetId,
+      ...(input.targetVersion !== undefined ? { targetVersion: input.targetVersion } : {}),
       correlationId: this.dependencies.identity.correlationId(),
       idempotencyKey: input.idempotencyKey,
     };

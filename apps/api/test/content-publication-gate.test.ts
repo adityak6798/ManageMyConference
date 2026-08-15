@@ -58,6 +58,7 @@ const profile = (id: string, userId: string, name: string): SpeakerProfile => ({
   email: `${name.toLowerCase()}@example.test`,
   bio: `${name} builds things`,
   pronouns: "they/them",
+  jobTitle: "Engineering Director",
   organization: "Greenroom Labs",
 });
 
@@ -171,6 +172,7 @@ describe("public projection gate", () => {
       name: "Sam",
       bio: "Sam builds things",
       pronouns: "they/them",
+      jobTitle: "Engineering Director",
       organization: "Greenroom Labs",
     });
   });

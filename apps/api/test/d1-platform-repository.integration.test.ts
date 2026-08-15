@@ -209,6 +209,7 @@ describe("the audit timeline in D1", () => {
     action: "review.reviewer_assigned",
     targetType: "review-round",
     targetId: "seed-reviewer:r1",
+    targetVersion: 7,
     correlationId: "corr-1",
     idempotencyKey: "audit:review.reviewer_assigned:seed-reviewer:r1",
     ...overrides,
@@ -235,6 +236,7 @@ describe("the audit timeline in D1", () => {
     const page = await store.page(EVENT, { limit: 10 });
     expect(page.items).toHaveLength(1);
     expect(page.items[0]?.action).toBe("review.reviewer_assigned");
+    expect(page.items[0]?.targetVersion).toBe(7);
     await harness.dispose();
   });
 

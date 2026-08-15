@@ -6472,8 +6472,15 @@
                           "pronouns": {
                             "type": "string"
                           },
+                          "jobTitle": {
+                            "type": "string"
+                          },
                           "organization": {
                             "type": "string"
+                          },
+                          "version": {
+                            "type": "integer",
+                            "minimum": 0
                           },
                           "photoAssetId": {
                             "type": "string",
@@ -6520,7 +6527,9 @@
                           "email",
                           "bio",
                           "pronouns",
-                          "organization"
+                          "jobTitle",
+                          "organization",
+                          "version"
                         ]
                       }
                     },
@@ -7814,8 +7823,15 @@
                           "pronouns": {
                             "type": "string"
                           },
+                          "jobTitle": {
+                            "type": "string"
+                          },
                           "organization": {
                             "type": "string"
+                          },
+                          "version": {
+                            "type": "integer",
+                            "minimum": 0
                           },
                           "photoAssetId": {
                             "type": "string",
@@ -7862,7 +7878,9 @@
                           "email",
                           "bio",
                           "pronouns",
-                          "organization"
+                          "jobTitle",
+                          "organization",
+                          "version"
                         ]
                       }
                     },
@@ -11394,6 +11412,18 @@
             "sessionCookie": []
           }
         ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
+            },
+            "required": false,
+            "name": "idempotency-key",
+            "in": "header"
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -11596,6 +11626,66 @@
             }
           },
           "403": {
+            "description": "Standard error envelope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "object",
+                      "properties": {
+                        "code": {
+                          "type": "string",
+                          "enum": [
+                            "UNAUTHORIZED",
+                            "FORBIDDEN",
+                            "VALIDATION_FAILED",
+                            "NOT_FOUND",
+                            "CONFLICT",
+                            "AGENDA_CONFLICT",
+                            "RATE_LIMITED",
+                            "UPSTREAM_UNAVAILABLE",
+                            "WEBHOOK_UNAVAILABLE",
+                            "INTERNAL_ERROR"
+                          ]
+                        },
+                        "message": {
+                          "type": "string"
+                        },
+                        "correlationId": {
+                          "type": "string"
+                        },
+                        "fieldErrors": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "correlationId"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ]
+                }
+              }
+            },
+            "headers": {
+              "Greenroom-API-Version": {
+                "$ref": "#/components/headers/GreenroomApiVersion"
+              }
+            }
+          },
+          "409": {
             "description": "Standard error envelope",
             "content": {
               "application/json": {
@@ -17022,6 +17112,10 @@
                           },
                           "targetId": {
                             "type": "string"
+                          },
+                          "targetVersion": {
+                            "type": "integer",
+                            "minimum": 0
                           },
                           "correlationId": {
                             "type": "string",
@@ -22546,8 +22640,15 @@
                           "pronouns": {
                             "type": "string"
                           },
+                          "jobTitle": {
+                            "type": "string"
+                          },
                           "organization": {
                             "type": "string"
+                          },
+                          "version": {
+                            "type": "integer",
+                            "minimum": 0
                           },
                           "photoAssetId": {
                             "type": "string",
@@ -22594,7 +22695,9 @@
                           "email",
                           "bio",
                           "pronouns",
-                          "organization"
+                          "jobTitle",
+                          "organization",
+                          "version"
                         ]
                       }
                     },
@@ -23355,8 +23458,15 @@
                           "pronouns": {
                             "type": "string"
                           },
+                          "jobTitle": {
+                            "type": "string"
+                          },
                           "organization": {
                             "type": "string"
+                          },
+                          "version": {
+                            "type": "integer",
+                            "minimum": 0
                           },
                           "photoAssetId": {
                             "type": "string",
@@ -23403,7 +23513,9 @@
                           "email",
                           "bio",
                           "pronouns",
-                          "organization"
+                          "jobTitle",
+                          "organization",
+                          "version"
                         ]
                       }
                     },
@@ -26929,8 +27041,15 @@
                                       "pronouns": {
                                         "type": "string"
                                       },
+                                      "jobTitle": {
+                                        "type": "string"
+                                      },
                                       "organization": {
                                         "type": "string"
+                                      },
+                                      "version": {
+                                        "type": "integer",
+                                        "minimum": 0
                                       },
                                       "photoAssetId": {
                                         "type": "string",
@@ -26977,7 +27096,9 @@
                                       "email",
                                       "bio",
                                       "pronouns",
-                                      "organization"
+                                      "jobTitle",
+                                      "organization",
+                                      "version"
                                     ]
                                   }
                                 },
@@ -28539,6 +28660,9 @@
                                           "bio": {
                                             "type": "string"
                                           },
+                                          "jobTitle": {
+                                            "type": "string"
+                                          },
                                           "organization": {
                                             "type": "string"
                                           },
@@ -28709,6 +28833,9 @@
                                             "type": "string"
                                           },
                                           "bio": {
+                                            "type": "string"
+                                          },
+                                          "jobTitle": {
                                             "type": "string"
                                           },
                                           "organization": {
@@ -44409,8 +44536,15 @@
                           "pronouns": {
                             "type": "string"
                           },
+                          "jobTitle": {
+                            "type": "string"
+                          },
                           "organization": {
                             "type": "string"
+                          },
+                          "version": {
+                            "type": "integer",
+                            "minimum": 0
                           },
                           "photoAssetId": {
                             "type": "string",
@@ -44457,7 +44591,9 @@
                           "email",
                           "bio",
                           "pronouns",
-                          "organization"
+                          "jobTitle",
+                          "organization",
+                          "version"
                         ]
                       }
                     },
@@ -63916,6 +64052,9 @@
                               "bio": {
                                 "type": "string"
                               },
+                              "jobTitle": {
+                                "type": "string"
+                              },
                               "organization": {
                                 "type": "string"
                               },
@@ -65346,6 +65485,9 @@
                                   "bio": {
                                     "type": "string"
                                   },
+                                  "jobTitle": {
+                                    "type": "string"
+                                  },
                                   "organization": {
                                     "type": "string"
                                   },
@@ -65516,6 +65658,9 @@
                                     "type": "string"
                                   },
                                   "bio": {
+                                    "type": "string"
+                                  },
+                                  "jobTitle": {
                                     "type": "string"
                                   },
                                   "organization": {
@@ -66120,6 +66265,9 @@
                                   "bio": {
                                     "type": "string"
                                   },
+                                  "jobTitle": {
+                                    "type": "string"
+                                  },
                                   "organization": {
                                     "type": "string"
                                   },
@@ -66290,6 +66438,9 @@
                                     "type": "string"
                                   },
                                   "bio": {
+                                    "type": "string"
+                                  },
+                                  "jobTitle": {
                                     "type": "string"
                                   },
                                   "organization": {
@@ -66947,6 +67098,9 @@
                                   "bio": {
                                     "type": "string"
                                   },
+                                  "jobTitle": {
+                                    "type": "string"
+                                  },
                                   "organization": {
                                     "type": "string"
                                   },
@@ -67117,6 +67271,9 @@
                                     "type": "string"
                                   },
                                   "bio": {
+                                    "type": "string"
+                                  },
+                                  "jobTitle": {
                                     "type": "string"
                                   },
                                   "organization": {
@@ -67781,6 +67938,9 @@
                                   "bio": {
                                     "type": "string"
                                   },
+                                  "jobTitle": {
+                                    "type": "string"
+                                  },
                                   "organization": {
                                     "type": "string"
                                   },
@@ -67951,6 +68111,9 @@
                                     "type": "string"
                                   },
                                   "bio": {
+                                    "type": "string"
+                                  },
+                                  "jobTitle": {
                                     "type": "string"
                                   },
                                   "organization": {
@@ -71417,6 +71580,10 @@
               "schema": {
                 "type": "object",
                 "properties": {
+                  "expectedVersion": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
                   "name": {
                     "type": "string",
                     "minLength": 1,
@@ -71429,6 +71596,10 @@
                   "pronouns": {
                     "type": "string",
                     "maxLength": 50
+                  },
+                  "jobTitle": {
+                    "type": "string",
+                    "maxLength": 120
                   },
                   "organization": {
                     "type": "string",
@@ -71516,8 +71687,15 @@
                         "pronouns": {
                           "type": "string"
                         },
+                        "jobTitle": {
+                          "type": "string"
+                        },
                         "organization": {
                           "type": "string"
+                        },
+                        "version": {
+                          "type": "integer",
+                          "minimum": 0
                         },
                         "photoAssetId": {
                           "type": "string",
@@ -71564,7 +71742,9 @@
                         "email",
                         "bio",
                         "pronouns",
-                        "organization"
+                        "jobTitle",
+                        "organization",
+                        "version"
                       ]
                     }
                   },
@@ -71915,6 +72095,10 @@
                   "assetId": {
                     "type": "string",
                     "format": "uuid"
+                  },
+                  "expectedVersion": {
+                    "type": "integer",
+                    "minimum": 0
                   }
                 },
                 "required": [
@@ -71962,8 +72146,15 @@
                         "pronouns": {
                           "type": "string"
                         },
+                        "jobTitle": {
+                          "type": "string"
+                        },
                         "organization": {
                           "type": "string"
+                        },
+                        "version": {
+                          "type": "integer",
+                          "minimum": 0
                         },
                         "photoAssetId": {
                           "type": "string",
@@ -72010,7 +72201,9 @@
                         "email",
                         "bio",
                         "pronouns",
-                        "organization"
+                        "jobTitle",
+                        "organization",
+                        "version"
                       ]
                     }
                   },
@@ -72327,8 +72520,15 @@
                         "pronouns": {
                           "type": "string"
                         },
+                        "jobTitle": {
+                          "type": "string"
+                        },
                         "organization": {
                           "type": "string"
+                        },
+                        "version": {
+                          "type": "integer",
+                          "minimum": 0
                         },
                         "photoAssetId": {
                           "type": "string",
@@ -72375,7 +72575,9 @@
                         "email",
                         "bio",
                         "pronouns",
-                        "organization"
+                        "jobTitle",
+                        "organization",
+                        "version"
                       ]
                     }
                   },
@@ -72733,8 +72935,15 @@
                         "pronouns": {
                           "type": "string"
                         },
+                        "jobTitle": {
+                          "type": "string"
+                        },
                         "organization": {
                           "type": "string"
+                        },
+                        "version": {
+                          "type": "integer",
+                          "minimum": 0
                         },
                         "photoAssetId": {
                           "type": "string",
@@ -72781,7 +72990,9 @@
                         "email",
                         "bio",
                         "pronouns",
-                        "organization"
+                        "jobTitle",
+                        "organization",
+                        "version"
                       ]
                     }
                   },

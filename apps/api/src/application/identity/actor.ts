@@ -33,6 +33,8 @@ export interface Actor {
   readonly organizations: readonly { id: string }[];
   readonly eventAccess: readonly EventAccess[];
   readonly capabilities: ReadonlySet<Capability>;
+  /** How this request authenticated. Human sessions omit it; delegated clients identify API work. */
+  readonly requestSource?: "human" | "api";
   /** Explicit organization-level grants for delegated machine identities. Humans omit this. */
   readonly organizationAccess?: readonly {
     id: string;

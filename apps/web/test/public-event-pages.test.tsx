@@ -115,6 +115,7 @@ const projection = {
       slug: "ana-ruiz",
       name: "Ana Ruiz",
       bio: "Ana runs a volunteer-led community conference.",
+      jobTitle: "Community Director",
       organization: "Harbor Collective",
     },
   ],
@@ -216,11 +217,13 @@ describe("public speaker gallery", () => {
 
     expect(container.querySelectorAll("h1")).toHaveLength(1);
     expect(container.querySelectorAll(".pub-profile .pub-avatar")).toHaveLength(1);
-    // The projection publishes the speaker profile's `organization`, so the line is
-    // labelled as an affiliation instead of being announced as a job title.
+    // The canonical professional metadata is one public headline, not a custom-field copy.
     const headline = container.querySelector(".pub-speaker-headline");
-    expect(headline?.textContent).toBe("Affiliation: Harbor Collective");
-    expect(headline?.querySelector(".pub-sr")?.textContent).toBe("Affiliation: ");
+    expect(headline?.textContent).toBe(
+      "Professional headline: Community Director at Harbor Collective",
+    );
+    expect(headline?.querySelector(".pub-sr")?.textContent).toBe("Professional headline: ");
+    expect(screen.getByText("Ana runs a volunteer-led community conference.")).toBeVisible();
 
     const sessions = within(screen.getByRole("region", { name: "Sessions" }));
     expect(sessions.getByRole("link", { name: "The hallway track, on purpose" })).toBeVisible();

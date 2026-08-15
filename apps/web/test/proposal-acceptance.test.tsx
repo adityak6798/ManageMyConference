@@ -107,7 +107,9 @@ const speaker = {
   email: "alex.morgan@example.test",
   bio: "",
   pronouns: "",
+  jobTitle: "",
   organization: "Greenroom Labs",
+  version: 0,
 };
 
 function jsonResponse(body: unknown, status = 200) {

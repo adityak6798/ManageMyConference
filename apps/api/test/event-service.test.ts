@@ -1,7 +1,10 @@
 // @acceptance ACC-HARNESS
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { MemoryEventRepository } from "../src/adapters/persistence/memory-event-repository";
-import { EventService } from "../src/application/events/event-service";
+import {
+  EventIdempotencyConflictError,
+  EventService,
+} from "../src/application/events/event-service";
 import { type Actor, CapabilityDeniedError } from "../src/application/identity/actor";
 
 const organizer = {
@@ -23,6 +26,7 @@ describe("EventService", () => {
     });
     const created = await service.create(organizer, {
       organizationId: organizer.organizations[0]?.id ?? "",
+      idempotencyKey: "00000000-0000-4000-8000-000000000024",
       name: "Before",
       timezone: "UTC",
     });
@@ -62,6 +66,7 @@ describe("EventService", () => {
 
     await service.create(organizer, {
       organizationId: "00000000-0000-4000-8000-000000000010",
+      idempotencyKey: "00000000-0000-4000-8000-000000000063",
       name: "Greenroom Summit",
       timezone: "America/Los_Angeles",
     });
@@ -80,6 +85,57 @@ describe("EventService", () => {
         createdAt: "2026-08-09T12:00:00.000Z",
       },
     ]);
+  });
+
+  it("keeps legacy unkeyed event creation available", async () => {
+    const repository = new MemoryEventRepository();
+    const service = new EventService({
+      repository,
+      newId: () => crypto.randomUUID(),
+      now: () => new Date("2026-08-09T12:00:00.000Z"),
+    });
+
+    await service.create(organizer, {
+      organizationId: organizer.organizations[0]?.id ?? "",
+      name: "Legacy create",
+      timezone: "UTC",
+    });
+    await expect(service.list(organizer)).resolves.toHaveLength(1);
+  });
+
+  it("adopts a retried deliberate create and gives a new intent a new event", async () => {
+    const repository = new MemoryEventRepository();
+    let id = 0;
+    const service = new EventService({
+      repository,
+      newId: () => `123e4567-e89b-42d3-a456-${String(++id).padStart(12, "0")}`,
+      now: () => new Date("2026-08-09T12:00:00.000Z"),
+    });
+    const command = {
+      organizationId: "00000000-0000-4000-8000-000000000010",
+      idempotencyKey: "00000000-0000-4000-8000-000000000070",
+      name: "Additional Summit",
+      timezone: "UTC",
+    };
+
+    const first = await service.create(organizer, command);
+    const replay = await service.create(organizer, command);
+    expect(replay.id).toBe(first.id);
+    await expect(service.list(organizer)).resolves.toHaveLength(1);
+    expect(repository.organizerGrants).toHaveLength(1);
+
+    await repository.update(first.id, "Renamed after creation", "America/New_York");
+    await expect(service.create(organizer, command)).resolves.toEqual(first);
+    await expect(
+      service.create(organizer, { ...command, name: "Different input under the same key" }),
+    ).rejects.toBeInstanceOf(EventIdempotencyConflictError);
+
+    const second = await service.create(organizer, {
+      ...command,
+      idempotencyKey: "00000000-0000-4000-8000-000000000071",
+    });
+    expect(second.id).not.toBe(first.id);
+    await expect(service.list(organizer)).resolves.toHaveLength(2);
   });
 
   it("enforces capabilities inside the application layer", async () => {
@@ -108,6 +164,7 @@ describe("EventService", () => {
     });
     await service.create(organizer, {
       organizationId: "00000000-0000-4000-8000-000000000010",
+      idempotencyKey: "00000000-0000-4000-8000-000000000109",
       name: "Temporary",
       timezone: "UTC",
     });
@@ -163,6 +220,7 @@ describe("EventService", () => {
     });
     await service.create(organizer, {
       organizationId: "00000000-0000-4000-8000-000000000010",
+      idempotencyKey: "00000000-0000-4000-8000-000000000164",
       name: "Visible",
       timezone: "UTC",
     });
@@ -226,6 +284,7 @@ describe("EventService", () => {
     await expect(
       service.create(organizer, {
         organizationId: "00000000-0000-4000-8000-000000000099",
+        idempotencyKey: "00000000-0000-4000-8000-000000000227",
         name: "Leaked",
         timezone: "UTC",
       }),

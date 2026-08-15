@@ -1,4 +1,9 @@
-import { type EventDto, resolveTimezone, type SessionDto } from "@greenroom/contracts";
+import {
+  type EventDto,
+  type EventTemplateDto,
+  resolveTimezone,
+  type SessionDto,
+} from "@greenroom/contracts";
 import {
   type FormEvent,
   Fragment,
@@ -13,6 +18,12 @@ import { AcceptInvitationPage } from "./AcceptInvitationPage";
 import { AppShell, type NavGroup, type Persona } from "./AppShell";
 import { ApiError, createEvent, listAssignedEvents, updateEvent } from "./api/events";
 import {
+  applyEventTemplate,
+  EventTemplateApiError,
+  getEventTemplate,
+  listEventTemplates,
+} from "./api/event-templates";
+import {
   getAuthConfig,
   getSession,
   IdentityApiError,
@@ -22,6 +33,7 @@ import {
   startDemoSession,
   verifyLoginCode,
 } from "./api/identity";
+import { PublicationApiError, updatePublicationSettings } from "./api/publication";
 import { CommandPalette } from "./CommandPalette";
 import { TimezoneField } from "./events/TimezoneField";
 import { InstanceMarker } from "./InstanceMarker";
@@ -55,15 +67,24 @@ const personas: Persona[] = ["organizer", "reviewer", "speaker", "public"];
  * costs one line here instead of a silently generic message.
  */
 function envelopeOf(error: unknown) {
-  if (error instanceof ApiError || error instanceof IdentityApiError) return error.envelope;
+  if (
+    error instanceof ApiError ||
+    error instanceof IdentityApiError ||
+    error instanceof PublicationApiError ||
+    error instanceof EventTemplateApiError
+  )
+    return error.envelope;
   return null;
 }
 
 function readableError(error: unknown): string {
   const envelope = envelopeOf(error);
   if (envelope) return `${envelope.error.message} Reference: ${envelope.error.correlationId}`;
+  if (error instanceof EventCreationConfigurationError) return error.message;
   return "Something went wrong. Please retry; if it continues, contact support.";
 }
+
+class EventCreationConfigurationError extends Error {}
 
 interface NavEntry {
   href: string;
@@ -159,6 +180,15 @@ export function App({
   const [events, setEvents] = useState<EventDto[]>([]);
   const [selectedEventId, setSelectedEventId] = useState("");
   const [createName, setCreateName] = useState("");
+  const [createOrganizationId, setCreateOrganizationId] = useState("");
+  const [createSlug, setCreateSlug] = useState("");
+  const [createStartsOn, setCreateStartsOn] = useState("");
+  const [createEndsOn, setCreateEndsOn] = useState("");
+  const [createMode, setCreateMode] = useState<"empty" | "template">("empty");
+  const [createTemplateId, setCreateTemplateId] = useState("");
+  const [createTemplates, setCreateTemplates] = useState<EventTemplateDto[]>([]);
+  /** Retained after a failed response so retrying one intent adopts the event already written. */
+  const createIdempotencyKey = useRef(crypto.randomUUID());
   /*
    * The new event's timezone, asked for rather than assumed.
    *
@@ -252,6 +282,26 @@ export function App({
     setSettingsName(selectedEvent?.name ?? "");
     setSettingsTimezone(selectedEvent?.timezone ?? "");
   }, [selectedEvent]);
+
+  useEffect(() => {
+    if (!session?.organizations.length) return;
+    setCreateOrganizationId((current) => current || session.organizations[0]?.id || "");
+  }, [session]);
+
+  useEffect(() => {
+    if (createMode !== "template" || !createOrganizationId) return;
+    // ERROR-INTENT: the effect cannot return a promise; the chain terminates by rendering any
+    // template-list failure through the shell error state below.
+    void listEventTemplates(createOrganizationId)
+      .then((templates) => {
+        const active = templates.filter(({ state }) => state === "active");
+        setCreateTemplates(active);
+        setCreateTemplateId((current) =>
+          active.some(({ id }) => id === current) ? current : (active[0]?.id ?? ""),
+        );
+      })
+      .catch((reason: unknown) => setError(readableError(reason)));
+  }, [createMode, createOrganizationId]);
 
   /**
    * Is there something to sign out *of*?
@@ -436,16 +486,48 @@ export function App({
 
   async function submit(formEvent: FormEvent) {
     formEvent.preventDefault();
-    const organizationId = session?.organizations[0]?.id;
+    const organizationId = createOrganizationId;
     if (!organizationId) return;
     setBusy(true);
     setError(null);
     try {
-      const created = await createEvent({
-        organizationId,
-        name: createName,
-        timezone: createTimezone,
-      });
+      const created = await createEvent(
+        {
+          organizationId,
+          name: createName,
+          timezone: createTimezone,
+        },
+        createIdempotencyKey.current,
+      );
+      let configurationFailure: unknown;
+      try {
+        await updatePublicationSettings(created.id, {
+          slug: createSlug,
+          startsOn: createStartsOn,
+          endsOn: createEndsOn,
+        });
+        if (createMode === "template") {
+          const detail = await getEventTemplate(createTemplateId);
+          const version = detail.versions[0];
+          if (!version)
+            throw new EventCreationConfigurationError(
+              "The selected template has no captured version. Choose another template or create an empty event.",
+            );
+          const application = await applyEventTemplate(created.id, {
+            templateId: detail.template.id,
+            version: version.version,
+            destination: { startsOn: createStartsOn, endsOn: createEndsOn },
+          });
+          if (application.outcome !== "applied")
+            throw new EventCreationConfigurationError(
+              `The event was created, but its template application was ${application.outcome}. Open Templates to repair the reported categories.`,
+            );
+        }
+      } catch (reason) {
+        // ERROR-INTENT: retain this failure only until the newly created event is refreshed and
+        // selected; it is rethrown into the outer UI error boundary immediately afterward.
+        configurationFailure = reason;
+      }
       const [refreshedSession, refreshedEvents] = await Promise.all([
         getSession(),
         listAssignedEvents(),
@@ -456,7 +538,14 @@ export function App({
       // carrying the previous event silently undoes the switch on the next reload or when
       // the link is shared. There is one way to select an event, and this is it.
       selectEvent(created.id);
+      if (configurationFailure) throw configurationFailure;
       setCreateName("");
+      setCreateSlug("");
+      setCreateStartsOn("");
+      setCreateEndsOn("");
+      setCreateMode("empty");
+      setCreateTemplateId("");
+      createIdempotencyKey.current = crypto.randomUUID();
     } catch (reason: unknown) {
       setError(readableError(reason));
     } finally {
@@ -716,8 +805,27 @@ export function App({
             </Card>
           ) : null}
           {session?.capabilities.includes("events:create") ? (
-            <Card title="Create an event" labelledBy="create-title">
+            <Card title="Create another event" labelledBy="create-title">
               <form onSubmit={submit}>
+                <p className="hint" id="create-event">
+                  Start empty, or explicitly apply one reusable template. Existing proposals,
+                  reviews, speakers, files, agenda, and publication state are never copied.
+                </p>
+                <div className="field">
+                  <label htmlFor="event-organization">Organization</label>
+                  <select
+                    id="event-organization"
+                    value={createOrganizationId}
+                    onChange={(event) => setCreateOrganizationId(event.target.value)}
+                    required
+                  >
+                    {session.organizations.map((organization) => (
+                      <option key={organization.id} value={organization.id}>
+                        {organization.id}
+                      </option>
+                    ))}
+                  </select>
+                </div>
                 <div className="field">
                   <label htmlFor="event-name">Event name</label>
                   <input
@@ -738,6 +846,94 @@ export function App({
                   label="New event timezone"
                   hint="Defaults to this browser's zone. Change it before creating if the event runs elsewhere."
                 />
+                <div className="field">
+                  <label htmlFor="event-slug">Public address</label>
+                  <div className="input-prefix">
+                    <span aria-hidden="true">/events/</span>
+                    <input
+                      id="event-slug"
+                      value={createSlug}
+                      onChange={(event) => setCreateSlug(event.target.value)}
+                      placeholder="greenroom-summit"
+                      pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
+                      required
+                    />
+                  </div>
+                  <p className="hint">
+                    Lowercase letters, numbers, and hyphens. A conflicting address is refused so you
+                    can choose another.
+                  </p>
+                </div>
+                <div className="field-grid two">
+                  <div className="field">
+                    <label htmlFor="event-starts-on">Starts</label>
+                    <input
+                      id="event-starts-on"
+                      type="date"
+                      value={createStartsOn}
+                      onChange={(event) => setCreateStartsOn(event.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="event-ends-on">Ends</label>
+                    <input
+                      id="event-ends-on"
+                      type="date"
+                      min={createStartsOn}
+                      value={createEndsOn}
+                      onChange={(event) => setCreateEndsOn(event.target.value)}
+                      required
+                    />
+                  </div>
+                </div>
+                <fieldset className="field">
+                  <legend>Starting configuration</legend>
+                  <label className="choice-row">
+                    <input
+                      type="radio"
+                      name="create-mode"
+                      value="empty"
+                      checked={createMode === "empty"}
+                      onChange={() => setCreateMode("empty")}
+                    />
+                    Empty event
+                  </label>
+                  <label className="choice-row">
+                    <input
+                      type="radio"
+                      name="create-mode"
+                      value="template"
+                      checked={createMode === "template"}
+                      onChange={() => setCreateMode("template")}
+                    />
+                    Apply a selected template
+                  </label>
+                </fieldset>
+                {createMode === "template" ? (
+                  <div className="field">
+                    <label htmlFor="event-template">Template</label>
+                    <select
+                      id="event-template"
+                      value={createTemplateId}
+                      onChange={(event) => setCreateTemplateId(event.target.value)}
+                      required
+                    >
+                      {createTemplates.length ? null : (
+                        <option value="">No active templates available</option>
+                      )}
+                      {createTemplates.map((template) => (
+                        <option key={template.id} value={template.id}>
+                          {template.name}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="hint">
+                      The newest captured version is applied through the existing template path; any
+                      partial category is reported and remains repairable.
+                    </p>
+                  </div>
+                ) : null}
                 <button type="submit" disabled={busy}>
                   {busy ? "Creating…" : "Create event"}
                 </button>
@@ -771,6 +967,9 @@ export function App({
       events={events}
       selectedEventId={selectedEventId}
       onSelectEvent={selectEvent}
+      {...(session.capabilities.includes("events:create")
+        ? { createEventHref: `/settings${query}#create-event` }
+        : {})}
       onSwitchPersona={(persona) => {
         // ERROR-INTENT: handlers cannot await; switchPersona renders failures.
         void switchPersona(persona);

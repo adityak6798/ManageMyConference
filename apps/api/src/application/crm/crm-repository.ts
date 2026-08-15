@@ -24,6 +24,17 @@ export interface StageMigration {
 }
 
 /**
+ * What a deliberate card move asks the store to do.
+ *
+ * Deliberately no `fromStage`, transition id, or finished activity: only the write can know
+ * which stage the row actually leaves after another organizer's concurrent move. The adapter
+ * derives both histories from that committed row and mints their ids in the same operation.
+ */
+export interface ProspectMove extends StageMigration {
+  readonly toStage: string;
+}
+
+/**
  * One store for the domain, not two.
  *
  * Sourcing a directory contact into an event writes a prospect, its contact row and the
@@ -50,8 +61,8 @@ export interface CrmRepository extends CrmDirectoryRepository {
     prospect: Prospect,
     activities?: readonly ProspectActivity[],
     contact?: ProspectContact,
-    transition?: ProspectTransition,
-  ): Promise<void>;
+    move?: ProspectMove,
+  ): Promise<Prospect>;
   recordConversion(
     eventId: string,
     prospectId: string,
@@ -83,8 +94,6 @@ export interface CrmRepository extends CrmDirectoryRepository {
    * order half-applied if the second failed.
    */
   saveStages(eventId: string, stages: readonly PipelineStage[]): Promise<void>;
-  /** How many prospects sit in each stage key, so a delete knows what it would strand. */
-  countByStage(eventId: string): Promise<ReadonlyMap<string, number>>;
   /**
    * Move every prospect in one stage to another and delete the stage, in one batch.
    *

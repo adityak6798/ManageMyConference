@@ -29,7 +29,7 @@ import { resolveSeededDemoActor } from "../src/application/identity/demo-session
 import { ProposalNotFoundError } from "../src/application/review/public";
 import { ReviewService } from "../src/application/review/review-service";
 import type { SpeakerProfile } from "../src/domain/content/content";
-import { createMigratedDatabase } from "./support/seeded-d1";
+import { applyMigrations, createMigratedDatabase } from "./support/seeded-d1";
 
 const _statements = (sql: string) =>
   sql
@@ -230,10 +230,10 @@ describe("D1ContentRepository", () => {
 
     // The headshot link, against real D1: `photo_asset_id` round-trips through the same
     // `UPDATE speaker_profiles` the profile edit uses, only an image is accepted, and the
-    // asset visibility is left exactly where the organizer put it.
+    // a newly chosen asset keeps its visibility; retiring that choice makes it private.
     const photoService = makeService("8");
     await expect(
-      photoService.setProfilePhoto(organizer, managedProfile.id, privateAsset.id),
+      photoService.setProfilePhoto(organizer, managedProfile.id, privateAsset.id, 0),
     ).resolves.toMatchObject({ photoAssetId: privateAsset.id });
     await expect(repository.findProfile(managedProfile.id)).resolves.toMatchObject({
       photoAssetId: privateAsset.id,
@@ -262,10 +262,54 @@ describe("D1ContentRepository", () => {
     await repository.deleteAsset(slidesV2.id);
     await expect(repository.findAsset(slides.id)).resolves.toMatchObject({ isLatest: true });
     await expect(
-      photoService.setProfilePhoto(organizer, managedProfile.id, slides.id),
+      photoService.setProfilePhoto(organizer, managedProfile.id, slides.id, 1),
     ).rejects.toBeInstanceOf(SpeakerPhotoInvalidError);
-    await photoService.clearProfilePhoto(organizer, managedProfile.id);
+    await photoService.clearProfilePhoto(organizer, managedProfile.id, 1);
     expect(await repository.findProfile(managedProfile.id)).not.toHaveProperty("photoAssetId");
+    await expect(repository.findAsset(privateAsset.id)).resolves.toMatchObject({
+      visibility: "private",
+    });
+  });
+});
+
+describe("speaker profile photo integrity migration", () => {
+  let runtime: Miniflare | undefined;
+  afterEach(async () => runtime?.dispose());
+
+  it("repairs a pre-existing dangling headshot before enforcing owned references", async () => {
+    const migrated = await createMigratedDatabase({ label: "content-photo-upgrade", seed: true });
+    runtime = migrated.runtime;
+    const database = migrated.database;
+    const profileId = "10000000-0000-4000-8000-000000000002";
+    // Recreate the state of a database just before 1410: its supported restore/delete sequence
+    // could remove this chosen asset without clearing the profile. Dropping only these triggers
+    // lets the current seed supply every referenced fixture row without this content-owned test
+    // writing another domain's tables.
+    await database.prepare("DROP TRIGGER speaker_asset_delete_rejects_profile_photo").run();
+    await database.prepare("DROP TRIGGER speaker_profile_photo_requires_owned_asset").run();
+    await database
+      .prepare(
+        "DELETE FROM speaker_assets WHERE id=(SELECT photo_asset_id FROM speaker_profiles WHERE id=?)",
+      )
+      .bind(profileId)
+      .run();
+
+    await applyMigrations(database, {
+      from: "1410_speaker_profile_photo_integrity.sql",
+      through: "1410_speaker_profile_photo_integrity.sql",
+    });
+
+    const repaired = await database
+      .prepare("SELECT photo_asset_id FROM speaker_profiles WHERE id=?")
+      .bind(profileId)
+      .first<{ photo_asset_id: string | null }>();
+    expect(repaired?.photo_asset_id).toBeNull();
+    await expect(
+      database
+        .prepare("UPDATE speaker_profiles SET bio=? WHERE id=?")
+        .bind("After the repair", profileId)
+        .run(),
+    ).resolves.toMatchObject({ success: true });
   });
 });
 
@@ -360,6 +404,90 @@ describe("D1ContentRepository revisions", () => {
     eventId,
     actorId: "seed-organizer",
     createdAt: "2026-08-10T12:00:00.000Z",
+  });
+
+  it("rejects a stale profile version and retires prior headshots in the revision batch", async () => {
+    const { repository } = await fixture("content-profile-version-headshot");
+    const asset = (id: string, name: string) => ({
+      id,
+      eventId,
+      speakerProfileId: profileId,
+      name,
+      contentType: "image/png",
+      storageKey: `${eventId}/${profileId}/${name}`,
+      visibility: "publishable" as const,
+      uploadedAt: "2026-08-10T12:00:00.000Z",
+      versionGroupId: id,
+      versionNumber: 1,
+      isLatest: true,
+    });
+    const first = asset("80000000-0000-4000-8000-0000000000b1", "first.png");
+    const second = asset("80000000-0000-4000-8000-0000000000b2", "second.png");
+    await repository.addAsset(first);
+    await repository.addAsset(second);
+
+    await expect(
+      repository.reviseProfilePhoto(profileId, draft("a-profile-v1"), 0, first.id),
+    ).resolves.toMatchObject({ photoAssetId: first.id, version: 1 });
+    await expect(
+      repository.reviseProfilePhoto(profileId, draft("a-stale-profile"), 0, second.id),
+    ).rejects.toBeInstanceOf(ContentConflictError);
+    await expect(repository.findProfile(profileId)).resolves.toMatchObject({
+      photoAssetId: first.id,
+      version: 1,
+    });
+    await expect(repository.findAsset(first.id)).resolves.toMatchObject({
+      visibility: "publishable",
+    });
+
+    await expect(
+      repository.reviseProfilePhoto(profileId, draft("a-profile-v2"), 1, second.id),
+    ).resolves.toMatchObject({ photoAssetId: second.id, version: 2 });
+    await expect(repository.findAsset(first.id)).resolves.toMatchObject({ visibility: "private" });
+    await expect(repository.findAsset(second.id)).resolves.toMatchObject({
+      visibility: "publishable",
+    });
+
+    await expect(
+      repository.reviseProfilePhoto(profileId, draft("a-profile-v3"), 2, null),
+    ).resolves.toMatchObject({ version: 3 });
+    expect(await repository.findProfile(profileId)).not.toHaveProperty("photoAssetId");
+    await expect(repository.findAsset(second.id)).resolves.toMatchObject({ visibility: "private" });
+  });
+
+  it("deletes a last-moment headshot choice through the same committed revision", async () => {
+    const { repository } = await fixture("content-profile-photo-delete-race");
+    const asset = {
+      id: "80000000-0000-4000-8000-0000000000c1",
+      eventId,
+      speakerProfileId: profileId,
+      name: "deleting.png",
+      contentType: "image/png",
+      storageKey: `${eventId}/${profileId}/deleting.png`,
+      visibility: "publishable" as const,
+      uploadedAt: "2026-08-10T12:00:00.000Z",
+      versionGroupId: "80000000-0000-4000-8000-0000000000c1",
+      versionNumber: 1,
+      isLatest: true,
+    };
+    await repository.addAsset(asset);
+    await repository.reviseProfilePhoto(profileId, draft("c-profile-v1"), 0, asset.id);
+
+    // A bare metadata delete cannot strand the committed reference. The deletion seam re-reads
+    // that choice, snapshots it, clears it and deletes the asset in one batch instead.
+    await expect(repository.deleteAsset(asset.id)).rejects.toThrow(/profile still references/);
+    await expect(
+      repository.deleteAssetAfterStorage(asset.id, profileId, draft("c-profile-v2")),
+    ).resolves.toMatchObject({ version: 2 });
+    expect(await repository.findProfile(profileId)).not.toHaveProperty("photoAssetId");
+    await expect(repository.findAsset(asset.id)).resolves.toBeNull();
+
+    // Restore/set races cannot reintroduce the row after deletion: committed ownership, rather
+    // than the caller's earlier asset read, decides the reference.
+    await expect(
+      repository.reviseProfilePhoto(profileId, draft("c-profile-v3"), 2, asset.id),
+    ).rejects.toBeInstanceOf(ContentConflictError);
+    expect(await repository.findProfile(profileId)).not.toHaveProperty("photoAssetId");
   });
 
   /**
@@ -484,21 +612,13 @@ describe("D1ContentRepository revisions", () => {
       versionGroupId: headshotId,
     });
     const naming = new D1ContentRepository(
-      withWriterBeforeStatement(
-        database,
-        "UPDATE speaker_profiles SET photo_asset_id",
-        async () => {
-          await remove(
-            database,
-            "DELETE FROM speaker_assets WHERE speaker_profile_id=?",
-            strangerId,
-          );
-          await remove(database, "DELETE FROM speaker_profiles WHERE id=?", strangerId);
-        },
-      ),
+      withWriterBetweenReadAndWrite(database, async () => {
+        await remove(database, "DELETE FROM speaker_assets WHERE speaker_profile_id=?", strangerId);
+        await remove(database, "DELETE FROM speaker_profiles WHERE id=?", strangerId);
+      }),
     );
     await expect(
-      serviceOver(naming, "d").setProfilePhoto(organizer, strangerId, headshotId),
+      serviceOver(naming, "d").setProfilePhoto(organizer, strangerId, headshotId, 0),
     ).rejects.toBeInstanceOf(CapabilityDeniedError);
 
     // That profile is gone for the rest of this test, which is what the store-level assertions
@@ -708,6 +828,20 @@ describe("D1ContentRepository revisions", () => {
     const { repository } = await fixture("content-narrow-writes");
     const before = await repository.findProfile(profileId);
     if (!before) throw new Error("Seeded profile is missing");
+    const photoAssetId = "90000000-0000-4000-8000-000000000009";
+    await repository.addAsset({
+      id: photoAssetId,
+      eventId,
+      speakerProfileId: profileId,
+      name: "narrow-writer-photo.png",
+      contentType: "image/png",
+      storageKey: `${eventId}/${profileId}/${photoAssetId}`,
+      visibility: "private",
+      uploadedAt: "2026-08-10T11:00:00.000Z",
+      versionGroupId: photoAssetId,
+      versionNumber: 1,
+      isLatest: true,
+    });
 
     // Every column these two statements name is checked against the migrated schema here and
     // nowhere else. A typo — `logistics_jsn`, or a transposed bind — is invisible to a memory
@@ -725,10 +859,10 @@ describe("D1ContentRepository revisions", () => {
       customFields: { shirt: "M" },
     });
 
-    await repository.updateProfilePhoto(profileId, "90000000-0000-4000-8000-000000000001");
+    await repository.updateProfilePhoto(profileId, photoAssetId);
     expect(await repository.findProfile(profileId)).toEqual({
       ...enriched,
-      photoAssetId: "90000000-0000-4000-8000-000000000001",
+      photoAssetId,
     });
     // Clearing the headshot leaves the import's three columns exactly where the import put them.
     await repository.updateProfilePhoto(profileId, null);

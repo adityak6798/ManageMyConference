@@ -7,6 +7,8 @@ import {
   ContactAlreadySourcedError,
   ContactEmailTakenError,
   ContactNotFoundError,
+  PipelineStageInUseError,
+  PipelineStageNotFoundError,
 } from "../src/application/crm/errors";
 import { applyMigrationFile, createMigratedDatabase } from "./support/seeded-d1";
 
@@ -212,14 +214,6 @@ describe("D1 CRM persistence", () => {
       updatedAt: "2026-08-10T12:00:00.000Z",
     };
     await repository.create(prospect);
-    const stageChange = {
-      id: "30000000-0000-4000-8000-000000000020",
-      kind: "stage-change" as const,
-      summary: "Identified → Contacted",
-      private: false,
-      occurredAt: "2026-08-10T12:05:00.000Z",
-      actorId: "seed-organizer",
-    };
     const note = {
       id: "30000000-0000-4000-8000-000000000021",
       kind: "note" as const,
@@ -233,9 +227,16 @@ describe("D1 CRM persistence", () => {
         ...prospect,
         stage: "contacted",
         updatedAt: "2026-08-10T12:05:00.000Z",
-        activities: [stageChange, note],
+        activities: [note],
       },
-      [stageChange, note],
+      [note],
+      undefined,
+      {
+        toStage: "contacted",
+        actorId: "seed-organizer",
+        source: "detail",
+        occurredAt: "2026-08-10T12:05:00.000Z",
+      },
     );
     await expect(repository.findById(eventId, prospect.id)).resolves.toMatchObject({
       stage: "contacted",
@@ -252,14 +253,6 @@ describe("D1 CRM persistence", () => {
         "CREATE TRIGGER fail_note_activity BEFORE INSERT ON crm_activities WHEN NEW.kind='note' BEGIN SELECT RAISE(FAIL, 'injected note failure'); END",
       )
       .run();
-    const refusedStageChange = {
-      id: "30000000-0000-4000-8000-000000000022",
-      kind: "stage-change" as const,
-      summary: "Contacted → Engaged",
-      private: false,
-      occurredAt: "2026-08-10T12:10:00.000Z",
-      actorId: "seed-organizer",
-    };
     await expect(
       repository.update(
         {
@@ -268,7 +261,14 @@ describe("D1 CRM persistence", () => {
           updatedAt: "2026-08-10T12:10:00.000Z",
           activities: [],
         },
-        [refusedStageChange, { ...note, id: "30000000-0000-4000-8000-000000000023" }],
+        [{ ...note, id: "30000000-0000-4000-8000-000000000023" }],
+        undefined,
+        {
+          toStage: "engaged",
+          actorId: "seed-organizer",
+          source: "detail",
+          occurredAt: "2026-08-10T12:10:00.000Z",
+        },
       ),
     ).rejects.toThrow();
     await database.prepare("DROP TRIGGER fail_note_activity").run();
@@ -281,6 +281,57 @@ describe("D1 CRM persistence", () => {
       .bind(prospect.id)
       .all();
     expect(transitions.results).toHaveLength(1);
+  });
+
+  it("records the stage each interleaved move actually left", async () => {
+    const migrated = await migratedRuntime("crm-stage-history-race");
+    runtime = migrated.runtime;
+    const database = migrated.database;
+    const repository = new D1CrmRepository(database);
+    const prospect = cardIn("10000000-0000-4000-8000-000000000025", "Moved twice", "identified");
+    await repository.create(prospect);
+
+    // Both organizers read Identified before either write. The second command deliberately
+    // carries that stale prospect snapshot; only the repository's write-time row is current.
+    const stale = await repository.findById(eventId, prospect.id);
+    if (!stale) throw new Error("The race fixture is missing");
+    await repository.update(
+      { ...stale, stage: "contacted", updatedAt: "2026-08-10T12:05:00.000Z" },
+      [],
+      undefined,
+      {
+        toStage: "contacted",
+        actorId: "seed-organizer",
+        source: "board",
+        occurredAt: "2026-08-10T12:05:00.000Z",
+      },
+    );
+    await repository.update(
+      { ...stale, stage: "engaged", updatedAt: "2026-08-10T12:06:00.000Z" },
+      [],
+      undefined,
+      {
+        toStage: "engaged",
+        actorId: "seed-reviewer",
+        source: "board",
+        occurredAt: "2026-08-10T12:06:00.000Z",
+      },
+    );
+
+    const rows = await database
+      .prepare(
+        "SELECT from_stage, to_stage, actor_id FROM crm_prospect_transitions WHERE prospect_id=? ORDER BY occurred_at",
+      )
+      .bind(prospect.id)
+      .all<{ from_stage: string; to_stage: string; actor_id: string }>();
+    expect(rows.results).toEqual([
+      { from_stage: "identified", to_stage: "contacted", actor_id: "seed-organizer" },
+      { from_stage: "contacted", to_stage: "engaged", actor_id: "seed-reviewer" },
+    ]);
+    await expect(repository.findById(eventId, prospect.id)).resolves.toMatchObject({
+      stage: "engaged",
+      activities: [{ summary: "Identified → Contacted" }, { summary: "Contacted → Engaged" }],
+    });
   });
 
   /** A history row as the stage-delete tests read it back, straight out of the table. */
@@ -311,6 +362,167 @@ describe("D1 CRM persistence", () => {
     convertedAt: null,
     createdAt: "2026-08-12T12:00:00.000Z",
     updatedAt: "2026-08-12T12:00:00.000Z",
+  });
+
+  it("refuses a stage save when a card arrives after the caller read the board", async () => {
+    const migrated = await migratedRuntime("crm-save-stage-race");
+    runtime = migrated.runtime;
+    const database = migrated.database;
+    const repository = new D1CrmRepository(database);
+    const prospect = cardIn(
+      "10000000-0000-4000-8000-000000000049",
+      "Arrives during stage edit",
+      "identified",
+    );
+    await repository.create(prospect);
+
+    // The editor saw Engaged empty and prepared a board without it.
+    const staleBoard = await repository.listStages(eventId);
+    const withoutEngaged = staleBoard
+      .filter(({ key }) => key !== "engaged")
+      .map((stage, sortOrder) => ({ ...stage, sortOrder }));
+
+    // A second writer moves a card in before the list is saved. The trigger evaluates the row
+    // count inside the save transaction; a service-side count taken above would already be stale.
+    await database
+      .prepare("UPDATE crm_prospects SET stage='engaged' WHERE id=?")
+      .bind(prospect.id)
+      .run();
+    await expect(repository.saveStages(eventId, withoutEngaged)).rejects.toBeInstanceOf(
+      PipelineStageInUseError,
+    );
+
+    expect((await repository.listStages(eventId)).some(({ key }) => key === "engaged")).toBe(true);
+    await expect(repository.findById(eventId, prospect.id)).resolves.toMatchObject({
+      stage: "engaged",
+    });
+  });
+
+  it("refuses a card move when its target stage disappears after the caller read the board", async () => {
+    const migrated = await migratedRuntime("crm-move-stage-race");
+    runtime = migrated.runtime;
+    const repository = new D1CrmRepository(migrated.database);
+    const prospect = cardIn(
+      "10000000-0000-4000-8000-000000000053",
+      "Moves after stage deletion",
+      "identified",
+    );
+    await repository.create(prospect);
+
+    const board = await repository.listStages(eventId);
+    await repository.saveStages(eventId, [
+      ...board,
+      {
+        id: "15030000-0000-4000-8000-000000000001",
+        eventId,
+        key: "future-fit",
+        label: "Future fit",
+        category: "open",
+        sortOrder: board.length,
+        createdAt: "2026-08-12T12:00:00.000Z",
+      },
+    ]);
+    const staleBoard = await repository.listStages(eventId);
+    expect(staleBoard.some(({ key }) => key === "future-fit")).toBe(true);
+    await repository.saveStages(
+      eventId,
+      staleBoard
+        .filter(({ key }) => key !== "future-fit")
+        .map((stage, sortOrder) => ({ ...stage, sortOrder })),
+    );
+
+    await expect(
+      repository.update(
+        { ...prospect, stage: "future-fit", updatedAt: "2026-08-12T12:05:00.000Z" },
+        [],
+        undefined,
+        {
+          toStage: "future-fit",
+          actorId: "seed-organizer",
+          source: "board",
+          occurredAt: "2026-08-12T12:05:00.000Z",
+        },
+      ),
+    ).rejects.toBeInstanceOf(PipelineStageNotFoundError);
+    await expect(repository.findById(eventId, prospect.id)).resolves.toMatchObject({
+      stage: "identified",
+      activities: [],
+    });
+    const transitions = await migrated.database
+      .prepare("SELECT id FROM crm_prospect_transitions WHERE prospect_id=?")
+      .bind(prospect.id)
+      .all();
+    expect(transitions.results).toEqual([]);
+  });
+
+  it("refuses a new card when its entry stage disappears after the caller read the board", async () => {
+    const migrated = await migratedRuntime("crm-create-stage-race");
+    runtime = migrated.runtime;
+    const repository = new D1CrmRepository(migrated.database);
+    const staleBoard = await repository.listStages(eventId);
+    expect(staleBoard.some(({ key }) => key === "future-fit")).toBe(true);
+    await repository.saveStages(
+      eventId,
+      staleBoard
+        .filter(({ key }) => key !== "future-fit")
+        .map((stage, sortOrder) => ({ ...stage, sortOrder })),
+    );
+    const prospect = cardIn(
+      "10000000-0000-4000-8000-000000000054",
+      "Created after stage deletion",
+      "future-fit",
+    );
+
+    await expect(repository.create(prospect)).rejects.toBeInstanceOf(PipelineStageNotFoundError);
+    await expect(repository.findById(eventId, prospect.id)).resolves.toBeNull();
+  });
+
+  it("maps a stage migration whose target disappeared to the board refusal", async () => {
+    const migrated = await migratedRuntime("crm-delete-target-stage-race");
+    runtime = migrated.runtime;
+    const repository = new D1CrmRepository(migrated.database);
+    const board = await repository.listStages(eventId);
+    const source = {
+      id: "15030000-0000-4000-8000-000000000003",
+      eventId,
+      key: "temporary-source",
+      label: "Temporary source",
+      category: "open" as const,
+      sortOrder: board.length,
+      createdAt: "2026-08-12T12:00:00.000Z",
+    };
+    await repository.saveStages(eventId, [...board, source]);
+    const prospect = cardIn(
+      "10000000-0000-4000-8000-000000000055",
+      "Migrated after target deletion",
+      source.key,
+    );
+    await repository.create(prospect);
+    const staleBoard = await repository.listStages(eventId);
+    await repository.saveStages(
+      eventId,
+      staleBoard
+        .filter(({ key }) => key !== "future-fit")
+        .map((stage, sortOrder) => ({ ...stage, sortOrder })),
+    );
+
+    await expect(
+      repository.deleteStage(
+        eventId,
+        source.key,
+        "future-fit",
+        {
+          actorId: "seed-organizer",
+          source: "migration",
+          occurredAt: "2026-08-12T12:05:00.000Z",
+        },
+        staleBoard.filter(({ key }) => key !== source.key),
+      ),
+    ).rejects.toBeInstanceOf(PipelineStageNotFoundError);
+    await expect(repository.findById(eventId, prospect.id)).resolves.toMatchObject({
+      stage: source.key,
+    });
+    expect((await repository.listStages(eventId)).some(({ key }) => key === source.key)).toBe(true);
   });
 
   it("gives history to exactly the cards a stage delete moves, not to the ones a stale read named", async () => {
@@ -1309,6 +1521,46 @@ describe("D1 CRM organization directory", () => {
     ).rejects.toThrow();
   });
 
+  it("maps a directory source whose entry stage disappeared and writes no partial link", async () => {
+    const migrated = await migratedRuntime("crm-directory-stage-race");
+    runtime = migrated.runtime;
+    const repository = new D1CrmRepository(migrated.database);
+    const contact = await repository.findContact(organizationId, priyaId);
+    if (!contact) throw new Error("The seeded contact is missing");
+    const prospectId = "50000000-0000-4000-8000-0000000000bc";
+
+    await expect(
+      repository.linkContactToEvent({
+        contact,
+        prospect: {
+          id: prospectId,
+          eventId,
+          name: contact.name,
+          stage: "stage-deleted-after-read",
+          ownerId: "seed-organizer",
+          nextAction: null,
+          nextActionAt: null,
+          contacts: [],
+          activities: [],
+          speakerId: null,
+          convertedAt: null,
+          createdAt: "2026-08-11T12:00:00.000Z",
+          updatedAt: "2026-08-11T12:00:00.000Z",
+        },
+        activity: {
+          id: "71000000-0000-4000-8000-0000000000bc",
+          kind: "note",
+          summary: "Sourced after a stale board read",
+          private: false,
+          occurredAt: "2026-08-11T12:00:00.000Z",
+          actorId: "seed-organizer",
+        },
+      }),
+    ).rejects.toBeInstanceOf(PipelineStageNotFoundError);
+    await expect(repository.findById(eventId, prospectId)).resolves.toBeNull();
+    expect((await repository.findContact(organizationId, priyaId))?.events).toEqual([]);
+  });
+
   it("adopts an existing prospect by normalized primary address with link history atomically", async () => {
     const migrated = await migratedRuntime("crm-adopt-existing");
     runtime = migrated.runtime;
@@ -1573,7 +1825,12 @@ describe("crm_prospects rebuild", () => {
     expect(before?.activities).toBeGreaterThan(0);
     expect(before?.links).toBeGreaterThan(0);
 
+    // A later migration owns a trigger whose body reads the table this historical migration
+    // rebuilds. Production never reapplies 1502 after 1503, but this replay test deliberately
+    // does; set the later schema object aside, then restore it exactly as migration ordering does.
+    await migrated.database.prepare("DROP TRIGGER crm_pipeline_stage_no_stranded_prospects").run();
     await applyMigrationFile(migrated.database, "1502_crm_prospect_stage_rebuild.sql");
+    await applyMigrationFile(migrated.database, "1503_crm_pipeline_stage_delete_guard.sql");
 
     // Every row survives, and every child still points at the prospect it did.
     const after = await counts();
@@ -1584,19 +1841,35 @@ describe("crm_prospects rebuild", () => {
     expect(after?.joinedContacts).toBe(before?.contacts);
     expect(after?.joinedLinks).toBe(before?.links);
 
-    // The CHECK is gone, which is the whole point: a stage key `0015` did not know is storable.
+    // The CHECK is gone, which is the whole point: a configured stage key `0015` did not know is
+    // storable. It is configured first because `1503` separately requires every current card
+    // stage to remain on its event's board.
+    await migrated.database
+      .prepare(
+        "INSERT INTO crm_pipeline_stages (id,event_id,key,label,category,sort_order,created_at) VALUES (?,?,?,?,?,?,?)",
+      )
+      .bind(
+        "15030000-0000-4000-8000-000000000002",
+        "00000000-0000-4000-8000-000000000001",
+        "post-rebuild-custom",
+        "Post-rebuild custom",
+        "open",
+        8,
+        "2026-08-12T12:00:00.000Z",
+      )
+      .run();
     const custom = await migrated.database
       .prepare("UPDATE crm_prospects SET stage = ? WHERE id = ?")
-      .bind("future-fit", "50000000-0000-4000-8000-000000000001")
+      .bind("post-rebuild-custom", "50000000-0000-4000-8000-000000000001")
       .run();
     expect(custom.success).toBe(true);
 
-    // And the stage set the rebuild copied around is untouched by it, which is what says the two
-    // migrations are separable rather than merely separate.
+    // And the rebuilt table still has its complete default stage set plus the one deliberately
+    // configured here, which says the two migrations are separable rather than merely separate.
     const stages = await migrated.database
       .prepare("SELECT COUNT(*) AS total FROM crm_pipeline_stages WHERE event_id = ?")
       .bind("00000000-0000-4000-8000-000000000001")
       .all<{ total: number }>();
-    expect(stages.results?.[0]?.total).toBe(8);
+    expect(stages.results?.[0]?.total).toBe(9);
   });
 });

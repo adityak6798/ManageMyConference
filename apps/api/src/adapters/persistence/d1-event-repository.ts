@@ -85,7 +85,7 @@ export class D1EventRepository implements EventRepository {
     const statements = [
       this.database
         .prepare(
-          "INSERT INTO events (id, organization_id, name, timezone, created_at, provisioning_key) VALUES (?, ?, ?, ?, ?, ?)",
+          "INSERT INTO events (id, organization_id, name, timezone, created_at, provisioning_key, provisioning_name, provisioning_timezone) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(
           row.id,
@@ -94,6 +94,8 @@ export class D1EventRepository implements EventRepository {
           row.timezone,
           row.created_at,
           options.provisioningKey ?? null,
+          options.provisioningKey ? row.name : null,
+          options.provisioningKey ? row.timezone : null,
         ),
       ...(options.organizerUserId !== undefined && this.writeOrganizerGrant
         ? this.writeOrganizerGrant(this.database, {
@@ -127,7 +129,7 @@ export class D1EventRepository implements EventRepository {
   ): Promise<Event | null> {
     const result = await this.database
       .prepare(
-        "SELECT id, organization_id, name, timezone, created_at FROM events WHERE organization_id = ? AND provisioning_key = ? LIMIT 1",
+        "SELECT id, organization_id, COALESCE(provisioning_name,name) AS name, COALESCE(provisioning_timezone,timezone) AS timezone, created_at FROM events WHERE organization_id = ? AND provisioning_key = ? LIMIT 1",
       )
       .bind(organizationId, provisioningKey)
       .all<EventRow>();

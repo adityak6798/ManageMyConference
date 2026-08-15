@@ -310,10 +310,12 @@ describe("versioned and discussable deliverables", () => {
     });
     const comment = await service.addAssetComment(organizer, asset.id, "Please add alt text");
     expect(comment).toMatchObject({ authorId: organizer.id, authorName: organizer.name });
-    await service.updateMyProfile(speaker, profileId, {
+    await service.updateProfile(speaker, profileId, {
+      expectedVersion: 0,
       name: "Sam",
       bio: "new",
       pronouns: "",
+      jobTitle: "",
       organization: "",
     });
     const revision = (await repository.workspace(eventId)).revisions?.[0];
@@ -333,10 +335,12 @@ describe("versioned and discussable deliverables", () => {
     const { repository, service } = fixture();
     // A revision taken before the speaker had a headshot, and before anything touched the
     // identity a profile carries from speaker conversion.
-    await service.updateMyProfile(speaker, profileId, {
+    await service.updateProfile(speaker, profileId, {
+      expectedVersion: 0,
       name: "Sam",
       bio: "written after the snapshot",
       pronouns: "they/them",
+      jobTitle: "",
       organization: "Greenroom Labs",
     });
     const revision = (await repository.workspace(eventId)).revisions?.[0];
@@ -346,7 +350,7 @@ describe("versioned and discussable deliverables", () => {
       contentType: "image/png",
       bytes: new Uint8Array([1]),
     });
-    await service.setProfilePhoto(organizer, profileId, asset.id);
+    await service.setProfilePhoto(organizer, profileId, asset.id, 1);
     // The identity columns no edit writes. A snapshot carrying an older address must not appear
     // to put it back, because no repository would have stored it if it tried.
     await repository.updateProfile({
@@ -442,9 +446,11 @@ async function publishSite(content: MemoryContentRepository) {
 describe("speaker social links", () => {
   const links = (input: unknown) =>
     updateSpeakerProfileInputSchema.safeParse({
+      expectedVersion: 0,
       name: "Sam",
       bio: "",
       pronouns: "",
+      jobTitle: "",
       organization: "",
       socialLinks: input,
     });
@@ -482,9 +488,11 @@ describe("speaker social links", () => {
 
   it("leaves links alone when the field is absent", () => {
     const parsed = updateSpeakerProfileInputSchema.safeParse({
+      expectedVersion: 0,
       name: "Sam",
       bio: "",
       pronouns: "",
+      jobTitle: "",
       organization: "",
     });
     expect(parsed.success).toBe(true);
@@ -520,10 +528,12 @@ describe("speaker social links", () => {
       tasks: [],
       messages: [],
     });
-    const saved = await service.updateMyProfile(speaker, profileId, {
+    const saved = await service.updateProfile(speaker, profileId, {
+      expectedVersion: 0,
       name: "Sam",
       bio: "old",
       pronouns: "",
+      jobTitle: "",
       organization: "",
       socialLinks: { github: "https://github.com/sam" },
     });
@@ -543,17 +553,21 @@ describe("speaker social links", () => {
 
   it("restores a revision taken before links existed as no links, not as undefined", async () => {
     const { repository, service } = fixture();
-    await service.updateMyProfile(speaker, profileId, {
+    await service.updateProfile(speaker, profileId, {
+      expectedVersion: 0,
       name: "Sam",
       bio: "first",
       pronouns: "",
+      jobTitle: "",
       organization: "",
     });
     const revision = (await repository.workspace(eventId)).revisions?.[0];
-    await service.updateMyProfile(speaker, profileId, {
+    await service.updateProfile(speaker, profileId, {
+      expectedVersion: 1,
       name: "Sam",
       bio: "second",
       pronouns: "",
+      jobTitle: "",
       organization: "",
       socialLinks: { github: "https://github.com/sam" },
     });

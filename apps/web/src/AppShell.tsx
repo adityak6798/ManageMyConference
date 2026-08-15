@@ -36,6 +36,7 @@ export function AppShell({
   events,
   selectedEventId,
   onSelectEvent,
+  createEventHref,
   onSwitchPersona,
   onOpenSearch,
   onSignOut,
@@ -51,6 +52,8 @@ export function AppShell({
   events: EventDto[];
   selectedEventId: string;
   onSelectEvent: (eventId: string) => void;
+  /** A deliberate organizer action beside the switcher, absent without creation capability. */
+  createEventHref?: string;
   onSwitchPersona: (persona: Persona) => void;
   /**
    * Opens the command palette. Absent when no event is selected, because there is nothing to
@@ -99,21 +102,28 @@ export function AppShell({
         </div>
 
         {events.length > 0 ? (
-          <label className="event-switcher">
-            <span>Event</span>
-            <select
-              id="event-switcher"
-              aria-label="Event workspace"
-              value={selectedEventId}
-              onChange={(changeEvent) => onSelectEvent(changeEvent.target.value)}
-            >
-              {events.map((event) => (
-                <option key={event.id} value={event.id}>
-                  {event.name}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="event-switcher-stack">
+            <label className="event-switcher">
+              <span>Event</span>
+              <select
+                id="event-switcher"
+                aria-label="Event workspace"
+                value={selectedEventId}
+                onChange={(changeEvent) => onSelectEvent(changeEvent.target.value)}
+              >
+                {events.map((event) => (
+                  <option key={event.id} value={event.id}>
+                    {event.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {createEventHref ? (
+              <a className="sidebar-create-event" {...linkProps(createEventHref)}>
+                <span aria-hidden="true">+</span> Create another event
+              </a>
+            ) : null}
+          </div>
         ) : null}
 
         <nav aria-label="Workspace navigation">

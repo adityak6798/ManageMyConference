@@ -83,17 +83,14 @@ function Avatar({ speaker, large }: { speaker: PublicSpeaker; large?: boolean })
   );
 }
 
-/*
- * The projection field this renders is now named `organization`, because that is what the
- * speaker profile stores and what it always held: an employer, never a job title. The
- * visible line and its screen-reader label say "affiliation" for the same reason.
- */
 function SpeakerHeadline({ speaker }: { speaker: PublicSpeaker }) {
-  if (!speaker.organization.trim()) return null;
+  const title = speaker.jobTitle?.trim() ?? "";
+  const company = speaker.organization.trim();
+  if (!title && !company) return null;
   return (
     <p className="pub-speaker-headline">
-      <span className="pub-sr">Affiliation: </span>
-      {speaker.organization}
+      <span className="pub-sr">Professional headline: </span>
+      {title && company ? `${title} at ${company}` : title || company}
     </p>
   );
 }

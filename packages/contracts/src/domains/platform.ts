@@ -272,6 +272,7 @@ export const auditRecordSchema = z.object({
   action: z.string(),
   targetType: z.string(),
   targetId: z.string(),
+  targetVersion: z.number().int().nonnegative().optional(),
   correlationId: z.string().nullable(),
 });
 

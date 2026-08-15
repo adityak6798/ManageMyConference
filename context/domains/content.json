@@ -51,6 +51,7 @@
     "apps/web/src/content/shared.tsx",
     "apps/web/src/api/content.ts",
     "apps/web/test/speaker-photo.test.tsx",
+    "apps/web/test/speaker-roster.test.tsx",
     "apps/web/test/session-withdrawal.test.tsx",
     "apps/web/e2e/speaker-portal.spec.ts",
     "apps/web/e2e/speaker-checklist.spec.ts",

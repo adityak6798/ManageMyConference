@@ -4,6 +4,7 @@ import {
   check,
   index,
   primaryKey,
+  integer,
   sqliteTable,
   text,
   unique,
@@ -73,6 +74,8 @@ export function definePlatformSchema(references: {
       targetId: text("target_id").notNull(),
       correlationId: text("correlation_id"),
       idempotencyKey: text("idempotency_key").notNull(),
+      /** Added by `1902`; declaration order follows the deployed ALTER TABLE history. */
+      targetVersion: integer("target_version"),
     },
     (table) => [
       check(

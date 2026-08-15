@@ -1,9 +1,16 @@
 import type {
   CrmRepository,
   ProspectFilters,
+  ProspectMove,
   StageMigration,
 } from "../../application/crm/crm-repository";
-import { ContactAlreadySourcedError, ContactNotFoundError } from "../../application/crm/errors";
+import {
+  ContactAlreadySourcedError,
+  ContactNotFoundError,
+  PipelineStageInUseError,
+  PipelineStageNotFoundError,
+  ProspectAlreadyConvertedError,
+} from "../../application/crm/errors";
 import {
   type ContactActivity,
   type ContactAlias,
@@ -57,22 +64,72 @@ export class MemoryCrmRepository implements CrmRepository {
     );
   }
   async create(prospect: Prospect, transition?: ProspectTransition) {
+    const board = this.stages.get(prospect.eventId);
+    if (board && !board.some(({ key }) => key === prospect.stage))
+      throw new PipelineStageNotFoundError("That stage is not on this board");
     this.prospects.set(prospect.id, prospect);
     if (transition) this.transitions.push(transition);
   }
   /**
-   * The caller hands over an already-merged prospect, so the new activities and contact are
-   * carried inside it. They stay in the signature because storing the row and appending its
-   * history is one write for the D1 adapter, and tests assert on what a single call received.
+   * Derive a move from the row held at write time, as D1 does. A fake that accepts the caller's
+   * stale `fromStage` would make the concurrency defect invisible to every service test.
    */
   async update(
     prospect: Prospect,
-    _activities: readonly ProspectActivity[] = [],
-    _contact?: ProspectContact,
-    transition?: ProspectTransition,
+    activities: readonly ProspectActivity[] = [],
+    contact?: ProspectContact,
+    move?: ProspectMove,
   ) {
-    this.prospects.set(prospect.id, prospect);
-    if (transition) this.transitions.push(transition);
+    const stored = this.prospects.get(prospect.id);
+    if (!stored || stored.eventId !== prospect.eventId) throw new Error("Prospect not found");
+    if (stored.speakerId)
+      throw new ProspectAlreadyConvertedError("Converted prospects cannot be updated");
+    const stageActivities: ProspectActivity[] = [];
+    if (move && stored.stage !== move.toStage) {
+      if (!(this.stages.get(prospect.eventId) ?? []).some(({ key }) => key === move.toStage))
+        throw new PipelineStageNotFoundError("That stage is not on this board");
+      const labels = new Map(
+        (this.stages.get(prospect.eventId) ?? []).map((s) => [s.key, s.label]),
+      );
+      this.transitions.push({
+        id: crypto.randomUUID(),
+        eventId: prospect.eventId,
+        prospectId: prospect.id,
+        fromStage: stored.stage,
+        toStage: move.toStage,
+        actorId: move.actorId,
+        source: move.source,
+        occurredAt: move.occurredAt,
+      });
+      stageActivities.push({
+        id: crypto.randomUUID(),
+        kind: "stage-change",
+        summary: `${labels.get(stored.stage) ?? stored.stage} → ${labels.get(move.toStage) ?? move.toStage}`,
+        private: false,
+        occurredAt: move.occurredAt,
+        actorId: move.actorId,
+      });
+    }
+    const contacts = contact
+      ? [
+          ...stored.contacts.map((item) =>
+            contact.isPrimary ? { ...item, isPrimary: false } : item,
+          ),
+          contact,
+        ]
+      : stored.contacts;
+    const updated = {
+      ...stored,
+      ownerId: prospect.ownerId,
+      nextAction: prospect.nextAction,
+      nextActionAt: prospect.nextActionAt,
+      updatedAt: prospect.updatedAt,
+      stage: move?.toStage ?? stored.stage,
+      activities: [...stored.activities, ...stageActivities, ...activities],
+      contacts,
+    };
+    this.prospects.set(prospect.id, updated);
+    return updated;
   }
   async recordConversion(
     eventId: string,
@@ -117,15 +174,18 @@ export class MemoryCrmRepository implements CrmRepository {
   }
 
   async saveStages(eventId: string, stages: readonly PipelineStage[]) {
+    const keys = new Set(stages.map(({ key }) => key));
+    const occupied = [...this.prospects.values()].some(
+      (prospect) =>
+        prospect.eventId === eventId &&
+        !keys.has(prospect.stage) &&
+        (this.stages.get(eventId) ?? []).some(({ key }) => key === prospect.stage),
+    );
+    if (occupied)
+      throw new PipelineStageInUseError(
+        "A removed stage still holds prospects. Choose where they should move first.",
+      );
     this.stages.set(eventId, [...stages]);
-  }
-
-  async countByStage(eventId: string) {
-    const counts = new Map<string, number>();
-    for (const prospect of this.prospects.values())
-      if (prospect.eventId === eventId)
-        counts.set(prospect.stage, (counts.get(prospect.stage) ?? 0) + 1);
-    return counts;
   }
 
   async deleteStage(
@@ -135,6 +195,8 @@ export class MemoryCrmRepository implements CrmRepository {
     move: StageMigration,
     remaining: readonly PipelineStage[],
   ) {
+    if (!(this.stages.get(eventId) ?? []).some(({ key }) => key === migrateTo))
+      throw new PipelineStageNotFoundError("That stage is not on this board");
     // The same rule the D1 adapter keeps: whatever this predicate matches is what moves *and*
     // what gets a history entry. A fake that took the caller's word for which prospects moved
     // would stay green against the stale-snapshot defect the real adapter had, which is the one
@@ -358,6 +420,12 @@ export class MemoryCrmRepository implements CrmRepository {
   }) {
     const contact = this.contacts.get(input.contact.id);
     if (!contact) throw new ContactNotFoundError("Contact not found");
+    if (
+      !(this.stages.get(input.prospect.eventId) ?? []).some(
+        ({ key }) => key === input.prospect.stage,
+      )
+    )
+      throw new PipelineStageNotFoundError("That stage is not on this board");
     this.prospects.set(input.prospect.id, input.prospect);
     this.contacts.set(contact.id, {
       ...contact,
