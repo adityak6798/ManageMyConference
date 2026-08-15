@@ -210,7 +210,8 @@ export function Drawer({
 }: {
   open: boolean;
   title: string;
-  description?: ReactNode;
+  /** Plain supporting copy; block content belongs in the drawer body. */
+  description?: string;
   children: ReactNode;
   footer?: ReactNode;
   busy?: boolean;

@@ -66,12 +66,18 @@ describe("design foundation", () => {
   it("labels a drawer, handles Escape, and blocks dismissal while busy", () => {
     const onClose = vi.fn();
     const { rerender } = render(
-      <Drawer open title="Edit proposal" onClose={onClose}>
+      <Drawer
+        open
+        title="Edit proposal"
+        description="Update the selected record."
+        onClose={onClose}
+      >
         Proposal fields
       </Drawer>,
     );
 
     const dialog = screen.getByRole("dialog", { name: "Edit proposal" });
+    expect(dialog).toHaveAccessibleDescription("Update the selected record.");
     expect(dialog).toHaveAttribute("open");
     fireEvent(dialog, new Event("cancel", { cancelable: true }));
     expect(onClose).toHaveBeenCalledOnce();
