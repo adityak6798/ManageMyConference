@@ -44,7 +44,8 @@ export const searchWorkspace: WorkspaceModule = {
   canAccess: ({ capabilities }) => capabilities.includes("events:read"),
   header: () => ({
     title: "Search",
-    subtitle: "Find sessions, people, proposals, schedule items, messages, and contacts in one place.",
+    subtitle:
+      "Find sessions, people, proposals, schedule items, messages, and contacts in one place.",
   }),
   render: ({ event }) => <SearchWorkspace eventId={event.id} />,
 };

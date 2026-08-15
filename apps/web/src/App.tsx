@@ -969,8 +969,8 @@ export function App({
             >
               <form className="stack settings-event-form" onSubmit={submit}>
                 <p className="hint" id="create-event">
-                  Proposals, reviews, speakers, files, the agenda, and publication history are
-                  never copied from another event.
+                  Proposals, reviews, speakers, files, the agenda, and publication history are never
+                  copied from another event.
                 </p>
                 <div className="field">
                   <label htmlFor="event-organization">Organization</label>

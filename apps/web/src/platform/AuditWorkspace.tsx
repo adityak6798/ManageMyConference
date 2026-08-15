@@ -120,8 +120,8 @@ export function AuditWorkspace({ eventId }: { eventId: string }) {
         {records.length === 0 && !loading ? (
           <div className="audit-empty">
             <EmptyState title="Nothing recorded yet">
-              Activity will appear here as people review proposals, update the schedule, and
-              publish the event.
+              Activity will appear here as people review proposals, update the schedule, and publish
+              the event.
             </EmptyState>
           </div>
         ) : (

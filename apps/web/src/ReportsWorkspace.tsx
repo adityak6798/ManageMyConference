@@ -328,8 +328,8 @@ export function ReportsWorkspace({
             </label>
           ) : (
             <p className="hint">
-              Personal columns are masked. Ask an administrator for personal-data report access
-              if you need to view them.
+              Personal columns are masked. Ask an administrator for personal-data report access if
+              you need to view them.
             </p>
           )}
           <div className="report-run-actions">
