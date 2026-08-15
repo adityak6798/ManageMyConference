@@ -424,7 +424,9 @@ export function PublicEventApp() {
   const speakerNeedle = speakerQuery.trim().toLowerCase();
   const visibleSpeakers = model.bySurname.filter((item) =>
     speakerNeedle
-      ? `${item.name} ${item.organization} ${item.bio}`.toLowerCase().includes(speakerNeedle)
+      ? `${item.name} ${item.jobTitle ?? ""} ${item.organization} ${item.bio}`
+          .toLowerCase()
+          .includes(speakerNeedle)
       : true,
   );
   /*

@@ -103,6 +103,24 @@ describe("the audit recorder", () => {
     ]);
   });
 
+  it("distinguishes a delegated API client from the human who created it", async () => {
+    const { audit, identity } = recorder();
+    identity.begin({
+      actor: { ...organizer, id: "api-client-1", name: "Programme sync", requestSource: "api" },
+      correlationId: "corr-api",
+    });
+
+    await audit.record(entry({ idempotencyKey: "api-profile-edit" }));
+
+    const [record] = (await audit.timeline(organizer, EVENT, { limit: 10 })).records;
+    expect(record).toMatchObject({
+      actorId: "api-client-1",
+      actorName: "Programme sync",
+      source: "api",
+      correlationId: "corr-api",
+    });
+  });
+
   it("records a consequence with no request behind it as system, with no invented identity", async () => {
     const { audit } = recorder();
 

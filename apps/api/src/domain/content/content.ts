@@ -57,7 +57,11 @@ export interface SpeakerProfile {
   readonly email: string;
   readonly bio: string;
   readonly pronouns: string;
+  /** Optional only for pre-1409 fixtures; persisted and transported profiles always carry it. */
+  readonly jobTitle?: string;
   readonly organization: string;
+  /** Attributed-edit version. Zero means the profile has not yet been revised. */
+  readonly version?: number;
   readonly photoAssetId?: string;
   readonly workflowStatus?: SpeakerWorkflowStatus | undefined;
   readonly logistics?: Readonly<Record<string, string>> | undefined;

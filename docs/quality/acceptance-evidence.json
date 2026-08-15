@@ -122,7 +122,9 @@
         "apps/api/test/speaker-calendar-invites.test.ts",
         "apps/web/test/calendar-links.test.ts",
         "apps/web/test/speaker-checklist.test.tsx",
-        "apps/web/e2e/speaker-checklist.spec.ts"
+        "apps/web/e2e/speaker-checklist.spec.ts",
+        "apps/web/test/speaker-roster.test.tsx",
+        "apps/web/test/public-event-pages.test.tsx"
       ]
     },
     "ACC-CRM": {

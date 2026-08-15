@@ -40,6 +40,7 @@ export interface PublishingContentQuery {
       name: string;
       bio: string;
       pronouns: string;
+      jobTitle?: string;
       organization: string;
       photoAssetId?: string;
       /**

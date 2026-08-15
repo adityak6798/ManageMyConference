@@ -55,6 +55,10 @@
 }
 
 /* Event switcher sits directly under the brand, mirroring where operators expect it. */
+.event-switcher-stack {
+  display: grid;
+  gap: var(--s-2);
+}
 .event-switcher {
   display: grid;
   gap: var(--s-1);
@@ -62,6 +66,15 @@
   border: 1px solid var(--line);
   border-radius: var(--r-md);
   background: var(--surface-2);
+}
+.sidebar-create-event {
+  color: var(--green-800);
+  font-size: var(--text-xs);
+  font-weight: 650;
+  text-decoration: none;
+}
+.sidebar-create-event:hover {
+  text-decoration: underline;
 }
 .event-switcher > span {
   color: var(--muted);
@@ -634,6 +647,36 @@ label.field-label {
   color: var(--danger-fg);
   font-size: var(--text-xs);
   font-weight: 600;
+}
+.field-grid {
+  display: grid;
+  gap: var(--s-3);
+}
+.field-grid.two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.choice-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+.input-prefix {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+.input-prefix > span {
+  color: var(--muted);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+@media (max-width: 520px) {
+  .field-grid.two {
+    grid-template-columns: 1fr;
+  }
 }
 
 input,

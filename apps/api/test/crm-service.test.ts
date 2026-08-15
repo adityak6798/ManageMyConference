@@ -381,10 +381,17 @@ describe("ACC-CRM stage history", () => {
       }),
       expect.objectContaining({ kind: "note", summary: "Left a voicemail", private: true }),
     ]);
-    // One repository call carrying both entries: the transition cannot outlive a failed note.
+    // One repository call carries the note and the move attribution. The repository derives the
+    // stage-change from the row it writes, so it cannot repeat a stale `fromStage`.
     expect(write).toHaveBeenCalledTimes(1);
-    const [, activities] = write.mock.calls[0] ?? [];
-    expect(activities?.map(({ kind }) => kind)).toEqual(["stage-change", "note"]);
+    const [, activities, , move] = write.mock.calls[0] ?? [];
+    expect(activities?.map(({ kind }) => kind)).toEqual(["note"]);
+    expect(move).toEqual({
+      toStage: "contacted",
+      actorId: organizer.id,
+      source: "detail",
+      occurredAt: "2026-08-10T12:00:00.000Z",
+    });
 
     // A stage the prospect already holds is not a transition, and neither is a command that
     // never mentions the stage — a retry of the same PATCH appends nothing.
@@ -503,6 +510,30 @@ describe("ACC-CRM organization directory", () => {
     // Each event's pipeline still sees only its own prospect.
     expect(await service.list(organizer, eventId, {})).toHaveLength(1);
     expect(await service.list(organizerOfBothEvents, otherEventId, {})).toHaveLength(1);
+  });
+
+  it("sources a directory contact into the board's configured entry stage", async () => {
+    const { service } = setup();
+    await service.savePipelineStages(organizer, eventId, [
+      { key: "declined", label: "Declined", category: "lost" },
+      { key: "sourcing", label: "Sourcing", category: "open" },
+      { key: "identified", label: "Identified", category: "open" },
+      { key: "converted", label: "Converted", category: "won" },
+    ]);
+    const contact = await contactOf(service, { name: "Ada Rivera", email: "ada@example.test" });
+
+    const pushed = await service.pushContactToEvent(
+      organizer,
+      organizationId,
+      contact.id,
+      { eventId, ownerId: organizer.id, convert: false },
+      "correlation-custom-entry",
+    );
+
+    expect(pushed.prospect.stage).toBe("sourcing");
+    expect(pushed.contact.events).toEqual([
+      expect.objectContaining({ eventId, stage: "sourcing" }),
+    ]);
   });
 
   it("converts a pushed contact exactly once and keeps the prospect provenance", async () => {

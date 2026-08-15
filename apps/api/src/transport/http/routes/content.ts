@@ -11,6 +11,7 @@ import {
   addContentCommentInputSchema,
   assignSpeakerChecklistInputSchema,
   bulkDownloadDeliverablesInputSchema,
+  clearSpeakerPhotoInputSchema,
   remindSpeakerTasksInputSchema,
   bulkRequestSpeakerTaskInputSchema,
   contentSessionParamsSchema,
@@ -151,12 +152,14 @@ export const contentRoutes: RouteModule = {
           400,
         );
       if (!content) throw new Error("Content service is unavailable");
+      const { expectedVersion, jobTitle, socialLinks, ...profile } = parsed.data;
       return context.json({
-        profile: await content.updateMyProfile(
-          context.get("actor"),
-          params.data.profileId,
-          parsed.data,
-        ),
+        profile: await content.updateProfile(context.get("actor"), params.data.profileId, {
+          ...profile,
+          ...(expectedVersion === undefined ? {} : { expectedVersion }),
+          ...(jobTitle === undefined ? {} : { jobTitle }),
+          ...(socialLinks === undefined ? {} : { socialLinks }),
+        }),
       });
     });
     /*
@@ -197,6 +200,7 @@ export const contentRoutes: RouteModule = {
           context.get("actor"),
           params.data.profileId,
           parsed.data.assetId,
+          parsed.data.expectedVersion,
         ),
       });
     });
@@ -210,8 +214,26 @@ export const contentRoutes: RouteModule = {
           400,
         );
       if (!content) throw new Error("Content service is unavailable");
+      // The existing DELETE was bodyless. A version-aware client sends JSON; a legacy caller
+      // keeps its old meaning and the service guards the version it reads at request time.
+      const body = context.req.raw.body ? await readJson(context.req) : {};
+      const parsed = clearSpeakerPhotoInputSchema.safeParse(body);
+      if (!parsed.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "That profile version is invalid.",
+            context.get("correlationId"),
+            validationFields(parsed.error.issues),
+          ),
+          400,
+        );
       return context.json({
-        profile: await content.clearProfilePhoto(context.get("actor"), params.data.profileId),
+        profile: await content.clearProfilePhoto(
+          context.get("actor"),
+          params.data.profileId,
+          parsed.data.expectedVersion,
+        ),
       });
     });
     app.post("/api/events/:eventId/tasks/:taskId/complete", async (context) => {

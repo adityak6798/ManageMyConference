@@ -5,13 +5,19 @@ import { createEventInputToCommand, eventToDto } from "../src/transport/http/eve
 
 describe("event boundary mappers", () => {
   it("maps transport, domain, and storage shapes explicitly", () => {
-    const command = createEventInputToCommand({
-      organizationId: "00000000-0000-4000-8000-000000000010",
-      name: "Summit",
-      timezone: "UTC",
-    });
+    const command = createEventInputToCommand(
+      {
+        organizationId: "00000000-0000-4000-8000-000000000010",
+        name: "Summit",
+        timezone: "UTC",
+      },
+      "00000000-0000-4000-8000-000000000011",
+    );
+    expect(command.idempotencyKey).toBe("00000000-0000-4000-8000-000000000011");
     const event = {
-      ...command,
+      organizationId: command.organizationId,
+      name: command.name,
+      timezone: command.timezone,
       id: "123e4567-e89b-12d3-a456-426614174000",
       createdAt: "2026-08-09T12:00:00.000Z",
     };

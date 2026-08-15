@@ -1,12 +1,15 @@
 import type {
   CrmRepository,
   ProspectFilters,
+  ProspectMove,
   StageMigration,
 } from "../../application/crm/crm-repository";
 import {
   ContactAlreadySourcedError,
   ContactEmailTakenError,
   ContactNotFoundError,
+  PipelineStageInUseError,
+  PipelineStageNotFoundError,
   ProspectAlreadyConvertedError,
 } from "../../application/crm/errors";
 import type {
@@ -179,7 +182,7 @@ export class D1CrmRepository implements CrmRepository {
         .all<ContactRow>(),
       this.database
         .prepare(
-          `SELECT id, prospect_id, kind, summary, is_private, occurred_at, actor_id FROM crm_activities WHERE prospect_id IN (${placeholders}) ORDER BY prospect_id, occurred_at, id`,
+          `SELECT id, prospect_id, kind, summary, is_private, occurred_at, actor_id FROM crm_activities WHERE prospect_id IN (${placeholders}) ORDER BY prospect_id, occurred_at, CASE WHEN kind='stage-change' THEN 0 ELSE 1 END, id`,
         )
         .bind(...ids)
         .all<ActivityRow>(),
@@ -294,21 +297,75 @@ export class D1CrmRepository implements CrmRepository {
       // a board can never show a card whose history begins after it.
       ...(transition ? [this.transitionStatement(transition)] : []),
     ];
-    await this.runBatch(statements, "create prospect atomically");
+    try {
+      await this.runBatch(statements, "create prospect atomically");
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("pipeline stage does not exist"))
+        throw new PipelineStageNotFoundError("That stage is not on this board");
+      throw error;
+    }
   }
   async update(
     prospect: Prospect,
     activities: readonly ProspectActivity[] = [],
     contact?: ProspectContact,
-    transition?: ProspectTransition,
+    move?: ProspectMove,
   ) {
-    const statements: D1Statement[] = [
+    const statements: D1Statement[] = [];
+    if (move) {
+      /*
+       * Both histories read `stage` before the UPDATE below. They therefore describe the row
+       * this batch actually found, not the stale stage the service saw before a concurrent move.
+       * SQL mints the ids because only SQL knows whether this predicate matched a row.
+       */
+      statements.push(
+        this.database
+          .prepare(
+            `INSERT INTO crm_prospect_transitions (id,event_id,prospect_id,from_stage,to_stage,actor_id,source,occurred_at)
+             SELECT ${D1CrmRepository.SQL_UUID}, event_id, id, stage, ?, ?, ?, ?
+               FROM crm_prospects
+              WHERE id=? AND event_id=? AND speaker_id IS NULL AND stage<>?`,
+          )
+          .bind(
+            move.toStage,
+            move.actorId,
+            move.source,
+            move.occurredAt,
+            prospect.id,
+            prospect.eventId,
+            move.toStage,
+          ),
+        this.database
+          .prepare(
+            `INSERT INTO crm_activities (id,prospect_id,kind,summary,is_private,occurred_at,actor_id)
+             SELECT ${D1CrmRepository.SQL_UUID}, p.id, 'stage-change',
+                    COALESCE(from_stage.label, p.stage) || ' → ' || COALESCE(to_stage.label, ?),
+                    0, ?, ?
+               FROM crm_prospects p
+               LEFT JOIN crm_pipeline_stages from_stage
+                 ON from_stage.event_id=p.event_id AND from_stage.key=p.stage
+               LEFT JOIN crm_pipeline_stages to_stage
+                 ON to_stage.event_id=p.event_id AND to_stage.key=?
+              WHERE p.id=? AND p.event_id=? AND p.speaker_id IS NULL AND p.stage<>?`,
+          )
+          .bind(
+            move.toStage,
+            move.occurredAt,
+            move.actorId,
+            move.toStage,
+            prospect.id,
+            prospect.eventId,
+            move.toStage,
+          ),
+      );
+    }
+    statements.push(
       this.database
         .prepare(
-          "UPDATE crm_prospects SET stage=?,owner_id=?,next_action=?,next_action_at=?,updated_at=? WHERE id=? AND event_id=? AND speaker_id IS NULL",
+          "UPDATE crm_prospects SET stage=COALESCE(?,stage),owner_id=?,next_action=?,next_action_at=?,updated_at=? WHERE id=? AND event_id=? AND speaker_id IS NULL",
         )
         .bind(
-          prospect.stage,
+          move?.toStage ?? null,
           prospect.ownerId,
           prospect.nextAction,
           prospect.nextActionAt,
@@ -316,13 +373,7 @@ export class D1CrmRepository implements CrmRepository {
           prospect.id,
           prospect.eventId,
         ),
-    ];
-    // The move's own history entry, guarded the same way the row update is: a prospect that
-    // converted under the caller is no longer movable, and its history must not say otherwise.
-    if (transition)
-      statements.push(
-        this.unconvertedTransitionStatement(transition, prospect.id, prospect.eventId),
-      );
+    );
     // Every activity this command produced rides the same batch as the row update, so a
     // stage-change entry can never survive a failed transition or be lost after a saved one.
     for (const activity of activities) {
@@ -370,10 +421,18 @@ export class D1CrmRepository implements CrmRepository {
           ),
       );
     }
-    await this.runBatch(statements, "update prospect atomically");
+    try {
+      await this.runBatch(statements, "update prospect atomically");
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("pipeline stage does not exist"))
+        throw new PipelineStageNotFoundError("That stage is not on this board");
+      throw error;
+    }
     const current = await this.findById(prospect.eventId, prospect.id);
+    if (!current) throw new Error("Prospect not found after update");
     if (current?.speakerId)
       throw new ProspectAlreadyConvertedError("Converted prospects cannot be updated");
+    return current;
   }
   private activityStatement(prospectId: string, activity: ProspectActivity) {
     if (activity.kind === "conversion") {
@@ -540,17 +599,15 @@ export class D1CrmRepository implements CrmRepository {
           ),
       ),
     ];
-    await this.runBatch(statements, "save the pipeline stages");
-  }
-
-  async countByStage(eventId: string) {
-    const result = await this.database
-      .prepare("SELECT stage, COUNT(*) AS total FROM crm_prospects WHERE event_id=? GROUP BY stage")
-      .bind(eventId)
-      .all<{ stage: string; total: number }>();
-    if (!result.success)
-      throw new Error(`D1 failed to count prospects by stage: ${result.error ?? "unknown error"}`);
-    return new Map((result.results ?? []).map((row) => [row.stage, Number(row.total)]));
+    try {
+      await this.runBatch(statements, "save the pipeline stages");
+    } catch (error) {
+      if (error instanceof Error && /pipeline stage still holds prospects/i.test(error.message))
+        throw new PipelineStageInUseError(
+          "A removed stage still holds prospects. Choose where they should move first.",
+        );
+      throw error;
+    }
   }
 
   /**
@@ -594,31 +651,37 @@ export class D1CrmRepository implements CrmRepository {
      * that moves and the set that gets a history entry are the same set by construction, and
      * neither an empty stage nor a busy one has a special case.
      */
-    await this.runBatch(
-      [
-        // Before the UPDATE, for the same reason the conversion's entry goes before its stamp:
-        // afterwards this SELECT would find the stage already empty.
-        this.database
-          .prepare(
-            `INSERT INTO crm_prospect_transitions (id,event_id,prospect_id,from_stage,to_stage,actor_id,source,occurred_at)
+    try {
+      await this.runBatch(
+        [
+          // Before the UPDATE, for the same reason the conversion's entry goes before its stamp:
+          // afterwards this SELECT would find the stage already empty.
+          this.database
+            .prepare(
+              `INSERT INTO crm_prospect_transitions (id,event_id,prospect_id,from_stage,to_stage,actor_id,source,occurred_at)
              SELECT ${D1CrmRepository.SQL_UUID}, event_id, id, stage, ?, ?, ?, ?
                FROM crm_prospects WHERE event_id=? AND stage=?`,
-          )
-          .bind(migrateTo, move.actorId, move.source, move.occurredAt, eventId, stageKey),
-        this.database
-          .prepare("UPDATE crm_prospects SET stage=?, updated_at=? WHERE event_id=? AND stage=?")
-          .bind(migrateTo, move.occurredAt, eventId, stageKey),
-        this.database
-          .prepare("DELETE FROM crm_pipeline_stages WHERE event_id=? AND key=?")
-          .bind(eventId, stageKey),
-        ...remaining.map((stage) =>
+            )
+            .bind(migrateTo, move.actorId, move.source, move.occurredAt, eventId, stageKey),
           this.database
-            .prepare("UPDATE crm_pipeline_stages SET sort_order=? WHERE event_id=? AND key=?")
-            .bind(stage.sortOrder, eventId, stage.key),
-        ),
-      ],
-      "migrate and delete a pipeline stage",
-    );
+            .prepare("UPDATE crm_prospects SET stage=?, updated_at=? WHERE event_id=? AND stage=?")
+            .bind(migrateTo, move.occurredAt, eventId, stageKey),
+          this.database
+            .prepare("DELETE FROM crm_pipeline_stages WHERE event_id=? AND key=?")
+            .bind(eventId, stageKey),
+          ...remaining.map((stage) =>
+            this.database
+              .prepare("UPDATE crm_pipeline_stages SET sort_order=? WHERE event_id=? AND key=?")
+              .bind(stage.sortOrder, eventId, stage.key),
+          ),
+        ],
+        "migrate and delete a pipeline stage",
+      );
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("pipeline stage does not exist"))
+        throw new PipelineStageNotFoundError("That stage is not on this board");
+      throw error;
+    }
   }
 
   /**
@@ -1436,48 +1499,54 @@ export class D1CrmRepository implements CrmRepository {
      * whole sourcing lands or none of it does, which is what `LIVE` on all four gives.
      */
     const owns = [contact.id, contact.organizationId];
-    await this.runBatch(
-      [
-        this.database
-          .prepare(
-            `INSERT INTO crm_prospects (id,event_id,name,stage,owner_id,next_action,next_action_at,created_at,updated_at) SELECT ?,?,?,?,?,?,?,?,? WHERE ${D1CrmRepository.LIVE}`,
-          )
-          .bind(
-            prospect.id,
-            prospect.eventId,
-            prospect.name,
-            prospect.stage,
-            prospect.ownerId,
-            prospect.nextAction,
-            prospect.nextActionAt,
-            prospect.createdAt,
-            prospect.updatedAt,
-            ...owns,
-          ),
-        ...prospect.contacts.map((item) =>
+    try {
+      await this.runBatch(
+        [
           this.database
             .prepare(
-              `INSERT INTO crm_contacts (id,prospect_id,name,email,is_primary) SELECT ?,?,?,?,? WHERE ${D1CrmRepository.LIVE}`,
+              `INSERT INTO crm_prospects (id,event_id,name,stage,owner_id,next_action,next_action_at,created_at,updated_at) SELECT ?,?,?,?,?,?,?,?,? WHERE ${D1CrmRepository.LIVE}`,
             )
-            .bind(item.id, prospect.id, item.name, item.email, item.isPrimary ? 1 : 0, ...owns),
-        ),
-        this.database
-          .prepare(
-            `INSERT INTO crm_contact_events (contact_id,event_id,prospect_id,linked_at) SELECT ?,?,?,? WHERE ${D1CrmRepository.LIVE}`,
-          )
-          .bind(contact.id, prospect.eventId, prospect.id, input.activity.occurredAt, ...owns),
-        this.contactActivityStatement(contact.id, input.activity, contact.organizationId),
-      ],
-      "source the contact into the event atomically",
-      // A double-submitted "Add to event": the second write meets `PRIMARY KEY (contact_id,
-      // event_id)`, or the unique index that keeps one prospect to one contact. Reported as the
-      // conflict it is rather than as a server fault.
-      {
-        when: /crm_contact_events/i,
-        error: () =>
-          new ContactAlreadySourcedError("This contact is already in that event's pipeline"),
-      },
-    );
+            .bind(
+              prospect.id,
+              prospect.eventId,
+              prospect.name,
+              prospect.stage,
+              prospect.ownerId,
+              prospect.nextAction,
+              prospect.nextActionAt,
+              prospect.createdAt,
+              prospect.updatedAt,
+              ...owns,
+            ),
+          ...prospect.contacts.map((item) =>
+            this.database
+              .prepare(
+                `INSERT INTO crm_contacts (id,prospect_id,name,email,is_primary) SELECT ?,?,?,?,? WHERE ${D1CrmRepository.LIVE}`,
+              )
+              .bind(item.id, prospect.id, item.name, item.email, item.isPrimary ? 1 : 0, ...owns),
+          ),
+          this.database
+            .prepare(
+              `INSERT INTO crm_contact_events (contact_id,event_id,prospect_id,linked_at) SELECT ?,?,?,? WHERE ${D1CrmRepository.LIVE}`,
+            )
+            .bind(contact.id, prospect.eventId, prospect.id, input.activity.occurredAt, ...owns),
+          this.contactActivityStatement(contact.id, input.activity, contact.organizationId),
+        ],
+        "source the contact into the event atomically",
+        // A double-submitted "Add to event": the second write meets `PRIMARY KEY (contact_id,
+        // event_id)`, or the unique index that keeps one prospect to one contact. Reported as the
+        // conflict it is rather than as a server fault.
+        {
+          when: /crm_contact_events/i,
+          error: () =>
+            new ContactAlreadySourcedError("This contact is already in that event's pipeline"),
+        },
+      );
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("pipeline stage does not exist"))
+        throw new PipelineStageNotFoundError("That stage is not on this board");
+      throw error;
+    }
   }
 
   async linkContactToExistingProspect(input: {

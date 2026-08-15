@@ -34,6 +34,7 @@
  * creates and `communications.spec.ts` keys its template versions.
  */
 import { expect, type Page, test } from "@playwright/test";
+import { fillAdditionalEvent } from "./event-creation";
 
 /** Read-only here: the source the seeded template was captured from, and never a destination. */
 const DEMO_EVENT_ID = "00000000-0000-4000-8000-000000000001";
@@ -69,7 +70,7 @@ async function signIn(page: Page) {
 async function createDestination(page: Page): Promise<{ id: string; name: string }> {
   const name = `Greenroom Template Trial ${Date.now()}`;
   await page.getByRole("link", { name: /Event settings/ }).click();
-  await page.getByLabel("Event name", { exact: true }).fill(name);
+  await fillAdditionalEvent(page, { name });
   await page.getByRole("button", { name: "Create event" }).click();
   await expect(page.getByRole("combobox", { name: "Event workspace" })).toContainText(name);
   // Selecting an event means the address bar too, which is how this run learns the id the

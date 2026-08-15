@@ -167,6 +167,7 @@ describe("the remote demo reset guard, against a real seeded database", () => {
     const persona = await directory.findByPersona("organizer");
     await events.create(persona, {
       organizationId: DEMO_ORGANIZATION,
+      idempotencyKey: "00000000-0000-4000-8000-000000000168",
       name: "A visitor's event",
       timezone: "UTC",
     });

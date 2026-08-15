@@ -15,6 +15,8 @@ export const publicSpeakerSchema = z.object({
   slug: routeSlugSchema,
   name: z.string(),
   bio: z.string(),
+  // Optional only for immutable snapshots published before canonical job titles existed.
+  jobTitle: z.string().optional(),
   // Composed from the speaker profile's `organization`. It was published as `headline`,
   // which promised a job title and delivered an employer.
   organization: z.string(),

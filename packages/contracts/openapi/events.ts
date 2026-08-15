@@ -8,6 +8,7 @@ import {
   applyEventTemplateInputSchema,
   captureEventTemplateVersionInputSchema,
   createEventInputSchema,
+  createEventHeadersSchema,
   createEventResponseSchema,
   duplicateEventTemplateInputSchema,
   eventIdParamsSchema,
@@ -95,12 +96,16 @@ export const eventsPaths: OpenApiFragment = {
       method: "post",
       path: "/api/events",
       security: [{ sessionCookie: [] }],
-      request: { body: { required: true, content: json(createEventInputSchema) } },
+      request: {
+        headers: createEventHeadersSchema,
+        body: { required: true, content: json(createEventInputSchema) },
+      },
       responses: {
         201: { description: "Created event", content: json(createEventResponseSchema) },
         400: errorResponse,
         401: errorResponse,
         403: errorResponse,
+        409: errorResponse,
         500: errorResponse,
       },
     });

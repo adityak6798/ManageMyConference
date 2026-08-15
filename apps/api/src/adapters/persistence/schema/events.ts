@@ -40,6 +40,9 @@ export function defineEventsSchema() {
        * duplicate (issue #164).
        */
       provisioningKey: text("provisioning_key"),
+      /** Original keyed-create response fields, retained so a retry replays the same response. */
+      provisioningName: text("provisioning_name"),
+      provisioningTimezone: text("provisioning_timezone"),
     },
     (table) => [
       check("events_name_length", sql`length(${table.name}) BETWEEN 1 AND 120`),

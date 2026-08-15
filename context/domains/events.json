@@ -37,6 +37,7 @@
     "apps/web/test/event-templates-result.test.tsx",
     "apps/web/test/setup.ts",
     "apps/web/e2e/event-templates.spec.ts",
+    "apps/web/e2e/event-creation.ts",
     "apps/web/e2e/reference-slice.spec.ts",
     "apps/api/src/transport/http/routes/events.ts",
     "apps/api/src/transport/http/event-mappers.ts",

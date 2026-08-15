@@ -13,6 +13,7 @@
  * in the product, with no seeded projection behind it, can be given a public page at all.
  */
 import { expect, test } from "@playwright/test";
+import { fillAdditionalEvent } from "./event-creation";
 
 test.use({ permissions: ["clipboard-read", "clipboard-write"] });
 
@@ -28,7 +29,7 @@ test("creates an event, previews without publishing, publishes, and takes it dow
   await page.goto("/");
   await page.getByRole("button", { name: "Continue as organizer" }).click();
   await page.getByRole("link", { name: /Event settings/ }).click();
-  await page.getByLabel("Event name", { exact: true }).fill(name);
+  await fillAdditionalEvent(page, { name });
   await page.getByRole("button", { name: "Create event" }).click();
   await expect(page.getByRole("combobox", { name: "Event workspace" })).toContainText(name);
 

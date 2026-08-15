@@ -262,6 +262,15 @@ describe("where a failed load is explained", () => {
     fireEvent.change(await screen.findByLabelText("Event name"), {
       target: { value: "Probe Event" },
     });
+    fireEvent.change(screen.getByLabelText("Public address"), {
+      target: { value: "probe-event" },
+    });
+    fireEvent.change(screen.getByLabelText("Starts"), {
+      target: { value: "2026-09-10" },
+    });
+    fireEvent.change(screen.getByLabelText("Ends"), {
+      target: { value: "2026-09-11" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Create event" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Reference: create-trace");
 

@@ -35,6 +35,7 @@ interface AuditRow {
   action: string;
   target_type: string;
   target_id: string;
+  target_version: number | null;
   correlation_id: string | null;
   idempotency_key: string;
 }
@@ -47,8 +48,8 @@ interface AuditRow {
  */
 const APPEND = `INSERT INTO platform_audit_records (
   id, organization_id, event_id, occurred_at, actor_id, actor_name, source,
-  action, target_type, target_id, correlation_id, idempotency_key
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  action, target_type, target_id, target_version, correlation_id, idempotency_key
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT (organization_id, idempotency_key) DO NOTHING`;
 
 const bindings = (record: PreparedAuditRecord): readonly unknown[] => [
@@ -62,6 +63,7 @@ const bindings = (record: PreparedAuditRecord): readonly unknown[] => [
   record.action,
   record.targetType,
   record.targetId,
+  record.targetVersion ?? null,
   record.correlationId,
   record.idempotencyKey,
 ];
@@ -77,6 +79,7 @@ const toRecord = (row: AuditRow): AuditRecord => ({
   action: row.action,
   targetType: row.target_type,
   targetId: row.target_id,
+  ...(row.target_version !== null ? { targetVersion: Number(row.target_version) } : {}),
   correlationId: row.correlation_id,
   idempotencyKey: row.idempotency_key,
 });
@@ -109,7 +112,7 @@ export class D1AuditRecordStore implements AuditRecordStore {
     page: { limit: number; before?: { occurredAt: string; id: string } },
   ): Promise<{ items: readonly AuditRecord[]; hasMore: boolean }> {
     const columns =
-      "id, organization_id, event_id, occurred_at, actor_id, actor_name, source, action, target_type, target_id, correlation_id, idempotency_key";
+      "id, organization_id, event_id, occurred_at, actor_id, actor_name, source, action, target_type, target_id, target_version, correlation_id, idempotency_key";
     // One row more than asked for, which is how `hasMore` is answered without a second count.
     const probe = page.limit + 1;
     const result = page.before

@@ -101,14 +101,14 @@ function mount(
     }),
   );
   const status = options.status ?? "open";
-  render(
+  const renderView = (fields = options.liveFields) => (
     <PublicCfpView
       eventId={eventId}
       schedule={liveCfp as never}
       liveCfp={
         {
           ...liveCfp,
-          ...(options.liveFields ? { fields: options.liveFields } : {}),
+          ...(fields ? { fields } : {}),
           effectiveStatus: status,
         } as never
       }
@@ -118,13 +118,18 @@ function mount(
       title={liveCfp.title}
       description={liveCfp.description}
       timezone={LA}
-    />,
+    />
   );
+  const view = render(renderView());
   return {
     calls,
     /** Change what the dashboard answers next, so a write's refresh can be observed. */
     setProposals(next: readonly Record<string, unknown>[]) {
       listed = next;
+    },
+    /** Deliver a newly published form to the mounted view, as the visibility refresh does. */
+    rerenderLiveFields(next: readonly Record<string, unknown>[]) {
+      view.rerender(renderView(next));
     },
   };
 }
@@ -811,6 +816,45 @@ describe("the signed-in applicant's proposals", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Start another proposal");
     // And nothing was written: a refused switch is not a save.
     expect(test.calls.filter(({ method }) => method !== "GET")).toHaveLength(0);
+  });
+
+  it("does not invent unsaved changes from answers removed by a refreshed form", async () => {
+    const titleField = liveCfp.fields[0]!;
+    const abstractField = {
+      id: "abstract",
+      type: "long_text" as const,
+      label: "Abstract",
+      guidance: "",
+      required: false,
+      options: [],
+    };
+    const test = mount({
+      liveFields: [titleField, abstractField],
+      proposals: [
+        proposal({
+          id: "50000000-0000-4000-8000-00000000000a",
+          title: "Alpha",
+          answers: { title: "Alpha", abstract: "The old question's answer" },
+        }),
+        proposal({
+          id: "50000000-0000-4000-8000-00000000000b",
+          title: "Beta",
+          answers: { title: "Beta" },
+        }),
+      ],
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: /Continue Alpha/ }));
+    expect(screen.getByLabelText("Abstract")).toHaveValue("The old question's answer");
+
+    // A visibility refresh can remove a question while React retains its old answer in state.
+    // That invisible key is not work the applicant changed and must not block a proposal switch.
+    test.rerenderLiveFields([titleField]);
+    expect(screen.queryByLabelText("Abstract")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Continue Beta/ }));
+
+    expect(screen.getByLabelText(/Proposal title/)).toHaveValue("Beta");
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("refuses to open a stored proposal over a new one that has been typed into", async () => {

@@ -351,8 +351,13 @@ export function PublicCfpView({
     left: Readonly<Record<string, string>>,
     right: Readonly<Record<string, string>>,
   ) => {
-    const keys = Object.keys(left);
-    return keys.length === Object.keys(right).length && keys.every((id) => left[id] === right[id]);
+    const prunedLeft = answersTheFormStillAccepts(left);
+    const prunedRight = answersTheFormStillAccepts(right);
+    const keys = Object.keys(prunedLeft);
+    return (
+      keys.length === Object.keys(prunedRight).length &&
+      keys.every((id) => prunedLeft[id] === prunedRight[id])
+    );
   };
 
   /**

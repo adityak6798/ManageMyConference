@@ -6,7 +6,7 @@ export type {
   EventTemplateState,
   EventTemplateVersion,
 } from "../../domain/events/event-template";
-export { EventService } from "./event-service";
+export { EventIdempotencyConflictError, EventService } from "./event-service";
 export type { EventTemplateRepository } from "./event-template-repository";
 export type {
   EventTemplateApplicationDetail,

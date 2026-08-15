@@ -77,6 +77,10 @@ export const createEventInputSchema = z.object({
   name: z.string().trim().min(1, "Event name is required").max(120),
   timezone: eventTimezoneSchema.default("America/Los_Angeles"),
 });
+/** Optional for compatibility; callers wanting retry convergence supply one stable intent key. */
+export const createEventHeadersSchema = z.object({
+  "idempotency-key": z.string().trim().min(1).max(200).optional(),
+});
 
 export const updateEventInputSchema = z.object({
   name: z.string().trim().min(1, "Event name is required").max(120),

@@ -9,8 +9,10 @@ import { DeterministicAssetStorage } from "../src/adapters/storage/deterministic
 import { R2AssetStorage } from "../src/adapters/storage/r2-asset-storage";
 import type { PublishedSchedule } from "../src/application/agenda/agenda-repository";
 import { AgendaService } from "../src/application/agenda/agenda-service";
+import { ContentConflictError } from "../src/application/content/content-repository";
 import type {
   ContentActorDirectoryPort,
+  ContentProfileAuditPort,
   SpeakerNotificationPort,
 } from "../src/application/content/content-service";
 import {
@@ -47,7 +49,9 @@ const samProfile: SpeakerProfile = {
   email: "sam@example.test",
   bio: "",
   pronouns: "",
+  jobTitle: "",
   organization: "",
+  version: 0,
 };
 
 const acceptedProposal = (overrides: Partial<AcceptedProposal> = {}): AcceptedProposal => ({
@@ -94,6 +98,7 @@ function setup(
     speakerNotifications?: SpeakerNotificationPort;
     /** Identity's answer to "what is this person called?" (issue #154). */
     identities?: ContentActorDirectoryPort;
+    profileAudit?: ContentProfileAuditPort;
   } = {},
 ) {
   const publishedEvents = options.publishedEvents ?? new Set([eventId]);
@@ -119,6 +124,7 @@ function setup(
         ? { speakerNotifications: options.speakerNotifications }
         : {}),
       ...(options.identities ? { identities: options.identities } : {}),
+      ...(options.profileAudit ? { profileAudit: options.profileAudit } : {}),
       assetStorage: storage,
       proposals:
         options.proposals ??
@@ -525,7 +531,9 @@ describe("ContentService", () => {
     const slides = await upload("slides.pdf", "application/pdf");
 
     // The speaker's own portal action: this is the write that did not exist.
-    await expect(service.setProfilePhoto(speaker, profileId, headshot.id)).resolves.toMatchObject({
+    await expect(
+      service.setProfilePhoto(speaker, profileId, headshot.id, 0),
+    ).resolves.toMatchObject({
       id: profileId,
       photoAssetId: headshot.id,
     });
@@ -537,21 +545,43 @@ describe("ContentService", () => {
     expect(await service.readAsset(null, headshot.id)).toBeNull();
 
     // An organizer of the event may set it too — they own the programme it appears on.
-    await service.clearProfilePhoto(organizer, profileId);
+    await service.clearProfilePhoto(organizer, profileId, 1);
     expect((await repository.findProfile(profileId))?.photoAssetId).toBeUndefined();
-    await expect(service.setProfilePhoto(organizer, profileId, headshot.id)).resolves.toMatchObject(
-      { photoAssetId: headshot.id },
-    );
+    await expect(
+      service.setProfilePhoto(organizer, profileId, headshot.id, 2),
+    ).resolves.toMatchObject({ photoAssetId: headshot.id });
 
     // Nobody else: a reviewer on the event, a speaker who is not this speaker, and an
     // anonymous caller are all refused, and refused the same way as an unknown profile.
     const strangerSpeaker = { ...speaker, id: "another-speaker" };
-    for (const actor of [null, await resolveSeededDemoActor("reviewer"), strangerSpeaker]) {
-      await expect(service.setProfilePhoto(actor, profileId, headshot.id)).rejects.toThrow();
-      await expect(service.clearProfilePhoto(actor, profileId)).rejects.toThrow();
+    const outsideOrganizer = {
+      ...organizer,
+      organizations: [{ id: "00000000-0000-4000-8000-000000000099", name: "Another organization" }],
+      organizationAccess: [
+        {
+          id: "00000000-0000-4000-8000-000000000099",
+          capabilities: new Set(organizer.capabilities),
+        },
+      ],
+      eventAccess: [
+        {
+          eventId: "00000000-0000-4000-8000-000000000099",
+          role: "organizer" as const,
+          capabilities: new Set(["content:read" as const, "content:manage" as const]),
+        },
+      ],
+    };
+    for (const actor of [
+      null,
+      await resolveSeededDemoActor("reviewer"),
+      strangerSpeaker,
+      outsideOrganizer,
+    ]) {
+      await expect(service.setProfilePhoto(actor, profileId, headshot.id, 3)).rejects.toThrow();
+      await expect(service.clearProfilePhoto(actor, profileId, 3)).rejects.toThrow();
     }
     await expect(
-      service.setProfilePhoto(organizer, "00000000-0000-4000-8000-0000000000ff", headshot.id),
+      service.setProfilePhoto(organizer, "00000000-0000-4000-8000-0000000000ff", headshot.id, 0),
     ).rejects.toThrow();
     // The refusals changed nothing.
     expect((await repository.findProfile(profileId))?.photoAssetId).toBe(headshot.id);
@@ -560,7 +590,7 @@ describe("ContentService", () => {
     // can render the reason next to the control the speaker used.
     // ERROR-INTENT: the rejection is the assertion subject; it is inspected on the next lines.
     const refusedPdf = await service
-      .setProfilePhoto(speaker, profileId, slides.id)
+      .setProfilePhoto(speaker, profileId, slides.id, 3)
       .catch((error) => error);
     expect(refusedPdf).toBeInstanceOf(SpeakerPhotoInvalidError);
     expect((refusedPdf as SpeakerPhotoInvalidError).fields.assetId?.[0]).toMatch(/not an image/);
@@ -581,7 +611,7 @@ describe("ContentService", () => {
     for (const assetId of [headshot.id, "00000000-0000-4000-8000-0000000000fe"]) {
       // ERROR-INTENT: the rejection is the assertion subject; it is inspected below.
       const refused = await service
-        .setProfilePhoto(organizer, otherProfile, assetId)
+        .setProfilePhoto(organizer, otherProfile, assetId, 0)
         .catch((error) => error);
       expect(refused).toBeInstanceOf(SpeakerPhotoInvalidError);
       expect((refused as SpeakerPhotoInvalidError).fields.assetId?.[0]).toMatch(/uploaded/);
@@ -589,10 +619,105 @@ describe("ContentService", () => {
     expect((await repository.findProfile(otherProfile))?.photoAssetId).toBeUndefined();
 
     // Removing the choice keeps the file: this is "not this picture", not "delete it".
-    await expect(service.clearProfilePhoto(speaker, profileId)).resolves.not.toHaveProperty(
+    await expect(service.clearProfilePhoto(speaker, profileId, 3)).resolves.not.toHaveProperty(
       "photoAssetId",
     );
     expect(await repository.findAsset(headshot.id)).not.toBeNull();
+  });
+
+  it("shares one versioned canonical profile command between organizer and speaker", async () => {
+    const profileUpdated = vi.fn(async () => undefined);
+    const { service, repository } = setup({ profileAudit: { profileUpdated } });
+    const organizer = await resolveSeededDemoActor("organizer");
+    const speaker = await resolveSeededDemoActor("speaker");
+
+    const organized = await service.updateProfile(organizer, samProfile.id, {
+      expectedVersion: 0,
+      name: "Sam Speaker",
+      pronouns: "they/them",
+      jobTitle: "Principal Engineer",
+      organization: "Northwind",
+      bio: "Builds calm systems.",
+      socialLinks: { website: "https://sam.example" },
+    });
+    expect(organized).toMatchObject({
+      version: 1,
+      jobTitle: "Principal Engineer",
+      organization: "Northwind",
+    });
+    expect(profileUpdated).toHaveBeenLastCalledWith({
+      actorId: organizer.id,
+      actorName: organizer.name,
+      source: "human",
+      eventId,
+      profileId: samProfile.id,
+      version: 1,
+    });
+
+    // The portal form was opened at v0. It is refused rather than overwriting the organizer's
+    // canonical edit, and a refusal creates neither a second revision nor an audit fact.
+    await expect(
+      service.updateProfile(speaker, samProfile.id, {
+        expectedVersion: 0,
+        name: "Stale Sam",
+        pronouns: "",
+        jobTitle: "",
+        organization: "",
+        bio: "stale",
+      }),
+    ).rejects.toBeInstanceOf(ContentConflictError);
+    expect(await repository.findProfile(samProfile.id)).toMatchObject({
+      name: "Sam Speaker",
+      version: 1,
+    });
+    expect(profileUpdated).toHaveBeenCalledTimes(1);
+
+    await expect(
+      service.updateProfile(speaker, samProfile.id, {
+        expectedVersion: 1,
+        name: "Sam Speaker",
+        pronouns: "they/them",
+        jobTitle: "Principal Engineer",
+        organization: "Northwind",
+        bio: "Builds calm, accessible systems.",
+      }),
+    ).resolves.toMatchObject({ version: 2, bio: "Builds calm, accessible systems." });
+    expect(profileUpdated).toHaveBeenLastCalledWith({
+      actorId: speaker.id,
+      actorName: speaker.name,
+      source: "human",
+      eventId,
+      profileId: samProfile.id,
+      version: 2,
+    });
+  });
+
+  it("retires a replaced or removed headshot from public visibility", async () => {
+    const { service, repository } = setup();
+    const organizer = await resolveSeededDemoActor("organizer");
+    const speaker = await resolveSeededDemoActor("speaker");
+    const upload = (name: string) =>
+      service.upload(speaker, {
+        profileId: samProfile.id,
+        name,
+        contentType: "image/png",
+        bytes: new Uint8Array([9]),
+      });
+    const first = await upload("first.png");
+    const second = await upload("second.png");
+    await service.publishAsset(organizer, first.id);
+    await service.setProfilePhoto(speaker, samProfile.id, first.id, 0);
+    expect((await repository.findAsset(first.id))?.visibility).toBe("publishable");
+
+    await service.setProfilePhoto(organizer, samProfile.id, second.id, 1);
+    expect((await repository.findAsset(first.id))?.visibility).toBe("private");
+    expect(await service.readAsset(null, first.id)).toBeNull();
+    expect((await repository.findAsset(second.id))?.visibility).toBe("private");
+
+    await service.publishAsset(organizer, second.id);
+    await service.clearProfilePhoto(organizer, samProfile.id, 2);
+    expect((await repository.findAsset(second.id))?.visibility).toBe("private");
+    expect(await service.readAsset(null, second.id)).toBeNull();
   });
 
   it("clears a headshot chosen through the portal when its file is deleted", async () => {
@@ -607,8 +732,21 @@ describe("ContentService", () => {
       contentType: "image/png",
       bytes: new Uint8Array([4]),
     });
-    await service.setProfilePhoto(speaker, profileId, headshot.id);
+    await service.setProfilePhoto(speaker, profileId, headshot.id, 0);
     await service.publishAsset(organizer, headshot.id);
+    await service.updateProfile(speaker, profileId, {
+      expectedVersion: 1,
+      name: "Sam Speaker",
+      bio: "A revision whose snapshot still names the headshot.",
+      pronouns: "",
+      organization: "",
+    });
+    const photoRevision = ((await service.workspace(organizer, eventId)).revisions ?? []).find(
+      (revision) =>
+        revision.entityType === "profile" &&
+        (JSON.parse(revision.snapshotJson) as SpeakerProfile).photoAssetId === headshot.id,
+    );
+    expect(photoRevision).toBeTruthy();
     expect(publishedEvents.has(eventId)).toBe(true);
     await expect(service.readAsset(null, headshot.id)).resolves.toMatchObject({
       publiclyReadable: true,
@@ -620,6 +758,11 @@ describe("ContentService", () => {
     await service.deleteAsset(speaker, headshot.id);
     expect((await repository.findProfile(profileId))?.photoAssetId).toBeUndefined();
     expect(await service.readAsset(organizer, headshot.id)).toBeNull();
+
+    // Restoring a snapshot that named the now-deleted file restores the text but cannot
+    // resurrect a dangling photo reference.
+    await service.restoreRevision(organizer, photoRevision?.id ?? "");
+    expect((await repository.findProfile(profileId))?.photoAssetId).toBeUndefined();
   });
 
   it("persists canonical bytes through the production R2 port", async () => {

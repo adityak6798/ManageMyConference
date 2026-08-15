@@ -74,6 +74,19 @@ WHERE event_id IN (
     '00000000-0000-4000-8000-000000000020'
   )
 );
+-- The committed photo invariant refuses to delete an asset while a profile names it.
+-- Reset owns both sides for the demo events, so clear those selections before deleting their
+-- asset rows. Keep the same event scope as every destructive statement in this fragment.
+UPDATE speaker_profiles
+SET photo_asset_id = NULL
+WHERE event_id IN (
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
+)
+AND photo_asset_id IS NOT NULL;
 DELETE FROM speaker_assets
 WHERE event_id IN (
   SELECT id FROM events

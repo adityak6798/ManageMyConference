@@ -280,6 +280,7 @@
 - `test` / `repository-fact`: [apps/web/test/session-withdrawal.test.tsx](../../apps/web/test/session-withdrawal.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/speaker-checklist.test.tsx](../../apps/web/test/speaker-checklist.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/speaker-photo.test.tsx](../../apps/web/test/speaker-photo.test.tsx)
+- `test` / `repository-fact`: [apps/web/test/speaker-roster.test.tsx](../../apps/web/test/speaker-roster.test.tsx)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
