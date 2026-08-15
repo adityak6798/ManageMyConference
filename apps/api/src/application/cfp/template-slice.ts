@@ -373,7 +373,8 @@ function whole(payload: CfpTemplatePayload): CfpTemplatePayload {
   payload.fields.forEach((field, index) => {
     if (fieldIds.has(field.id)) throw unreadable();
     fieldIds.add(field.id);
-    if (field.type === "select" && field.options.length === 0) throw unreadable();
+    if (field.type === "select" && field.options.length === 0 && !field.choices?.length)
+      throw unreadable();
     // A question can only be shown or hidden by an answer the applicant has already given, so the
     // condition's source must sit earlier in the list.
     if (field.visibleWhen && !earlier(payload.fields, field.visibleWhen.fieldId, index))
@@ -408,7 +409,8 @@ function readField(raw: unknown): CfpField {
     typeof candidate.required !== "boolean" ||
     !FIELD_TYPES.includes(candidate.type as CfpFieldType) ||
     !Array.isArray(candidate.options) ||
-    candidate.options.some((option) => typeof option !== "string")
+    candidate.options.some((option) => typeof option !== "string") ||
+    (candidate.choices !== undefined && !Array.isArray(candidate.choices))
   )
     throw unreadable();
   if (
@@ -420,6 +422,24 @@ function readField(raw: unknown): CfpField {
     (candidate.maxLength !== undefined && !counted(candidate.maxLength, LIMIT.answer))
   )
     throw unreadable();
+  const choices = ((candidate.choices ?? []) as unknown[]).map((choice) => {
+    if (typeof choice !== "object" || choice === null) throw unreadable();
+    const item = choice as Record<string, unknown>;
+    if (
+      typeof item.id !== "string" ||
+      typeof item.label !== "string" ||
+      typeof item.active !== "boolean" ||
+      !within(item.id, 1, LIMIT.id) ||
+      !within(item.label.trim(), 1, LIMIT.option)
+    )
+      throw unreadable();
+    return { id: item.id, label: item.label, active: item.active };
+  });
+  if (
+    choices.length > LIMIT.options ||
+    new Set(choices.map(({ id }) => id)).size !== choices.length
+  )
+    throw unreadable();
   return {
     id: candidate.id,
     type: candidate.type as CfpFieldType,
@@ -427,6 +447,7 @@ function readField(raw: unknown): CfpField {
     guidance: candidate.guidance,
     required: candidate.required,
     options: candidate.options as string[],
+    ...(choices.length ? { choices } : {}),
     ...(typeof candidate.maxLength === "number" ? { maxLength: candidate.maxLength } : {}),
     ...(candidate.visibleWhen === undefined
       ? {}
