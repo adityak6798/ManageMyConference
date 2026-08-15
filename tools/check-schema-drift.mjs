@@ -107,6 +107,12 @@ export const UNMODELLED_OBJECTS = [
   // unmaintained write can be noticed at all (issue #169).
   "trigger:agenda_publication_insert_advances_watermark",
   "trigger:agenda_publication_delete_invalidates_watermark",
+  // Guards introduced by the migrations inherited from main; Drizzle cannot represent triggers.
+  "trigger:crm_pipeline_stage_no_stranded_prospects",
+  "trigger:crm_prospect_insert_requires_pipeline_stage",
+  "trigger:crm_prospect_stage_requires_pipeline_stage",
+  "trigger:speaker_asset_delete_rejects_profile_photo",
+  "trigger:speaker_profile_photo_requires_owned_asset",
 ];
 
 const dialect = new SQLiteSyncDialect();
