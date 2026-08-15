@@ -2052,8 +2052,7 @@ export class ContentService {
     const mayManage = authorized.eventAccess.some(
       (access) => access.eventId === asset.eventId && access.capabilities.has("content:manage"),
     );
-    if (!isOwner && !mayManage)
-      throw new CapabilityDeniedError("Speaker asset access denied");
+    if (!isOwner && !mayManage) throw new CapabilityDeniedError("Speaker asset access denied");
     // The one caller that reads no count and should not: if the profile went between the read
     // above and this write, the pointer at this asset went with it, which is the outcome this
     // line exists to reach. Nothing is reported to the caller from it either way.
