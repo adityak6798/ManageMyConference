@@ -5,7 +5,7 @@
   "specs": ["PRD-CFP-001", "PRD-CFP-002", "PRD-CFP-003", "PRD-CFP-004", "PRD-ABS-001"],
   "journeys": ["JNY-001", "JNY-002"],
   "acceptance": ["ACC-CFP"],
-  "plans": ["PLAN-002"],
+  "plans": ["PLAN-002", "PLAN-004"],
   "paths": [
     "packages/contracts/src/domains/cfp.ts",
     "apps/api/src/adapters/persistence/schema/cfp.ts",
@@ -28,6 +28,7 @@
     "apps/web/src/CfpWorkspace.tsx",
     "apps/web/src/cfp/CfpWorkspace.tsx",
     "apps/web/src/cfp/ApplicantCfpForm.tsx",
+    "apps/web/src/cfp/ParticipantsEditor.tsx",
     "apps/web/src/cfp/controls.tsx",
     "apps/web/src/cfp/model.ts",
     "apps/web/test/cfp-composer.test.tsx",
@@ -43,6 +44,7 @@
     "apps/web/test/cfp-submitter-dashboard.test.tsx",
     "apps/web/e2e/cfp-submitter.spec.ts",
     "apps/web/e2e/cfp-window.spec.ts",
-    "apps/api/test/cfp-draft-isolation.test.ts"
+    "apps/api/test/cfp-draft-isolation.test.ts",
+    "apps/api/migrations/2000_cfp_structured_participants_and_classification.sql"
   ]
 }

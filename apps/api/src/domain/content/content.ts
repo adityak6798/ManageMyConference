@@ -30,6 +30,8 @@ export interface ContentSession {
   readonly title: string;
   readonly abstract: string;
   readonly format: string;
+  readonly sourceFormatId?: string | null;
+  readonly sourceTrackId?: string | null;
   readonly speakerProfileIds: readonly string[];
   readonly tags: readonly string[];
   readonly tracks: readonly string[];

@@ -208,10 +208,12 @@ const FORMAT_FIELD_IDS = ["format", "session_format", "session_type", "type"];
 const FORMAT_LABEL = /\b(format|session type)\b/i;
 const DEFAULT_SESSION_FORMAT = "Session";
 const formatOf = (proposal: SubmittedProposal) =>
+  proposal.formatLabel ||
   proposal.answers.find(
     ({ fieldId, label }) =>
       FORMAT_FIELD_IDS.includes(fieldId.toLowerCase()) || FORMAT_LABEL.test(label),
-  )?.value || DEFAULT_SESSION_FORMAT;
+  )?.value ||
+  DEFAULT_SESSION_FORMAT;
 
 /** Apply a round's configured filters to an immutable submitted-proposal projection. */
 const proposalMatchesFilters = (
@@ -250,35 +252,41 @@ const proposalMatchesFilters = (
 const CO_AUTHOR_FIELD_IDS = ["coauthors", "co_authors", "co-authors"];
 const isCoAuthorField = (fieldId: string) =>
   CO_AUTHOR_FIELD_IDS.includes(fieldId.trim().toLowerCase().replaceAll(" ", ""));
+const BLIND_REVIEW_FIELD_IDS = new Set(["title", "abstract", "track", "format", "tags"]);
 
 /**
  * Blind review is a projection concern, not a storage one: the same stored proposal is shown with
  * its submitter to organizers and without to reviewers. This is the mask.
  */
-const withoutSubmitter = (proposal: SubmittedProposal): PublishedProposal => ({
-  // The owning account goes with the name and the address, and is *dropped* rather than nulled:
-  // it is a stable identifier for one person across every event, so a blind queue that kept it
-  // would let a reviewer join two masked proposals to the same applicant — and a key set to null
-  // is still a key `proposalSchema` does not declare, on a response nothing parses.
-  ...withoutOwner(proposal),
-  /*
-   * The co-author answer goes too, and this is the leak that nulling `submitter` on its own left
-   * open.
-   *
-   * Authorship arrives from the CFP as an *answer* — a JSON array of names and roles under
-   * `coauthors` — so a projection that masked `submitterName` and stopped there handed a blind
-   * reviewer every co-author's name in plain text, inside the same `answers` list the abstract is
-   * rendered from. The submitter was hidden and the people beside them were not.
-   *
-   * Dropped rather than emptied, for the same reason `submitterUserId` is dropped: a co-author
-   * entry blanked to `""` still says how many there were, and "three co-authors, one a professor"
-   * identifies a submission in a small field. `blindProjection` below sets `coAuthors: []` so the
-   * absence is explicit to a reader of the response as well.
-   */
-  answers: proposal.answers.filter(({ fieldId }) => !isCoAuthorField(fieldId)),
-  submitterName: MASKED_SUBMITTER_NAME,
-  submitter: null,
-});
+const withoutSubmitter = (proposal: SubmittedProposal): PublishedProposal => {
+  const { participants: _participants, ...anonymous } = withoutOwner(proposal);
+  return {
+    // The owning account goes with the name and the address, and is *dropped* rather than nulled:
+    // it is a stable identifier for one person across every event, so a blind queue that kept it
+    // would let a reviewer join two masked proposals to the same applicant — and a key set to null
+    // is still a key `proposalSchema` does not declare, on a response nothing parses.
+    ...anonymous,
+    /*
+     * The co-author answer goes too, and this is the leak that nulling `submitter` on its own left
+     * open.
+     *
+     * Authorship arrives from the CFP as an *answer* — a JSON array of names and roles under
+     * `coauthors` — so a projection that masked `submitterName` and stopped there handed a blind
+     * reviewer every co-author's name in plain text, inside the same `answers` list the abstract is
+     * rendered from. The submitter was hidden and the people beside them were not.
+     *
+     * Dropped rather than emptied, for the same reason `submitterUserId` is dropped: a co-author
+     * entry blanked to `""` still says how many there were, and "three co-authors, one a professor"
+     * identifies a submission in a small field. `blindProjection` below sets `coAuthors: []` so the
+     * absence is explicit to a reader of the response as well.
+     */
+    answers: proposal.answers.filter(({ fieldId }) =>
+      BLIND_REVIEW_FIELD_IDS.has(fieldId.trim().toLowerCase()),
+    ),
+    submitterName: MASKED_SUBMITTER_NAME,
+    submitter: null,
+  };
+};
 
 /**
  * A proposal without its owning account id.
@@ -310,11 +318,15 @@ const withoutOwner = ({
  */
 const withCoAuthors = (submitted: SubmittedProposal) => {
   const owned = withoutOwner(submitted);
+  const structured = (owned.participants ?? [])
+    .filter(({ state }) => state !== "declined")
+    .map(({ name, role }) => ({ name, role }));
   const answer = owned.answers.find(({ fieldId }) => isCoAuthorField(fieldId))?.value;
   const proposal = {
     ...owned,
     answers: owned.answers.filter(({ fieldId }) => !isCoAuthorField(fieldId)),
   };
+  if (structured.length) return { ...proposal, coAuthors: structured };
   if (!answer) return { ...proposal, coAuthors: [] };
   try {
     const parsed: unknown = JSON.parse(answer);
@@ -1987,7 +1999,12 @@ export class ReviewService implements AcceptedProposalQuery {
       title: proposal.title,
       abstract: proposal.abstract,
       format: formatOf(proposal),
+      ...(proposal.formatId ? { formatId: proposal.formatId } : {}),
       ...(proposal.track ? { track: proposal.track } : {}),
+      ...(proposal.trackId ? { trackId: proposal.trackId } : {}),
+      participants: (proposal.participants ?? [])
+        .filter(({ state }) => state === "accepted")
+        .map(({ id, name, email, role }) => ({ id, name, email, role })),
       submitter: proposal.submitter,
       decidedAt: decision.decidedAt,
     };

@@ -9,6 +9,7 @@ import {
   cfpEffectiveState,
   cfpFieldMaxLength,
   type ProposalLifecycle,
+  type ProposalParticipant,
   type ProposalSubmission,
   proposalTitleOf,
 } from "../../domain/cfp/cfp";
@@ -53,6 +54,7 @@ export class CfpClosedError extends Error {
  * (`ARC-AUTH-001`, and the same rule `ReviewService.acceptedProposal` follows for events).
  */
 export class CfpProposalNotFoundError extends Error {}
+export class CfpParticipantNotFoundError extends Error {}
 export class CfpValidationError extends Error {
   constructor(readonly fieldErrors: Record<string, string[]>) {
     super("Proposal validation failed");
@@ -110,6 +112,50 @@ const DECLINED_STATUS = "declined";
 const isDecisionStatus = (status: string): boolean =>
   status === ACCEPTED_STATUS || status === DECLINED_STATUS;
 
+type ParticipantInput = Omit<ProposalParticipant, "state">;
+const participantsFor = (
+  current: readonly ProposalParticipant[],
+  input: readonly ParticipantInput[],
+): readonly ProposalParticipant[] => {
+  const emails = new Set<string>();
+  const ids = new Set<string>();
+  return input.map((participant) => {
+    const email = participant.email.trim().toLowerCase();
+    if (emails.has(email) || ids.has(participant.id))
+      throw new CfpValidationError({ participants: ["Each participant must be unique."] });
+    emails.add(email);
+    ids.add(participant.id);
+    const prior = current.find(({ id }) => id === participant.id);
+    if (
+      prior?.state === "accepted" &&
+      (prior.name !== participant.name.trim() ||
+        prior.email !== email ||
+        prior.role !== participant.role)
+    )
+      throw new CfpValidationError({
+        participants: ["An accepted participant must update their own profile."],
+      });
+    return {
+      id: participant.id,
+      name: participant.name.trim(),
+      email,
+      role: participant.role,
+      state: prior?.state ?? "pending",
+    };
+  });
+};
+
+const classificationFor = (fields: readonly CfpField[], answers: Record<string, string>) => {
+  const choice = (fieldId: "track" | "format") => {
+    const field = fields.find(({ id }) => id.trim().toLowerCase() === fieldId);
+    const value = field ? answers[field.id]?.trim() : undefined;
+    if (!field || !value || !field.choices?.some(({ id, active }) => active && id === value))
+      return null;
+    return value;
+  };
+  return { trackId: choice("track"), formatId: choice("format") };
+};
+
 const submitterStateOf = (proposal: ProposalSubmission): SubmitterProposalState => {
   if (proposal.lifecycle === "draft") return "draft";
   if (proposal.status === ACCEPTED_STATUS) return ACCEPTED_STATUS;
@@ -125,6 +171,7 @@ export interface SubmitterProposalView {
   readonly state: SubmitterProposalState;
   readonly title: string | null;
   readonly answers: Readonly<Record<string, string>>;
+  readonly participants: readonly ProposalParticipant[];
   readonly revision: number;
   readonly updatedAt: string;
   /** Null while the proposal is a draft: nothing has been submitted, so nothing is confirmed. */
@@ -170,6 +217,7 @@ const viewOf = (
   state: submitterStateOf(proposal),
   title: proposalTitleOf(proposal.fields.length ? proposal.fields : live, proposal.answers),
   answers: proposal.answers,
+  participants: proposal.participants ?? [],
   revision: proposal.revision ?? 1,
   updatedAt: proposal.updatedAt ?? proposal.submittedAt,
   submittedAt: proposal.lifecycle === "draft" ? null : proposal.submittedAt,
@@ -183,6 +231,9 @@ export class CfpService {
     private readonly now: () => Date,
     private readonly proposals?: Pick<SubmittedProposalQuery, "listStatuses">,
     private readonly notifications?: CfpNotificationPort,
+    private readonly participantIdentities?: {
+      findByEmail(email: string): Promise<Actor | null>;
+    },
   ) {}
   async routingStatuses(actor: Actor | null, eventId: string) {
     organizerFor(actor, eventId);
@@ -423,6 +474,7 @@ export class CfpService {
     eventId: string,
     idempotencyKey: string,
     answers: Record<string, string>,
+    participants: readonly ParticipantInput[] = [],
   ): Promise<ProposalSubmission> {
     // Only an anonymous, already-submitted proposal counts as this call's own retry. Reading the
     // key unscoped answered a guest with whatever else held it — including an account's unsent
@@ -456,12 +508,15 @@ export class CfpService {
     if (Object.keys(fieldErrors).length) throw new CfpValidationError(fieldErrors);
     const resolvedRoute = resolveRoute(form.routing ?? [], answers);
     const at = this.now().toISOString();
+    const classification = classificationFor(form.fields, answers);
     const created = await this.repository.createSubmission({
       id: this.newId(),
       eventId,
       cfpVersion: form.version,
       idempotencyKey,
       answers,
+      participants: participantsFor([], participants),
+      ...classification,
       fields: form.fields,
       resolvedRoute,
       submittedAt: at,
@@ -536,18 +591,22 @@ export class CfpService {
     eventId: string,
     idempotencyKey: string,
     answers: Record<string, string>,
+    participants: readonly ParticipantInput[] = [],
   ): Promise<SubmitterProposalView> {
     const submitter = submitterFor(actor);
     const form = await this.openForm(eventId);
     const fieldErrors = validateAnswers(form.fields, answers, { requireComplete: false });
     if (Object.keys(fieldErrors).length) throw new CfpValidationError(fieldErrors);
     const at = this.now().toISOString();
+    const classification = classificationFor(form.fields, answers);
     const created = await this.repository.createDraft({
       id: this.newId(),
       eventId,
       cfpVersion: form.version,
       idempotencyKey: ownedProposalKey(submitter.id, idempotencyKey),
       answers,
+      participants: participantsFor([], participants),
+      ...classification,
       fields: [],
       resolvedRoute: null,
       submittedAt: at,
@@ -598,6 +657,7 @@ export class CfpService {
     proposalId: string,
     answers: Record<string, string>,
     expectedRevision: number,
+    participants: readonly ParticipantInput[] = [],
   ): Promise<SubmitterProposalView> {
     const submitter = submitterFor(actor);
     const form = await this.openForm(eventId);
@@ -609,11 +669,14 @@ export class CfpService {
     // One reading of the clock for both fields. Two calls could straddle a millisecond and record
     // a row whose `updated_at` is not the instant its window guard was judged against.
     const at = this.now().toISOString();
+    const classification = classificationFor(form.fields, answers);
     const write: ProposalOwnerWrite = {
       eventId,
       proposalId,
       submitterUserId: submitter.id,
       answers,
+      participants: participantsFor(existing.participants ?? [], participants),
+      ...classification,
       expectedRevision,
       updatedAt: at,
       at,
@@ -667,6 +730,7 @@ export class CfpService {
     proposalId: string,
     answers: Record<string, string>,
     expectedRevision: number,
+    participants: readonly ParticipantInput[] = [],
   ): Promise<SubmitterProposalView> {
     const submitter = submitterFor(actor);
     const form = await this.openForm(eventId);
@@ -681,11 +745,14 @@ export class CfpService {
     if (Object.keys(fieldErrors).length) throw new CfpValidationError(fieldErrors);
     const at = this.now().toISOString();
     const resolvedRoute = resolveRoute(form.routing ?? [], answers);
+    const classification = classificationFor(form.fields, answers);
     const write: ProposalSubmitWrite = {
       eventId,
       proposalId,
       submitterUserId: submitter.id,
       answers,
+      participants: participantsFor(existing.participants ?? [], participants),
+      ...classification,
       expectedRevision,
       updatedAt: at,
       at,
@@ -723,6 +790,41 @@ export class CfpService {
     return proposal
       ? { proposalId, eventId, cfpVersion: proposal.cfpVersion, submittedAt: proposal.submittedAt }
       : null;
+  }
+  /** Accept or decline only the invitation bound to this signed-in identity. */
+  async respondToParticipantInvitation(
+    actor: Actor | null,
+    eventId: string,
+    proposalId: string,
+    participantId: string,
+    state: "accepted" | "declined",
+    expectedRevision: number,
+  ) {
+    const participantActor = submitterFor(actor);
+    await this.openForm(eventId);
+    const proposal = await this.repository.findProposalById(eventId, proposalId);
+    const participant = proposal?.participants?.find(({ id }) => id === participantId);
+    if (!proposal || !participant || !this.participantIdentities)
+      throw new CfpParticipantNotFoundError("Participant invitation not found");
+    const invitedIdentity = await this.participantIdentities.findByEmail(participant.email);
+    if (invitedIdentity?.id !== participantActor.id)
+      throw new CfpParticipantNotFoundError("Participant invitation not found");
+    const at = this.now().toISOString();
+    const participants = (proposal.participants ?? []).map((candidate) =>
+      candidate.id === participantId ? { ...candidate, state } : candidate,
+    );
+    if (
+      !(await this.repository.saveParticipantResponse({
+        eventId,
+        proposalId,
+        participants,
+        expectedRevision,
+        updatedAt: at,
+        at,
+      }))
+    )
+      throw new CfpDraftConflictError("This proposal changed; reload the invitation.");
+    return { participant: { id: participantId, state }, revision: expectedRevision + 1 };
   }
   private async owned(eventId: string, proposalId: string, submitterUserId: string) {
     const proposal = await this.repository.findProposalForOwner(
@@ -930,7 +1032,14 @@ function validateAnswers(
       errors[`answers.${field.id}`] = [`Keep this answer under ${limit} characters.`];
     else if (value && field.type === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value))
       errors[`answers.${field.id}`] = ["Enter a valid email address."];
-    else if (value && field.type === "select" && !field.options.includes(value))
+    else if (
+      value &&
+      field.type === "select" &&
+      !(
+        field.choices?.some(({ id, active }) => active && id === value) ??
+        field.options.includes(value)
+      )
+    )
       errors[`answers.${field.id}`] = ["Choose one of the available options."];
   }
   return errors;

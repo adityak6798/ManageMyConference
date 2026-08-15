@@ -54,6 +54,9 @@ export function defineCfpSchema(references: {
       cfpVersion: integer("cfp_version").notNull(),
       idempotencyKey: text("idempotency_key").notNull(),
       answersJson: text("answers_json").notNull(),
+      participantsJson: text("participants_json").notNull().default("[]"),
+      trackId: text("track_id"),
+      formatId: text("format_id"),
       submittedAt: text("submitted_at").notNull(),
       // 0006 added both columns with defaults; D1CfpRepository.createSubmission relies on them.
       status: text("status").notNull().default("submitted"),

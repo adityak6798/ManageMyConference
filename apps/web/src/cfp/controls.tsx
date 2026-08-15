@@ -65,9 +65,13 @@ function FieldControl({
       ) : field.type === "select" ? (
         <select {...shared}>
           <option value="">Choose…</option>
-          {field.options.map((option) => (
-            <option key={option}>{option}</option>
-          ))}
+          {(field.choices ?? field.options.map((label) => ({ id: label, label, active: true })))
+            .filter(({ active }) => active)
+            .map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label}
+              </option>
+            ))}
         </select>
       ) : (
         <input {...shared} type={field.type === "email" ? "email" : "text"} />

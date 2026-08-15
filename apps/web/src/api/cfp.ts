@@ -8,6 +8,7 @@ import {
   createProposalDraftInputSchema,
   proposalConfirmationResponseSchema,
   type SaveCfpInput,
+  type ProposalParticipantInput,
   saveProposalInputSchema,
   type SubmitterProposalDto,
   submitProposalInputSchema,
@@ -21,6 +22,11 @@ export class CfpApiError extends Error {
     super(envelope.error.message);
   }
 }
+const withoutEmptyParticipants = <T extends { participants?: readonly unknown[] }>(body: T) => {
+  if (body.participants?.length) return body;
+  const { participants: _participants, ...rest } = body;
+  return rest;
+};
 async function decode<T>(response: Response, schema: z.ZodType<T>): Promise<T> {
   return decodeResponse(response, schema, (envelope) => new CfpApiError(envelope));
 }
@@ -121,9 +127,12 @@ export async function createProposalDraft(
   eventId: string,
   answers: Record<string, string>,
   idempotencyKey: string,
+  participants: ProposalParticipantInput[] = [],
   fetcher: typeof fetch = fetch,
 ): Promise<SubmitterProposalDto> {
-  const body = createProposalDraftInputSchema.parse({ answers, idempotencyKey });
+  const body = withoutEmptyParticipants(
+    createProposalDraftInputSchema.parse({ answers, idempotencyKey, participants }),
+  );
   return (
     await decode(
       await fetcher(`/api/events/${eventId}/cfp/proposals`, {
@@ -140,9 +149,12 @@ export async function saveProposal(
   proposalId: string,
   answers: Record<string, string>,
   expectedRevision: number,
+  participants: ProposalParticipantInput[] = [],
   fetcher: typeof fetch = fetch,
 ): Promise<SubmitterProposalDto> {
-  const body = saveProposalInputSchema.parse({ answers, expectedRevision });
+  const body = withoutEmptyParticipants(
+    saveProposalInputSchema.parse({ answers, expectedRevision, participants }),
+  );
   return (
     await decode(
       await fetcher(`/api/events/${eventId}/cfp/proposals/${proposalId}`, {
@@ -159,9 +171,12 @@ export async function submitOwnedProposal(
   proposalId: string,
   answers: Record<string, string>,
   expectedRevision: number,
+  participants: ProposalParticipantInput[] = [],
   fetcher: typeof fetch = fetch,
 ): Promise<SubmitterProposalDto> {
-  const body = saveProposalInputSchema.parse({ answers, expectedRevision });
+  const body = withoutEmptyParticipants(
+    saveProposalInputSchema.parse({ answers, expectedRevision, participants }),
+  );
   return (
     await decode(
       await fetcher(`/api/events/${eventId}/cfp/proposals/${proposalId}/submit`, {
@@ -178,9 +193,12 @@ export async function submitProposal(
   eventId: string,
   answers: Record<string, string>,
   idempotencyKey: string,
+  participants: ProposalParticipantInput[] = [],
   fetcher: typeof fetch = fetch,
 ) {
-  const body = submitProposalInputSchema.parse({ answers, idempotencyKey });
+  const body = withoutEmptyParticipants(
+    submitProposalInputSchema.parse({ answers, idempotencyKey, participants }),
+  );
   return (
     await decode(
       await fetcher(`/api/public/events/${eventId}/submissions`, {

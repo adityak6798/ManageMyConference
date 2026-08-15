@@ -27,6 +27,8 @@ export function defineContentSchema(references: {
       title: text("title").notNull(),
       abstract: text("abstract").notNull(),
       format: text("format").notNull(),
+      sourceTrackId: text("source_track_id"),
+      sourceFormatId: text("source_format_id"),
       speakerProfileIds: text("speaker_profile_ids").notNull(),
       tags: text("tags").notNull(),
       tracks: text("tracks").notNull(),

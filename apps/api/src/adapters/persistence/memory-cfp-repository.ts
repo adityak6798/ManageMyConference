@@ -75,6 +75,13 @@ export class MemoryCfpRepository implements CfpRepository {
       ) ?? null,
     );
   }
+  findProposalById(eventId: string, proposalId: string) {
+    return Promise.resolve(
+      [...this.submissions.values()].find(
+        (proposal) => proposal.eventId === eventId && proposal.id === proposalId,
+      ) ?? null,
+    );
+  }
   findProposalForOwner(eventId: string, proposalId: string, submitterUserId: string) {
     return Promise.resolve(
       [...this.submissions.values()].find(
@@ -199,6 +206,9 @@ export class MemoryCfpRepository implements CfpRepository {
     this.submissions.set(entry.key, {
       ...entry.proposal,
       answers: { ...write.answers },
+      participants: structuredClone(write.participants ?? []),
+      trackId: write.trackId,
+      formatId: write.formatId,
       // The fake carried only the answers while D1's statement did the same, so the divergence a
       // fake exists to catch was in both. Both now store the snapshot the answers were validated
       // against — see `ProposalOwnerWrite`.
@@ -217,6 +227,9 @@ export class MemoryCfpRepository implements CfpRepository {
     this.submissions.set(entry.key, {
       ...entry.proposal,
       answers: { ...write.answers },
+      participants: structuredClone(write.participants ?? []),
+      trackId: write.trackId,
+      formatId: write.formatId,
       fields: write.fields,
       resolvedRoute: write.resolvedRoute,
       cfpVersion: write.cfpVersion,
@@ -227,6 +240,31 @@ export class MemoryCfpRepository implements CfpRepository {
       updatedAt: write.updatedAt,
     });
     return Promise.resolve(true);
+  }
+  saveParticipantResponse(write: {
+    eventId: string;
+    proposalId: string;
+    participants: ProposalSubmission["participants"];
+    expectedRevision: number;
+    updatedAt: string;
+    at: string;
+  }) {
+    if (!this.openAt(write.eventId, write.at)) return Promise.resolve(false);
+    for (const [key, proposal] of this.submissions)
+      if (
+        proposal.eventId === write.eventId &&
+        proposal.id === write.proposalId &&
+        (proposal.revision ?? 1) === write.expectedRevision
+      ) {
+        this.submissions.set(key, {
+          ...proposal,
+          participants: structuredClone(write.participants ?? []),
+          revision: (proposal.revision ?? 1) + 1,
+          updatedAt: write.updatedAt,
+        });
+        return Promise.resolve(true);
+      }
+    return Promise.resolve(false);
   }
   /**
    * The same conjunction the adapter's statement is: owner, revision, lifecycle, and open call.

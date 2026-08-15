@@ -11,12 +11,19 @@ export interface CfpField {
   readonly guidance: string;
   readonly required: boolean;
   readonly options: readonly string[];
+  /** Stable values for reserved classification fields; display labels are not persisted as ids. */
+  readonly choices?: readonly CfpChoice[] | undefined;
   /**
    * The longest answer this field accepts. Optional because forms published before limits
    * existed carry no value; `cfpFieldMaxLength` supplies the type default for those.
    */
   readonly maxLength?: number | undefined;
   readonly visibleWhen?: CfpCondition | undefined;
+}
+export interface CfpChoice {
+  readonly id: string;
+  readonly label: string;
+  readonly active: boolean;
 }
 export interface CfpRoutingRule {
   readonly id: string;
@@ -131,6 +138,10 @@ export interface ProposalSubmission {
   readonly cfpVersion: number;
   readonly idempotencyKey: string;
   readonly answers: Readonly<Record<string, string>>;
+  readonly participants?: readonly ProposalParticipant[] | undefined;
+  /** Stable choice ids captured from the published form, never reconstructed from labels. */
+  readonly trackId?: string | null | undefined;
+  readonly formatId?: string | null | undefined;
   readonly fields: readonly CfpField[];
   readonly resolvedRoute?: CfpResolvedRoute | null | undefined;
   readonly submittedAt: string;
@@ -142,6 +153,16 @@ export interface ProposalSubmission {
   readonly updatedAt?: string | undefined;
   /** The organizer's triage status, which the submitter view narrows before showing. */
   readonly status?: string | undefined;
+}
+
+export type ProposalParticipantRole = "co_speaker" | "moderator";
+export type ProposalParticipantState = "pending" | "accepted" | "declined";
+export interface ProposalParticipant {
+  readonly id: string;
+  readonly name: string;
+  readonly email: string;
+  readonly role: ProposalParticipantRole;
+  readonly state: ProposalParticipantState;
 }
 
 /**

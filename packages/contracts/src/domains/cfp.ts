@@ -26,6 +26,16 @@ export const cfpConditionSchema = z.object({
   operator: z.enum(["equals", "in", "notEmpty"]),
   values: z.array(z.string().max(120)).max(30).default([]),
 });
+export const cfpChoiceSchema = z.object({
+  id: z
+    .string()
+    .trim()
+    .min(1)
+    .max(80)
+    .regex(/^[a-zA-Z0-9_-]+$/),
+  label: z.string().trim().min(1).max(120),
+  active: z.boolean().default(true),
+});
 export type CfpCondition = z.infer<typeof cfpConditionSchema>;
 export const cfpConditionMatches = (
   condition: CfpCondition | undefined,
@@ -44,6 +54,8 @@ export const cfpFieldSchema = z.object({
   guidance: z.string().trim().max(500).default(""),
   required: z.boolean().default(false),
   options: z.array(z.string().trim().min(1).max(120)).max(30).default([]),
+  /** Stable values for reserved `track` and `format` selectors; labels may change independently. */
+  choices: z.array(cfpChoiceSchema).max(30).optional(),
   /**
    * The longest answer this field accepts. Optional so forms saved before limits existed
    * still parse; `cfpFieldMaxLength` supplies the type default for those.
@@ -76,7 +88,7 @@ const cfpFieldsSchema = z
           message: "Field IDs must be unique",
         });
       seen.add(field.id);
-      if (field.type === "select" && field.options.length === 0)
+      if (field.type === "select" && field.options.length === 0 && !field.choices?.length)
         context.addIssue({
           code: "custom",
           path: [index, "options"],
@@ -184,6 +196,17 @@ export const cfpStateInputSchema = z.object({ state: z.enum(["publish", "close",
  * the absolute maximum any field may declare; `validateAnswers` then enforces the narrower,
  * per-field `maxLength` the published form advertises.
  */
+export const proposalParticipantRoleSchema = z.enum(["co_speaker", "moderator"]);
+export const proposalParticipantStateSchema = z.enum(["pending", "accepted", "declined"]);
+export const proposalParticipantInputSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().trim().min(1).max(120),
+  email: z.string().trim().email().max(254),
+  role: proposalParticipantRoleSchema,
+});
+export const proposalParticipantSchema = proposalParticipantInputSchema.extend({
+  state: proposalParticipantStateSchema,
+});
 export const submitProposalInputSchema = z.object({
   idempotencyKey: z.string().trim().min(8).max(120),
   answers: z
@@ -191,6 +214,7 @@ export const submitProposalInputSchema = z.object({
     .refine((answers) => Object.keys(answers).length <= CFP_ANSWER_MAX_FIELDS, {
       message: `A proposal carries at most ${CFP_ANSWER_MAX_FIELDS} answers`,
     }),
+  participants: z.array(proposalParticipantInputSchema).max(8).default([]),
 });
 export const proposalConfirmationSchema = z.object({
   confirmationId: z.string().uuid(),
@@ -213,6 +237,17 @@ export const cfpProposalParamsSchema = z.object({
   eventId: z.string().uuid(),
   proposalId: z.string().uuid(),
 });
+export const cfpParticipantParamsSchema = cfpProposalParamsSchema.extend({
+  participantId: z.string().uuid(),
+});
+export const respondProposalParticipantInputSchema = z.object({
+  state: z.enum(["accepted", "declined"]),
+  expectedRevision: z.number().int().positive(),
+});
+export const proposalParticipantResponseSchema = z.object({
+  participant: z.object({ id: z.string().uuid(), state: proposalParticipantStateSchema }),
+  revision: z.number().int().positive(),
+});
 /**
  * What a submitter is told about their own proposal.
  *
@@ -234,6 +269,7 @@ export const submitterProposalSchema = z.object({
   /** Null when nothing answered yet names the proposal. */
   title: z.string().nullable(),
   answers: z.record(z.string().min(1).max(80), z.string().max(CFP_ANSWER_MAX_LENGTH)),
+  participants: z.array(proposalParticipantSchema).optional(),
   /** The optimistic-concurrency token every write has to name back. */
   revision: z.number().int().positive(),
   updatedAt: z.string().datetime(),
@@ -264,12 +300,17 @@ export const createProposalDraftInputSchema = z.object({
    */
   idempotencyKey: z.string().trim().min(8).max(120),
   answers: proposalAnswersSchema,
+  participants: z.array(proposalParticipantInputSchema).max(8).default([]),
 });
 export const saveProposalInputSchema = z.object({
   answers: proposalAnswersSchema,
+  participants: z.array(proposalParticipantInputSchema).max(8).default([]),
   expectedRevision: z.number().int().positive(),
 });
 export type CfpField = z.infer<typeof cfpFieldSchema>;
+export type CfpChoice = z.infer<typeof cfpChoiceSchema>;
+export type ProposalParticipant = z.infer<typeof proposalParticipantSchema>;
+export type ProposalParticipantInput = z.infer<typeof proposalParticipantInputSchema>;
 export type CfpRoutingRule = z.infer<typeof cfpRoutingRuleSchema>;
 export type CfpFormDto = z.infer<typeof cfpFormSchema>;
 export type CfpEffectiveStatus = z.infer<typeof cfpEffectiveStatusSchema>;

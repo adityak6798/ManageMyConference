@@ -25,8 +25,16 @@ export interface AcceptedProposal {
   readonly title: string;
   readonly abstract: string;
   readonly format: string;
+  readonly formatId?: string;
   /** CFP-originating track, preserved into content on acceptance when configured. */
   readonly track?: string;
+  readonly trackId?: string;
+  readonly participants?: readonly {
+    readonly id: string;
+    readonly name: string;
+    readonly email: string;
+    readonly role: "co_speaker" | "moderator";
+  }[];
   /** Always present: a proposal with no contact address is never resolvable as accepted. */
   readonly submitter: { readonly name: string; readonly email: string };
   readonly decidedAt: string;

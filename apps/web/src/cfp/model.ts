@@ -82,6 +82,7 @@ function shape(input: FormShape): string {
       guidance: field.guidance.trim(),
       required: field.required,
       options: field.options.map((option) => option.trim()),
+      choices: field.choices?.map(({ id, label, active }) => ({ id, label: label.trim(), active })),
       visibleWhen: field.visibleWhen,
     })),
     routing: input.routing ?? [],

@@ -951,23 +951,50 @@ export function CfpWorkspace({
                         {field.type === "select" ? (
                           <div className="field cfp-span">
                             <label htmlFor={`editor-options-${field.id}`}>
-                              Options (comma separated)
+                              {field.id === "track" || field.id === "format"
+                                ? "Stable choices (id: label, comma separated)"
+                                : "Options (comma separated)"}
                             </label>
                             <input
                               id={`editor-options-${field.id}`}
-                              value={field.options.join(", ")}
+                              value={
+                                field.choices
+                                  ?.map(({ id, label }) => `${id}: ${label}`)
+                                  .join(", ") ?? field.options.join(", ")
+                              }
                               aria-describedby={`editor-options-hint-${field.id}`}
                               onChange={(event) =>
                                 updateField(field.id, {
-                                  options: event.target.value
-                                    .split(",")
-                                    .map((option) => option.trim())
-                                    .filter(Boolean),
+                                  ...(field.id === "track" || field.id === "format"
+                                    ? {
+                                        options: [],
+                                        choices: event.target.value
+                                          .split(",")
+                                          .map((option) => option.trim())
+                                          .filter(Boolean)
+                                          .map((option) => {
+                                            const [id, ...label] = option.split(":");
+                                            return {
+                                              id: id?.trim() ?? "",
+                                              label: label.join(":").trim(),
+                                              active: true,
+                                            };
+                                          }),
+                                      }
+                                    : {
+                                        options: event.target.value
+                                          .split(",")
+                                          .map((option) => option.trim())
+                                          .filter(Boolean),
+                                        choices: undefined,
+                                      }),
                                 })
                               }
                             />
                             <p className="hint" id={`editor-options-hint-${field.id}`}>
-                              A select question needs at least one option.
+                              {field.id === "track" || field.id === "format"
+                                ? "IDs stay fixed when labels change; inactive choices remain valid on existing proposals."
+                                : "A select question needs at least one option."}
                             </p>
                           </div>
                         ) : null}

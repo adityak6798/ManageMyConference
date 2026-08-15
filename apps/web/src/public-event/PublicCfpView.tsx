@@ -9,7 +9,11 @@
  *
  * @spec PRD-CFP-001 PRD-CFP-002
  */
-import { cfpConditionMatches, type SessionDto } from "@greenroom/contracts";
+import {
+  cfpConditionMatches,
+  type ProposalParticipantInput,
+  type SessionDto,
+} from "@greenroom/contracts";
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import {
   CfpApiError,
@@ -30,6 +34,7 @@ import {
 } from "../api/identity";
 import { Pill } from "./cards";
 import { fullTimeWithZone } from "./model";
+import { ParticipantsEditor } from "../cfp/ParticipantsEditor";
 
 /**
  * Four states, and `scheduled` is the one worth having separately.
@@ -103,6 +108,7 @@ export function PublicCfpView({
   const [proposals, setProposals] = useState<readonly SubmitterProposalDto[]>([]);
   /** The owned proposal the form is bound to, or null when the form is a fresh one. */
   const [editing, setEditing] = useState<SubmitterProposalDto | null>(null);
+  const [participants, setParticipants] = useState<ProposalParticipantInput[]>([]);
   // `/api/session` answers 401 to a visitor with no credential, which `probeIdentity` resolves as
   // a null session rather than as a failure — so holding one is the whole test.
   const signedIn = session !== null;
@@ -231,13 +237,14 @@ export function PublicCfpView({
   /** Anonymous submission: unchanged, and the only path that produces an unowned proposal. */
   const submitAnonymously = () =>
     guarded(async () => {
-      const confirmation = await submitProposal(eventId, answers, submissionKey);
+      const confirmation = await submitProposal(eventId, answers, submissionKey, participants);
       setNotice({
         tone: "ok",
         text: `Proposal received. Confirmation: ${confirmation.confirmationId}`,
       });
       setSubmissionKey(crypto.randomUUID());
       setAnswers({});
+      setParticipants([]);
     }, "The proposal could not be submitted.");
 
   /**
@@ -250,8 +257,8 @@ export function PublicCfpView({
   const saveDraft = () =>
     guarded(async () => {
       const saved = editing
-        ? await saveProposal(eventId, editing.id, answers, editing.revision)
-        : await createProposalDraft(eventId, answers, submissionKey);
+        ? await saveProposal(eventId, editing.id, answers, editing.revision, participants)
+        : await createProposalDraft(eventId, answers, submissionKey, participants);
       setEditing(saved);
       setSubmissionKey(crypto.randomUUID());
       setNotice({
@@ -289,13 +296,20 @@ export function PublicCfpView({
          *
          * Adopting here makes every path after this a revision of a proposal we know about.
          */
-        target = await createProposalDraft(eventId, answers, submissionKey);
+        target = await createProposalDraft(eventId, answers, submissionKey, participants);
         setEditing(target);
         setSubmissionKey(crypto.randomUUID());
       }
-      const submitted = await submitOwnedProposal(eventId, target.id, answers, target.revision);
+      const submitted = await submitOwnedProposal(
+        eventId,
+        target.id,
+        answers,
+        target.revision,
+        participants,
+      );
       setEditing(null);
       setAnswers({});
+      setParticipants([]);
       setSubmissionKey(crypto.randomUUID());
       setNotice({
         tone: "ok",
@@ -456,6 +470,9 @@ export function PublicCfpView({
     const dropped = Object.keys(current.answers).length - Object.keys(kept).length;
     setEditing(current);
     setAnswers(kept);
+    setParticipants(
+      (current.participants ?? []).map(({ id, name, email, role }) => ({ id, name, email, role })),
+    );
     setFieldErrors({});
     // Announced rather than only rendered: the form below has just changed underneath somebody who
     // pressed a button in the list above it, and that is not visible to a screen reader. And when
@@ -493,6 +510,7 @@ export function PublicCfpView({
         : null;
     setEditing(null);
     setAnswers({});
+    setParticipants([]);
     setFieldErrors({});
     setNotice(
       abandoned
@@ -803,9 +821,16 @@ export function PublicCfpView({
                   ) : field.type === "select" ? (
                     <select {...shared}>
                       <option value="">Choose an option</option>
-                      {field.options.map((option) => (
-                        <option key={option}>{option}</option>
-                      ))}
+                      {(
+                        field.choices ??
+                        field.options.map((label) => ({ id: label, label, active: true }))
+                      )
+                        .filter(({ active }) => active)
+                        .map((option) => (
+                          <option key={option.id} value={option.id}>
+                            {option.label}
+                          </option>
+                        ))}
                     </select>
                   ) : (
                     <input {...shared} type={field.type === "email" ? "email" : "text"} />
@@ -820,6 +845,11 @@ export function PublicCfpView({
                 </div>
               );
             })}
+          <ParticipantsEditor
+            participants={participants}
+            onChange={setParticipants}
+            disabled={submitting}
+          />
           {/*
             Two shapes, decided by what is on the form rather than by what the API would accept.
 

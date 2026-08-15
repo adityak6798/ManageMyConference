@@ -2,6 +2,26 @@
 
 Status: canonical | Owner: delivery | Last verified: 2026-08-14
 
+## `PLAN-004` SessionBoard defect closure
+
+Status: active; issue #235 is split into reviewable stacked pull requests
+
+Issue #235 closes the six defects reproduced by the 2026-08-15 pinned SessionBoard evaluation and
+the functional paths that were not judgeable from its deterministic fixture. The stack is ordered
+by domain dependency and every layer remains below 10,000 changed lines:
+
+1. evaluator/closure infrastructure and report hardening in PR #233;
+2. CFP classifications and structured participants, server-side blind-review projection, and the
+   idempotent acceptance-to-content handoff;
+3. speaker assets, task-bound deliverables, content history/approval/export, and fixture coverage;
+4. agenda demonstration, public detail/search/embed/download parity, and the final evaluator run.
+
+Each layer is based on the preceding PR head. Product behavior is recorded in the owning product
+specification, HTTP shapes in the contracts/OpenAPI package, and storage history in additive
+migrations. The final layer reruns evaluator commit
+`d8fafa41cdc484309e3fda953c5567cc2d462734` from a clean fixture and archives its target commit,
+configuration, timestamps, report, manual checklist, and tree state through the #193 evidence path.
+
 ## `PLAN-002` Product lifecycle
 
 Status: active; single-artifact lifecycle acceptance and closure surfaces are review-ready locally;

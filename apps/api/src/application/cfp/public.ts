@@ -58,6 +58,7 @@ export {
   CfpRoutingConfigurationError,
   CfpDraftConflictError,
   CfpProposalNotFoundError,
+  CfpParticipantNotFoundError,
   CfpProposalStateConflictError,
   CfpService,
   CfpStateError,

@@ -38,6 +38,9 @@ type SubmissionRow = {
   cfp_version: number;
   idempotency_key: string;
   answers_json: string;
+  participants_json: string;
+  track_id: string | null;
+  format_id: string | null;
   form_fields_json: string;
   resolved_route_json: string | null;
   submitted_at: string;
@@ -50,7 +53,7 @@ type SubmissionRow = {
 
 /** Every column a proposal read needs, in one place so the four read paths cannot drift. */
 const PROPOSAL_COLUMNS =
-  "id, event_id, cfp_version, idempotency_key, answers_json, form_fields_json, resolved_route_json, submitted_at, submitter_user_id, lifecycle, revision, COALESCE(updated_at, submitted_at) AS updated_at, status";
+  "id, event_id, cfp_version, idempotency_key, answers_json, participants_json, track_id, format_id, form_fields_json, resolved_route_json, submitted_at, submitter_user_id, lifecycle, revision, COALESCE(updated_at, submitted_at) AS updated_at, status";
 
 /**
  * The call is taking submissions *now*, asked as a correlated subquery.
@@ -73,6 +76,9 @@ const submission = (row: SubmissionRow): ProposalSubmission => ({
   cfpVersion: row.cfp_version,
   idempotencyKey: row.idempotency_key,
   answers: JSON.parse(row.answers_json),
+  ...(row.participants_json !== "[]" ? { participants: JSON.parse(row.participants_json) } : {}),
+  ...(row.track_id ? { trackId: row.track_id } : {}),
+  ...(row.format_id ? { formatId: row.format_id } : {}),
   fields: JSON.parse(row.form_fields_json),
   resolvedRoute: row.resolved_route_json ? JSON.parse(row.resolved_route_json) : null,
   submittedAt: row.submitted_at,
@@ -258,6 +264,20 @@ export class D1CfpRepository implements CfpRepository {
     const row = result.results?.[0];
     return row ? submission(row) : null;
   }
+  async findProposalById(eventId: string, proposalId: string) {
+    const result = await this.database
+      .prepare(
+        `SELECT ${PROPOSAL_COLUMNS} FROM cfp_submissions WHERE event_id = ? AND id = ? LIMIT 1`,
+      )
+      .bind(eventId, proposalId)
+      .all<SubmissionRow>();
+    if (!result.success)
+      throw new Error(
+        `D1 failed to find proposal participant invitation: ${result.error ?? "unknown error"}`,
+      );
+    const row = result.results?.[0];
+    return row ? submission(row) : null;
+  }
   async findProposalForOwner(eventId: string, proposalId: string, submitterUserId: string) {
     const result = await this.database
       .prepare(
@@ -352,7 +372,7 @@ export class D1CfpRepository implements CfpRepository {
   async createSubmission(proposal: ProposalSubmission) {
     const result = await this.database
       .prepare(
-        `INSERT OR IGNORE INTO cfp_submissions (id, event_id, cfp_version, idempotency_key, answers_json, form_fields_json, resolved_route_json, submitted_at, updated_at, status, lifecycle, submitter_user_id) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'submitted', ? FROM cfp_forms WHERE event_id = ? AND json_extract(published_json, '$.status') = 'open' AND CAST(json_extract(published_json, '$.version') AS INTEGER) = ? AND (opens_at IS NULL OR opens_at <= ?) AND (closes_at IS NULL OR closes_at > ?)`,
+        `INSERT OR IGNORE INTO cfp_submissions (id, event_id, cfp_version, idempotency_key, answers_json, participants_json, track_id, format_id, form_fields_json, resolved_route_json, submitted_at, updated_at, status, lifecycle, submitter_user_id) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'submitted', ? FROM cfp_forms WHERE event_id = ? AND json_extract(published_json, '$.status') = 'open' AND CAST(json_extract(published_json, '$.version') AS INTEGER) = ? AND (opens_at IS NULL OR opens_at <= ?) AND (closes_at IS NULL OR closes_at > ?)`,
       )
       .bind(
         proposal.id,
@@ -360,6 +380,9 @@ export class D1CfpRepository implements CfpRepository {
         proposal.cfpVersion,
         proposal.idempotencyKey,
         JSON.stringify(proposal.answers),
+        JSON.stringify(proposal.participants ?? []),
+        proposal.trackId ?? null,
+        proposal.formatId ?? null,
         JSON.stringify(proposal.fields),
         proposal.resolvedRoute ? JSON.stringify(proposal.resolvedRoute) : null,
         proposal.submittedAt,
@@ -382,7 +405,7 @@ export class D1CfpRepository implements CfpRepository {
   async createDraft(draft: ProposalDraftCreate) {
     const result = await this.database
       .prepare(
-        `INSERT OR IGNORE INTO cfp_submissions (id, event_id, cfp_version, idempotency_key, answers_json, form_fields_json, resolved_route_json, submitted_at, updated_at, status, lifecycle, submitter_user_id, revision) SELECT ?, ?, ?, ?, ?, '[]', NULL, ?, ?, '${CFP_DRAFT_STATUS}', 'draft', ?, 1 WHERE ${OPEN_WINDOW_GUARD}`,
+        `INSERT OR IGNORE INTO cfp_submissions (id, event_id, cfp_version, idempotency_key, answers_json, participants_json, track_id, format_id, form_fields_json, resolved_route_json, submitted_at, updated_at, status, lifecycle, submitter_user_id, revision) SELECT ?, ?, ?, ?, ?, ?, ?, ?, '[]', NULL, ?, ?, '${CFP_DRAFT_STATUS}', 'draft', ?, 1 WHERE ${OPEN_WINDOW_GUARD}`,
       )
       .bind(
         draft.id,
@@ -390,6 +413,9 @@ export class D1CfpRepository implements CfpRepository {
         draft.cfpVersion,
         draft.idempotencyKey,
         JSON.stringify(draft.answers),
+        JSON.stringify(draft.participants ?? []),
+        draft.trackId ?? null,
+        draft.formatId ?? null,
         draft.submittedAt,
         draft.updatedAt ?? draft.submittedAt,
         draft.submitterUserId,
@@ -408,10 +434,13 @@ export class D1CfpRepository implements CfpRepository {
   async saveProposalAnswers(write: ProposalOwnerWrite) {
     const result = await this.database
       .prepare(
-        `UPDATE cfp_submissions SET answers_json = ?, form_fields_json = ?, cfp_version = ?, revision = revision + 1, updated_at = ? WHERE event_id = ? AND id = ? AND submitter_user_id = ? AND revision = ? AND lifecycle = ? AND ${OPEN_WINDOW_GUARD}`,
+        `UPDATE cfp_submissions SET answers_json = ?, participants_json = ?, track_id = ?, format_id = ?, form_fields_json = ?, cfp_version = ?, revision = revision + 1, updated_at = ? WHERE event_id = ? AND id = ? AND submitter_user_id = ? AND revision = ? AND lifecycle = ? AND ${OPEN_WINDOW_GUARD}`,
       )
       .bind(
         JSON.stringify(write.answers),
+        JSON.stringify(write.participants ?? []),
+        write.trackId ?? null,
+        write.formatId ?? null,
         // The snapshot moves with the answers. See `ProposalOwnerWrite`: a projection reads an
         // answer by looking its field up here, so answers written against a newer form under an
         // older snapshot read as an empty proposal.
@@ -437,10 +466,13 @@ export class D1CfpRepository implements CfpRepository {
   async submitProposal(write: ProposalSubmitWrite) {
     const result = await this.database
       .prepare(
-        `UPDATE cfp_submissions SET answers_json = ?, form_fields_json = ?, resolved_route_json = ?, cfp_version = ?, status = ?, lifecycle = 'submitted', submitted_at = ?, revision = revision + 1, updated_at = ? WHERE event_id = ? AND id = ? AND submitter_user_id = ? AND revision = ? AND lifecycle = 'draft' AND ${OPEN_WINDOW_GUARD}`,
+        `UPDATE cfp_submissions SET answers_json = ?, participants_json = ?, track_id = ?, format_id = ?, form_fields_json = ?, resolved_route_json = ?, cfp_version = ?, status = ?, lifecycle = 'submitted', submitted_at = ?, revision = revision + 1, updated_at = ? WHERE event_id = ? AND id = ? AND submitter_user_id = ? AND revision = ? AND lifecycle = 'draft' AND ${OPEN_WINDOW_GUARD}`,
       )
       .bind(
         JSON.stringify(write.answers),
+        JSON.stringify(write.participants ?? []),
+        write.trackId ?? null,
+        write.formatId ?? null,
         JSON.stringify(write.fields),
         write.resolvedRoute ? JSON.stringify(write.resolvedRoute) : null,
         write.cfpVersion,
@@ -459,5 +491,32 @@ export class D1CfpRepository implements CfpRepository {
     if (!result.success)
       throw new Error(`D1 failed to submit a proposal: ${result.error ?? "unknown error"}`);
     return changedRows(result, "submit a proposal") === 1;
+  }
+  async saveParticipantResponse(write: {
+    eventId: string;
+    proposalId: string;
+    participants: ProposalSubmission["participants"];
+    expectedRevision: number;
+    updatedAt: string;
+    at: string;
+  }) {
+    const result = await this.database
+      .prepare(
+        `UPDATE cfp_submissions SET participants_json = ?, revision = revision + 1, updated_at = ? WHERE event_id = ? AND id = ? AND revision = ? AND ${OPEN_WINDOW_GUARD}`,
+      )
+      .bind(
+        JSON.stringify(write.participants ?? []),
+        write.updatedAt,
+        write.eventId,
+        write.proposalId,
+        write.expectedRevision,
+        write.eventId,
+        write.at,
+        write.at,
+      )
+      .run();
+    if (!result.success)
+      throw new Error(`D1 failed to save participant response: ${result.error ?? "unknown error"}`);
+    return changedRows(result, "save participant response") === 1;
   }
 }

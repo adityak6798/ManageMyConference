@@ -26,6 +26,9 @@ export interface ProposalOwnerWrite {
   readonly proposalId: string;
   readonly submitterUserId: string;
   readonly answers: Readonly<Record<string, string>>;
+  readonly participants?: ProposalSubmission["participants"];
+  readonly trackId?: string | null;
+  readonly formatId?: string | null;
   readonly expectedRevision: number;
   readonly updatedAt: string;
   readonly at: string;
@@ -112,6 +115,8 @@ export interface CfpRepository {
   ): Promise<ProposalSubmission | null>;
   /** A **submitted** proposal by id. A draft is not one, and is invisible here. */
   findSubmissionById(eventId: string, proposalId: string): Promise<ProposalSubmission | null>;
+  /** Any lifecycle, for a participant response after identity has been verified by the service. */
+  findProposalById(eventId: string, proposalId: string): Promise<ProposalSubmission | null>;
   createSubmission(submission: ProposalSubmission): Promise<ProposalSubmission | null>;
   /** One proposal of any lifecycle, scoped to the account that owns it. */
   findProposalForOwner(
@@ -135,4 +140,12 @@ export interface CfpRepository {
   createDraft(draft: ProposalDraftCreate): Promise<ProposalSubmission | null>;
   saveProposalAnswers(write: ProposalOwnerWrite): Promise<boolean>;
   submitProposal(write: ProposalSubmitWrite): Promise<boolean>;
+  saveParticipantResponse(write: {
+    eventId: string;
+    proposalId: string;
+    participants: ProposalSubmission["participants"];
+    expectedRevision: number;
+    updatedAt: string;
+    at: string;
+  }): Promise<boolean>;
 }

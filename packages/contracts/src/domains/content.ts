@@ -8,6 +8,8 @@ export const contentSessionSchema = z.object({
   title: z.string(),
   abstract: z.string().optional(),
   format: z.string().optional(),
+  sourceTrackId: z.string().nullable().optional(),
+  sourceFormatId: z.string().nullable().optional(),
   speakerProfileIds: z.array(z.string().uuid()),
   tags: z.array(z.string()).optional(),
   tracks: z.array(z.string()).optional(),

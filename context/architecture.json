@@ -9,6 +9,11 @@
   "architecture": {
     "publicApplicationEntryPoints": [
       {
+        "path": "apps/web/src/cfp/ParticipantsEditor.tsx",
+        "governing": "PRD-CFP-002",
+        "reason": "The CFP-owned structured participant editor is shared by the authenticated applicant dashboard and the publishing-owned public CFP shell; it exposes only proposal participant input and keeps participant invariants in one applicant control."
+      },
+      {
         "path": "packages/contracts/src/domains/platform.ts",
         "governing": "ARC-DOM-001",
         "reason": "The platform-owned HTTP contract vocabulary: every response shares its declared API version and collection domains reuse its cursor-page schemas instead of drifting transport mechanics. It contains no business-domain nouns or behavior."

@@ -8,6 +8,7 @@
  */
 import {
   cfpProposalParamsSchema,
+  cfpParticipantParamsSchema,
   cfpStateInputSchema,
   cfpRoutingStatusesResponseSchema,
   cfpWindowInputSchema,
@@ -15,6 +16,8 @@ import {
   eventIdParamsSchema,
   saveCfpInputSchema,
   saveProposalInputSchema,
+  respondProposalParticipantInputSchema,
+  proposalParticipantResponseSchema,
   submitProposalInputSchema,
   submitterProposalResponseSchema,
   submitterProposalsResponseSchema,
@@ -25,6 +28,7 @@ import {
   CfpDraftConflictError,
   CfpProposalStateConflictError,
   CfpProposalNotFoundError,
+  CfpParticipantNotFoundError,
   CfpStateError,
   CfpUnavailableError,
   CfpValidationError,
@@ -54,6 +58,7 @@ const routes = [
   "GET /api/events/:eventId/cfp/proposals/:proposalId",
   "PUT /api/events/:eventId/cfp/proposals/:proposalId",
   "POST /api/events/:eventId/cfp/proposals/:proposalId/submit",
+  "POST /api/events/:eventId/cfp/proposals/:proposalId/participants/:participantId/respond",
   "GET /api/public/events/:eventId/cfp",
   "POST /api/public/events/:eventId/submissions",
 ] as const;
@@ -249,6 +254,7 @@ export const cfpRoutes: RouteModule = {
             params.data.eventId,
             parsed.data.idempotencyKey,
             parsed.data.answers,
+            parsed.data.participants,
           ),
         }),
         201,
@@ -305,6 +311,7 @@ export const cfpRoutes: RouteModule = {
             params.data.proposalId,
             parsed.data.answers,
             parsed.data.expectedRevision,
+            parsed.data.participants,
           ),
         }),
       );
@@ -341,10 +348,47 @@ export const cfpRoutes: RouteModule = {
             params.data.proposalId,
             parsed.data.answers,
             parsed.data.expectedRevision,
+            parsed.data.participants,
           ),
         }),
       );
     });
+    app.post(
+      "/api/events/:eventId/cfp/proposals/:proposalId/participants/:participantId/respond",
+      async (context) => {
+        if (!cfpService) throw new CfpUnavailableError("CFP service is unavailable");
+        const params = cfpParticipantParamsSchema.safeParse(context.req.param());
+        if (!params.success)
+          return context.json(
+            envelope("VALIDATION_FAILED", "Invitation is malformed.", context.get("correlationId")),
+            400,
+          );
+        submitterFor(context.get("actor"));
+        const parsed = respondProposalParticipantInputSchema.safeParse(await readJson(context.req));
+        if (!parsed.success)
+          return context.json(
+            envelope(
+              "VALIDATION_FAILED",
+              "Choose accept or decline.",
+              context.get("correlationId"),
+              validationFields(parsed.error.issues),
+            ),
+            400,
+          );
+        return context.json(
+          proposalParticipantResponseSchema.parse(
+            await cfpService.respondToParticipantInvitation(
+              context.get("actor"),
+              params.data.eventId,
+              params.data.proposalId,
+              params.data.participantId,
+              parsed.data.state,
+              parsed.data.expectedRevision,
+            ),
+          ),
+        );
+      },
+    );
     app.post("/api/events/:eventId/cfp/state", async (context) => {
       if (!cfpService) throw new CfpUnavailableError("CFP service is unavailable");
       const params = eventIdParamsSchema.safeParse(context.req.param());
@@ -428,6 +472,7 @@ export const cfpRoutes: RouteModule = {
         params.data.eventId,
         parsed.data.idempotencyKey,
         parsed.data.answers,
+        parsed.data.participants,
       );
       return context.json(
         { submission: { confirmationId: submission.id, submittedAt: submission.submittedAt } },
@@ -445,6 +490,8 @@ export const cfpRoutes: RouteModule = {
       };
     if (error instanceof CfpRoutingConfigurationError)
       return { code: "VALIDATION_FAILED" as const, message: error.message, status: 400 as const };
+    if (error instanceof CfpParticipantNotFoundError)
+      return { code: "NOT_FOUND" as const, message: error.message, status: 404 as const };
     if (error instanceof CfpDraftConflictError)
       return {
         code: "CONFLICT" as const,

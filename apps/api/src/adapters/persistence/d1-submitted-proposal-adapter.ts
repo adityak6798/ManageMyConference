@@ -36,6 +36,9 @@ type ProposalRow = {
   id: string;
   event_id: string;
   answers_json: string;
+  participants_json: string;
+  track_id: string | null;
+  format_id: string | null;
   form_fields_json: string;
   status: ProposalStatus;
   submitter_user_id: string | null;
@@ -44,6 +47,7 @@ type SnapshotField = {
   id: string;
   type: "short_text" | "long_text" | "email" | "select";
   label: string;
+  choices?: readonly { id: string; label: string; active: boolean }[];
 };
 type AuditRow = {
   id: string;
@@ -125,7 +129,7 @@ const submitterOf = (
 const proposal = (row: ProposalRow): SubmittedProposal => {
   const answers = JSON.parse(row.answers_json) as Record<string, string>;
   const snapshot = JSON.parse(row.form_fields_json) as SnapshotField[];
-  const fields = snapshot.length
+  const fields: SnapshotField[] = snapshot.length
     ? snapshot
     : Object.keys(answers).map((id) => ({
         id,
@@ -138,8 +142,9 @@ const proposal = (row: ProposalRow): SubmittedProposal => {
       }));
   const visibleAnswers = fields.flatMap((field) => {
     const value = answers[field.id]?.trim();
+    const displayed = field.choices?.find(({ id }) => id === value)?.label ?? value;
     return value && field.type !== "email" && !isNameField(field)
-      ? [{ fieldId: field.id, label: field.label, type: field.type, value }]
+      ? [{ fieldId: field.id, label: field.label, type: field.type, value: displayed ?? value }]
       : [];
   });
   const title =
@@ -154,13 +159,31 @@ const proposal = (row: ProposalRow): SubmittedProposal => {
   const track = visibleAnswers.find(
     ({ fieldId, type }) => fieldId.trim().toLowerCase() === "track" && type === "select",
   )?.value;
+  const choiceLabel = (fieldId: "track" | "format", choiceId: string | null) =>
+    fields
+      .find(({ id }) => id.trim().toLowerCase() === fieldId)
+      ?.choices?.find(({ id }) => id === choiceId)?.label ?? null;
   const submitter = submitterOf(fields, answers);
   return {
     id: row.id,
     eventId: row.event_id,
     title: title?.value || `Proposal ${row.id}`,
     abstract: abstract?.value || "See submitted answers.",
-    ...(track ? { track } : {}),
+    ...(row.track_id ? { trackId: row.track_id } : {}),
+    ...(row.format_id
+      ? {
+          formatId: row.format_id,
+          formatLabel: choiceLabel("format", row.format_id) ?? row.format_id,
+        }
+      : {}),
+    ...(row.participants_json && row.participants_json !== "[]"
+      ? { participants: JSON.parse(row.participants_json) }
+      : {}),
+    ...(row.track_id
+      ? { track: choiceLabel("track", row.track_id) ?? row.track_id }
+      : track
+        ? { track }
+        : {}),
     submitterName: submitter?.name ?? MASKED_SUBMITTER_NAME,
     submitter,
     submitterUserId: row.submitter_user_id,
@@ -204,7 +227,7 @@ export class D1SubmittedProposalAdapter implements SubmittedProposalInterface {
   async list(eventId: string, status?: ProposalStatus) {
     const result = await this.database
       .prepare(
-        `SELECT id, event_id, answers_json, form_fields_json, status, submitter_user_id FROM cfp_submissions WHERE event_id = ? AND ${SUBMITTED_ONLY}${status ? " AND status = ?" : ""} ORDER BY submitted_at, id`,
+        `SELECT id, event_id, answers_json, participants_json, track_id, format_id, form_fields_json, status, submitter_user_id FROM cfp_submissions WHERE event_id = ? AND ${SUBMITTED_ONLY}${status ? " AND status = ?" : ""} ORDER BY submitted_at, id`,
       )
       .bind(eventId, ...(status ? [status] : []))
       .all<ProposalRow>();
@@ -215,7 +238,7 @@ export class D1SubmittedProposalAdapter implements SubmittedProposalInterface {
   async find(eventId: string, proposalId: string) {
     const result = await this.database
       .prepare(
-        `SELECT id, event_id, answers_json, form_fields_json, status, submitter_user_id FROM cfp_submissions WHERE event_id = ? AND id = ? AND ${SUBMITTED_ONLY} LIMIT 1`,
+        `SELECT id, event_id, answers_json, participants_json, track_id, format_id, form_fields_json, status, submitter_user_id FROM cfp_submissions WHERE event_id = ? AND id = ? AND ${SUBMITTED_ONLY} LIMIT 1`,
       )
       .bind(eventId, proposalId)
       .all<ProposalRow>();
@@ -228,7 +251,7 @@ export class D1SubmittedProposalAdapter implements SubmittedProposalInterface {
     const placeholders = proposalIds.map(() => "?").join(", ");
     const result = await this.database
       .prepare(
-        `SELECT id, event_id, answers_json, form_fields_json, status, submitter_user_id FROM cfp_submissions WHERE event_id = ? AND id IN (${placeholders}) AND ${SUBMITTED_ONLY} ORDER BY submitted_at, id`,
+        `SELECT id, event_id, answers_json, participants_json, track_id, format_id, form_fields_json, status, submitter_user_id FROM cfp_submissions WHERE event_id = ? AND id IN (${placeholders}) AND ${SUBMITTED_ONLY} ORDER BY submitted_at, id`,
       )
       .bind(eventId, ...proposalIds)
       .all<ProposalRow>();

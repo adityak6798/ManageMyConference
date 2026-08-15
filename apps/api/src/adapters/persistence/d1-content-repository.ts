@@ -376,7 +376,7 @@ export class D1ContentRepository
     const statements = [
       this.database
         .prepare(
-          "INSERT INTO content_sessions (id,event_id,proposal_id,title,abstract,format,speaker_profile_ids,tags,tracks,publication_state) VALUES (?,?,?,?,?,?,?,?,?,?)",
+          "INSERT INTO content_sessions (id,event_id,proposal_id,title,abstract,format,source_track_id,source_format_id,speaker_profile_ids,tags,tracks,publication_state) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
         )
         .bind(
           session.id,
@@ -385,6 +385,8 @@ export class D1ContentRepository
           session.title,
           session.abstract,
           session.format,
+          session.sourceTrackId ?? null,
+          session.sourceFormatId ?? null,
           JSON.stringify(session.speakerProfileIds),
           JSON.stringify(session.tags),
           JSON.stringify(session.tracks),
@@ -1343,6 +1345,8 @@ export class D1ContentRepository
       title: row.title ?? "",
       abstract: row.abstract ?? "",
       format: row.format ?? "",
+      ...(row.source_track_id ? { sourceTrackId: row.source_track_id } : {}),
+      ...(row.source_format_id ? { sourceFormatId: row.source_format_id } : {}),
       speakerProfileIds: parse<string[]>(row.speaker_profile_ids),
       tags: parse<string[]>(row.tags),
       tracks: parse<string[]>(row.tracks),
