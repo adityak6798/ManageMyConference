@@ -21,6 +21,8 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { PublicEventApp, StableItineraryRedirect } from "./PublicEventApp";
+import { PublicReportApp } from "./PublicReportApp";
+import { PublicSiteApp } from "./PublicSiteApp";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Application root element is missing");
@@ -40,12 +42,22 @@ if (itineraryMatch) {
 const isItinerary = window.location.pathname.startsWith("/itineraries/");
 const isPublic =
   isItinerary ||
+  /^\/sites\/[^/]+/.test(window.location.pathname) ||
+  window.location.pathname.startsWith("/reports/") ||
   window.location.pathname.startsWith("/events/") ||
   window.location.pathname.startsWith("/embed/events/");
 
 /** Built only on the path that renders it, so the console pays nothing for it. */
 const publicRoot = () =>
-  isItinerary ? <StableItineraryRedirect token={itineraryToken ?? ""} /> : <PublicEventApp />;
+  isItinerary ? (
+    <StableItineraryRedirect token={itineraryToken ?? ""} />
+  ) : window.location.pathname.startsWith("/sites/") ? (
+    <PublicSiteApp />
+  ) : window.location.pathname.startsWith("/reports/") ? (
+    <PublicReportApp />
+  ) : (
+    <PublicEventApp />
+  );
 
 /*
  * The two paths whose application cannot be decided here.

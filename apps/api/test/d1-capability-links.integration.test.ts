@@ -25,7 +25,7 @@ import {
   D1CapabilityLinkStore,
 } from "../src/adapters/persistence/d1-capability-links";
 import type { CapabilityLink } from "../src/application/platform/capability-link";
-import { createMigratedDatabase } from "./support/seeded-d1";
+import { applyMigrationFile, createMigratedDatabase } from "./support/seeded-d1";
 
 const DEMO_ORGANIZATION = "00000000-0000-4000-8000-000000000010";
 const DEMO_EVENT = "00000000-0000-4000-8000-000000000001";
@@ -77,12 +77,63 @@ describe("capability links against D1", () => {
     expect(JSON.stringify(listed[0])).not.toContain("a".repeat(64));
   });
 
+  it("rebuilds populated links and installs creator deletion as revocation", async () => {
+    const { database } = await stack();
+    await database
+      .prepare(
+        "INSERT INTO capability_links (id, resource_kind, resource_ref, organization_id, event_id, token_hash, created_by, created_at, expires_at, scope_json) VALUES (?, 'report', ?, ?, ?, ?, ?, ?, ?, '{}')",
+      )
+      .bind(
+        "rebuild-link",
+        "report-before-rebuild",
+        DEMO_ORGANIZATION,
+        DEMO_EVENT,
+        "f".repeat(64),
+        "seed-organizer",
+        NOW,
+        LATER,
+      )
+      .run();
+
+    await applyMigrationFile(database, "1903_capability_link_creator_lifecycle.sql");
+    const copied = await database
+      .prepare("SELECT resource_ref, created_by FROM capability_links WHERE id = ?")
+      .bind("rebuild-link")
+      .all<{ resource_ref: string; created_by: string }>();
+    expect(copied.results).toEqual([
+      {
+        resource_ref: "report-before-rebuild",
+        created_by: "seed-organizer",
+      },
+    ]);
+
+    const foreignKeys = await database
+      .prepare(
+        'SELECT "from" AS source, "table" AS target, on_delete AS onDelete FROM pragma_foreign_key_list(\'capability_links\')',
+      )
+      .all<{ source: string; target: string; onDelete: string }>();
+    expect(foreignKeys.results).toContainEqual({
+      source: "created_by",
+      target: "users",
+      onDelete: "CASCADE",
+    });
+  });
+
   it("spends exactly one view of a one-view link", async () => {
     const { store } = await stack();
     await store.create(linkOf({ viewLimit: 1 }));
     expect(await store.spend("a".repeat(64), "report", null, NOW)).not.toBeNull();
     // The second resolve matches no row, because liveness and the increment are one statement.
     expect(await store.spend("a".repeat(64), "report", null, NOW)).toBeNull();
+  });
+
+  it("does not spend a password-protected one-view link until the password matches", async () => {
+    const { store } = await stack();
+    await store.create(linkOf({ viewLimit: 1, hasPassword: true, passwordHash: "p".repeat(64) }));
+    expect(await store.spend("a".repeat(64), "report", null, NOW)).toBeNull();
+    expect(await store.spend("a".repeat(64), "report", "w".repeat(64), NOW)).toBeNull();
+    expect(await store.spend("a".repeat(64), "report", "p".repeat(64), NOW)).not.toBeNull();
+    expect(await store.spend("a".repeat(64), "report", "p".repeat(64), NOW)).toBeNull();
   });
 
   it("answers unknown, revoked and expired links identically", async () => {

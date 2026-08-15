@@ -16,13 +16,13 @@ import {
 } from "react";
 import { AcceptInvitationPage } from "./AcceptInvitationPage";
 import { AppShell, type NavGroup, type Persona } from "./AppShell";
-import { ApiError, createEvent, listAssignedEvents, updateEvent } from "./api/events";
 import {
   applyEventTemplate,
   EventTemplateApiError,
   getEventTemplate,
   listEventTemplates,
 } from "./api/event-templates";
+import { ApiError, createEvent, listAssignedEvents, updateEvent } from "./api/events";
 import {
   getAuthConfig,
   getSession,
@@ -47,6 +47,7 @@ import type {
   WorkspaceAccess,
   WorkspaceContext,
   WorkspaceModule,
+  WorkspaceRole,
 } from "./workspaces/contract";
 import {
   assertNoDuplicateWorkspaces,
@@ -112,7 +113,7 @@ const ACCEPT_INVITATION_PATH = "/invitations/accept";
  * `/` is the shell's because what it shows depends on the persona rather than on a domain,
  * and `/settings` is the shell's because its create-event form is the shell's own state.
  */
-function shellRoutes(role: Persona): NavEntry[] {
+function shellRoutes(role: WorkspaceRole): NavEntry[] {
   const overview = (label: string): NavEntry => ({
     href: "/",
     label,
@@ -120,7 +121,7 @@ function shellRoutes(role: Persona): NavEntry[] {
     order: 0,
     icon: <IconDashboard size={16} />,
   });
-  if (role === "organizer")
+  if (role === "organizer" || role === "custom")
     return [
       overview("Overview"),
       {
@@ -137,8 +138,10 @@ function shellRoutes(role: Persona): NavEntry[] {
 }
 
 /** Routes each persona can reach, in sidebar order. The first entry is its home. */
-function routesFor(role: Persona): NavEntry[] {
-  const domains = workspacesForPersona(role).map((module) => ({
+function routesFor(role: WorkspaceRole): NavEntry[] {
+  // A custom role is capability-shaped rather than persona-shaped. Its discoverable surface is
+  // the organizer catalogue; each module's own capability gate still decides whether it opens.
+  const domains = workspacesForPersona(role === "custom" ? "organizer" : role).map((module) => ({
     href: module.path,
     label: module.label,
     group: module.group,
@@ -318,14 +321,14 @@ export function App({
     ? session.authentication === "session"
     : realSession;
 
-  const activeRole = useMemo<Persona>(() => {
+  const activeRole = useMemo<WorkspaceRole>(() => {
     if (!session) return "public";
     const roles = session.eventAccess
       .filter(({ eventId }) => eventId === selectedEventId)
       .map(({ role }) => role);
     if (roles.includes("organizer")) return "organizer";
     if (roles.includes("speaker")) return "speaker";
-    return (roles[0] as Persona) ?? session.actor.persona;
+    return (roles[0] as WorkspaceRole) ?? session.actor.persona;
   }, [selectedEventId, session]);
 
   const activeEventCapabilities = useMemo(
@@ -742,7 +745,7 @@ export function App({
 
     // The shell's own two surfaces. A domain adds neither a case here nor an entry above.
     if (path === "/") {
-      if (activeRole === "organizer")
+      if (activeRole === "organizer" || activeRole === "custom")
         return (
           <OverviewPage
             event={selectedEvent}

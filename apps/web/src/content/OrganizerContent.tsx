@@ -155,7 +155,7 @@ export function OrganizerView({
       sessionFeedback.announce(
         result.ok ? "success" : "error",
         result.ok
-          ? `Saved “${input.title}”.`
+          ? "Session changes saved."
           : withReference("That session could not be saved.", result.error),
       ),
     );

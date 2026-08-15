@@ -2,7 +2,15 @@
   "id": "platform",
   "order": 10,
   "index": "docs/architecture/README.md",
-  "specs": ["ARC-001", "ARC-DOM-001", "ENG-CI-001", "PRD-OPS-001", "PRD-OPS-002", "PRD-OPS-003"],
+  "specs": [
+    "ARC-001",
+    "ARC-DOM-001",
+    "ENG-CI-001",
+    "PRD-OPS-001",
+    "PRD-OPS-002",
+    "PRD-OPS-003",
+    "PRD-OPS-004"
+  ],
   "journeys": [],
   "acceptance": ["ACC-HARNESS", "ACC-DEMO-SMOKE", "ACC-OPS"],
   "plans": ["PLAN-001", "PLAN-002"],
@@ -94,6 +102,7 @@
     "tools/remote-demo-reset.d.mts",
     "tools/tests/setup-local.test.mjs",
     "apps/api/migrations/1902_reporting.sql",
+    "apps/api/migrations/1905_report_run_claims.sql",
     "apps/api/src/application/platform/capability-link.ts",
     "apps/api/src/application/platform/report-catalogue.ts",
     "apps/api/src/application/platform/report-rows.ts",
@@ -104,10 +113,13 @@
     "apps/api/src/adapters/platform/report-link-delivery.ts",
     "apps/api/test/reporting.test.ts",
     "apps/api/test/d1-capability-links.integration.test.ts",
+    "apps/api/test/d1-reporting.integration.test.ts",
     "apps/web/src/ReportsWorkspace.tsx",
+    "apps/web/src/PublicReportApp.tsx",
     "apps/web/src/workspaces/reports.tsx",
     "apps/web/src/api/reports.ts",
-    "apps/web/test/reports-workspace.test.tsx"
+    "apps/web/test/reports-workspace.test.tsx",
+    "apps/web/e2e/zz-closure-surfaces.spec.ts"
   ],
   "symbols": {
     "createHttpApp": "apps/api/src/transport/http/app.ts",

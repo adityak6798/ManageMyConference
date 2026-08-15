@@ -482,7 +482,7 @@ export const reportRunRecordSchema = z.object({
   scheduleId: z.string().uuid(),
   occurrenceKey: z.string(),
   ranAt: z.string().datetime(),
-  outcome: z.enum(["delivered", "failed"]),
+  outcome: z.enum(["pending", "delivered", "failed"]),
   detail: z.string(),
 });
 export const reportSchedulesResponseSchema = z.object({

@@ -4,6 +4,12 @@ on:
   schedule:
     - cron: "17 * * * *"
   workflow_dispatch:
+    inputs:
+      full:
+        description: Run private-address, timeout, malformed-status, and DNS-rebinding probes
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -20,8 +26,19 @@ jobs:
           WEBHOOK_EGRESS_TOKEN: ${{ secrets.WEBHOOK_EGRESS_TOKEN }}
           WEBHOOK_EGRESS_PROBE_TARGET: ${{ vars.WEBHOOK_EGRESS_PROBE_TARGET }}
         run: |
+          set -o pipefail
           if [ -z "$WEBHOOK_EGRESS_ENDPOINT" ] || [ -z "$WEBHOOK_EGRESS_PROBE_TARGET" ] || [ -z "$WEBHOOK_EGRESS_TOKEN" ]; then
             echo "Webhook egress monitor is not configured; skipping."
             exit 0
           fi
-          node tools/probe-webhook-egress.mjs --monitor
+          if [ "${{ inputs.full }}" = "true" ]; then
+            node tools/probe-webhook-egress.mjs 2>&1 | tee webhook-egress-probe.json
+          else
+            node tools/probe-webhook-egress.mjs --monitor 2>&1 | tee webhook-egress-probe.json
+          fi
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: webhook-egress-probe-${{ github.run_id }}
+          path: webhook-egress-probe.json
+          if-no-files-found: ignore

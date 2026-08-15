@@ -7309,16 +7309,7 @@
                       "published"
                     ]
                   }
-                },
-                "required": [
-                  "title",
-                  "abstract",
-                  "format",
-                  "speakerProfileIds",
-                  "tags",
-                  "tracks",
-                  "publicationState"
-                ]
+                }
               }
             }
           }
@@ -37894,6 +37885,7 @@
                                 "outcome": {
                                   "type": "string",
                                   "enum": [
+                                    "pending",
                                     "delivered",
                                     "failed"
                                   ]
@@ -93721,13 +93713,7 @@
                       }
                     }
                   }
-                },
-                "required": [
-                  "name",
-                  "bio",
-                  "pronouns",
-                  "organization"
-                ]
+                }
               }
             }
           }

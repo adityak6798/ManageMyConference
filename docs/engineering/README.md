@@ -6,6 +6,7 @@ Status: canonical | Owner: engineering | Last verified: 2026-08-09
 - [Registering a domain](registering-a-domain.md)
 - [Testing strategy](testing-strategy.md)
 - [CI and release](ci-and-release.md)
+- [External SessionBoard evaluator](external-evaluator.md) — pinned, isolated, credential-optional evidence workflow
 - [Deployed demo runbook](../demo-runbook.md)
 - [Local development](local-development.md)
 - [Agent workflow](agent-workflow.md)

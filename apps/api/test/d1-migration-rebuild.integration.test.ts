@@ -41,6 +41,8 @@ const rebuildCoverage = {
   "1708_delivery_cfp_deadline_triggers.sql": "seeded replay below",
   "1710_delivery_review_plan_triggers.sql": "same four-table recipe replayed by this suite",
   "1802_publication_slug_reservations.sql": "creates and drops a transient audit table",
+  "1903_capability_link_creator_lifecycle.sql":
+    "populated replay in the capability-links D1 integration suite",
 } as const;
 
 describe("migration rebuild coverage", () => {

@@ -17,9 +17,9 @@
  * **A link names a resource, never a session.** `resourceKind` says which domain resolves it and
  * `resourceRef` is that domain's own identifier, carried opaquely and with no foreign key —
  * platform does not own reports' or content's rows any more than it owns anybody else's. The
- * resolving domain reads under **no actor at all**; a link is not an impersonation of whoever
- * created it, and resolving as its creator is precisely how a capability URL comes to outlive the
- * access that justified it.
+ * resolving domain normally reads under **no human actor at all**. Where a resource needs an
+ * application actor (scheduled reports do), its scope carries a bounded snapshot of the
+ * creator's event authority; it never restores the creator's session or current identity.
  *
  * **`scope` is the per-kind policy, decided when the link is minted.** A report's link carries
  * `allowPii`; a speaker-portal link will carry whatever that lane decides a visitor may do. It is

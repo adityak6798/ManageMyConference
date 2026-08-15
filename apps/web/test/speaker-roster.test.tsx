@@ -3,6 +3,7 @@ import type { ContentWorkspaceDto } from "@greenroom/contracts";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as contentApi from "../src/api/content";
+import { SessionEditor } from "../src/content/SessionEditor";
 import { SpeakerOutreach } from "../src/content/SpeakerOutreach";
 
 vi.mock("../src/api/content", async (importOriginal) => ({
@@ -78,6 +79,38 @@ afterEach(() => {
 });
 
 describe("the accepted-speaker roster", () => {
+  it("omits untouched hidden collection fallbacks from a session update", () => {
+    const session: ContentWorkspaceDto["sessions"][number] = {
+      id: "44444444-4444-4444-8444-444444444444",
+      eventId: EVENT_ID,
+      proposalId: "11111111-1111-4111-8111-111111111111",
+      title: "Original title",
+      abstract: "Visible abstract",
+      format: "Talk",
+      speakerProfileIds: [],
+      publicationState: "draft",
+      // tags and tracks are intentionally absent: a Hide policy produces this wire shape even
+      // when the stored collections are nonempty.
+    };
+    const onSave = vi.fn();
+    render(
+      <SessionEditor
+        session={session}
+        speakers={[]}
+        busy={false}
+        onSave={onSave}
+        onClose={() => undefined}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Session title"), {
+      target: { value: "Allowed title" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save session" }));
+
+    expect(onSave).toHaveBeenCalledWith({ title: "Allowed title" });
+  });
+
   it("searches speaker names and companies, composes with readiness, and restores the roster", () => {
     render(<SpeakerOutreach workspace={workspace()} busy={false} run={run} />);
 
@@ -172,6 +205,9 @@ describe("the accepted-speaker roster", () => {
           expectedVersion: 7,
         }),
       ),
+    );
+    expect(vi.mocked(contentApi.updateSpeakerProfile).mock.calls[0]?.[1]).not.toHaveProperty(
+      "socialLinks",
     );
     fireEvent.click(screen.getByRole("button", { name: "Use priya.png" }));
     await waitFor(() =>

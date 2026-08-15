@@ -5,10 +5,11 @@
  * shape is not reporting's. `DEBT-012`'s conditions hold for every anonymous link in this
  * product, and a per-domain token table is how two of them come to disagree about revocation.
  *
- * **`recordRun` is an insert whose uniqueness is the arbiter.** `UNIQUE(schedule_id,
- * occurrence_key)` is what turns "the same occurrence" into "one delivery" across a retried tick
- * or two Workers racing; the schedule's watermark moves in the same batch, so a run that was not
- * recorded cannot leave the watermark claiming it was.
+ * **`recordRun` is a claim whose uniqueness is the arbiter.** It happens before delivery, and
+ * `UNIQUE(schedule_id, occurrence_key)` is what turns "the same occurrence" into "at most one
+ * delivery" across a retried tick or two Workers racing. The schedule's watermark moves in the
+ * same batch. The immutable final run is appended after the external effect returns; an unmatched
+ * claim is projected as a fail-safe failure if the worker disappears between those writes.
  *
  * @spec PRD-OPS-001 ARC-003
  */
@@ -17,6 +18,7 @@ import {
   type ReportDefinition,
   ReportNameTakenError,
   type ReportRepository,
+  type CompletedReportRun,
   type ReportRun,
   type ReportSchedule,
 } from "../../application/platform/reporting-service";
@@ -60,12 +62,13 @@ interface ScheduleRow {
   created_at: string;
   paused_at: string | null;
   last_fired_key: string | null;
+  scope_json: string;
 }
 
 const DEFINITION_COLUMNS =
   "id, event_id, organization_id, name, description, dataset, query_json, created_by, created_at, updated_at, revision";
 const SCHEDULE_COLUMNS =
-  "id, report_id, cadence, minute_of_day, day_of_week, day_of_month, timezone, recipients, link_lifetime_hours, created_by, created_at, paused_at, last_fired_key";
+  "id, report_id, cadence, minute_of_day, day_of_week, day_of_month, timezone, recipients, link_lifetime_hours, created_by, created_at, paused_at, last_fired_key, scope_json";
 
 const toDefinition = (row: DefinitionRow): ReportDefinition => ({
   id: row.id,
@@ -95,6 +98,7 @@ const toSchedule = (row: ScheduleRow): ReportSchedule => ({
   createdAt: row.created_at,
   pausedAt: row.paused_at,
   lastFiredKey: row.last_fired_key,
+  scope: JSON.parse(row.scope_json) as Record<string, unknown>,
 });
 
 export class D1ReportRepository implements ReportRepository {
@@ -220,7 +224,7 @@ export class D1ReportRepository implements ReportRepository {
     await this.write(
       this.database
         .prepare(
-          `INSERT INTO report_schedules (${SCHEDULE_COLUMNS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          `INSERT INTO report_schedules (${SCHEDULE_COLUMNS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         )
         .bind(
           schedule.id,
@@ -236,6 +240,7 @@ export class D1ReportRepository implements ReportRepository {
           schedule.createdAt,
           schedule.pausedAt,
           schedule.lastFiredKey,
+          JSON.stringify(schedule.scope),
         ),
       "create a schedule",
     );
@@ -263,7 +268,7 @@ export class D1ReportRepository implements ReportRepository {
     return (
       await this.rows<ScheduleRow & { event_id: string }>(
         `SELECT s.id, s.report_id, s.cadence, s.minute_of_day, s.day_of_week, s.day_of_month, s.timezone, ` +
-          `s.recipients, s.link_lifetime_hours, s.created_by, s.created_at, s.paused_at, s.last_fired_key, ` +
+          `s.recipients, s.link_lifetime_hours, s.created_by, s.created_at, s.paused_at, s.last_fired_key, s.scope_json, ` +
           `d.event_id FROM report_schedules s JOIN report_definitions d ON d.id = s.report_id ` +
           `WHERE s.paused_at IS NULL ORDER BY s.id`,
       )
@@ -271,29 +276,42 @@ export class D1ReportRepository implements ReportRepository {
   }
 
   /**
-   * Record one run and move the schedule's watermark, in one batch.
+   * Claim one run and move the schedule's watermark, in one batch.
    *
    * `OR IGNORE` plus the unique index is what makes a retried tick converge: the second attempt
    * writes nothing and answers `false`, and the watermark update is guarded on the insert having
-   * happened so it cannot claim an occurrence no run recorded.
+   * happened so it cannot name an occurrence no durable claim recorded.
    */
-  async recordRun(run: ReportRun, lastFiredKey: string): Promise<boolean> {
+  async claimRun(run: ReportRun, lastFiredKey: string): Promise<boolean> {
     const results = await this.database.batch([
       this.database
         .prepare(
-          "INSERT OR IGNORE INTO report_runs (id, schedule_id, occurrence_key, ran_at, outcome, detail) VALUES (?,?,?,?,?,?)",
+          "INSERT OR IGNORE INTO report_run_claims (run_id, schedule_id, occurrence_key, claimed_at) VALUES (?,?,?,?)",
         )
-        .bind(run.id, run.scheduleId, run.occurrenceKey, run.ranAt, run.outcome, run.detail),
+        .bind(run.id, run.scheduleId, run.occurrenceKey, run.ranAt),
       this.database
         .prepare("UPDATE report_schedules SET last_fired_key = ? WHERE id = ? AND changes() > 0")
         .bind(lastFiredKey, run.scheduleId),
     ]);
     const failed = results.find((result) => !result.success);
     if (failed)
-      throw new Error(`D1 failed to record a report run: ${failed.error ?? "unknown error"}`);
+      throw new Error(`D1 failed to claim a report run: ${failed.error ?? "unknown error"}`);
     const [inserted] = results;
-    if (!inserted) throw new Error("D1 returned no result while recording a report run");
-    return changedRows(inserted, "record a report run") > 0;
+    if (!inserted) throw new Error("D1 returned no result while claiming a report run");
+    return changedRows(inserted, "claim a report run") > 0;
+  }
+
+  async recordRun(run: CompletedReportRun): Promise<void> {
+    const result = await this.database
+      .prepare(
+        "INSERT INTO report_runs (id, schedule_id, occurrence_key, ran_at, outcome, detail) VALUES (?,?,?,?,?,?)",
+      )
+      .bind(run.id, run.scheduleId, run.occurrenceKey, run.ranAt, run.outcome, run.detail)
+      .run();
+    if (!result.success)
+      throw new Error(`D1 failed to record a report run: ${result.error ?? "unknown error"}`);
+    if (changedRows(result, "record a report run") !== 1)
+      throw new Error("D1 did not append the report run it claimed");
   }
 
   async listRuns(scheduleId: string, limit: number): Promise<readonly ReportRun[]> {
@@ -306,8 +324,13 @@ export class D1ReportRepository implements ReportRepository {
         outcome: ReportRun["outcome"];
         detail: string;
       }>(
-        "SELECT id, schedule_id, occurrence_key, ran_at, outcome, detail FROM report_runs " +
-          "WHERE schedule_id = ? ORDER BY ran_at DESC, id DESC LIMIT ?",
+        "SELECT id, schedule_id, occurrence_key, ran_at, outcome, detail FROM (" +
+          "SELECT id, schedule_id, occurrence_key, ran_at, outcome, detail FROM report_runs " +
+          "UNION ALL " +
+          "SELECT c.run_id AS id, c.schedule_id, c.occurrence_key, c.claimed_at AS ran_at, " +
+          "'pending' AS outcome, 'Delivery is in progress or was interrupted.' AS detail FROM report_run_claims c " +
+          "LEFT JOIN report_runs r ON r.id = c.run_id WHERE r.id IS NULL" +
+          ") WHERE schedule_id = ? ORDER BY ran_at DESC, id DESC LIMIT ?",
         scheduleId,
         limit,
       )
