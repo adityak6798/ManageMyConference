@@ -7,7 +7,7 @@ test.use({ extraHTTPHeaders: { "cf-connecting-ip": "198.51.100.5" } });
 const DEMO_EVENT = "00000000-0000-4000-8000-000000000001";
 const WORKSHOP_EVENT = "00000000-0000-4000-8000-000000000002";
 const TRIAGE = `/abstracts?event=${DEMO_EVENT}`;
-const QUEUE = `/reviews?event=${DEMO_EVENT}`;
+const QUEUE = `/program?event=${DEMO_EVENT}&tab=submissions`;
 const SETUP = `/abstracts?event=${WORKSHOP_EVENT}`;
 
 /**
@@ -152,7 +152,7 @@ test("organizer triages abstracts, assigns a reviewer, and configures the pipeli
   await restoreSeededPipeline(page);
   await page.goto(TRIAGE);
 
-  await expect(page.getByRole("heading", { level: 1, name: "Abstracts" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Submissions" })).toBeVisible();
   await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
 
   // ---- statuses are tabs, and the counts describe the whole pipeline ----------

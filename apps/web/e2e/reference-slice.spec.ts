@@ -36,8 +36,8 @@ test("signs in, switches events and roles, creates, and reloads an event", async
   // The selected event is carried in the URL so a workspace view is shareable.
   await expect(page).toHaveURL(/\?event=/);
 
-  await page.getByRole("link", { name: /Event settings/ }).click();
-  await expect(page.getByRole("heading", { level: 1, name: "Event settings" })).toBeVisible();
+  await page.goto("/settings?tab=event");
+  await expect(page.getByRole("heading", { level: 1, name: "Event" })).toBeVisible();
   await page.getByLabel("Current event name").fill("Greenroom Workshop Day Renamed");
   // The timezone is chosen from the browser's own zone list rather than typed: a free-text box
   // let a typo through to the public site, the agenda board and every `.ics` invite (#206).
@@ -101,7 +101,9 @@ test("publishes a clean agenda, explains draft conflicts, and keeps publication 
 }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Continue as organizer" }).click();
-  await page.getByRole("link", { name: /Agenda/ }).click();
+  await page.goto(
+    `/schedule?event=${new URL(page.url()).searchParams.get("event")}&tab=agenda&view=room`,
+  );
   await expect(page.getByRole("heading", { level: 1, name: "Agenda" })).toBeVisible();
   await expect(page.getByText("No conflicts. This draft is ready to publish.")).toBeVisible();
 

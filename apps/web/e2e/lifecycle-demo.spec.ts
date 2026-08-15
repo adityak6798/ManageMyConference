@@ -407,7 +407,7 @@ test("audits every organizer destination and the Wave 2 evaluator surfaces", asy
       label: link.textContent?.trim() ?? "",
     })),
   );
-  expect(destinations.length).toBeGreaterThanOrEqual(10);
+  expect(destinations.length).toBeGreaterThanOrEqual(7);
   for (const destination of destinations) {
     await page
       .getByRole("navigation", { name: "Workspace navigation" })
@@ -426,12 +426,12 @@ test("audits every organizer destination and the Wave 2 evaluator surfaces", asy
     await openEveryToolPanel(
       page,
       organizerSurface(destination.href),
-      destination.href.startsWith("/sessions") ? 11 : undefined,
+      destination.href.startsWith("/schedule") ? 11 : undefined,
     );
     await expectNoAxeViolations(page, `organizer ${destination.label}`);
   }
 
-  await page.goto("/sessions");
+  await page.goto("/schedule?tab=sessions");
   // #144: the dashboard leads. The accepted-sessions table is above the authoring tools and
   // inside the first screen, where it used to start 1420px down — 32% of a 4475px page.
   const sessionsHeading = page.getByRole("heading", { name: "Accepted sessions" });
@@ -458,7 +458,7 @@ test("audits every organizer destination and the Wave 2 evaluator surfaces", asy
   await page.getByRole("button", { name: "Edit Speaker handbook" }).click();
   await expect(page.locator('input[value="Speaker handbook"]')).toBeVisible();
   await expect(page.locator('input[value="speaker-handbook"]')).toBeVisible();
-  await page.goto("/agenda");
+  await page.goto("/schedule?tab=agenda");
   await expect(page.getByRole("button", { name: "Generate draft" })).toBeVisible();
   await expect(page.getByText("2 of 2 scheduled")).toBeVisible();
   await page
@@ -469,7 +469,7 @@ test("audits every organizer destination and the Wave 2 evaluator surfaces", asy
       name: /Accessible by default\. Workshop lab, 10:00–11:00/,
     }),
   ).toBeVisible();
-  await page.goto("/abstracts");
+  await page.goto("/program?tab=review");
   await expect(page.getByRole("heading", { name: "Reviewer progress" })).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Designing for the hallway track", exact: true }),

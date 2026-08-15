@@ -84,7 +84,7 @@ test("organizer composes, sees draft diverge from the live form, publishes, and 
 
   // The seeded CFP is published and matches its live snapshot, so the composer offers
   // no publish action until something actually changes.
-  await expect(page.getByRole("heading", { level: 1, name: "Call for proposals" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Forms" })).toBeVisible();
   await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
   await expect(page.getByText("Published · open")).toBeVisible();
   await expect(page.getByText("Live copy matches")).toBeVisible();

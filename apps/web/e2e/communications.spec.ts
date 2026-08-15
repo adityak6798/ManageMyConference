@@ -18,7 +18,7 @@ import { expect, type Locator, type Page, test } from "./fixtures";
 
 const EVENT_ID = "00000000-0000-4000-8000-000000000001";
 const ORGANIZATION_ID = "00000000-0000-4000-8000-000000000010";
-const COMMUNICATIONS = `/communications?event=${EVENT_ID}`;
+const COMMUNICATIONS = `/communications?event=${EVENT_ID}&tab=compose`;
 
 /**
  * The Worker's scheduled entrypoint, driven directly.
@@ -64,7 +64,7 @@ async function openOutbox(page: Page) {
   // unauthenticated and the shell bounces to the sign-in surface.
   await expect(page.getByRole("combobox", { name: "Event workspace" })).toBeVisible();
   await page.goto(COMMUNICATIONS);
-  await expect(page.getByRole("heading", { name: "Communications", level: 1 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Compose", level: 1 })).toBeVisible();
 }
 
 /** Follow the real history pagination until the named delivery is on screen. */

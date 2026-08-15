@@ -58,7 +58,7 @@ test("an organizer reaches a session from the keyboard alone and lands on it", a
   await expect(palette(page)).toBeHidden();
   // Landed on the surface that holds the record, with the record on it — the console has no
   // per-record routes today, which `GAP-022` records.
-  await expect(page).toHaveURL(/\/(sessions|agenda)\?event=/);
+  await expect(page).toHaveURL(/\/schedule\?event=.*&tab=sessions/);
   await expect(page.getByText("Accessible by default").first()).toBeVisible();
   // Focus followed the navigation rather than being left on a control that no longer exists.
   await expect(page.locator("main")).toBeFocused();
@@ -67,10 +67,7 @@ test("an organizer reaches a session from the keyboard alone and lands on it", a
 test("the full-page search surface answers an organizer and links every hit", async ({ page }) => {
   await openConsoleAs(page, "organizer");
 
-  await page
-    .getByRole("navigation", { name: "Workspace navigation" })
-    .getByRole("link", { name: "Search", exact: true })
-    .click();
+  await page.goto("/search");
   await expect(page.getByRole("heading", { level: 1, name: "Search" })).toBeVisible();
 
   await page.getByLabel(/Sessions, speakers, proposals/).fill("accessible");
@@ -116,10 +113,7 @@ test("the inbox states what is waiting on the seeded event, and a dismissal roun
 }) => {
   await openConsoleAs(page, "organizer");
 
-  await page
-    .getByRole("navigation", { name: "Workspace navigation" })
-    .getByRole("link", { name: "Inbox", exact: true })
-    .click();
+  await page.goto("/inbox");
   await expect(page.getByRole("heading", { level: 1, name: "Inbox" })).toBeVisible();
 
   /*
@@ -172,15 +166,12 @@ test("a brand-new event's inbox says its public page is not live", async ({ page
    */
   const name = `Greenroom Inbox Trial ${Date.now()}`;
   await openConsoleAs(page, "organizer");
-  await page.getByRole("link", { name: /Event settings/ }).click();
+  await page.goto("/settings?tab=event");
   await fillAdditionalEvent(page, { name });
   await page.getByRole("button", { name: "Create event" }).click();
   await expect(page.getByRole("combobox", { name: "Event workspace" })).toContainText(name);
 
-  await page
-    .getByRole("navigation", { name: "Workspace navigation" })
-    .getByRole("link", { name: "Inbox", exact: true })
-    .click();
+  await page.goto("/inbox");
   await expect(page.getByRole("heading", { level: 1, name: "Inbox" })).toBeVisible();
 
   const publication = page.getByRole("region", { name: "Publication" });
@@ -199,10 +190,7 @@ test("a reviewer's inbox carries their own work and names what their role omits"
 }) => {
   await openConsoleAs(page, "reviewer");
 
-  await page
-    .getByRole("navigation", { name: "Workspace navigation" })
-    .getByRole("link", { name: "Inbox", exact: true })
-    .click();
+  await page.goto("/inbox");
   await expect(page.getByRole("heading", { level: 1, name: "Inbox" })).toBeVisible();
 
   await expect(
@@ -224,21 +212,20 @@ test("the activity timeline records a real mutation with the organizer who made 
    */
   const name = `Greenroom Activity Trial ${Date.now()}`;
   await openConsoleAs(page, "organizer");
-  await page.getByRole("link", { name: /Event settings/ }).click();
+  await page.goto("/settings?tab=event");
   await fillAdditionalEvent(page, { name });
   await page.getByRole("button", { name: "Create event" }).click();
   await expect(page.getByRole("combobox", { name: "Event workspace" })).toContainText(name);
+  const eventId = new URL(page.url()).searchParams.get("event");
+  expect(eventId, "the workspace URL must carry the selected event").toBeTruthy();
 
-  await page
-    .getByRole("navigation", { name: "Workspace navigation" })
-    .getByRole("link", { name: "Activity", exact: true })
-    .click();
+  await page.goto(`/settings?event=${eventId}&tab=activity`);
   await expect(page.getByRole("heading", { level: 1, name: "Activity" })).toBeVisible();
   await expect(page.getByText("Nothing recorded yet")).toBeVisible();
 
   // Publish a schedule: an agenda mutation whose audit record commits inside the publication's
   // own batch, so this is also the browser-level evidence that the batch writer is wired.
-  await page.getByRole("link", { name: /Agenda/ }).click();
+  await page.goto(`/schedule?event=${eventId}&tab=agenda`);
   await expect(page.getByRole("heading", { level: 1, name: "Agenda" })).toBeVisible();
   await page.getByRole("button", { name: "Create agenda" }).click();
   await page.locator("summary").filter({ hasText: "Manage rooms, tracks, and times" }).click();
@@ -249,10 +236,7 @@ test("the activity timeline records a real mutation with the organizer who made 
   await page.getByRole("button", { name: "Publish schedule" }).click();
   await expect(page.getByRole("status")).toContainText("Published version 1");
 
-  await page
-    .getByRole("navigation", { name: "Workspace navigation" })
-    .getByRole("link", { name: "Activity", exact: true })
-    .click();
+  await page.goto(`/settings?event=${eventId}&tab=activity`);
   const published = page.getByRole("row", { name: /agenda\.schedule_published/ });
   await expect(published).toBeVisible();
   // The organizer who pressed Publish, named, and marked as a person rather than a program.
@@ -265,15 +249,12 @@ test("the activity timeline records a real mutation with the organizer who made 
    * had no seam to observe. Driving it here is what turns "five domains" from a claim into an
    * observation.
    */
-  await page.getByRole("link", { name: /Publishing/ }).click();
-  await expect(page.getByRole("heading", { level: 1, name: "Publishing" })).toBeVisible();
+  await page.goto(`/publish?event=${eventId}&tab=event-site`);
+  await expect(page.getByRole("heading", { level: 1, name: "Event site" })).toBeVisible();
   await page.getByRole("button", { name: "Publish", exact: true }).click();
   await expect(page.getByText("Snapshot matches the draft")).toBeVisible();
 
-  await page
-    .getByRole("navigation", { name: "Workspace navigation" })
-    .getByRole("link", { name: "Activity", exact: true })
-    .click();
+  await page.goto(`/settings?event=${eventId}&tab=activity`);
   const site = page.getByRole("row", { name: /publishing\.event_published/ });
   await expect(site).toBeVisible();
   await expect(site).toContainText("Olivia Organizer");

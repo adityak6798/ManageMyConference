@@ -22,11 +22,11 @@ test("an older event response cannot replace the newly selected event", async ({
     await route.continue();
   });
 
-  await page.goto(`/sessions?event=${DEMO_EVENT}`);
+  await page.goto(`/schedule?event=${DEMO_EVENT}&tab=sessions`);
   await expect(page.getByText("Loading the sessions and speakers workspace.")).toBeVisible();
   await page.getByRole("combobox", { name: "Event workspace" }).selectOption(WORKSHOP_EVENT);
   await expect(page.getByText("Loading the sessions and speakers workspace.")).toBeVisible();
-  await expect(page.getByRole("heading", { level: 1, name: "Sessions & speakers" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Sessions" })).toBeVisible();
   await expect(page.getByText("Designing the calm conference")).toHaveCount(0);
   await page.waitForTimeout(1_100);
   await expect(page.getByText("Designing the calm conference")).toHaveCount(0);
@@ -154,7 +154,7 @@ test("opening an event with no agenda performs no write until Create agenda", as
     if (request.method() !== "GET" && request.url().includes("/agenda"))
       writes.push(`${request.method()} ${request.url()}`);
   });
-  await page.goto(`/agenda?event=${WORKSHOP_EVENT}`);
+  await page.goto(`/schedule?event=${WORKSHOP_EVENT}&tab=agenda`);
   await expect(page.getByText("No agenda yet — create the first room and track")).toBeVisible();
   await expect(page.getByRole("button", { name: "Publish schedule" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Add room" })).toHaveCount(0);

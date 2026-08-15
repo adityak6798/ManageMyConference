@@ -21,10 +21,7 @@ import { expect, test } from "./fixtures";
 async function openMembers(page: import("@playwright/test").Page) {
   await page.goto("/");
   await page.getByRole("button", { name: "Continue as organizer" }).click();
-  await page
-    .getByRole("navigation", { name: "Workspace navigation" })
-    .getByRole("link", { name: "Members", exact: true })
-    .click();
+  await page.goto("/settings?tab=team");
   await expect(page.getByRole("heading", { level: 1, name: "Members" })).toBeVisible();
 }
 

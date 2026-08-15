@@ -44,7 +44,7 @@ async function signIn(page: Page) {
  * the next spec, the next run, and a judge opening the demo look at it.
  */
 async function createEvent(page: Page): Promise<string> {
-  await page.getByRole("link", { name: /Event settings/ }).click();
+  await page.goto("/settings?tab=event");
   await fillAdditionalEvent(page, { name: `Checklist Trial ${Date.now()}` });
   await page.getByRole("button", { name: "Create event" }).click();
   await expect(page.getByRole("combobox", { name: "Event workspace" })).toContainText(
@@ -57,8 +57,8 @@ async function createEvent(page: Page): Promise<string> {
 
 /** The disclosure the checklist lives in, opened the way an organizer opens it. */
 async function openChecklist(page: Page, eventId: string) {
-  await page.goto(`/sessions?event=${eventId}`);
-  await expect(page.getByRole("heading", { level: 1, name: "Sessions & speakers" })).toBeVisible();
+  await page.goto(`/schedule?event=${eventId}&tab=sessions`);
+  await expect(page.getByRole("heading", { level: 1, name: "Sessions" })).toBeVisible();
   const summary = page.getByRole("heading", { name: "Speaker checklist" });
   await expect(summary).toBeVisible();
   await summary.click();

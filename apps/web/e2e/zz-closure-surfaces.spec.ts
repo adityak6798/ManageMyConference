@@ -52,8 +52,8 @@ test("a scoped role receives hidden fields absent on the wire and cannot write a
   expect(allowedSession.ok(), await allowedSession.text()).toBe(true);
 
   // The same scoped grant is a usable console role, not an API-only permission nobody can reach.
-  await page.goto(`/sessions?event=${WORKSHOP_EVENT}`);
-  await expect(page.getByRole("heading", { level: 1, name: "Sessions & speakers" })).toBeVisible();
+  await page.goto(`/schedule?event=${WORKSHOP_EVENT}&tab=sessions`);
+  await expect(page.getByRole("heading", { level: 1, name: "Sessions" })).toBeVisible();
   await expect(
     page.getByRole("cell", { name: "Operating the workshop room safely" }),
   ).toBeVisible();
@@ -67,7 +67,7 @@ test("a report exports every format and its anonymous share stops at revocation"
   expect(
     (await page.request.post("/api/demo-session", { data: { persona: "organizer" } })).ok(),
   ).toBe(true);
-  await page.goto(`/reports?event=${DEMO_EVENT}`);
+  await page.goto(`/settings?event=${DEMO_EVENT}&tab=reports`);
   await expect(page.getByRole("heading", { level: 1, name: "Reports" })).toBeVisible();
 
   await page.getByRole("button", { name: "Run", exact: true }).click();
@@ -168,7 +168,7 @@ test("an organization portal publishes, records consent, and disappears when wit
   expect(
     (await page.request.post("/api/demo-session", { data: { persona: "organizer" } })).ok(),
   ).toBe(true);
-  await page.goto(`/sites?event=${DEMO_EVENT}`);
+  await page.goto(`/publish?event=${DEMO_EVENT}&tab=portals`);
   await expect(page.getByRole("heading", { level: 1, name: "Portals" })).toBeVisible();
   await page.getByRole("button", { name: "New portal" }).click();
   const stamp = Date.now();
@@ -215,7 +215,7 @@ test("a persisted embed is issued, served anonymously, and withdrawn independent
   expect(
     (await page.request.post("/api/demo-session", { data: { persona: "organizer" } })).ok(),
   ).toBe(true);
-  await page.goto(`/publishing?event=${DEMO_EVENT}`);
+  await page.goto(`/publish?event=${DEMO_EVENT}&tab=embeds`);
   const issuedHeading = page.getByRole("heading", { name: "Issued embeds" });
   const issued = page.locator("section.card").filter({ has: issuedHeading });
   const name = `Closure embed ${Date.now()}`;
@@ -244,8 +244,8 @@ test("the webhooks console exposes the deployed configuration failure without a 
   expect(
     (await page.request.post("/api/demo-session", { data: { persona: "organizer" } })).ok(),
   ).toBe(true);
-  await page.goto(`/integrations/webhooks?event=${DEMO_EVENT}`);
-  await expect(page.getByRole("heading", { level: 1, name: "Webhooks" })).toBeVisible();
+  await page.goto(`/settings?event=${DEMO_EVENT}&tab=integrations`);
+  await expect(page.getByRole("heading", { level: 1, name: "Integrations" })).toBeVisible();
   await expect(
     page.getByRole("heading", { name: "Webhook delivery is not configured here" }),
   ).toBeVisible();
