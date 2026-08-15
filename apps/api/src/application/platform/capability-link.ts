@@ -17,9 +17,9 @@
  * **A link names a resource, never a session.** `resourceKind` says which domain resolves it and
  * `resourceRef` is that domain's own identifier, carried opaquely and with no foreign key —
  * platform does not own reports' or content's rows any more than it owns anybody else's. The
- * resolving domain reads under **no actor at all**; a link is not an impersonation of whoever
- * created it, and resolving as its creator is precisely how a capability URL comes to outlive the
- * access that justified it.
+ * resolving domain normally reads under **no human actor at all**. Where a resource needs an
+ * application actor (scheduled reports do), its scope carries a bounded snapshot of the
+ * creator's event authority; it never restores the creator's session or current identity.
  *
  * **`scope` is the per-kind policy, decided when the link is minted.** A report's link carries
  * `allowPii`; a speaker-portal link will carry whatever that lane decides a visitor may do. It is
@@ -84,15 +84,15 @@ export interface CapabilityLinkStore {
    * Spend one view of the link this digest names, or answer null.
    *
    * Must be **one statement**: it has to test liveness — not revoked, not expired, a view left —
-   * and increment the view count together, or two concurrent resolves of a one-view link both
-   * pass the test before either writes. The password digest comes back with it so the caller can
-   * compare without a second read; comparing here rather than in SQL keeps the comparison out of
-   * a query plan and lets the refusal be indistinguishable from every other.
+   * and verify the password digest together, or a wrong password can consume a finite-view link
+   * before the holder supplies the right one. The supplied digest is already one-way, and the
+   * single equality predicate preserves the same indistinguishable refusal as every other guard.
    */
   spend(
     tokenHash: string,
+    passwordHash: string | null,
     now: string,
-  ): Promise<{ link: CapabilityLink; passwordHash: string | null } | null>;
+  ): Promise<CapabilityLink | null>;
 }
 
 /**
@@ -132,11 +132,11 @@ export async function spendCapabilityLink(
   hash: (value: string) => Promise<string>,
   input: { token: string; password?: string | undefined; now: string },
 ): Promise<CapabilityLink> {
-  const spent = await store.spend(await hash(input.token), input.now);
+  const spent = await store.spend(
+    await hash(input.token),
+    input.password ? await hash(input.password) : null,
+    input.now,
+  );
   if (!spent) throw new CapabilityLinkUnavailableError();
-  if (spent.passwordHash) {
-    if (!input.password || (await hash(input.password)) !== spent.passwordHash)
-      throw new CapabilityLinkUnavailableError();
-  }
-  return spent.link;
+  return spent;
 }

@@ -258,7 +258,11 @@ const calendarLines = (document: string) => document.replaceAll("\r\n ", "").spl
 describe("ContentService", () => {
   it("redacts hidden fields and refuses locked writes for a custom event role", async () => {
     const { service } = setup();
-    await service.accept(await resolveSeededDemoActor("organizer"), command, correlationId);
+    const accepted = await service.accept(
+      await resolveSeededDemoActor("organizer"),
+      command,
+      correlationId,
+    );
     const custom = {
       ...(await resolveSeededDemoActor("reviewer")),
       eventAccess: [
@@ -283,15 +287,21 @@ describe("ContentService", () => {
 
     await expect(
       service.updateProfile(custom, samProfile.id, {
-        name: samProfile.name,
         bio: "A locked change",
-        pronouns: samProfile.pronouns,
-        organization: samProfile.organization,
       }),
     ).rejects.toMatchObject({
       subject: "speaker",
       fields: ["bio"],
     } satisfies Partial<FieldLockedError>);
+
+    await expect(
+      service.updateProfile(custom, samProfile.id, { name: "Sam Allowed" }),
+    ).resolves.toMatchObject({ name: "Sam Allowed", bio: "" });
+    await expect(
+      service.updateSession(custom, accepted.sessions[0]?.id ?? "missing", {
+        title: "A permitted title",
+      }),
+    ).resolves.toMatchObject({ title: "A permitted title", abstract: "Useful detail" });
   });
 
   it("preserves speaker and organizer access when an actor has multiple event roles", async () => {

@@ -181,10 +181,9 @@ type SessionDraft = {
  * The editable copy of a session.
  *
  * A field this reader's role hides arrives absent, and the draft falls back to an empty value so
- * the form has something to bind to. That is safe *only* because the editor disables an input
- * the role cannot change and the API refuses the field regardless
- * (`ContentService.updateSession` calls `assertEditable`): the client's fallback is presentation,
- * never permission.
+ * the form has something to bind to. Saving sends only fields whose values actually changed,
+ * and the API independently refuses locked fields (`ContentService.updateSession` calls
+ * `assertEditable`), so a presentation fallback can neither erase nor disclose a hidden value.
  */
 function sessionDraft(session: ContentSession): SessionDraft {
   return {

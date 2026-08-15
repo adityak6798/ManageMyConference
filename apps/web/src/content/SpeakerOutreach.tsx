@@ -1,3 +1,4 @@
+import type { UpdateSpeakerProfileInput } from "@greenroom/contracts";
 import { type FormEvent, useMemo, useRef, useState } from "react";
 import {
   clearSpeakerProfilePhoto,
@@ -130,10 +131,20 @@ export function SpeakerOutreach({
     const socialLinks = Object.fromEntries(
       Object.entries(profileDraft.socialLinks).filter(([, value]) => value.trim()),
     );
+    const next = { ...profileDraft, socialLinks };
+    const saved = draftFor(editingProfile);
+    const changes = Object.fromEntries(
+      Object.entries(next).filter(
+        ([key, value]) =>
+          key !== "expectedVersion" &&
+          JSON.stringify(value) !== JSON.stringify(saved[key as keyof ProfileDraft]),
+      ),
+    ) as UpdateSpeakerProfileInput;
+    if (!Object.keys(changes).length) return;
     await run(() =>
       updateSpeakerProfile(editingProfile.id, {
-        ...profileDraft,
-        socialLinks,
+        ...changes,
+        expectedVersion: profileDraft.expectedVersion,
       }),
     ).then((result) => {
       if (result.ok)

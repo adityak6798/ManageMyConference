@@ -1295,12 +1295,29 @@ export class ContentService {
      * sends only the text fields edits only the text, rather than silently clearing every link
      * the speaker had entered.
      */
-    input: Pick<SpeakerProfile, "name" | "bio" | "pronouns" | "organization"> &
-      Partial<Pick<SpeakerProfile, "jobTitle" | "socialLinks">> & { expectedVersion?: number },
+    input: {
+      [K in keyof Pick<
+        SpeakerProfile,
+        "name" | "bio" | "pronouns" | "organization" | "jobTitle" | "socialLinks"
+      >]?: SpeakerProfile[K] | undefined;
+    } & { expectedVersion?: number | undefined },
   ): Promise<SpeakerProfile> {
     const { profile, authorized } = await this.requireProfileSteward(actor, profileId);
-    const { expectedVersion: suppliedVersion, ...changes } = input;
-    fieldAccessFor(authorized, profile.eventId).assertEditable("speaker", Object.keys(changes));
+    const { expectedVersion: suppliedVersion, ...candidateChanges } = input;
+    const changes = Object.fromEntries(
+      Object.entries(candidateChanges).filter(([, value]) => value !== undefined),
+    ) as Partial<
+      Pick<
+        SpeakerProfile,
+        "name" | "bio" | "pronouns" | "organization" | "jobTitle" | "socialLinks"
+      >
+    >;
+    const current = profile as unknown as Record<string, unknown>;
+    const changedFields = Object.entries(changes)
+      .filter(([key, value]) => JSON.stringify(current[key]) !== JSON.stringify(value))
+      .map(([key]) => key);
+    fieldAccessFor(authorized, profile.eventId).assertEditable("speaker", changedFields);
+    if (!changedFields.length) return profile;
     const expectedVersion = suppliedVersion ?? profile.version ?? 0;
     const updated = await this.dependencies.repository.reviseProfile(
       profile.id,
@@ -1494,24 +1511,53 @@ export class ContentService {
   async updateSession(
     actor: Actor | null,
     sessionId: string,
-    input: Pick<
-      ContentSession,
-      "title" | "abstract" | "format" | "speakerProfileIds" | "tags" | "tracks" | "publicationState"
-    >,
+    input: {
+      [K in keyof Pick<
+        ContentSession,
+        | "title"
+        | "abstract"
+        | "format"
+        | "speakerProfileIds"
+        | "tags"
+        | "tracks"
+        | "publicationState"
+      >]?: ContentSession[K] | undefined;
+    },
   ) {
     const session = await this.dependencies.repository.findSession(sessionId);
     if (!session) throw new CapabilityDeniedError("Organizer session access denied");
     const authorized = requireEventCapability(actor, session.eventId, "content:manage");
-    fieldAccessFor(authorized, session.eventId).assertEditable("session", Object.keys(input));
-    const profiles = await Promise.all(
-      input.speakerProfileIds.map((id) => this.dependencies.repository.findProfile(id)),
-    );
-    if (profiles.some((profile) => !profile || profile.eventId !== session.eventId))
-      throw new CapabilityDeniedError("Session speaker access denied");
+    const changes = Object.fromEntries(
+      Object.entries(input).filter(([, value]) => value !== undefined),
+    ) as Partial<
+      Pick<
+        ContentSession,
+        | "title"
+        | "abstract"
+        | "format"
+        | "speakerProfileIds"
+        | "tags"
+        | "tracks"
+        | "publicationState"
+      >
+    >;
+    const current = session as unknown as Record<string, unknown>;
+    const changedFields = Object.entries(changes)
+      .filter(([key, value]) => JSON.stringify(current[key]) !== JSON.stringify(value))
+      .map(([key]) => key);
+    fieldAccessFor(authorized, session.eventId).assertEditable("session", changedFields);
+    if (!changedFields.length) return session;
+    if (changes.speakerProfileIds) {
+      const profiles = await Promise.all(
+        changes.speakerProfileIds.map((id) => this.dependencies.repository.findProfile(id)),
+      );
+      if (profiles.some((profile) => !profile || profile.eventId !== session.eventId))
+        throw new CapabilityDeniedError("Session speaker access denied");
+    }
     const updated = await this.dependencies.repository.reviseSession(
       session.id,
       this.draftRevision(authorized, session.eventId),
-      (current) => ({ ...current, ...input }),
+      (current) => ({ ...current, ...changes }),
     );
     if (!updated) throw new CapabilityDeniedError("Organizer session access denied");
     return updated;

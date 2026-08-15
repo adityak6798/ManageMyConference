@@ -5,10 +5,10 @@
  * shape is not reporting's. `DEBT-012`'s conditions hold for every anonymous link in this
  * product, and a per-domain token table is how two of them come to disagree about revocation.
  *
- * **`recordRun` is an insert whose uniqueness is the arbiter.** `UNIQUE(schedule_id,
- * occurrence_key)` is what turns "the same occurrence" into "one delivery" across a retried tick
- * or two Workers racing; the schedule's watermark moves in the same batch, so a run that was not
- * recorded cannot leave the watermark claiming it was.
+ * **`recordRun` is a claim whose uniqueness is the arbiter.** It happens before delivery, and
+ * `UNIQUE(schedule_id, occurrence_key)` is what turns "the same occurrence" into "at most one
+ * delivery" across a retried tick or two Workers racing. The schedule's watermark moves in the
+ * same batch; `finishRun` replaces the fail-safe failed claim after the external effect returns.
  *
  * @spec PRD-OPS-001 ARC-003
  */
@@ -274,7 +274,7 @@ export class D1ReportRepository implements ReportRepository {
   }
 
   /**
-   * Record one run and move the schedule's watermark, in one batch.
+   * Claim one run and move the schedule's watermark, in one batch.
    *
    * `OR IGNORE` plus the unique index is what makes a retried tick converge: the second attempt
    * writes nothing and answers `false`, and the watermark update is guarded on the insert having
@@ -297,6 +297,17 @@ export class D1ReportRepository implements ReportRepository {
     const [inserted] = results;
     if (!inserted) throw new Error("D1 returned no result while recording a report run");
     return changedRows(inserted, "record a report run") > 0;
+  }
+
+  async finishRun(runId: string, outcome: ReportRun["outcome"], detail: string): Promise<void> {
+    const result = await this.database
+      .prepare("UPDATE report_runs SET outcome = ?, detail = ? WHERE id = ?")
+      .bind(outcome, detail, runId)
+      .run();
+    if (!result.success)
+      throw new Error(`D1 failed to finish a report run: ${result.error ?? "unknown error"}`);
+    if (changedRows(result, "finish a report run") !== 1)
+      throw new Error("D1 could not find the report run it claimed");
   }
 
   async listRuns(scheduleId: string, limit: number): Promise<readonly ReportRun[]> {

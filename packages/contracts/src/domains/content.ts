@@ -219,20 +219,24 @@ export type ContentWorkspaceDto = z.infer<typeof contentWorkspaceSchema>;
  */
 export const acceptContentInputSchema = z.object({ proposalId: z.string().uuid() });
 export type AcceptContentInput = z.infer<typeof acceptContentInputSchema>;
-export const updateSpeakerProfileInputSchema = z.object({
-  expectedVersion: z.number().int().nonnegative().optional(),
-  name: z.string().trim().min(1).max(120),
-  bio: z.string().trim().max(2000),
-  pronouns: z.string().trim().max(50),
-  jobTitle: z.string().trim().max(120).optional(),
-  organization: z.string().trim().max(120),
-  /*
-   * Optional so an older client's save is a text edit rather than a silent wipe of every link.
-   * Sending it replaces the whole set, which is what an edit form submits — a blank box is a
-   * removal, and there is no way to express "leave this one alone" that a form could produce.
-   */
-  socialLinks: speakerSocialLinksSchema.optional(),
-});
+export const updateSpeakerProfileInputSchema = z
+  .object({
+    expectedVersion: z.number().int().nonnegative().optional(),
+    name: z.string().trim().min(1).max(120).optional(),
+    bio: z.string().trim().max(2000).optional(),
+    pronouns: z.string().trim().max(50).optional(),
+    jobTitle: z.string().trim().max(120).optional(),
+    organization: z.string().trim().max(120).optional(),
+    /*
+     * Optional so an older client's save is a text edit rather than a silent wipe of every link.
+     * Sending it replaces the whole set, which is what an edit form submits — a blank box is a
+     * removal, and there is no way to express "leave this one alone" that a form could produce.
+     */
+    socialLinks: speakerSocialLinksSchema.optional(),
+  })
+  .refine(({ expectedVersion: _expectedVersion, ...changes }) => Object.keys(changes).length > 0, {
+    message: "Change at least one profile field.",
+  });
 export type UpdateSpeakerProfileInput = z.infer<typeof updateSpeakerProfileInputSchema>;
 /**
  * Which uploaded file is this speaker's headshot.
@@ -275,15 +279,19 @@ export const profileParamsSchema = z.object({ profileId: z.string().uuid() });
 export const taskParamsSchema = z.object({ taskId: z.string().uuid() });
 export const contentSessionParamsSchema = z.object({ sessionId: z.string().uuid() });
 export const speakerAssetParamsSchema = z.object({ assetId: z.string().uuid() });
-export const updateContentSessionInputSchema = z.object({
-  title: z.string().trim().min(1).max(160),
-  abstract: z.string().trim().min(1),
-  format: z.string().trim().min(1),
-  speakerProfileIds: z.array(z.string().uuid()).min(1),
-  tags: z.array(z.string().trim().min(1)),
-  tracks: z.array(z.string().trim().min(1)),
-  publicationState: z.enum(["draft", "ready", "published"]),
-});
+export const updateContentSessionInputSchema = z
+  .object({
+    title: z.string().trim().min(1).max(160).optional(),
+    abstract: z.string().trim().min(1).optional(),
+    format: z.string().trim().min(1).optional(),
+    speakerProfileIds: z.array(z.string().uuid()).min(1).optional(),
+    tags: z.array(z.string().trim().min(1)).optional(),
+    tracks: z.array(z.string().trim().min(1)).optional(),
+    publicationState: z.enum(["draft", "ready", "published"]).optional(),
+  })
+  .refine((changes) => Object.keys(changes).length > 0, {
+    message: "Change at least one session field.",
+  });
 export type UpdateContentSessionInput = z.infer<typeof updateContentSessionInputSchema>;
 export const requestSpeakerTaskInputSchema = z.object({
   profileId: z.string().uuid(),

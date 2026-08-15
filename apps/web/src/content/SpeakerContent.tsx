@@ -12,6 +12,7 @@
 
 // biome-ignore-all lint/security/noDangerouslySetInnerHtml: the content API returns parser-sanitized markup and hostile-input tests guard this rendering boundary.
 
+import type { UpdateSpeakerProfileInput } from "@greenroom/contracts";
 import { type FormEvent, useMemo, useRef, useState } from "react";
 import {
   addContentComment,
@@ -193,11 +194,18 @@ export function SpeakerView({
     const socialLinks = Object.fromEntries(
       Object.entries(draft.socialLinks).filter(([, value]) => value.trim()),
     );
+    const next = { ...draft, socialLinks };
+    const changes = Object.fromEntries(
+      Object.entries(next).filter(
+        ([key, value]) =>
+          JSON.stringify(value) !== JSON.stringify(saved[key as keyof ProfileDraft]),
+      ),
+    ) as UpdateSpeakerProfileInput;
+    if (!Object.keys(changes).length) return;
     // ERROR-INTENT: handlers cannot await; the announcement below renders both outcomes.
     void run(() =>
       updateSpeakerProfile(profile.id, {
-        ...draft,
-        socialLinks,
+        ...changes,
         expectedVersion: profile.version,
       }),
     ).then((result) => {

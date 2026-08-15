@@ -7256,16 +7256,7 @@
                       "published"
                     ]
                   }
-                },
-                "required": [
-                  "title",
-                  "abstract",
-                  "format",
-                  "speakerProfileIds",
-                  "tags",
-                  "tracks",
-                  "publicationState"
-                ]
+                }
               }
             }
           }
@@ -92319,13 +92310,7 @@
                       }
                     }
                   }
-                },
-                "required": [
-                  "name",
-                  "bio",
-                  "pronouns",
-                  "organization"
-                ]
+                }
               }
             }
           }

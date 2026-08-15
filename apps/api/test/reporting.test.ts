@@ -164,7 +164,7 @@ describe("the report query engine", () => {
 function harness(over: { rows?: ReportRow[]; unauthorized?: boolean } = {}) {
   const stored = new Map<string, Awaited<ReturnType<ReportingService["save"]>>>();
   const links: (CapabilityLink & { tokenHash: string; passwordHash: string | null })[] = [];
-  const runs: { scheduleId: string; occurrenceKey: string; outcome: string }[] = [];
+  const runs: { id: string; scheduleId: string; occurrenceKey: string; outcome: string }[] = [];
   const schedules: Awaited<ReturnType<ReportingService["createSchedule"]>>[] = [];
   const delivered: { recipients: readonly string[]; url: string }[] = [];
   let nextId = 0;
@@ -200,7 +200,12 @@ function harness(over: { rows?: ReportRow[]; unauthorized?: boolean } = {}) {
     recordRun: async (run, key) => {
       if (runs.some((r) => r.scheduleId === run.scheduleId && r.occurrenceKey === key))
         return false;
-      runs.push({ scheduleId: run.scheduleId, occurrenceKey: key, outcome: run.outcome });
+      runs.push({
+        id: run.id,
+        scheduleId: run.scheduleId,
+        occurrenceKey: key,
+        outcome: run.outcome,
+      });
       const index = schedules.findIndex((s) => s.id === run.scheduleId);
       if (index >= 0)
         schedules[index] = {
@@ -208,6 +213,11 @@ function harness(over: { rows?: ReportRow[]; unauthorized?: boolean } = {}) {
           lastFiredKey: key,
         };
       return true;
+    },
+    finishRun: async (runId, outcome) => {
+      const held = runs.find((run) => run.id === runId);
+      if (!held) throw new Error("missing claimed run");
+      held.outcome = outcome;
     },
     listRuns: async () => [],
   };
@@ -226,21 +236,19 @@ function harness(over: { rows?: ReportRow[]; unauthorized?: boolean } = {}) {
       links[index] = { ...(links[index] as (typeof links)[number]), revokedAt: at };
       return 1;
     },
-    spend: async (tokenHash, now) => {
+    spend: async (tokenHash, passwordHash, now) => {
       const index = links.findIndex(
         (link) =>
           link.tokenHash === tokenHash &&
           link.revokedAt === null &&
           link.expiresAt > now &&
+          (link.passwordHash === null || link.passwordHash === passwordHash) &&
           (link.viewLimit === null || link.views < link.viewLimit),
       );
       if (index < 0) return null;
       const held = links[index] as (typeof links)[number];
       links[index] = { ...held, views: held.views + 1 };
-      return {
-        link: { ...held, views: held.views + 1 },
-        passwordHash: held.passwordHash,
-      };
+      return { ...held, views: held.views + 1 };
     },
   };
 
@@ -435,12 +443,17 @@ describe("share links", () => {
 
     const guarded = await service.createShare(organizer, EVENT, report.id, {
       lifetimeHours: 24,
+      viewLimit: 1,
       password: "correct horse",
     });
+    await expect(service.resolveShare(guarded.token)).rejects.toThrow(ReportShareUnavailableError);
     await expect(service.resolveShare(guarded.token, "wrong")).rejects.toThrow(
       ReportShareUnavailableError,
     );
     await expect(service.resolveShare(guarded.token, "correct horse")).resolves.toBeTruthy();
+    await expect(service.resolveShare(guarded.token, "correct horse")).rejects.toThrow(
+      ReportShareUnavailableError,
+    );
     await expect(service.resolveShare("token-that-never-existed")).rejects.toThrow(
       ReportShareUnavailableError,
     );
@@ -498,6 +511,46 @@ describe("scheduled delivery", () => {
     expect(token).toBeTruthy();
     const resolved = await service.resolveShare(token ?? "");
     expect(resolved.result.rows[0]?.email).toBe("a…@example.test");
+  });
+
+  it("claims before delivery, so overlapping ticks cannot send the same occurrence twice", async () => {
+    const { service, delivered, runs } = harness();
+    const report = await savedReport(service);
+    await service.createSchedule(organizer, EVENT, report.id, {
+      cadence: "daily",
+      minuteOfDay: 9 * 60,
+      timezone: "Europe/London",
+      recipients: ["ops@example.test"],
+    });
+    let releaseDelivery: (() => void) | undefined;
+    let announceStarted: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+      announceStarted = resolve;
+    });
+    const release = new Promise<void>((resolve) => {
+      releaseDelivery = resolve;
+    });
+    const concurrent = new ReportingService({
+      ...(service as unknown as { dependencies: ConstructorParameters<typeof ReportingService>[0] })
+        .dependencies,
+      delivery: {
+        deliver: async (delivery) => {
+          delivered.push(delivery);
+          announceStarted?.();
+          await release;
+        },
+      },
+    });
+
+    const first = concurrent.tick();
+    await started;
+    await expect(concurrent.tick()).resolves.toEqual({ fired: 0, failed: 0 });
+    expect(delivered).toHaveLength(1);
+    expect(runs).toHaveLength(1);
+    expect(runs[0]?.outcome).toBe("failed");
+    releaseDelivery?.();
+    await expect(first).resolves.toEqual({ fired: 1, failed: 0 });
+    expect(runs[0]?.outcome).toBe("delivered");
   });
 
   it("records a failed delivery instead of aborting the tick", async () => {

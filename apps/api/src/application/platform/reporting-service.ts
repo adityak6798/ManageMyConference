@@ -243,6 +243,8 @@ export interface ReportRepository {
   listDueSchedules(): Promise<readonly (ReportSchedule & { eventId: string })[]>;
   /** Claims one occurrence, answering false when it was already recorded. */
   recordRun(run: ReportRun, lastFiredKey: string): Promise<boolean>;
+  /** Replaces the fail-safe claim with the delivery result after the external effect finishes. */
+  finishRun(runId: string, outcome: ReportRun["outcome"], detail: string): Promise<void>;
   listRuns(scheduleId: string, limit: number): Promise<readonly ReportRun[]>;
 }
 
@@ -786,6 +788,21 @@ export class ReportingService {
       if (!key || key === schedule.lastFiredKey) continue;
       const report = await this.dependencies.repository.findById(schedule.reportId);
       if (!report) continue;
+      const runId = this.dependencies.newId();
+      const recorded = await this.dependencies.repository.recordRun(
+        {
+          id: runId,
+          scheduleId: schedule.id,
+          occurrenceKey: key,
+          ranAt: now.toISOString(),
+          // Claim before any external effect. If the worker disappears, the durable row remains
+          // a truthful failure and a retry cannot deliver the same occurrence twice.
+          outcome: "failed",
+          detail: "Delivery did not complete.",
+        },
+        key,
+      );
+      if (!recorded) continue;
       let outcome: "delivered" | "failed" = "delivered";
       let detail = "";
       let issuedLinkId: string | null = null;
@@ -842,18 +859,7 @@ export class ReportingService {
             }`;
           }
       }
-      const recorded = await this.dependencies.repository.recordRun(
-        {
-          id: this.dependencies.newId(),
-          scheduleId: schedule.id,
-          occurrenceKey: key,
-          ranAt: now.toISOString(),
-          outcome,
-          detail: detail.slice(0, 400),
-        },
-        key,
-      );
-      if (!recorded) continue;
+      await this.dependencies.repository.finishRun(runId, outcome, detail.slice(0, 400));
       if (outcome === "delivered") fired += 1;
       else failed += 1;
     }

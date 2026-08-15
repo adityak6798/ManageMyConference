@@ -32,7 +32,9 @@ const DEMO_EVENT = "00000000-0000-4000-8000-000000000001";
 const NOW = "2026-08-14T09:00:00.000Z";
 const LATER = "2026-08-15T09:00:00.000Z";
 
-const linkOf = (over: Partial<CapabilityLink> & { tokenHash?: string } = {}) => ({
+const linkOf = (
+  over: Partial<CapabilityLink> & { tokenHash?: string; passwordHash?: string | null } = {},
+) => ({
   id: "00000000-0000-4000-8000-0000000000f0",
   kind: "report" as const,
   resourceRef: "00000000-0000-4000-8000-0000000000f1",
@@ -120,9 +122,18 @@ describe("capability links against D1", () => {
   it("spends exactly one view of a one-view link", async () => {
     const { store } = await stack();
     await store.create(linkOf({ viewLimit: 1 }));
-    expect(await store.spend("a".repeat(64), NOW)).not.toBeNull();
+    expect(await store.spend("a".repeat(64), null, NOW)).not.toBeNull();
     // The second resolve matches no row, because liveness and the increment are one statement.
-    expect(await store.spend("a".repeat(64), NOW)).toBeNull();
+    expect(await store.spend("a".repeat(64), null, NOW)).toBeNull();
+  });
+
+  it("does not spend a password-protected one-view link until the password matches", async () => {
+    const { store } = await stack();
+    await store.create(linkOf({ viewLimit: 1, hasPassword: true, passwordHash: "p".repeat(64) }));
+    expect(await store.spend("a".repeat(64), null, NOW)).toBeNull();
+    expect(await store.spend("a".repeat(64), "w".repeat(64), NOW)).toBeNull();
+    expect(await store.spend("a".repeat(64), "p".repeat(64), NOW)).not.toBeNull();
+    expect(await store.spend("a".repeat(64), "p".repeat(64), NOW)).toBeNull();
   });
 
   it("answers unknown, revoked and expired links identically", async () => {
@@ -137,16 +148,16 @@ describe("capability links against D1", () => {
         expiresAt: NOW,
       }),
     );
-    expect(await store.spend("d".repeat(64), NOW)).toBeNull();
+    expect(await store.spend("d".repeat(64), null, NOW)).toBeNull();
     await store.revoke(
       "report",
       "00000000-0000-4000-8000-0000000000f1",
       "00000000-0000-4000-8000-0000000000f2",
       NOW,
     );
-    expect(await store.spend("b".repeat(64), NOW)).toBeNull();
+    expect(await store.spend("b".repeat(64), null, NOW)).toBeNull();
     // Expired: `expires_at > ?` is strict, so a link expiring at this instant is already gone.
-    expect(await store.spend("c".repeat(64), NOW)).toBeNull();
+    expect(await store.spend("c".repeat(64), null, NOW)).toBeNull();
   });
 
   it("scopes revocation to the resource it names", async () => {

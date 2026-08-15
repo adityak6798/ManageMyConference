@@ -40,10 +40,23 @@ test("a scoped role receives hidden fields absent on the wire and cannot write a
     error: { code: "FORBIDDEN", fieldErrors: { bio: [expect.stringContaining("cannot change")] } },
   });
 
+  const allowedProfile = await page.request.patch(`/api/speaker-profiles/${WORKSHOP_SPEAKER}`, {
+    data: { name: "Jordan Bell, Workshop Operator" },
+  });
+  expect(allowedProfile.ok(), await allowedProfile.text()).toBe(true);
+
+  const sessionId = String(workspace.sessions[0]?.id);
+  const allowedSession = await page.request.patch(`/api/content-sessions/${sessionId}`, {
+    data: { title: "Operating the workshop room safely" },
+  });
+  expect(allowedSession.ok(), await allowedSession.text()).toBe(true);
+
   // The same scoped grant is a usable console role, not an API-only permission nobody can reach.
   await page.goto(`/sessions?event=${WORKSHOP_EVENT}`);
   await expect(page.getByRole("heading", { level: 1, name: "Sessions & speakers" })).toBeVisible();
-  await expect(page.getByRole("cell", { name: "Operating the workshop room" })).toBeVisible();
+  await expect(
+    page.getByRole("cell", { name: "Operating the workshop room safely" }),
+  ).toBeVisible();
   await expect(page.getByText("jordan.workshop@example.test")).toHaveCount(0);
 });
 
