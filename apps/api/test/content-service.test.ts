@@ -25,6 +25,7 @@ import { FixtureSchedulableContentQuery } from "../src/application/content/publi
 import type { SpeakerConversionPort } from "../src/application/content/speaker-conversion";
 import { CapabilityDeniedError } from "../src/application/identity/actor";
 import { resolveSeededDemoActor } from "../src/application/identity/demo-session";
+import type { FieldLockedError } from "../src/application/identity/public";
 import {
   type AcceptedProposal,
   type AcceptedProposalQuery,
@@ -255,6 +256,44 @@ function calendarService(
 const calendarLines = (document: string) => document.replaceAll("\r\n ", "").split("\r\n");
 
 describe("ContentService", () => {
+  it("redacts hidden fields and refuses locked writes for a custom event role", async () => {
+    const { service } = setup();
+    await service.accept(await resolveSeededDemoActor("organizer"), command, correlationId);
+    const custom = {
+      ...(await resolveSeededDemoActor("reviewer")),
+      eventAccess: [
+        {
+          eventId,
+          role: "custom" as const,
+          capabilities: new Set(["events:read", "content:read", "content:manage"] as const),
+          customRole: { id: "role-programme", name: "Programme operator" },
+          fieldPolicies: new Map([
+            ["speaker:email", "hide" as const],
+            ["speaker:bio", "lock" as const],
+            ["session:abstract", "hide" as const],
+          ]),
+        },
+      ],
+    };
+
+    const workspace = await service.workspace(custom, eventId);
+    expect(workspace.speakers[0]).not.toHaveProperty("email");
+    expect(workspace.speakers[0]).toHaveProperty("bio", "");
+    expect(workspace.sessions[0]).not.toHaveProperty("abstract");
+
+    await expect(
+      service.updateProfile(custom, samProfile.id, {
+        name: samProfile.name,
+        bio: "A locked change",
+        pronouns: samProfile.pronouns,
+        organization: samProfile.organization,
+      }),
+    ).rejects.toMatchObject({
+      subject: "speaker",
+      fields: ["bio"],
+    } satisfies Partial<FieldLockedError>);
+  });
+
   it("preserves speaker and organizer access when an actor has multiple event roles", async () => {
     const { service } = setup({
       proposals: new FakeAcceptedProposals([

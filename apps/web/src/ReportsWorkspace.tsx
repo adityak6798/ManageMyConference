@@ -23,14 +23,14 @@ import {
   listReportSchedules,
   listReportShares,
   listReports,
-  readReportCatalogue,
-  type ReportCatalogue,
   ReportApiError,
-  reportExportUrl,
+  type ReportCatalogue,
   type ReportRunResponse,
   type ReportSchedulesResponse,
   type ReportSharesResponse,
   type ReportsResponse,
+  readReportCatalogue,
+  reportExportUrl,
   revokeReportShare,
   runReport,
   saveReport,
@@ -88,6 +88,7 @@ export function ReportsWorkspace({
   const [schedules, setSchedules] = useState<ReportSchedulesResponse | null>(null);
   const [issuedUrl, setIssuedUrl] = useState<string | null>(null);
   const [name, setName] = useState("");
+  const [scheduleRecipients, setScheduleRecipients] = useState("");
 
   const catalogue = useLoad<string, ReportCatalogue>(
     eventId,
@@ -463,6 +464,16 @@ export function ReportsWorkspace({
           title="Scheduled delivery"
           hint="Recipients are sent an expiring link rather than a copy of the rows."
         >
+          <label>
+            Recipients
+            <input
+              type="text"
+              value={scheduleRecipients}
+              onChange={(event) => setScheduleRecipients(event.target.value)}
+              placeholder="ops@example.com, producer@example.com"
+            />
+          </label>
+          <p className="hint">Separate up to 20 email addresses with commas.</p>
           <div className="actions">
             <button
               type="button"
@@ -474,7 +485,10 @@ export function ReportsWorkspace({
                     minuteOfDay: 8 * 60,
                     dayOfWeek: 1,
                     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-                    recipients: [],
+                    recipients: scheduleRecipients
+                      .split(",")
+                      .map((recipient) => recipient.trim())
+                      .filter(Boolean),
                   });
                   setSchedules(await listReportSchedules(eventId, selected));
                 })

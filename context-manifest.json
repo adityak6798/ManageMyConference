@@ -349,7 +349,8 @@
         "ENG-CI-001",
         "PRD-OPS-001",
         "PRD-OPS-002",
-        "PRD-OPS-003"
+        "PRD-OPS-003",
+        "PRD-OPS-004"
       ],
       "journeys": [],
       "acceptance": [
@@ -459,6 +460,7 @@
         "apps/api/test/reporting.test.ts",
         "apps/api/test/d1-capability-links.integration.test.ts",
         "apps/web/src/ReportsWorkspace.tsx",
+        "apps/web/src/PublicReportApp.tsx",
         "apps/web/src/workspaces/reports.tsx",
         "apps/web/src/api/reports.ts",
         "apps/web/test/reports-workspace.test.tsx"
@@ -991,7 +993,8 @@
       "id": "publishing",
       "index": "docs/product/specifications.md",
       "specs": [
-        "PRD-PUB-001"
+        "PRD-PUB-001",
+        "PRD-PUB-002"
       ],
       "journeys": [
         "JNY-007"

@@ -2,7 +2,15 @@
   "id": "platform",
   "order": 10,
   "index": "docs/architecture/README.md",
-  "specs": ["ARC-001", "ARC-DOM-001", "ENG-CI-001", "PRD-OPS-001", "PRD-OPS-002", "PRD-OPS-003"],
+  "specs": [
+    "ARC-001",
+    "ARC-DOM-001",
+    "ENG-CI-001",
+    "PRD-OPS-001",
+    "PRD-OPS-002",
+    "PRD-OPS-003",
+    "PRD-OPS-004"
+  ],
   "journeys": [],
   "acceptance": ["ACC-HARNESS", "ACC-DEMO-SMOKE", "ACC-OPS"],
   "plans": ["PLAN-001", "PLAN-002"],
@@ -104,6 +112,7 @@
     "apps/api/test/reporting.test.ts",
     "apps/api/test/d1-capability-links.integration.test.ts",
     "apps/web/src/ReportsWorkspace.tsx",
+    "apps/web/src/PublicReportApp.tsx",
     "apps/web/src/workspaces/reports.tsx",
     "apps/web/src/api/reports.ts",
     "apps/web/test/reports-workspace.test.tsx"

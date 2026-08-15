@@ -2,7 +2,7 @@
   "id": "publishing",
   "order": 100,
   "index": "docs/product/specifications.md",
-  "specs": ["PRD-PUB-001"],
+  "specs": ["PRD-PUB-001", "PRD-PUB-002"],
   "journeys": ["JNY-007"],
   "acceptance": ["ACC-PUBLIC"],
   "plans": ["PLAN-002", "PLAN-003"],

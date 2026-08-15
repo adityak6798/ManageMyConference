@@ -11,6 +11,7 @@
 import type { EventDto, SessionDto } from "@greenroom/contracts";
 import type { ReactNode } from "react";
 import type { Persona } from "../AppShell";
+export type WorkspaceRole = Persona | "custom";
 
 /** Sidebar grouping. `home` is the ungrouped first item. */
 export type NavGroupName = "home" | "Program" | "Audience";
@@ -18,7 +19,7 @@ export type NavGroupName = "home" | "Program" | "Audience";
 /** What a workspace may consult to decide whether this identity can open it. */
 export interface WorkspaceAccess {
   session: SessionDto | null;
-  activeRole: Persona;
+  activeRole: WorkspaceRole;
   /**
    * Capabilities scoped to the selected event, never the actor-level union. The union is
    * every event the actor can touch, so testing it would let an organizer of event A mount

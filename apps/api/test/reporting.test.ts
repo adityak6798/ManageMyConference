@@ -22,18 +22,18 @@ import type {
 import {
   MAX_REPORT_SCAN,
   maskValue,
-  type ReportRow,
   ReportQueryInvalidError,
+  type ReportRow,
   ReportTooExpensiveError,
   runQuery,
   validateQuery,
 } from "../src/application/platform/report-catalogue";
 import {
   occurrenceKey,
+  ReportingService,
   ReportPiiDeniedError,
   type ReportRepository,
   ReportShareUnavailableError,
-  ReportingService,
 } from "../src/application/platform/reporting-service";
 
 const EVENT = "00000000-0000-4000-8000-0000000000a1";
@@ -400,7 +400,11 @@ describe("share links", () => {
     expect(created.url).toContain("https://greenroom.test/reports/");
     const resolved = await service.resolveShare(created.token);
     expect(resolved.result.rows[0]?.email).toBe("a…@example.test");
-    expect(links[0]?.scope).toEqual({ allowPii: false });
+    expect(links[0]?.scope).toEqual({
+      allowPii: false,
+      capabilities: ["events:read", "reports:pii"],
+      fieldPolicies: [],
+    });
   });
 
   it("refuses a caller without reports:pii asking for an unmasked link", async () => {
@@ -483,12 +487,21 @@ describe("scheduled delivery", () => {
     // Duplicated addresses converge, so one person is not sent the same report twice.
     expect(delivered[0]?.recipients).toEqual(["ops@example.test"]);
     expect(runs).toHaveLength(1);
-    // A scheduled link never carries unmasked personal data: nobody is present to decide.
-    expect(links.at(-1)?.scope).toEqual({ allowPii: false });
+    // A scheduled link never carries unmasked personal data, and holds only the event authority
+    // frozen when the recurring instruction was created.
+    expect(links.at(-1)?.scope).toEqual({
+      allowPii: false,
+      capabilities: ["events:read", "reports:pii"],
+      fieldPolicies: [],
+    });
+    const token = delivered[0]?.url.split("/").at(-1);
+    expect(token).toBeTruthy();
+    const resolved = await service.resolveShare(token ?? "");
+    expect(resolved.result.rows[0]?.email).toBe("a…@example.test");
   });
 
   it("records a failed delivery instead of aborting the tick", async () => {
-    const { service, runs } = harness();
+    const { service, runs, links } = harness();
     const report = await savedReport(service);
     await service.createSchedule(organizer, EVENT, report.id, {
       cadence: "daily",
@@ -509,5 +522,6 @@ describe("scheduled delivery", () => {
     const outcome = await broken.tick();
     expect(outcome).toEqual({ fired: 0, failed: 1 });
     expect(runs[0]?.outcome).toBe("failed");
+    expect(links.at(-1)?.revokedAt).toBe(NOW.toISOString());
   });
 });

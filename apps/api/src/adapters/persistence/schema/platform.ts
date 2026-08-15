@@ -166,7 +166,7 @@ export function definePlatformSchema(references: {
       passwordHash: text("password_hash"),
       createdBy: text("created_by")
         .notNull()
-        .references(() => references.usersId),
+        .references(() => references.usersId, { onDelete: "cascade" }),
       createdAt: text("created_at").notNull(),
       expiresAt: text("expires_at").notNull(),
       viewLimit: integer("view_limit"),
@@ -222,6 +222,8 @@ export function definePlatformSchema(references: {
       pausedAt: text("paused_at"),
       /** The occurrence already produced, so a retried tick fires once per occurrence. */
       lastFiredKey: text("last_fired_key"),
+      /** Frozen event-scoped authority used by links minted without a present actor. */
+      scopeJson: text("scope_json").notNull().default("{}"),
     },
     (table) => [
       check("report_schedules_cadence", sql`${table.cadence} IN ('daily', 'weekly', 'monthly')`),
@@ -235,6 +237,7 @@ export function definePlatformSchema(references: {
         sql`${table.dayOfMonth} IS NULL OR ${table.dayOfMonth} BETWEEN 1 AND 28`,
       ),
       check("report_schedules_recipients", sql`json_valid(${table.recipients})`),
+      check("report_schedules_scope_json", sql`json_valid(${table.scopeJson})`),
       check(
         "report_schedules_link_lifetime_hours",
         sql`${table.linkLifetimeHours} BETWEEN 1 AND 720`,

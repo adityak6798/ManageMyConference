@@ -27,7 +27,7 @@
  *
  * @spec PRD-OPS-001 PRD-IAM-002 ARC-DOM-001
  */
-import { type Actor, requireEventCapability } from "../identity/actor";
+import { type Actor, type Capability, requireEventCapability } from "../identity/actor";
 import type { AuditRecorder } from "./audit-service";
 import {
   type CapabilityLink,
@@ -39,10 +39,10 @@ import {
   DEFAULT_REPORT_PAGE,
   datasetOf,
   MAX_REPORT_PAGE,
-  type ReportDatasetKey,
-  type ReportQuery,
   REPORT_CATALOGUE,
   REPORT_OPERATORS,
+  type ReportDatasetKey,
+  type ReportQuery,
   type ReportResult,
   runQuery,
   validateQuery,
@@ -131,6 +131,75 @@ export const shareOf = (link: CapabilityLink): ReportShare => ({
   hasPassword: link.hasPassword,
 });
 
+/**
+ * Freeze the creator's event-scoped read decision onto a capability link.
+ *
+ * A report remains live, but an anonymous visitor has no session actor for the owning domains to
+ * authorize. The link is therefore a delegated, bounded actor: only capabilities the creator
+ * held on this event and the exact field policies in force when it was minted. This is not an
+ * impersonation — it carries no other event, actor-wide grant, or identity-management power.
+ */
+function delegatedScope(actor: Actor, eventId: string, allowPii: boolean) {
+  const grants = actor.eventAccess.filter(({ eventId: candidate }) => candidate === eventId);
+  return {
+    allowPii,
+    capabilities: [...new Set(grants.flatMap(({ capabilities }) => [...capabilities]))],
+    fieldPolicies: [
+      ...new Map(
+        grants.flatMap(({ fieldPolicies }) => [...(fieldPolicies?.entries() ?? [])]),
+      ).entries(),
+    ],
+  };
+}
+
+function delegatedActor(link: CapabilityLink): Actor | null {
+  const known = new Set<Capability>([
+    "events:read",
+    "events:create",
+    "events:settings:read",
+    "events:settings:update",
+    "communications:manage",
+    "agenda:manage",
+    "crm:manage",
+    "content:read",
+    "content:manage",
+    "review:manage",
+    "review:evaluate",
+    "identity:manage",
+    "reports:pii",
+  ]);
+  const capabilities = Array.isArray(link.scope.capabilities)
+    ? link.scope.capabilities.filter(
+        (value): value is Capability => typeof value === "string" && known.has(value as Capability),
+      )
+    : [];
+  if (capabilities.length === 0) return null;
+  const policies = Array.isArray(link.scope.fieldPolicies)
+    ? link.scope.fieldPolicies.filter(
+        (entry): entry is [string, "view" | "lock" | "hide"] =>
+          Array.isArray(entry) &&
+          typeof entry[0] === "string" &&
+          (entry[1] === "view" || entry[1] === "lock" || entry[1] === "hide"),
+      )
+    : [];
+  const granted = new Set(capabilities);
+  return {
+    id: `report-share:${link.id}`,
+    name: "Shared report",
+    persona: "public",
+    organizations: [{ id: link.organizationId }],
+    capabilities: granted,
+    eventAccess: [
+      {
+        eventId: link.eventId,
+        role: "custom",
+        capabilities: granted,
+        fieldPolicies: new Map(policies),
+      },
+    ],
+  };
+}
+
 export interface ReportSchedule {
   readonly id: string;
   readonly reportId: string;
@@ -145,6 +214,8 @@ export interface ReportSchedule {
   readonly createdAt: string;
   readonly pausedAt: string | null;
   readonly lastFiredKey: string | null;
+  /** Bounded authority fixed when the recurring instruction is created. */
+  readonly scope: Readonly<Record<string, unknown>>;
 }
 
 export interface ReportRun {
@@ -523,7 +594,7 @@ export class ReportingService {
       hasPassword: Boolean(input.password),
       // The only report-specific part of a link. Fixed at mint time because the person opening
       // it is anonymous and cannot be asked to hold `reports:pii`.
-      scope: { allowPii },
+      scope: delegatedScope(authorized, eventId, allowPii),
     };
     const share = shareOf(link);
     await this.dependencies.links.create({
@@ -601,15 +672,17 @@ export class ReportingService {
     const report = await this.dependencies.repository.findById(share.reportId);
     if (!report) throw new ReportShareUnavailableError();
     /*
-     * `null` actor, deliberately. A share link is not an impersonation of whoever created it: the
-     * rows are read with no grants at all, and each domain's own read decides what that means.
-     * The alternative — resolving as the creator — would make a link outlive the creator's own
-     * access, which is the failure mode capability URLs are notorious for.
+     * The frozen delegated actor is deliberately narrower than the creator: one event, the
+     * capabilities and field policies present when the link was minted, and no actor-wide grant.
+     * Every owning domain still authorizes its own read; the capability URL supplies the bounded
+     * authority an anonymous request otherwise cannot carry.
      */
+    const reader = delegatedActor(link);
+    if (!reader) throw new ReportShareUnavailableError();
     const rows = await readReportRows(
       this.dependencies.sources,
       report.dataset,
-      null,
+      reader,
       report.eventId,
     );
     if (rows.state !== "ok") throw new ReportShareUnavailableError();
@@ -671,6 +744,7 @@ export class ReportingService {
       createdAt: this.dependencies.now().toISOString(),
       pausedAt: null,
       lastFiredKey: null,
+      scope: delegatedScope(authorized, eventId, false),
     };
     await this.dependencies.repository.createSchedule(schedule);
     return schedule;
@@ -714,13 +788,15 @@ export class ReportingService {
       if (!report) continue;
       let outcome: "delivered" | "failed" = "delivered";
       let detail = "";
+      let issuedLinkId: string | null = null;
       try {
         const { token } = await this.dependencies.mintToken();
         const expiresAt = new Date(
           now.getTime() + schedule.linkLifetimeHours * 3_600_000,
         ).toISOString();
+        issuedLinkId = this.dependencies.newId();
         await this.dependencies.links.create({
-          id: this.dependencies.newId(),
+          id: issuedLinkId,
           kind: "report",
           resourceRef: report.id,
           organizationId: report.organizationId,
@@ -734,7 +810,7 @@ export class ReportingService {
           hasPassword: false,
           // A scheduled link never carries unmasked personal data. Unmasking is an act somebody
           // performs, and nobody is present when a cron tick fires.
-          scope: { allowPii: false },
+          scope: schedule.scope,
           tokenHash: await this.dependencies.hash(token),
           passwordHash: null,
         });
@@ -750,6 +826,21 @@ export class ReportingService {
         // skip every schedule after it.
         outcome = "failed";
         detail = error instanceof Error ? error.message : String(error);
+        if (issuedLinkId)
+          try {
+            await this.dependencies.links.revoke(
+              "report",
+              report.id,
+              issuedLinkId,
+              now.toISOString(),
+            );
+          } catch (revokeError) {
+            // ERROR-INTENT: the failed run must still be recorded. Add the cleanup failure to its
+            // operator-facing detail so an orphaned capability can be found and revoked by id.
+            detail += `; failed to revoke unused link ${issuedLinkId}: ${
+              revokeError instanceof Error ? revokeError.message : String(revokeError)
+            }`;
+          }
       }
       const recorded = await this.dependencies.repository.recordRun(
         {

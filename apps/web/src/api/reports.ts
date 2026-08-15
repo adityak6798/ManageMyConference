@@ -14,11 +14,12 @@ import {
   reportRunResponseSchema,
   reportSchedulesResponseSchema,
   reportShareCreatedResponseSchema,
+  reportShareResolvedResponseSchema,
   reportSharesResponseSchema,
   reportsResponseSchema,
 } from "@greenroom/contracts";
 import type { z } from "zod";
-import { apiFetch as fetch, decodeResponse } from "./config";
+import { decodeResponse, apiFetch as fetch } from "./config";
 
 export class ReportApiError extends Error {
   constructor(
@@ -53,8 +54,20 @@ export type ReportsResponse = z.infer<typeof reportsResponseSchema>;
 export type ReportRunResponse = z.infer<typeof reportRunResponseSchema>;
 export type ReportSharesResponse = z.infer<typeof reportSharesResponseSchema>;
 export type ReportSchedulesResponse = z.infer<typeof reportSchedulesResponseSchema>;
+export type PublicReportResponse = z.infer<typeof reportShareResolvedResponseSchema>;
 
 const base = (eventId: string) => `/api/events/${eventId}/reports`;
+
+export async function resolvePublicReport(
+  token: string,
+  password?: string,
+  fetcher: typeof fetch = fetch,
+) {
+  return decode(
+    await fetcher(`/api/public/reports/${encodeURIComponent(token)}`, post({ password })),
+    reportShareResolvedResponseSchema,
+  );
+}
 
 export async function readReportCatalogue(eventId: string, fetcher: typeof fetch = fetch) {
   return decode(await fetcher(`${base(eventId)}/catalogue`), reportCatalogueResponseSchema);

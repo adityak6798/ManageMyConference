@@ -6,12 +6,12 @@ export const contentSessionSchema = z.object({
   eventId: z.string().uuid(),
   proposalId: z.string(),
   title: z.string(),
-  abstract: z.string(),
-  format: z.string(),
+  abstract: z.string().optional(),
+  format: z.string().optional(),
   speakerProfileIds: z.array(z.string().uuid()),
-  tags: z.array(z.string()),
-  tracks: z.array(z.string()),
-  publicationState: z.enum(["draft", "ready", "published"]),
+  tags: z.array(z.string()).optional(),
+  tracks: z.array(z.string()).optional(),
+  publicationState: z.enum(["draft", "ready", "published"]).optional(),
   /*
    * Where the event's published agenda places this session — never a stored property of the
    * session. It is resolved from the agenda publication in force on every read, and is absent
@@ -98,11 +98,11 @@ export const speakerProfileSchema = z.object({
   userId: z.string(),
   sourcePersonId: z.string(),
   name: z.string(),
-  email: z.string().email(),
-  bio: z.string(),
-  pronouns: z.string(),
+  email: z.string().email().optional(),
+  bio: z.string().optional(),
+  pronouns: z.string().optional(),
   jobTitle: z.string(),
-  organization: z.string(),
+  organization: z.string().optional(),
   /** Optimistic version of the canonical profile, derived from its attributed revisions. */
   version: z.number().int().nonnegative(),
   photoAssetId: z.string().uuid().optional(),

@@ -23,17 +23,22 @@ import {
   withReference,
 } from "./shared";
 
-type ProfileDraft = Pick<
-  SpeakerProfile,
-  "name" | "pronouns" | "jobTitle" | "organization" | "bio"
-> & { socialLinks: Record<string, string>; expectedVersion: number };
+type ProfileDraft = {
+  name: string;
+  pronouns: string;
+  jobTitle: string;
+  organization: string;
+  bio: string;
+  socialLinks: Record<string, string>;
+  expectedVersion: number;
+};
 
 const draftFor = (speaker: SpeakerProfile): ProfileDraft => ({
   name: speaker.name,
-  pronouns: speaker.pronouns,
+  pronouns: speaker.pronouns ?? "",
   jobTitle: speaker.jobTitle,
-  organization: speaker.organization,
-  bio: speaker.bio,
+  organization: speaker.organization ?? "",
+  bio: speaker.bio ?? "",
   expectedVersion: speaker.version,
   socialLinks: Object.fromEntries(
     SOCIAL_PLATFORMS.map(({ key }) => [key, speaker.socialLinks?.[key] ?? ""]),

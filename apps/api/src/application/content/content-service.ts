@@ -12,20 +12,18 @@ import {
 } from "../../domain/content/content";
 import type { ContentAgendaInterface, SessionSchedule } from "../agenda/public";
 import {
-  SPEAKER_INVITE_TEMPLATE_KEY,
-  SPEAKER_REMINDER_TEMPLATE_KEY,
-  type SpeakerReminderDispatchPort,
-  SpeakerReminderRejectedError,
-  speakerInvitationKey,
-  taskReminderKey,
-} from "./reminder-dispatch";
-import {
   type Actor,
   CapabilityDeniedError,
   requireCapability,
   requireEventCapability,
 } from "../identity/actor";
 import type { AssignableOwner } from "../identity/identity-directory";
+import {
+  fieldAccessFor,
+  type HideableSessionField,
+  type HideableSpeakerField,
+  type Redacted,
+} from "../identity/public";
 import type { AcceptedProposalQuery } from "../review/public";
 import {
   type AssetStoragePort,
@@ -34,6 +32,14 @@ import {
   type EventPublicationQuery,
   type SpeakerWorkflowFields,
 } from "./content-repository";
+import {
+  SPEAKER_INVITE_TEMPLATE_KEY,
+  SPEAKER_REMINDER_TEMPLATE_KEY,
+  type SpeakerReminderDispatchPort,
+  SpeakerReminderRejectedError,
+  speakerInvitationKey,
+  taskReminderKey,
+} from "./reminder-dispatch";
 import type { SpeakerConversionPort } from "./speaker-conversion";
 
 /**
@@ -102,12 +108,13 @@ export interface ScheduledContentSession extends ContentSession {
  * into "Olivia Organizer" (#154). Absent on the speaker-scoped projection, which carries no
  * revisions to attribute.
  */
-export interface ContentWorkspaceView extends Omit<ContentWorkspace, "sessions"> {
-  readonly sessions: readonly ScheduledContentSession[];
+export interface ContentWorkspaceView extends Omit<ContentWorkspace, "sessions" | "speakers"> {
+  readonly sessions: readonly Redacted<ScheduledContentSession, HideableSessionField>[];
+  readonly speakers: readonly Redacted<SpeakerProfile, HideableSpeakerField>[];
   readonly actorDirectory?: readonly AssignableOwner[];
 }
 
-export interface CalendarInviteContentWorkspaceView extends Omit<ContentWorkspaceView, "sessions"> {
+export interface CalendarInviteContentWorkspaceView extends Omit<ContentWorkspace, "sessions"> {
   readonly sessions: readonly (ContentSession & {
     readonly schedule?: SessionSchedule & { readonly revision: number; readonly revisedAt: string };
   })[];
@@ -339,7 +346,7 @@ export interface SpeakerInvitationOutcome {
   readonly reason: string;
 }
 
-function hasEventRole(actor: Actor, eventId: string, role: "organizer" | "speaker") {
+function hasEventRole(actor: Actor, eventId: string, role: "organizer" | "speaker" | "custom") {
   return actor.eventAccess.some((access) => access.eventId === eventId && access.role === role);
 }
 
@@ -566,6 +573,7 @@ export class ContentService {
     const profile = await this.dependencies.repository.findProfile(profileId);
     if (!profile) throw new CapabilityDeniedError();
     const authorized = requireEventCapability(actor, profile.eventId, "content:manage");
+    fieldAccessFor(authorized, profile.eventId).assertEditable("speaker", Object.keys(input));
     const updated = await this.dependencies.repository.reviseProfile(
       profile.id,
       this.draftRevision(authorized, profile.eventId),
@@ -784,9 +792,7 @@ export class ContentService {
     actor: Actor | null,
     eventId: string,
   ): Promise<readonly SpeakerTaskTemplate[]> {
-    const authorized = requireEventCapability(actor, eventId, "content:read");
-    if (!hasEventRole(authorized, eventId, "organizer"))
-      throw new CapabilityDeniedError("Speaker checklist access denied");
+    requireEventCapability(actor, eventId, "content:manage");
     return this.dependencies.repository.listTaskTemplates(eventId);
   }
 
@@ -1036,7 +1042,7 @@ export class ContentService {
     correlationId: string,
   ): Promise<ContentWorkspaceView> {
     await this.acceptSession(actor, command, correlationId);
-    return this.projected(command.eventId);
+    return this.workspace(actor, command.eventId);
   }
 
   /**
@@ -1189,8 +1195,13 @@ export class ContentService {
     };
   }
 
-  private async projected(eventId: string, userId?: string): Promise<ContentWorkspaceView> {
+  private async projected(
+    eventId: string,
+    userId?: string,
+    actor?: Actor,
+  ): Promise<ContentWorkspaceView> {
     const workspace = await this.projectedForCalendarInvites(eventId, userId);
+    const access = fieldAccessFor(actor ?? null, eventId);
     // Only the organizer projection carries revisions, so only it needs the names to attribute
     // them to. Asking on the speaker's read would spend a query on a directory nothing renders.
     const actorDirectory =
@@ -1200,8 +1211,12 @@ export class ContentService {
     return {
       ...workspace,
       ...(actorDirectory ? { actorDirectory } : {}),
-      sessions: workspace.sessions.map(({ schedule, ...session }) =>
-        schedule
+      speakers: access.redactAll<SpeakerProfile, HideableSpeakerField>(
+        "speaker",
+        workspace.speakers,
+      ),
+      sessions: workspace.sessions.map(({ schedule, ...session }) => {
+        const projected = schedule
           ? {
               ...session,
               schedule: {
@@ -1210,8 +1225,9 @@ export class ContentService {
                 location: schedule.location,
               },
             }
-          : session,
-      ),
+          : session;
+        return access.redact<ScheduledContentSession, HideableSessionField>("session", projected);
+      }),
     };
   }
 
@@ -1253,18 +1269,21 @@ export class ContentService {
     const authorized = requireEventCapability(actor, eventId, "content:read");
     const isOrganizer = hasEventRole(authorized, eventId, "organizer");
     const isSpeaker = hasEventRole(authorized, eventId, "speaker");
-    if (!isOrganizer && !isSpeaker)
+    const isCustom = hasEventRole(authorized, eventId, "custom");
+    if (!isOrganizer && !isSpeaker && !isCustom)
       throw new CapabilityDeniedError("Content workspace access denied");
-    return this.projected(eventId, isOrganizer ? undefined : authorized.id);
+    return this.projected(
+      eventId,
+      isSpeaker && !isOrganizer && !isCustom ? authorized.id : undefined,
+      authorized,
+    );
   }
 
   async calendarInviteWorkspace(
     actor: Actor | null,
     eventId: string,
   ): Promise<CalendarInviteContentWorkspaceView> {
-    const authorized = requireEventCapability(actor, eventId, "content:read");
-    if (!hasEventRole(authorized, eventId, "organizer"))
-      throw new CapabilityDeniedError("Calendar invitation access denied");
+    requireEventCapability(actor, eventId, "content:manage");
     return this.projectedForCalendarInvites(eventId);
   }
 
@@ -1281,6 +1300,7 @@ export class ContentService {
   ): Promise<SpeakerProfile> {
     const { profile, authorized } = await this.requireProfileSteward(actor, profileId);
     const { expectedVersion: suppliedVersion, ...changes } = input;
+    fieldAccessFor(authorized, profile.eventId).assertEditable("speaker", Object.keys(changes));
     const expectedVersion = suppliedVersion ?? profile.version ?? 0;
     const updated = await this.dependencies.repository.reviseProfile(
       profile.id,
@@ -1319,6 +1339,7 @@ export class ContentService {
     expectedVersion?: number,
   ): Promise<SpeakerProfile> {
     const { profile, authorized } = await this.requireProfileSteward(actor, profileId);
+    fieldAccessFor(authorized, profile.eventId).assertEditable("speaker", ["photoAssetId"]);
     const asset = await this.dependencies.repository.findAsset(assetId);
     // Whoever gets this far already lists this profile's uploads through the workspace, so
     // naming the mismatch reveals nothing new; an asset belonging to another profile and one
@@ -1360,6 +1381,7 @@ export class ContentService {
     expectedVersion?: number,
   ): Promise<SpeakerProfile> {
     const { profile, authorized } = await this.requireProfileSteward(actor, profileId);
+    fieldAccessFor(authorized, profile.eventId).assertEditable("speaker", ["photoAssetId"]);
     // As in `setProfilePhoto`: withdrawing a choice from a profile that has gone is refused
     // rather than reported as done.
     const updated = await this.dependencies.repository.reviseProfilePhoto(
@@ -1384,8 +1406,10 @@ export class ContentService {
     const isOwner = Boolean(
       profile.userId === authorized.id && hasEventRole(authorized, profile.eventId, "speaker"),
     );
-    if (!isOwner && !hasEventRole(authorized, profile.eventId, "organizer"))
-      throw new CapabilityDeniedError("Speaker profile access denied");
+    const mayManage = authorized.eventAccess.some(
+      (access) => access.eventId === profile.eventId && access.capabilities.has("content:manage"),
+    );
+    if (!isOwner && !mayManage) throw new CapabilityDeniedError("Speaker profile access denied");
     return { profile, authorized };
   }
 
@@ -1478,6 +1502,7 @@ export class ContentService {
     const session = await this.dependencies.repository.findSession(sessionId);
     if (!session) throw new CapabilityDeniedError("Organizer session access denied");
     const authorized = requireEventCapability(actor, session.eventId, "content:manage");
+    fieldAccessFor(authorized, session.eventId).assertEditable("session", Object.keys(input));
     const profiles = await Promise.all(
       input.speakerProfileIds.map((id) => this.dependencies.repository.findProfile(id)),
     );
@@ -1517,7 +1542,7 @@ export class ContentService {
     const authorized = requireEventCapability(actor, session.eventId, "content:manage");
     await this.dependencies.agenda.unscheduleSession(authorized, session.eventId, session.id);
     await this.dependencies.repository.deleteSession(session.id);
-    return this.projected(session.eventId);
+    return this.projected(session.eventId, undefined, authorized);
   }
 
   /**
@@ -1573,7 +1598,12 @@ export class ContentService {
       // ERROR-INTENT: an unauthenticated or uncapable caller must not learn the asset exists.
       return false;
     }
-    if (hasEventRole(authorized, asset.eventId, "organizer")) return true;
+    if (
+      authorized.eventAccess.some(
+        (access) => access.eventId === asset.eventId && access.capabilities.has("content:manage"),
+      )
+    )
+      return true;
     const profile = await this.dependencies.repository.findProfile(asset.speakerProfileId);
     // Ownership is event-scoped: `content:read` is the union across every event the actor can
     // touch, so matching the stored user id alone would keep serving this asset after the
@@ -1636,8 +1666,10 @@ export class ContentService {
         profile.userId === authorized.id &&
         hasEventRole(authorized, profile.eventId, "speaker"),
     );
-    if (!isOwner && !hasEventRole(authorized, asset.eventId, "organizer"))
-      throw new CapabilityDeniedError("Speaker asset access denied");
+    const mayManage = authorized.eventAccess.some(
+      (access) => access.eventId === asset.eventId && access.capabilities.has("content:manage"),
+    );
+    if (!isOwner && !mayManage) throw new CapabilityDeniedError("Speaker asset access denied");
     // The one caller that reads no count and should not: if the profile went between the read
     // above and this write, the pointer at this asset went with it, which is the outcome this
     // line exists to reach. Nothing is reported to the caller from it either way.
@@ -2106,7 +2138,7 @@ export class ContentService {
       );
       if (!restored) throw new CapabilityDeniedError();
     }
-    return this.projected(revision.eventId);
+    return this.projected(revision.eventId, undefined, authorized);
   }
 
   /**

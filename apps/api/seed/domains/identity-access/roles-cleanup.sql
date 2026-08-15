@@ -62,6 +62,25 @@ WHERE event_id IN (
     'speaker-jordan-bell',
     'seed-public'
   );
+DELETE FROM event_custom_role_capabilities
+WHERE role_id IN (
+  SELECT id FROM event_custom_roles WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
+);
+DELETE FROM event_custom_role_field_policies
+WHERE role_id IN (
+  SELECT id FROM event_custom_roles WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
+);
+DELETE FROM event_custom_roles
+WHERE organization_id IN (
+  '00000000-0000-4000-8000-000000000010',
+  '00000000-0000-4000-8000-000000000020'
+);
 -- Including `00000000-0000-4000-8000-000000000000`'s membership, which migration `0002` plants
 -- for `seed-organizer` in the "Imported organization" the seed never re-inserts.
 DELETE FROM organization_memberships

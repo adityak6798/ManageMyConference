@@ -6444,12 +6444,7 @@
                           "eventId",
                           "proposalId",
                           "title",
-                          "abstract",
-                          "format",
-                          "speakerProfileIds",
-                          "tags",
-                          "tracks",
-                          "publicationState"
+                          "speakerProfileIds"
                         ]
                       }
                     },
@@ -6537,11 +6532,7 @@
                           "userId",
                           "sourcePersonId",
                           "name",
-                          "email",
-                          "bio",
-                          "pronouns",
                           "jobTitle",
-                          "organization",
                           "version"
                         ]
                       }
@@ -7364,12 +7355,7 @@
                         "eventId",
                         "proposalId",
                         "title",
-                        "abstract",
-                        "format",
-                        "speakerProfileIds",
-                        "tags",
-                        "tracks",
-                        "publicationState"
+                        "speakerProfileIds"
                       ]
                     }
                   },
@@ -7795,12 +7781,7 @@
                           "eventId",
                           "proposalId",
                           "title",
-                          "abstract",
-                          "format",
-                          "speakerProfileIds",
-                          "tags",
-                          "tracks",
-                          "publicationState"
+                          "speakerProfileIds"
                         ]
                       }
                     },
@@ -7888,11 +7869,7 @@
                           "userId",
                           "sourcePersonId",
                           "name",
-                          "email",
-                          "bio",
-                          "pronouns",
                           "jobTitle",
-                          "organization",
                           "version"
                         ]
                       }
@@ -22612,12 +22589,7 @@
                           "eventId",
                           "proposalId",
                           "title",
-                          "abstract",
-                          "format",
-                          "speakerProfileIds",
-                          "tags",
-                          "tracks",
-                          "publicationState"
+                          "speakerProfileIds"
                         ]
                       }
                     },
@@ -22705,11 +22677,7 @@
                           "userId",
                           "sourcePersonId",
                           "name",
-                          "email",
-                          "bio",
-                          "pronouns",
                           "jobTitle",
-                          "organization",
                           "version"
                         ]
                       }
@@ -23430,12 +23398,7 @@
                           "eventId",
                           "proposalId",
                           "title",
-                          "abstract",
-                          "format",
-                          "speakerProfileIds",
-                          "tags",
-                          "tracks",
-                          "publicationState"
+                          "speakerProfileIds"
                         ]
                       }
                     },
@@ -23523,11 +23486,7 @@
                           "userId",
                           "sourcePersonId",
                           "name",
-                          "email",
-                          "bio",
-                          "pronouns",
                           "jobTitle",
-                          "organization",
                           "version"
                         ]
                       }
@@ -27013,12 +26972,7 @@
                                       "eventId",
                                       "proposalId",
                                       "title",
-                                      "abstract",
-                                      "format",
-                                      "speakerProfileIds",
-                                      "tags",
-                                      "tracks",
-                                      "publicationState"
+                                      "speakerProfileIds"
                                     ]
                                   }
                                 },
@@ -27106,11 +27060,7 @@
                                       "userId",
                                       "sourcePersonId",
                                       "name",
-                                      "email",
-                                      "bio",
-                                      "pronouns",
                                       "jobTitle",
-                                      "organization",
                                       "version"
                                     ]
                                   }
@@ -52876,12 +52826,7 @@
                           "eventId",
                           "proposalId",
                           "title",
-                          "abstract",
-                          "format",
-                          "speakerProfileIds",
-                          "tags",
-                          "tracks",
-                          "publicationState"
+                          "speakerProfileIds"
                         ]
                       }
                     },
@@ -52969,11 +52914,7 @@
                           "userId",
                           "sourcePersonId",
                           "name",
-                          "email",
-                          "bio",
-                          "pronouns",
                           "jobTitle",
-                          "organization",
                           "version"
                         ]
                       }
@@ -92479,11 +92420,7 @@
                         "userId",
                         "sourcePersonId",
                         "name",
-                        "email",
-                        "bio",
-                        "pronouns",
                         "jobTitle",
-                        "organization",
                         "version"
                       ]
                     }
@@ -92938,11 +92875,7 @@
                         "userId",
                         "sourcePersonId",
                         "name",
-                        "email",
-                        "bio",
-                        "pronouns",
                         "jobTitle",
-                        "organization",
                         "version"
                       ]
                     }
@@ -93312,11 +93245,7 @@
                         "userId",
                         "sourcePersonId",
                         "name",
-                        "email",
-                        "bio",
-                        "pronouns",
                         "jobTitle",
-                        "organization",
                         "version"
                       ]
                     }
@@ -93727,11 +93656,7 @@
                         "userId",
                         "sourcePersonId",
                         "name",
-                        "email",
-                        "bio",
-                        "pronouns",
                         "jobTitle",
-                        "organization",
                         "version"
                       ]
                     }

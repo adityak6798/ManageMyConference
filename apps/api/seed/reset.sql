@@ -619,6 +619,25 @@ WHERE event_id IN (
     'speaker-jordan-bell',
     'seed-public'
   );
+DELETE FROM event_custom_role_capabilities
+WHERE role_id IN (
+  SELECT id FROM event_custom_roles WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
+);
+DELETE FROM event_custom_role_field_policies
+WHERE role_id IN (
+  SELECT id FROM event_custom_roles WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
+);
+DELETE FROM event_custom_roles
+WHERE organization_id IN (
+  '00000000-0000-4000-8000-000000000010',
+  '00000000-0000-4000-8000-000000000020'
+);
 -- Including `00000000-0000-4000-8000-000000000000`'s membership, which migration `0002` plants
 -- for `seed-organizer` in the "Imported organization" the seed never re-inserts.
 DELETE FROM organization_memberships
@@ -917,15 +936,43 @@ INSERT INTO event_template_versions (
   'seed-organizer'
 );
 
-INSERT INTO event_roles (event_id, user_id, role) VALUES
-  ('00000000-0000-4000-8000-000000000001', 'seed-organizer', 'organizer'),
-  ('00000000-0000-4000-8000-000000000001', 'seed-organizer', 'reviewer'),
-  ('00000000-0000-4000-8000-000000000002', 'seed-organizer', 'organizer'),
-  ('00000000-0000-4000-8000-000000000001', 'seed-reviewer', 'reviewer'),
-  ('00000000-0000-4000-8000-000000000001', 'review-nina-alvarez', 'reviewer'),
-  ('00000000-0000-4000-8000-000000000001', 'seed-speaker', 'speaker'),
-  ('00000000-0000-4000-8000-000000000001', 'speaker-jordan-bell', 'speaker'),
-  ('00000000-0000-4000-8000-000000000001', 'seed-public', 'public');
+-- A scoped operator fixture for PRD-IAM-002's browser and evaluator evidence. Ravi keeps his
+-- built-in reviewer grant on the primary event and holds only this custom grant on the second,
+-- so the two policy sets never compose into the least-restrictive built-in decision.
+INSERT INTO event_custom_roles (
+  id, event_id, organization_id, name, description, template, created_by, created_at, updated_at, revision
+) VALUES (
+  '00000000-0000-4000-8000-000000000196',
+  '00000000-0000-4000-8000-000000000002',
+  '00000000-0000-4000-8000-000000000010',
+  'Programme operator',
+  'Seeded scoped role used to verify wire-level field policy enforcement.',
+  'programme-assistant',
+  'seed-organizer',
+  1786700000000,
+  1786700000000,
+  1
+);
+INSERT INTO event_custom_role_capabilities (role_id, capability) VALUES
+  ('00000000-0000-4000-8000-000000000196', 'events:read'),
+  ('00000000-0000-4000-8000-000000000196', 'content:read'),
+  ('00000000-0000-4000-8000-000000000196', 'content:manage');
+INSERT INTO event_custom_role_field_policies (role_id, subject, field, policy) VALUES
+  ('00000000-0000-4000-8000-000000000196', 'speaker', 'email', 'hide'),
+  ('00000000-0000-4000-8000-000000000196', 'speaker', 'bio', 'lock'),
+  ('00000000-0000-4000-8000-000000000196', 'session', 'abstract', 'hide');
+
+
+INSERT INTO event_roles (event_id, user_id, role, custom_role_id) VALUES
+  ('00000000-0000-4000-8000-000000000001', 'seed-organizer', 'organizer', NULL),
+  ('00000000-0000-4000-8000-000000000001', 'seed-organizer', 'reviewer', NULL),
+  ('00000000-0000-4000-8000-000000000002', 'seed-organizer', 'organizer', NULL),
+  ('00000000-0000-4000-8000-000000000001', 'seed-reviewer', 'reviewer', NULL),
+  ('00000000-0000-4000-8000-000000000002', 'seed-reviewer', 'custom', '00000000-0000-4000-8000-000000000196'),
+  ('00000000-0000-4000-8000-000000000001', 'review-nina-alvarez', 'reviewer', NULL),
+  ('00000000-0000-4000-8000-000000000001', 'seed-speaker', 'speaker', NULL),
+  ('00000000-0000-4000-8000-000000000001', 'speaker-jordan-bell', 'speaker', NULL),
+  ('00000000-0000-4000-8000-000000000001', 'seed-public', 'public', NULL);
 
 -- The templates the product's own lifecycle triggers render from.
 --
@@ -1047,7 +1094,10 @@ ON CONFLICT(event_id) DO UPDATE SET
 -- the pairing is made below, from the uploads, the way the product makes it.
 INSERT INTO speaker_profiles (id,event_id,user_id,source_person_id,name,email,bio,pronouns,organization,photo_asset_id) VALUES
 ('10000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000001','seed-speaker','proposal-person-sam','Sam Speaker','sam@example.test','Builds humane conference tools.','they/them','Greenroom Labs',NULL),
-('10000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000001','speaker-jordan-bell','proposal-person-jordan','Jordan Bell','jordan.bell@example.test','Jordan works with event teams to create inclusive digital and physical experiences.','she/her','Northwind Access',NULL);
+('10000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000001','speaker-jordan-bell','proposal-person-jordan','Jordan Bell','jordan.bell@example.test','Jordan works with event teams to create inclusive digital and physical experiences.','she/her','Northwind Access',NULL),
+-- The workshop copy gives the seeded scoped operator a real record to read without granting its
+-- reviewer persona an unrestricted built-in role on the same event.
+('10000000-0000-4000-8000-000000000003','00000000-0000-4000-8000-000000000002','speaker-jordan-bell','workshop-person-jordan','Jordan Bell','jordan.workshop@example.test','Runs accessible workshop rooms.','she/her','Northwind Access',NULL);
 -- `npm run reset` also writes these bytes into the local R2 bucket under `storage_key`,
 -- so an anonymous GET /api/speaker-assets/<id> serves a real image from a clean seed.
 --
@@ -1085,7 +1135,8 @@ UPDATE speaker_profiles
 -- the portal, the .ics export, and the public schedule read.
 INSERT INTO content_sessions (id,event_id,proposal_id,title,abstract,format,speaker_profile_ids,tags,tracks,publication_state) VALUES
 ('20000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000010','Designing the calm conference','A practical guide to reducing operational noise.','45-minute talk','["10000000-0000-4000-8000-000000000001"]','["operations"]','["Platform"]','published'),
-('20000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000011','Accessible by default','A hands-on guide to making conference experiences work for more attendees from the first sketch.','60-minute workshop','["10000000-0000-4000-8000-000000000002"]','["accessibility"]','["Experience"]','published');
+('20000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000011','Accessible by default','A hands-on guide to making conference experiences work for more attendees from the first sketch.','60-minute workshop','["10000000-0000-4000-8000-000000000002"]','["accessibility"]','["Experience"]','published'),
+('20000000-0000-4000-8000-000000000003','00000000-0000-4000-8000-000000000002','workshop-proposal-jordan','Operating the workshop room','Private run-of-show details.','Workshop','["10000000-0000-4000-8000-000000000003"]','["operations"]','["Experience"]','ready');
 INSERT INTO speaker_tasks (id,event_id,speaker_profile_id,title,due_at,status,completed_at) VALUES
 ('30000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001','Confirm profile details','2026-08-20T23:59:00.000Z','open',NULL),
 ('30000000-0000-4000-8000-000000000002','00000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000001','Upload a headshot','2026-08-22T23:59:00.000Z','open',NULL);
