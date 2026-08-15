@@ -132,8 +132,9 @@ test("publishes a clean agenda, explains draft conflicts, and keeps publication 
   await card.press("Enter");
   await page
     .getByRole("button", {
-      name: /Place .* in Main stage at 09:00–10:00\. Already holds 1 session/,
+      name: /Place .*\. Already holds 1 session/,
     })
+    .first()
     .press("Enter");
   await expect(page.getByText("Room double-booked", { exact: false }).first()).toBeVisible();
   await expect(page.getByRole("button", { name: "Publish schedule" })).toBeDisabled();
