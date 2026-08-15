@@ -265,7 +265,7 @@ test("the activity timeline records a real mutation with the organizer who made 
   await expect(page.getByText("Snapshot matches the draft")).toBeVisible();
 
   await page.goto(`/settings?event=${eventId}&tab=activity`);
-  const site = page.getByRole("row", { name: /publishing\.event_published/ });
+  const site = page.getByRole("row", { name: /Publishing event published/ });
   await expect(site).toBeVisible();
   await expect(site).toContainText("Olivia Organizer");
 });
