@@ -189,7 +189,22 @@ function shellRoutes(role: WorkspaceRole): NavEntry[] {
 function routesFor(role: WorkspaceRole): NavEntry[] {
   // A custom role is capability-shaped rather than persona-shaped. Its discoverable surface is
   // the organizer catalogue; each module's own capability gate still decides whether it opens.
-  if (role === "organizer" || role === "custom") return [...shellRoutes(role), ...organizerHubs];
+  if (role === "organizer" || role === "custom") {
+    // Search and Inbox are cross-hub utilities rather than another organizer job hub. Keeping
+    // their routes discoverable also gives command-palette and overview links a full-page target.
+    const utilities = workspacesForPersona("organizer")
+      .filter(({ path }) => path === "/search" || path === "/inbox")
+      .map((module) => ({
+        href: module.path,
+        label: module.label,
+        group: module.group,
+        order: module.order,
+        icon: module.icon,
+      }));
+    return [...shellRoutes(role), ...utilities, ...organizerHubs].sort(
+      (left, right) => left.order - right.order,
+    );
+  }
   const domains = workspacesForPersona(role).map((module) => ({
     href: module.path,
     label: module.label,
