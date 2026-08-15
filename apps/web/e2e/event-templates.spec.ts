@@ -33,8 +33,9 @@
  * saves both carry a name unique to the run, the way `publishing.spec.ts` names the event it
  * creates and `communications.spec.ts` keys its template versions.
  */
-import { expect, type Page, test } from "@playwright/test";
+
 import { fillAdditionalEvent } from "./event-creation";
+import { expect, type Page, test } from "./fixtures";
 
 /** Read-only here: the source the seeded template was captured from, and never a destination. */
 const DEMO_EVENT_ID = "00000000-0000-4000-8000-000000000001";

@@ -1,5 +1,5 @@
 // @acceptance ACC-AGENDA
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "./fixtures";
 
 const demoEventId = "00000000-0000-4000-8000-000000000001";
 const openingSession = "20000000-0000-4000-8000-000000000001";

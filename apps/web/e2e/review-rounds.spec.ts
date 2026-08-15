@@ -9,7 +9,7 @@
  * about; this one owns the round model. Both restate the seeded state they assert, because the
  * fixture is shared across the whole suite.
  */
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "./fixtures";
 
 // One applicant address per spec file; see the note in `00-seed-state.spec.ts`.
 test.use({ extraHTTPHeaders: { "cf-connecting-ip": "198.51.100.9" } });

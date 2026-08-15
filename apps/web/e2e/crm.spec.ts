@@ -1,5 +1,5 @@
 // @acceptance ACC-CRM
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 const EVENT_ID = "00000000-0000-4000-8000-000000000001";
 /** The same organization's second seeded event: staffed by the organizer alone. */

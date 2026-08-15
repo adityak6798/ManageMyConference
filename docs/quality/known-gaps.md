@@ -322,15 +322,24 @@ feature-by-feature verdict.
   timeouts and missing elements; the whole log contains **no** `request.exception`, which is the
   cheapest way to tell this apart from a real regression. The rerun at the same commit was green.
 
-  **What remains open is the original entry:** the runtime still dies rather than degrading, and
-  a suite that loses it still fails with misleading assertion errors instead of a diagnosis.
-  Ports were one way to provoke that; they were not the only one, and neither the browser-job
-  crash of hosted run `31498844956` nor the one above had any port pressure behind it. Owner:
-  platform. Governing ID: `ENG-DEV-001`, `ACC-DEMO-SMOKE`. Closure: the suite fails with a
-  diagnosis rather than the 22 and 31 misleading assertion errors the two hosted crashes produced
-  — a `webServer` health probe between spec files, or a Playwright global setup that fails fast
-  when the API stops answering — and the wrangler crash itself is reported upstream with the log
-  from `apps/api/.wrangler/wrangler.log` and the `kj` message above.
+  **Closed 2026-08-14, with both prevention and diagnosis.** The browser harness no longer routes
+  workerd's operator logs through Playwright's captured stdout pipe. `tools/browser-api-server.mjs`
+  gives stdout and stderr a durable checkout-local file descriptor at
+  `apps/api/.wrangler/instances/<port>/browser-api.log`; product request logging remains enabled.
+  The known EPIPE mechanism therefore has no Playwright pipe to break.
+
+  Every browser test also carries an automatic `/health` probe before and after it. If the API
+  stops answering for any other reason, the first affected test reports
+  `BROWSER API RUNTIME STOPPED ANSWERING`, the current and last completed test, the probe failure,
+  the durable log path, and its tail. A checkout-local marker survives Playwright restarting its
+  worker, so later journeys are skipped instead of becoming dozens of authorization and timeout
+  assertions. This was proved by killing the checkout's `workerd` during
+  `reference-slice.spec.ts`: one diagnosed failure, two skipped, rather than three product-shaped
+  failures. The ordinary run remained 3/3 green.
+
+  The workerd stdout crash and representative hosted logs are reported upstream as
+  [cloudflare/workers-sdk#15202](https://github.com/cloudflare/workers-sdk/issues/15202). Owner:
+  platform. Governing ID: `ENG-DEV-001`, `ACC-DEMO-SMOKE`.
 - `GAP-019` **Closed 2026-08-13. The demo reset now reads the data before it writes.**
   `apps/api/seed/reset.sql` was a full teardown — an unscoped delete of *every* row of `users`,
   `organizations` and `events`, not the seeded ones, all of them, before inserting the fixture

@@ -56,7 +56,10 @@ export const DIMENSIONS = [
     id: "provider-effects",
     depth: "deep",
     why: "An adapter that reaches outside the machine cannot be un-sent, and the fakes hide the difference.",
-    matches: (file) => /adapters\/providers|adapters\/storage/.test(file),
+    matches: (file) =>
+      /adapters\/providers|adapters\/storage/.test(file) ||
+      /^apps\/webhook-egress\/(src|Dockerfile|wrangler)/.test(file) ||
+      /^tools\/(deploy|probe-|remote-demo-reset|revoke-sessions)/.test(file),
   },
   {
     id: "public-contracts",
@@ -81,7 +84,10 @@ export const DIMENSIONS = [
     id: "harness-and-gates",
     depth: "deep",
     why: "A weakened gate makes every later review less trustworthy, and does it silently.",
-    matches: (file) => /^tools\/|^\.github\/|^context\/|^context-manifest\.json$/.test(file),
+    matches: (file) =>
+      /^tools\/|^\.github\/|^context\/|^context-manifest\.json$/.test(file) ||
+      /^apps\/web\/playwright\..*config\.ts$/.test(file) ||
+      /^apps\/web\/e2e\/(fixtures|global-setup|quality-global-setup)\.ts$/.test(file),
   },
   {
     id: "product-behaviour",

@@ -63,3 +63,8 @@ Track one row per stable finding across passes:
 | `BOT-C1` | Copilot | minor | configuration | Override is ignored | deferred | rationale and owner |
 
 Use `fixed`, `rejected`, `duplicate`, `outdated`, or `deferred` as dispositions. Preserve the original severity and concise finding even after repair.
+
+Record elapsed minutes on every pass. A pass without duration cannot be published by
+`publicationProblems`, because finding yield without review cost cannot tune a risk-driven policy.
+The ledger renderer emits both shipped marker names, `<!-- greenroom:findings -->` and
+`<!-- ship-it-findings -->`, on the same stable comment so either historical updater finds it.
