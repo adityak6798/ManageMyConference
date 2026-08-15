@@ -91,8 +91,9 @@ export async function composeSeed() {
  * one that does not. The real guarantee is behavioural and lives in
  * `apps/api/test/demo-reset-guard.integration.test.ts`, which applies the actual `reset.sql` to a
  * database holding a live self-serve signup and asserts the person, their provider link and their
- * event all survive — twice. This is the cheap check that catches the accident; that is the one
- * that catches the mistake.
+ * event all survive — and then applies it a second time, where what is asserted is that the person
+ * and the unseeded row counts are still there. This is the cheap check that catches the accident;
+ * that is the one that catches the mistake.
  *
  * Parsing is deliberately conservative: comments are stripped and statements are split on `;`
  * before anything is matched, so a `WHERE` inside a trailing comment, a `WHERE` belonging to the

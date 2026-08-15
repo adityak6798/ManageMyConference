@@ -650,7 +650,7 @@ feature-by-feature verdict.
   documented; and a test per writer drives a row deleted between the read and the write.
 
 
-- `GAP-027` **The submission window has no operator surface for a call that closes while nobody is watching, and the account door is narrower than the product implies.** Issue #190 made the CFP lifecycle account-bound: a scheduled window, owned proposals, drafts, revisions, a submitter dashboard, a confirmation whose recipient comes from the session, and a decision message addressed to the owning account rather than to a form answer. Six limits survived it. **Three closed on 2026-08-14** — the deadline is announced (`#210`), a public-call sign-in no longer provisions a conference, and every organization holds the lifecycle templates (`#217`) — and a fourth, the applicant's typing surviving a re-open (`#211`), closed with them. Each is left written down rather than deleted, because a residual that vanishes is indistinguishable from one nobody looked at. What remains is stated below, and it shares a cause: the surrounding deployment rather than the domain. `#132`'s guest decision is now bounded here too rather than only referred to.
+- `GAP-027` **The submission window has no operator surface for a call that closes while nobody is watching, and the account door is narrower than the product implies.** Issue #190 made the CFP lifecycle account-bound: a scheduled window, owned proposals, drafts, revisions, a submitter dashboard, a confirmation whose recipient comes from the session, and a decision message addressed to the owning account rather than to a form answer. Six limits survived it. **Three closed on 2026-08-14** — the deadline is announced (`#210`), every organization holds the lifecycle templates (`#217`), and the applicant's typing survives a re-open (`#211`) — while a fourth closed only in half: a public-call sign-in no longer provisions a conference, and the narrow door itself remains, which is why that limit is still stated below rather than struck out. Each is left written down rather than deleted, because a residual that vanishes is indistinguishable from one nobody looked at. What remains is stated below, and it shares a cause: the surrounding deployment rather than the domain. `#132`'s guest decision is now bounded here too rather than only referred to.
 
   **Closed 2026-08-14: the deadline is announced.** Issue #210 shipped two scheduled messages on two new trigger values (`cfp.deadline_approaching`, `cfp.call_closed`, migration `1707`): a submitter holding an unsubmitted draft is written to once inside the two days before the deadline, and an organizer once after it. Both are idempotent per `(event, recipient, deadline instant)`, so a cron that ticks every minute sends one message and moving a deadline is a new fact rather than a repeat. The consent decision — why a draft holder is not asked first — is written into `PRD-CFP-003` rather than only into code.
 
@@ -676,7 +676,7 @@ feature-by-feature verdict.
 
   **The guest decision still reaches an address nobody proved, now bounded** (issue `#132`).
   A guest proposal's address is a form answer, and the decision notification is the one message
-  the product sends to one. An event may now write at most three such messages to one address —
+  the product sends to one. An event may now write three such messages to one address —
   so a hundred guest proposals naming one victim cost that person three messages rather than a
   hundred, with the ASCII-folding caveat below — and a refused one is reported on the event's
   timeline rather than swallowed. The
@@ -686,7 +686,11 @@ feature-by-feature verdict.
   under and SQLite's `lower()` is ASCII-only; the residual is that spellings of one mailbox
   differing in non-ASCII case are separate budgets, so on an internationalized domain the bound is
   looser than three by a factor the victim's alphabet decides. Folding *differently* on the two
-  sides was the state before it, and there the cap never bound for such an address at all. Only a delivery
+  sides was the state before it, and there the cap never bound for such an address at all. **The
+  count is also read before the write rather than atomically with it**, which the service says in
+  as many words: enqueues landing together can both pass at cap-1, so the overshoot is bounded by
+  request concurrency rather than by the number three. D1 offers no compare-and-set for this shape,
+  and a bound on amplification is what the cap is for. Only a delivery
   the caller marked `declared` is counted (`communication_deliveries.recipient_trust`, migration
   `1708`), so a speaker's messages to the same address cannot exhaust a guest's budget or be
   exhausted by it. That is

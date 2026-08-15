@@ -268,7 +268,7 @@ export class CommunicationsService implements CommunicationsEnqueue {
   /**
    * Give an organization the lifecycle templates it has never had. Idempotent, and safe to race.
    *
-   * The repair for issue #217: nine lifecycle triggers resolve a template scoped to the
+   * The repair for issue #217: every lifecycle trigger resolves a template scoped to the
    * organization, and no migration ever wrote one for any organization but the seeded demo — so
    * every self-serve signup's messages resolved nothing, were swallowed by `notifyLifecycle` as
    * designed, and never existed. See `domain/communications/default-templates.ts` for why the fix

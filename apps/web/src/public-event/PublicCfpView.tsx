@@ -394,8 +394,9 @@ export function PublicCfpView({
      * **Both directions of that, because they are one defect.** The first repair covered
      * re-opening the proposal already in the form and asserted, wrongly, that this was "the one
      * path" — a review pass then walked one click sideways and found the same loss switching to a
-     * *different* proposal, which is the same class on the same screen. `GAP-025` exists because a
-     * lane repaired three of four siblings and filed the fourth.
+     * *different* proposal, which is the same class on the same screen. This repository has the
+     * habit written down: a lane that repairs one instance of a defect and leaves its siblings is
+     * how `GAP-025`'s content half came to describe four writers missing the same row-count check.
      *
      * So typing always wins over a reload it did not ask for:
      *

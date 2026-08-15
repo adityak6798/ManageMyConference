@@ -488,20 +488,24 @@ export class SignupService {
      * On that path `actor` is a snapshot that can be behind D1: the loser of a promotion race
      * re-enters holding the winner's organization, the winner's event already exists, so there is
      * nothing to provision — and the actor was read *before* the winner granted the role on it.
-     * Every other `return` in this method re-reads for the reason line 528 gives, and this one is
-     * the exception that was left.
+     * Three of this method's returns already re-read for the reason the provisioning branch
+     * gives — the role a creation granted is what decides every capability, and D1 holds it — and
+     * this was the one place that returned a snapshot after a *concurrent* writer had acted. The
+     * early return at the top of the method returns the caller's actor too, and correctly: it
+     * returns before anything here has written anything.
      *
      * **What that is worth today, stated rather than inflated.** Nothing user-visible: the caller
      * (`index.ts`) uses only `actor.id`, the session cookie carries no capabilities, and every
      * later request re-resolves the actor from D1 — so nobody has ever seen the stale answer. The
      * reason to fix it is the method's contract, which is to return the actor as storage holds it;
-     * a returned object that is right in three branches and stale in the fourth is a trap for
-     * whoever next reads a capability off it.
+     * a returned object that is fresh where this method wrote and stale where somebody else did
+     * is a trap for whoever next reads a capability off it.
      *
      * The flag says "an organization I belong to already has an event", which is wider than "I
      * lost a race": an org-level invitee with no event role reaches here on every organizer-door
-     * sign-in and pays one extra `findByUserId` that changes nothing. Once per sign-in, not per
-     * request, and the alternative is a return whose freshness depends on which branch produced it.
+     * sign-in and pays one extra actor read — three statements over two round trips — that changes
+     * nothing. Once per sign-in rather than per request, and the alternative is a return whose
+     * freshness depends on which branch produced it.
      */
     let sawExistingEvent = false;
     for (const { id } of actor.organizations) {

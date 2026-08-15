@@ -161,7 +161,7 @@ describe("lifecycle templates for every organization", () => {
     expect(after.results.map(({ template_key }: Row) => template_key).sort()).toEqual(
       DEFAULT_TEMPLATES.map(({ key }) => key).sort(),
     );
-    // The migration's words and the catalogue's are two copies of the same nine messages, so they
+    // The migration's words and the catalogue's are two copies of the same messages, so they
     // are asserted equal rather than trusted to stay so.
     for (const row of after.results) {
       const catalogued = DEFAULT_TEMPLATES.find(({ key }) => key === row.template_key);

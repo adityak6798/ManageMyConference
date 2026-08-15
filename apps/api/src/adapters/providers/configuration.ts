@@ -40,9 +40,14 @@
  * asking the question the other way round was the one case where the split made a deployment
  * quietly worse.
  *
- * So a channel is quietly deterministic **only** where somebody wrote down that this is a
- * development deployment. With `fixture` a production name is refused at resolution; with `live`
- * anything not named as development is refused per delivery.
+ * The two modes ask the question from opposite ends, deliberately. With `fixture` — the default,
+ * and the whole-deployment answer — a *production* name is refused at resolution, because
+ * refusing a deployment on a name nobody recognized would take the demo down for anybody who
+ * spelled their environment unusually. With `live`, where the cost of the strict answer is one
+ * channel rather than a deployment, anything not named as development is refused per delivery. So
+ * an unconfigured channel on a deployment that believes it is sending for real is never quietly
+ * deterministic; an unnamed environment that has asked for no live provider at all still gets the
+ * fakes, which is what a fresh clone and every test run depend on.
  *
  * This resolves inside `drainOutbox`, on the scheduled trigger, rather than at module load. A
  * misconfigured deployment therefore deploys cleanly and serves requests; what it does not do is

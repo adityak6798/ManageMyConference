@@ -323,6 +323,6 @@ an explicit content type, some not at all.
 Nothing in this repository can settle which, because no request has ever been made to a real mail
 API. So this is stated as a residual rather than left to be discovered: **whoever configures
 `EMAIL_API_ENDPOINT` must check that provider's contract for the calendar part before relying on
-`speaker-calendar-invite`, and adapt `HttpEmailProvider`'s body to it.** The other eight lifecycle
-messages carry no `calendar` field and are unaffected. `GAP-010` and `GAP-012` already record that
+`speaker-calendar-invite`, and adapt `HttpEmailProvider`'s body to it.** Every other lifecycle
+message carries no `calendar` field and is unaffected. `GAP-010` and `GAP-012` already record that
 this adapter has never exchanged a request with a live API.

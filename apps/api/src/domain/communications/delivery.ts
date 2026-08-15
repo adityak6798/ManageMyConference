@@ -136,8 +136,11 @@ export const REQUESTABLE_TRIGGERS = (Object.keys(TRIGGER_CHANNELS) as TriggerTyp
  * than which address: **an account-bound subject is written to at its account, or not at all.**
  * The form address is reached only when there is no account — a guest submission, which is a
  * supported way to apply (`PRD-CFP-002`) and where telling nobody is the only alternative. That
- * remaining guest path is the residue of issue #132, which stays open: closing it needs a
- * per-(event, recipient) cap or a double opt-in, a product decision with storage behind it.
+ * remaining guest path is the residue of issue #132, which stays open — and the cap this lane
+ * shipped is why it is *bounded* rather than closed. A per-`(event, mailbox)` cap on messages the
+ * caller marks `declared` limits how much one attacker can amplify; it is not a verification, and
+ * `#132`'s outcome is an address somebody has proven or confirmed. `GAP-027` holds the reasoning,
+ * including why a double opt-in does not close it either while the guest door must keep working.
  *
  * An account that holds **no** address therefore yields `null` rather than falling through. That
  * was a fallback once, and it was wrong: an owned proposal's form answer is still an address
