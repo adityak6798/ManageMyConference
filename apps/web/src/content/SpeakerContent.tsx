@@ -62,6 +62,7 @@ import {
 type ProfileDraft = {
   name: string;
   pronouns: string;
+  jobTitle: string;
   organization: string;
   bio: string;
   socialLinks: Record<string, string>;
@@ -80,12 +81,10 @@ function calendarSession(session: Workspace["sessions"][number]): CalendarLinkSe
 function profileDraft(profile: SpeakerProfile): ProfileDraft {
   return {
     name: profile.name,
-    // A speaker's own portal is never under a custom role's field policy — a speaker reads their
-    // own slice — but the DTO admits an absence because the same schema serves the organizer
-    // board, so the draft falls back rather than binding an input to `undefined`.
-    pronouns: profile.pronouns ?? "",
-    organization: profile.organization ?? "",
-    bio: profile.bio ?? "",
+    pronouns: profile.pronouns,
+    jobTitle: profile.jobTitle,
+    organization: profile.organization,
+    bio: profile.bio,
     // Every platform is a controlled input, so an absent link is "" here and is dropped again
     // on the way out. Leaving them undefined made the boxes uncontrolled on first paint and
     // React then warned on the first keystroke.
@@ -195,7 +194,13 @@ export function SpeakerView({
       Object.entries(draft.socialLinks).filter(([, value]) => value.trim()),
     );
     // ERROR-INTENT: handlers cannot await; the announcement below renders both outcomes.
-    void run(() => updateSpeakerProfile(profile.id, { ...draft, socialLinks })).then((result) => {
+    void run(() =>
+      updateSpeakerProfile(profile.id, {
+        ...draft,
+        socialLinks,
+        expectedVersion: profile.version,
+      }),
+    ).then((result) => {
       if (!result.ok) {
         // The server names the platform it refused, so the message lands on that box rather
         // than as one sentence over a form with seven inputs in it.
@@ -229,7 +234,9 @@ export function SpeakerView({
     if (busy) return;
     // ERROR-INTENT: handlers cannot await; the announcement below renders both outcomes.
     void run(() =>
-      asset ? setSpeakerProfilePhoto(profile.id, asset.id) : clearSpeakerProfilePhoto(profile.id),
+      asset
+        ? setSpeakerProfilePhoto(profile.id, asset.id, profile.version)
+        : clearSpeakerProfilePhoto(profile.id, profile.version),
     ).then((result) =>
       uploadFeedback.announce(
         result.ok ? "success" : "error",
@@ -463,7 +470,18 @@ export function SpeakerView({
               />
             </div>
             <div className="field profile-form-wide">
-              <label htmlFor="profile-organization">Organization</label>
+              <label htmlFor="profile-job-title">Job title</label>
+              <input
+                id="profile-job-title"
+                value={draft.jobTitle}
+                onChange={(changeEvent) =>
+                  setDraft({ ...draft, jobTitle: changeEvent.target.value })
+                }
+                maxLength={120}
+              />
+            </div>
+            <div className="field profile-form-wide">
+              <label htmlFor="profile-organization">Company</label>
               <input
                 id="profile-organization"
                 value={draft.organization}
@@ -778,11 +796,9 @@ export function SpeakerView({
                         Unscheduled
                       </Pill>
                     )}
-                    {session.publicationState ? (
-                      <Pill tone={PUBLICATION_TONE[session.publicationState]}>
-                        {PUBLICATION_LABEL[session.publicationState]}
-                      </Pill>
-                    ) : null}
+                    <Pill tone={PUBLICATION_TONE[session.publicationState]}>
+                      {PUBLICATION_LABEL[session.publicationState]}
+                    </Pill>
                   </span>
                 </div>
               </li>

@@ -25,15 +25,6 @@ import {
   requireCapability,
   requireEventCapability,
 } from "../identity/actor";
-import {
-  type FieldAccess,
-  fieldAccessFor,
-  type FieldPolicy,
-  type FieldSubject,
-  type HideableSessionField,
-  type HideableSpeakerField,
-  type Redacted,
-} from "../identity/public";
 import type { AssignableOwner } from "../identity/identity-directory";
 import type { AcceptedProposalQuery } from "../review/public";
 import {
@@ -114,33 +105,6 @@ export interface ScheduledContentSession extends ContentSession {
 export interface ContentWorkspaceView extends Omit<ContentWorkspace, "sessions"> {
   readonly sessions: readonly ScheduledContentSession[];
   readonly actorDirectory?: readonly AssignableOwner[];
-}
-
-/**
- * The workspace as a *reader under a per-field policy* receives it (issue #196).
- *
- * A separate type from `ContentWorkspaceView` rather than a widening of it, and the difference
- * matters. Content's own internal projection is complete — the calendar-invite composer needs
- * every speaker's address, and making it optional everywhere would have every caller in the
- * domain testing for an absence that only the console boundary can produce. This is the one
- * boundary the redaction happens at, so this is the one type that admits it.
- *
- * A field a custom role Hides is *removed* rather than blanked (`FieldAccess.redact`): an empty
- * string is a value, and a caller cannot tell it from a speaker who genuinely has no
- * organization — which is how a redacted projection comes to look like a complete one.
- */
-export interface RedactedContentWorkspaceView
-  extends Omit<ContentWorkspaceView, "sessions" | "speakers"> {
-  readonly sessions: readonly Redacted<ScheduledContentSession, HideableSessionField>[];
-  readonly speakers: readonly Redacted<
-    ContentWorkspace["speakers"][number],
-    HideableSpeakerField
-  >[];
-  /** Named rather than inferred from an absence. Present only when a role narrowed the read. */
-  readonly fieldAccess?: {
-    readonly hidden: readonly { subject: FieldSubject; field: string; policy: FieldPolicy }[];
-    readonly locked: readonly { subject: FieldSubject; field: string; policy: FieldPolicy }[];
-  };
 }
 
 export interface CalendarInviteContentWorkspaceView extends Omit<ContentWorkspaceView, "sessions"> {
@@ -276,6 +240,18 @@ export class ContentNotFoundError extends Error {}
  */
 export class SpeakerRemindersUnavailableError extends Error {}
 
+/** The platform timeline sink for successful canonical profile revisions. */
+export interface ContentProfileAuditPort {
+  profileUpdated(input: {
+    actorId: string;
+    actorName: string;
+    source: "human" | "api";
+    eventId: string;
+    profileId: string;
+    version: number;
+  }): Promise<void>;
+}
+
 export interface ContentServiceDependencies {
   repository: ContentRepository;
   /** Resolves the actor ids on revisions to the names an organizer recognises. */
@@ -327,6 +303,8 @@ export interface ContentServiceDependencies {
   reminders?: SpeakerReminderDispatchPort;
   /** Which organization runs an event. Events owns the answer; content asks rather than joins. */
   organizationOf?: (eventId: string) => Promise<string | null>;
+  /** Unified platform audit; the composition owns request source and correlation metadata. */
+  profileAudit?: ContentProfileAuditPort;
 }
 
 /** One task a reminder was asked for, and what happened to it. */
@@ -361,44 +339,8 @@ export interface SpeakerInvitationOutcome {
   readonly reason: string;
 }
 
-function hasEventRole(actor: Actor, eventId: string, role: "organizer" | "speaker" | "custom") {
+function hasEventRole(actor: Actor, eventId: string, role: "organizer" | "speaker") {
   return actor.eventAccess.some((access) => access.eventId === eventId && access.role === role);
-}
-
-/**
- * Narrow a projection to what a per-field policy permits, and say what was withheld.
- *
- * `schedule` is deliberately not governed: when and where a session happens is the agenda's
- * answer, resolved on every read, and it is already published to anybody who can see the site.
- * A policy that could hide it would promise a confidentiality this projection cannot keep.
- */
-function redactContentWorkspace(
-  workspace: ContentWorkspaceView,
-  access: FieldAccess,
-): RedactedContentWorkspaceView {
-  if (!access.restricted) return workspace;
-  const entries = (subject: FieldSubject, fields: readonly string[]) =>
-    fields.map((field) => ({ subject, field, policy: access.policyFor(subject, field) }));
-  return {
-    ...workspace,
-    sessions: workspace.sessions.map(({ schedule, ...session }) => ({
-      ...access.redact<typeof session, HideableSessionField>("session", session),
-      ...(schedule ? { schedule } : {}),
-    })),
-    speakers: workspace.speakers.map((speaker) =>
-      access.redact<typeof speaker, HideableSpeakerField>("speaker", speaker),
-    ),
-    fieldAccess: {
-      hidden: [
-        ...entries("session", access.hiddenFields("session")),
-        ...entries("speaker", access.hiddenFields("speaker")),
-      ],
-      locked: [
-        ...entries("session", access.lockedFields("session")),
-        ...entries("speaker", access.lockedFields("speaker")),
-      ],
-    },
-  };
 }
 
 /** RFC 5545 section 3.1: a content line carries at most 75 octets before its CRLF. */
@@ -624,9 +566,6 @@ export class ContentService {
     const profile = await this.dependencies.repository.findProfile(profileId);
     if (!profile) throw new CapabilityDeniedError();
     const authorized = requireEventCapability(actor, profile.eventId, "content:manage");
-    // The same decision the projection made, applied to the write. A role that cannot see a
-    // speaker's logistics cannot rewrite them either.
-    fieldAccessFor(authorized, profile.eventId).assertEditable("speaker", Object.keys(input));
     const updated = await this.dependencies.repository.reviseProfile(
       profile.id,
       this.draftRevision(authorized, profile.eventId),
@@ -1310,33 +1249,13 @@ export class ContentService {
     return profile;
   }
 
-  /**
-   * The sessions and speakers board, narrowed to what this reader's role permits.
-   *
-   * Three kinds of reader reach it. An **organizer** sees the whole event. A **speaker** sees
-   * their own slice, scoped by user id. A **custom role** holding `content:read` sees the whole
-   * event narrowed field by field — which is why the role check admits `custom` rather than
-   * naming the two built-in roles it used to: an AV coordinator granted `content:read` was
-   * refused outright before, so the capability the role was given did nothing.
-   *
-   * The redaction is applied *here*, at the projection, and not in the route or the client. The
-   * issue states the rule and it is worth repeating where it is enforced: a field the client
-   * hides and the API returns is not hidden.
-   */
-  async workspace(actor: Actor | null, eventId: string): Promise<RedactedContentWorkspaceView> {
+  async workspace(actor: Actor | null, eventId: string): Promise<ContentWorkspaceView> {
     const authorized = requireEventCapability(actor, eventId, "content:read");
     const isOrganizer = hasEventRole(authorized, eventId, "organizer");
     const isSpeaker = hasEventRole(authorized, eventId, "speaker");
-    const isCustom = hasEventRole(authorized, eventId, "custom");
-    if (!isOrganizer && !isSpeaker && !isCustom)
+    if (!isOrganizer && !isSpeaker)
       throw new CapabilityDeniedError("Content workspace access denied");
-    // A speaker's own slice, whether or not they also hold a custom role: the narrower scope
-    // wins, because a custom role is a staffing grant and never a way to widen a speaker's read.
-    const projected = await this.projected(
-      eventId,
-      isOrganizer || !isSpeaker ? undefined : authorized.id,
-    );
-    return redactContentWorkspace(projected, fieldAccessFor(authorized, eventId));
+    return this.projected(eventId, isOrganizer ? undefined : authorized.id);
   }
 
   async calendarInviteWorkspace(
@@ -1349,7 +1268,7 @@ export class ContentService {
     return this.projectedForCalendarInvites(eventId);
   }
 
-  async updateMyProfile(
+  async updateProfile(
     actor: Actor | null,
     profileId: string,
     /*
@@ -1358,33 +1277,19 @@ export class ContentService {
      * the speaker had entered.
      */
     input: Pick<SpeakerProfile, "name" | "bio" | "pronouns" | "organization"> &
-      Partial<Pick<SpeakerProfile, "socialLinks">>,
+      Partial<Pick<SpeakerProfile, "jobTitle" | "socialLinks">> & { expectedVersion?: number },
   ): Promise<SpeakerProfile> {
-    const profile = await this.dependencies.repository.findProfile(profileId);
-    if (!profile) throw new CapabilityDeniedError("Speaker profile access denied");
-    const authorized = requireEventCapability(actor, profile.eventId, "content:read");
-    if (
-      !profile ||
-      !hasEventRole(authorized, profile.eventId, "speaker") ||
-      profile.userId !== authorized.id
-    )
-      throw new CapabilityDeniedError("Speaker profile access denied");
-    /*
-     * The speaker's own portal is a *configured* write surface rather than a fixed one.
-     *
-     * `event_field_locks` is what an organizer closed on this event — the biography after the
-     * programme is printed, the organization once badges are ordered — and it reaches this grant
-     * through the actor, so the refusal is the same `FieldLockedError` a staffed role meets. This
-     * is the primitive issue #189's `GAP-028` residual asks for: what a speaker may change is a
-     * property of the event, not of this method's parameter list.
-     */
-    fieldAccessFor(authorized, profile.eventId).assertEditable("speaker", Object.keys(input));
+    const { profile, authorized } = await this.requireProfileSteward(actor, profileId);
+    const { expectedVersion: suppliedVersion, ...changes } = input;
+    const expectedVersion = suppliedVersion ?? profile.version ?? 0;
     const updated = await this.dependencies.repository.reviseProfile(
       profile.id,
       this.draftRevision(authorized, profile.eventId),
-      (current) => ({ ...current, ...input }),
+      (current) => ({ ...current, ...changes }),
+      expectedVersion,
     );
     if (!updated) throw new CapabilityDeniedError("Speaker profile access denied");
+    await this.recordProfileUpdate(authorized, updated);
     return updated;
   }
 
@@ -1411,8 +1316,9 @@ export class ContentService {
     actor: Actor | null,
     profileId: string,
     assetId: string,
+    expectedVersion?: number,
   ): Promise<SpeakerProfile> {
-    const profile = await this.requireProfileSteward(actor, profileId);
+    const { profile, authorized } = await this.requireProfileSteward(actor, profileId);
     const asset = await this.dependencies.repository.findAsset(assetId);
     // Whoever gets this far already lists this profile's uploads through the workspace, so
     // naming the mismatch reveals nothing new; an asset belonging to another profile and one
@@ -1430,17 +1336,15 @@ export class ContentService {
     // existed is, because that is what it now is (`ARC-AUTH-001`) — and specifically not with
     // the object this method could construct, which is how a 200 came to report a headshot on
     // a deleted speaker (issue #202).
-    if (!(await this.dependencies.repository.updateProfilePhoto(profile.id, asset.id)))
-      throw new CapabilityDeniedError("Speaker profile access denied");
-    // Answered from the store rather than from the copy read a moment ago. Now that this writes
-    // one column, an organizer's edit landing alongside it survives — and a response assembled
-    // from the earlier read would report the bio it replaced as though it were still there.
-    return (
-      (await this.dependencies.repository.findProfile(profile.id)) ?? {
-        ...profile,
-        photoAssetId: asset.id,
-      }
+    const updated = await this.dependencies.repository.reviseProfilePhoto(
+      profile.id,
+      this.draftRevision(authorized, profile.eventId),
+      expectedVersion ?? profile.version ?? 0,
+      asset.id,
     );
+    if (!updated) throw new CapabilityDeniedError("Speaker profile access denied");
+    await this.recordProfileUpdate(authorized, updated);
+    return updated;
   }
 
   /**
@@ -1450,21 +1354,30 @@ export class ContentService {
    * more authority than making it. The upload survives — this is "not this picture", not
    * "delete my file", which is what `deleteAsset` is for.
    */
-  async clearProfilePhoto(actor: Actor | null, profileId: string): Promise<SpeakerProfile> {
-    const profile = await this.requireProfileSteward(actor, profileId);
-    const { photoAssetId: _removed, ...withoutPhoto } = profile;
+  async clearProfilePhoto(
+    actor: Actor | null,
+    profileId: string,
+    expectedVersion?: number,
+  ): Promise<SpeakerProfile> {
+    const { profile, authorized } = await this.requireProfileSteward(actor, profileId);
     // As in `setProfilePhoto`: withdrawing a choice from a profile that has gone is refused
     // rather than reported as done.
-    if (!(await this.dependencies.repository.updateProfilePhoto(profile.id, null)))
-      throw new CapabilityDeniedError("Speaker profile access denied");
-    return (await this.dependencies.repository.findProfile(profile.id)) ?? withoutPhoto;
+    const updated = await this.dependencies.repository.reviseProfilePhoto(
+      profile.id,
+      this.draftRevision(authorized, profile.eventId),
+      expectedVersion ?? profile.version ?? 0,
+      null,
+    );
+    if (!updated) throw new CapabilityDeniedError("Speaker profile access denied");
+    await this.recordProfileUpdate(authorized, updated);
+    return updated;
   }
 
   /** The speaker whose profile it is, or an organizer of the event that profile belongs to. */
   private async requireProfileSteward(
     actor: Actor | null,
     profileId: string,
-  ): Promise<SpeakerProfile> {
+  ): Promise<{ profile: SpeakerProfile; authorized: Actor }> {
     const profile = await this.dependencies.repository.findProfile(profileId);
     if (!profile) throw new CapabilityDeniedError("Speaker profile access denied");
     const authorized = requireEventCapability(actor, profile.eventId, "content:read");
@@ -1473,14 +1386,25 @@ export class ContentService {
     );
     if (!isOwner && !hasEventRole(authorized, profile.eventId, "organizer"))
       throw new CapabilityDeniedError("Speaker profile access denied");
-    return profile;
+    return { profile, authorized };
+  }
+
+  private async recordProfileUpdate(actor: Actor, profile: SpeakerProfile) {
+    await this.dependencies.profileAudit?.profileUpdated({
+      actorId: actor.id,
+      actorName: actor.name,
+      source: actor.requestSource ?? "human",
+      eventId: profile.eventId,
+      profileId: profile.id,
+      version: profile.version ?? 0,
+    });
   }
 
   async completeTask(
     actor: Actor | null,
     taskId: string,
     eventId: string,
-  ): Promise<RedactedContentWorkspaceView> {
+  ): Promise<ContentWorkspaceView> {
     const authorized = requireEventCapability(actor, eventId, "content:read");
     if (!hasEventRole(authorized, eventId, "speaker"))
       throw new CapabilityDeniedError("Speaker task access denied");
@@ -1554,11 +1478,6 @@ export class ContentService {
     const session = await this.dependencies.repository.findSession(sessionId);
     if (!session) throw new CapabilityDeniedError("Organizer session access denied");
     const authorized = requireEventCapability(actor, session.eventId, "content:manage");
-    // Enforced in the mutation command, not only by hiding the control. Every key the caller
-    // actually sent is checked, so a form that submits the whole object is not refused for the
-    // fields it left alone — and Hide counts as unchangeable too, because a caller who cannot
-    // read a field must not be able to overwrite one with a blank.
-    fieldAccessFor(authorized, session.eventId).assertEditable("session", Object.keys(input));
     const profiles = await Promise.all(
       input.speakerProfileIds.map((id) => this.dependencies.repository.findProfile(id)),
     );
@@ -1722,10 +1641,23 @@ export class ContentService {
     // The one caller that reads no count and should not: if the profile went between the read
     // above and this write, the pointer at this asset went with it, which is the outcome this
     // line exists to reach. Nothing is reported to the caller from it either way.
-    if (profile?.photoAssetId === asset.id)
-      await this.dependencies.repository.updateProfilePhoto(profile.id, null);
+    if (profile?.photoAssetId === asset.id) {
+      const updated = await this.dependencies.repository.reviseProfilePhoto(
+        profile.id,
+        this.draftRevision(authorized, profile.eventId),
+        profile.version ?? 0,
+        null,
+      );
+      if (!updated) throw new CapabilityDeniedError("Speaker asset access denied");
+      await this.recordProfileUpdate(authorized, updated);
+    }
     await this.dependencies.assetStorage.delete(asset.storageKey);
-    await this.dependencies.repository.deleteAsset(asset.id);
+    const concurrentClear = await this.dependencies.repository.deleteAssetAfterStorage(
+      asset.id,
+      asset.speakerProfileId,
+      this.draftRevision(authorized, asset.eventId),
+    );
+    if (concurrentClear) await this.recordProfileUpdate(authorized, concurrentClear);
   }
 
   async upload(
@@ -2128,6 +2060,9 @@ export class ContentService {
     const draft = this.draftRevision(authorized, revision.eventId, revision.id);
     if (revision.entityType === "profile") {
       const snapshot = JSON.parse(revision.snapshotJson) as SpeakerProfile;
+      const snapshotPhoto = snapshot.photoAssetId
+        ? await this.dependencies.repository.findAsset(snapshot.photoAssetId)
+        : null;
       const restored = await this.dependencies.repository.reviseProfile(
         revision.entityId,
         draft,
@@ -2136,10 +2071,13 @@ export class ContentService {
           name: snapshot.name,
           bio: snapshot.bio,
           pronouns: snapshot.pronouns,
+          jobTitle: snapshot.jobTitle ?? "",
           organization: snapshot.organization,
-          // Restored exactly as the snapshot held it, absence included: a revision taken before
-          // the speaker chose a headshot puts the profile back to having none.
-          ...(snapshot.photoAssetId ? { photoAssetId: snapshot.photoAssetId } : {}),
+          // Restore the snapshot's choice only while that owned asset still exists. An absent or
+          // since-deleted headshot restores as none, so history cannot recreate a dangling link.
+          ...(snapshotPhoto?.speakerProfileId === revision.entityId
+            ? { photoAssetId: snapshotPhoto.id }
+            : {}),
           workflowStatus: snapshot.workflowStatus,
           logistics: snapshot.logistics,
           customFields: snapshot.customFields,
@@ -2149,6 +2087,7 @@ export class ContentService {
         }),
       );
       if (!restored) throw new CapabilityDeniedError();
+      await this.recordProfileUpdate(authorized, restored);
     } else {
       const snapshot = JSON.parse(revision.snapshotJson) as ContentSession;
       const restored = await this.dependencies.repository.reviseSession(

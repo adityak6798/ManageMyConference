@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { fieldPolicyEntrySchema } from "./identity-access";
 
 // @spec PRD-SPK-001 PRD-SPK-002 PRD-CNT-001
 export const contentSessionSchema = z.object({
@@ -7,19 +6,12 @@ export const contentSessionSchema = z.object({
   eventId: z.string().uuid(),
   proposalId: z.string(),
   title: z.string(),
-  /*
-   * Governed by per-field access (`PRD-IAM-002`). Optional because a custom role may Hide it,
-   * and a hidden field is *absent* rather than blank: an empty string is a value, and a caller
-   * cannot tell it from a session that genuinely has no abstract — which is how a redacted
-   * projection comes to look like a complete one. `title` stays required because a record with
-   * no identifying field is unjoinable, which `REQUIRED_FIELDS` states.
-   */
-  abstract: z.string().optional(),
-  format: z.string().optional(),
+  abstract: z.string(),
+  format: z.string(),
   speakerProfileIds: z.array(z.string().uuid()),
-  tags: z.array(z.string()).optional(),
-  tracks: z.array(z.string()).optional(),
-  publicationState: z.enum(["draft", "ready", "published"]).optional(),
+  tags: z.array(z.string()),
+  tracks: z.array(z.string()),
+  publicationState: z.enum(["draft", "ready", "published"]),
   /*
    * Where the event's published agenda places this session — never a stored property of the
    * session. It is resolved from the agenda publication in force on every read, and is absent
@@ -106,11 +98,13 @@ export const speakerProfileSchema = z.object({
   userId: z.string(),
   sourcePersonId: z.string(),
   name: z.string(),
-  /* Governed by per-field access, and absent rather than blank when hidden. See above. */
-  email: z.string().email().optional(),
-  bio: z.string().optional(),
-  pronouns: z.string().optional(),
-  organization: z.string().optional(),
+  email: z.string().email(),
+  bio: z.string(),
+  pronouns: z.string(),
+  jobTitle: z.string(),
+  organization: z.string(),
+  /** Optimistic version of the canonical profile, derived from its attributed revisions. */
+  version: z.number().int().nonnegative(),
   photoAssetId: z.string().uuid().optional(),
   workflowStatus: z.enum(["invited", "onboarding", "ready", "blocked"]).optional(),
   logistics: z.record(z.string()).optional(),
@@ -212,20 +206,6 @@ export const contentWorkspaceSchema = z.object({
   revisions: z.array(contentRevisionSchema).optional(),
   /** Optional because the speaker-scoped projection carries no revisions to attribute. */
   actorDirectory: z.array(contentActorSchema).optional(),
-  /**
-   * What this reader's role withheld, named rather than left to be inferred from an absence.
-   *
-   * Present only when a custom role narrowed the projection. Without it a console can only show
-   * a blank where a field used to be, which reads as "this speaker has no organization" instead
-   * of "your role does not see this". `locked` fields are shown and refused on write, so the
-   * form can disable the input rather than fail on submit.
-   */
-  fieldAccess: z
-    .object({
-      hidden: z.array(fieldPolicyEntrySchema),
-      locked: z.array(fieldPolicyEntrySchema),
-    })
-    .optional(),
 });
 export type ContentWorkspaceDto = z.infer<typeof contentWorkspaceSchema>;
 /**
@@ -240,9 +220,11 @@ export type ContentWorkspaceDto = z.infer<typeof contentWorkspaceSchema>;
 export const acceptContentInputSchema = z.object({ proposalId: z.string().uuid() });
 export type AcceptContentInput = z.infer<typeof acceptContentInputSchema>;
 export const updateSpeakerProfileInputSchema = z.object({
+  expectedVersion: z.number().int().nonnegative().optional(),
   name: z.string().trim().min(1).max(120),
   bio: z.string().trim().max(2000),
   pronouns: z.string().trim().max(50),
+  jobTitle: z.string().trim().max(120).optional(),
   organization: z.string().trim().max(120),
   /*
    * Optional so an older client's save is a text edit rather than a silent wipe of every link.
@@ -262,8 +244,15 @@ export type UpdateSpeakerProfileInput = z.infer<typeof updateSpeakerProfileInput
  * private upload stays private and the public projection emits a `photoUrl` only for an asset
  * an organizer separately marked publishable. `DELETE` on the same address removes the choice.
  */
-export const setSpeakerPhotoInputSchema = z.object({ assetId: z.string().uuid() });
+export const setSpeakerPhotoInputSchema = z.object({
+  assetId: z.string().uuid(),
+  expectedVersion: z.number().int().nonnegative().optional(),
+});
 export type SetSpeakerPhotoInput = z.infer<typeof setSpeakerPhotoInputSchema>;
+export const clearSpeakerPhotoInputSchema = z.object({
+  expectedVersion: z.number().int().nonnegative().optional(),
+});
+export type ClearSpeakerPhotoInput = z.infer<typeof clearSpeakerPhotoInputSchema>;
 export const uploadSpeakerAssetInputSchema = z.object({
   profileId: z.string().uuid(),
   name: z.string().trim().min(1).max(160),

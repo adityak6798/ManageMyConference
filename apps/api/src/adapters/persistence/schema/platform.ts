@@ -5,7 +5,6 @@ import {
   index,
   integer,
   primaryKey,
-  integer,
   sqliteTable,
   text,
   unique,
