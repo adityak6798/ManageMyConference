@@ -1,3 +1,4 @@
+// @acceptance ACC-HARNESS
 import assert from "node:assert/strict";
 import test from "node:test";
 import { EVALUATOR_COMMIT, sanitizedConfiguration } from "../run-sbek-evaluator.mjs";

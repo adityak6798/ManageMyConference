@@ -27,6 +27,7 @@ export function PublicSiteApp() {
   const [unavailable, setUnavailable] = useState(false);
   const [busy, setBusy] = useState(false);
   const [registered, setRegistered] = useState<number | null>(null);
+  const [registrationError, setRegistrationError] = useState<string | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const route = routeFromPath();
   const slug = typeof route === "string" ? "" : route.slug;
@@ -55,6 +56,7 @@ export function PublicSiteApp() {
   async function register(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
+    setRegistrationError(null);
     setBusy(true);
     try {
       const result = await registerForSite(slug, {
@@ -66,6 +68,8 @@ export function PublicSiteApp() {
       setRegistered(result.noticeVersion);
       event.currentTarget.reset();
       setAnswers({});
+    } catch (error) {
+      setRegistrationError(error instanceof Error ? error.message : "Registration failed.");
     } finally {
       setBusy(false);
     }
@@ -206,6 +210,7 @@ export function PublicSiteApp() {
               <button type="submit" disabled={busy || !site.privacyNotice}>
                 {busy ? "Registering…" : "Register"}
               </button>
+              {registrationError ? <p role="alert">{registrationError}</p> : null}
             </form>
           )}
         </section>

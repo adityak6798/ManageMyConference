@@ -161,9 +161,17 @@ understood would only be gamed.
 
 The weekly `Repository gardening` workflow pins npm `11.12.1` and performs locked npm/uv installs, context integrity, Python CLI tests, generated OpenAPI drift, and npm audit in one job, and installs Chromium to run `npm run test:quality` — the evaluator subset — in a second, uploading its artifacts on failure. It is read-only and does not open or merge pull requests.
 
+Two manual evidence workflows sit outside the merge gate. `SessionBoard external evaluator` runs
+the pinned evaluator wrapper and uploads its run directory even when credentials are absent or the
+evaluation fails; [the evaluator runbook](external-evaluator.md) defines what its score can claim.
+`Webhook egress monitor` accepts a `full` dispatch option in addition to its hourly safe monitor.
+Both probe modes use `pipefail` and archive combined output, so a failing Node probe cannot be
+hidden by `tee`; the full mode remains red until the rebinding and signed-delivery evidence in
+`GAP-026` genuinely succeeds.
+
 ## Planned release gates
 
-As product domains arrive, add their provider contracts and authorization-negative matrices to required CI. Before competition/release, add the external evaluator, accessibility, performance, and quality-score checks. Before production deployment exists, add preview smoke, credential-gated live-adapter checks, immutable migration preflight, rollback, and a smoke test that prevents promotion on failure.
+As product domains arrive, add their provider contracts and authorization-negative matrices to required CI. Before competition/release, decide whether the credentialed external evaluator is stable enough to become a required check; accessibility, performance, and quality-score checks already run through the browser/evidence gates. Before production deployment exists, add preview smoke, credential-gated live-adapter checks, immutable migration preflight, rollback, and a smoke test that prevents promotion on failure.
 
 Current local verification evidence, measured on 2026-08-11 against the working tree at commit
 `ea91650` plus the uncommitted speaker-headshot change: `npm run check` exits 0 (37 tool tests, 132

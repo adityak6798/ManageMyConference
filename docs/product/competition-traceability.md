@@ -64,7 +64,11 @@ speaker CRM in particular is product work the brief does not name. The mapping i
 The lifecycle chain is the integration acceptance target, and it is now executable:
 [`apps/web/e2e/lifecycle.spec.ts`](../../apps/web/e2e/lifecycle.spec.ts) carries one newly filed
 proposal from the public form to the published site and back. `ACC-DEMO-SMOKE` separately verifies
-that every journey surface is discoverable. Neither replaces the remaining acceptance criteria of
-issue #10, which include hosted CI. The reproducible evaluator order and clean-reset commands are in
-the [competition demo runbook](../demo-runbook.md); the deferred items are in
+that every journey surface is discoverable. `closure-surfaces.spec.ts` drives the newer role,
+report, portal, embed, and webhook-console surfaces rather than only discovering them. Neither
+replaces the remaining acceptance criteria of issue #10, which include hosted CI. The reproducible
+external SessionBoard evaluator is pinned and described in the
+[evaluator runbook](../engineering/external-evaluator.md); the current branch has no model-scored
+result because the credential was unavailable, while the older 65.9% report is directional only.
+The competition demo order remains in [the demo runbook](../demo-runbook.md); deferred items are in
 [known gaps](../quality/known-gaps.md) and the [technical debt register](../exec-plans/tech-debt.md).

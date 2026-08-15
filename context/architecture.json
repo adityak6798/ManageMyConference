@@ -129,6 +129,11 @@
         "reason": "The public site's root component. main.tsx mounts it for /events/*, which is the only cross-domain reach into publishing's UI."
       },
       {
+        "path": "apps/web/src/PublicSiteApp.tsx",
+        "governing": "PRD-PUB-002",
+        "reason": "The organization portal's anonymous root component. Platform-owned main.tsx selects it for /sites/* while portal composition, publication and registration remain publishing-owned."
+      },
+      {
         "path": "apps/web/src/api/cfp.ts",
         "governing": "PRD-CFP-002",
         "reason": "The public CFP client. The public site renders the applicant form and submits through it, which is the one place publishing's UI calls CFP's API."

@@ -86,6 +86,7 @@
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
+- `code` / `repository-fact`: [tools/run-sbek-evaluator.mjs](../../tools/run-sbek-evaluator.mjs)
 - `test` / `repository-fact`: [tools/tests/remote-demo-reset.test.mjs](../../tools/tests/remote-demo-reset.test.mjs)
 
 ### `ACC-EVENT-TEMPLATES`
@@ -135,6 +136,7 @@
 - `test` / `repository-fact`: [tools/tests/check-schema-drift.test.mjs](../../tools/tests/check-schema-drift.test.mjs)
 - `test` / `repository-fact`: [tools/tests/compose-seed.test.mjs](../../tools/tests/compose-seed.test.mjs)
 - `test` / `repository-fact`: [tools/tests/review-loop.test.mjs](../../tools/tests/review-loop.test.mjs)
+- `test` / `repository-fact`: [tools/tests/run-sbek-evaluator.test.mjs](../../tools/tests/run-sbek-evaluator.test.mjs)
 - `test` / `repository-fact`: [tools/tests/setup-local.test.mjs](../../tools/tests/setup-local.test.mjs)
 - `test` / `repository-fact`: [tools/tests/test_context.py](../../tools/tests/test_context.py)
 - `test` / `repository-fact`: [tools/tests/worktree-env.test.mjs](../../tools/tests/worktree-env.test.mjs)
@@ -217,6 +219,7 @@
 - `test` / `repository-fact`: [apps/api/test/platform-search.test.ts](../../apps/api/test/platform-search.test.ts)
 - `test` / `repository-fact`: [apps/api/test/publication-notifications.test.ts](../../apps/api/test/publication-notifications.test.ts)
 - `test` / `repository-fact`: [apps/api/test/reporting.test.ts](../../apps/api/test/reporting.test.ts)
+- `test` / `repository-fact`: [apps/web/e2e/closure-surfaces.spec.ts](../../apps/web/e2e/closure-surfaces.spec.ts)
 - `test` / `repository-fact`: [apps/web/e2e/lifecycle-demo.spec.ts](../../apps/web/e2e/lifecycle-demo.spec.ts)
 - `test` / `repository-fact`: [apps/web/e2e/platform-operations.spec.ts](../../apps/web/e2e/platform-operations.spec.ts)
 - `test` / `repository-fact`: [apps/web/test/command-palette.test.tsx](../../apps/web/test/command-palette.test.tsx)
@@ -249,7 +252,6 @@
 - `specification` / `normative`: [docs/architecture/authorization.md](../../docs/architecture/authorization.md)
 - `specification` / `normative`: [docs/exec-plans/tech-debt.md](../../docs/exec-plans/tech-debt.md)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
-- `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `specification` / `normative`: [docs/quality/scorecard.md](../../docs/quality/scorecard.md)
 
 ### `ACC-REVIEW`
@@ -291,6 +293,7 @@
 - `test` / `repository-fact`: [apps/api/test/d1-content-repository.integration.test.ts](../../apps/api/test/d1-content-repository.integration.test.ts)
 - `test` / `repository-fact`: [apps/api/test/integrations-http.test.ts](../../apps/api/test/integrations-http.test.ts)
 - `test` / `repository-fact`: [apps/api/test/speaker-calendar-invites.test.ts](../../apps/api/test/speaker-calendar-invites.test.ts)
+- `test` / `repository-fact`: [apps/web/e2e/closure-surfaces.spec.ts](../../apps/web/e2e/closure-surfaces.spec.ts)
 - `test` / `repository-fact`: [apps/web/e2e/event-scoped-loading.spec.ts](../../apps/web/e2e/event-scoped-loading.spec.ts)
 - `test` / `repository-fact`: [apps/web/e2e/lifecycle.spec.ts](../../apps/web/e2e/lifecycle.spec.ts)
 - `test` / `repository-fact`: [apps/web/e2e/speaker-checklist.spec.ts](../../apps/web/e2e/speaker-checklist.spec.ts)
@@ -686,6 +689,7 @@
 - `code` / `repository-fact`: [apps/api/src/application/publishing/site-service.ts](../../apps/api/src/application/publishing/site-service.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/app.ts](../../apps/api/src/transport/http/app.ts)
 - `code` / `repository-fact`: [apps/api/src/transport/http/routes/identity.ts](../../apps/api/src/transport/http/routes/identity.ts)
+- `test` / `repository-fact`: [apps/web/e2e/closure-surfaces.spec.ts](../../apps/web/e2e/closure-surfaces.spec.ts)
 - `code` / `repository-fact`: [apps/web/src/AcceptInvitationPage.tsx](../../apps/web/src/AcceptInvitationPage.tsx)
 - `code` / `repository-fact`: [apps/web/src/App.tsx](../../apps/web/src/App.tsx)
 - `code` / `repository-fact`: [apps/web/src/CommandPalette.tsx](../../apps/web/src/CommandPalette.tsx)
@@ -698,7 +702,6 @@
 - `code` / `repository-fact`: [apps/web/src/workspaces/custom-roles.tsx](../../apps/web/src/workspaces/custom-roles.tsx)
 - `code` / `repository-fact`: [apps/web/src/workspaces/identity.tsx](../../apps/web/src/workspaces/identity.tsx)
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
-- `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 
 ### `PRD-INT-001`
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/d1-accelevents-sync-runs.ts](../../apps/api/src/adapters/persistence/d1-accelevents-sync-runs.ts)
@@ -790,6 +793,7 @@
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/schema/platform.ts](../../apps/api/src/adapters/persistence/schema/platform.ts)
 - `code` / `repository-fact`: [apps/api/src/adapters/platform/report-link-delivery.ts](../../apps/api/src/adapters/platform/report-link-delivery.ts)
 - `code` / `repository-fact`: [apps/api/src/application/platform/capability-link.ts](../../apps/api/src/application/platform/capability-link.ts)
+- `test` / `repository-fact`: [apps/web/e2e/closure-surfaces.spec.ts](../../apps/web/e2e/closure-surfaces.spec.ts)
 - `code` / `repository-fact`: [apps/web/src/PublicReportApp.tsx](../../apps/web/src/PublicReportApp.tsx)
 - `code` / `repository-fact`: [apps/web/src/ReportsWorkspace.tsx](../../apps/web/src/ReportsWorkspace.tsx)
 - `code` / `repository-fact`: [apps/web/src/api/reports.ts](../../apps/web/src/api/reports.ts)
@@ -832,11 +836,11 @@
 - `code` / `repository-fact`: [apps/api/src/adapters/publishing/sanitize-site-html.ts](../../apps/api/src/adapters/publishing/sanitize-site-html.ts)
 - `code` / `repository-fact`: [apps/api/src/application/publishing/site-service.ts](../../apps/api/src/application/publishing/site-service.ts)
 - `code` / `repository-fact`: [apps/api/src/domain/publishing/site.ts](../../apps/api/src/domain/publishing/site.ts)
+- `code` / `repository-fact`: [apps/web/src/PublicSiteApp.tsx](../../apps/web/src/PublicSiteApp.tsx)
 - `code` / `repository-fact`: [apps/web/src/SitesWorkspace.tsx](../../apps/web/src/SitesWorkspace.tsx)
 - `code` / `repository-fact`: [apps/web/src/api/sites.ts](../../apps/web/src/api/sites.ts)
 - `code` / `repository-fact`: [apps/web/src/workspaces/sites.tsx](../../apps/web/src/workspaces/sites.tsx)
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
-- `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `code` / `repository-fact`: [packages/contracts/src/domains/publishing.ts](../../packages/contracts/src/domains/publishing.ts)
 
 ### `PRD-REV-001`

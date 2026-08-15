@@ -129,6 +129,11 @@
         "reason": "The public site's root component. main.tsx mounts it for /events/*, which is the only cross-domain reach into publishing's UI."
       },
       {
+        "path": "apps/web/src/PublicSiteApp.tsx",
+        "governing": "PRD-PUB-002",
+        "reason": "The organization portal's anonymous root component. Platform-owned main.tsx selects it for /sites/* while portal composition, publication and registration remain publishing-owned."
+      },
+      {
         "path": "apps/web/src/api/cfp.ts",
         "governing": "PRD-CFP-002",
         "reason": "The public CFP client. The public site renders the applicant form and submits through it, which is the one place publishing's UI calls CFP's API."
@@ -463,7 +468,8 @@
         "apps/web/src/PublicReportApp.tsx",
         "apps/web/src/workspaces/reports.tsx",
         "apps/web/src/api/reports.ts",
-        "apps/web/test/reports-workspace.test.tsx"
+        "apps/web/test/reports-workspace.test.tsx",
+        "apps/web/e2e/closure-surfaces.spec.ts"
       ]
     },
     {
@@ -1048,6 +1054,7 @@
         "apps/api/test/site-service.test.ts",
         "apps/api/test/d1-site-repository.integration.test.ts",
         "apps/web/src/SitesWorkspace.tsx",
+        "apps/web/src/PublicSiteApp.tsx",
         "apps/web/src/workspaces/sites.tsx",
         "apps/web/src/api/sites.ts",
         "apps/api/migrations/1805_publication_embeds.sql",
