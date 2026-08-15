@@ -53,7 +53,16 @@
     "apps/api/src/transport/http/routes/review.ts",
     "apps/web/src/workspaces/review.tsx",
     "docs/engineering/review-suggestions.md",
-    "apps/api/migrations/1311_review_decision_revision.sql"
+    "apps/api/migrations/1311_review_decision_revision.sql",
+    "apps/api/migrations/1312_review_plans.sql",
+    "apps/api/src/domain/review/round.ts",
+    "apps/api/test/review-rounds.test.ts",
+    "apps/api/test/review-rounds-http.test.ts",
+    "apps/api/test/d1-review-round-backfill.integration.test.ts",
+    "apps/web/src/review/RoundsPanel.tsx",
+    "apps/web/src/review/ReviewerProgressPanel.tsx",
+    "apps/web/test/review-rounds.test.tsx",
+    "apps/web/e2e/review-rounds.spec.ts"
   ],
   "symbols": {
     "ReviewService": "apps/api/src/application/review/review-service.ts",

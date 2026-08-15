@@ -476,6 +476,26 @@ WHERE event_id IN (
     '00000000-0000-4000-8000-000000000020'
   )
 );
+-- Before the rounds, because `review_round_members` carries a composite foreign key to
+-- `review_rounds(event_id, sequence)` and a round with membership rows still pointing at it
+-- cannot be dropped. There is deliberately no trigger requiring assignments to be removed first;
+-- the pool-removal rule lives in `setRoundMembers`, while raw seed SQL does not go through it.
+DELETE FROM review_round_members
+WHERE event_id IN (
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
+);
+DELETE FROM review_rounds
+WHERE event_id IN (
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
+);
 DELETE FROM review_plans
 WHERE event_id IN (
   SELECT id FROM events
@@ -594,6 +614,7 @@ WHERE event_id IN (
   OR user_id IN (
     'seed-organizer',
     'seed-reviewer',
+    'review-nina-alvarez',
     'seed-speaker',
     'speaker-jordan-bell',
     'seed-public'
@@ -608,6 +629,7 @@ WHERE organization_id IN (
   OR user_id IN (
     'seed-organizer',
     'seed-reviewer',
+    'review-nina-alvarez',
     'seed-speaker',
     'speaker-jordan-bell',
     'seed-public'
@@ -685,6 +707,7 @@ DELETE FROM identity_login_challenges
 WHERE email IN (
   'organizer@greenroom.test',
   'reviewer@greenroom.test',
+  'nina.alvarez@greenroom.test',
   'speaker@greenroom.test'
 );
 
@@ -708,6 +731,7 @@ DELETE FROM identity_sessions
 WHERE user_id IN (
   'seed-organizer',
   'seed-reviewer',
+  'review-nina-alvarez',
   'seed-speaker',
   'speaker-jordan-bell',
   'seed-public'
@@ -722,6 +746,7 @@ DELETE FROM identity_audit_events
 WHERE actor_user_id IN (
   'seed-organizer',
   'seed-reviewer',
+  'review-nina-alvarez',
   'seed-speaker',
   'speaker-jordan-bell',
   'seed-public'
@@ -729,6 +754,7 @@ WHERE actor_user_id IN (
   OR subject_user_id IN (
     'seed-organizer',
     'seed-reviewer',
+    'review-nina-alvarez',
     'seed-speaker',
     'speaker-jordan-bell',
     'seed-public'
@@ -751,6 +777,7 @@ DELETE FROM identity_provider_accounts
 WHERE user_id IN (
   'seed-organizer',
   'seed-reviewer',
+  'review-nina-alvarez',
   'seed-speaker',
   'speaker-jordan-bell',
   'seed-public'
@@ -759,12 +786,13 @@ DELETE FROM identity_emails
 WHERE user_id IN (
   'seed-organizer',
   'seed-reviewer',
+  'review-nina-alvarez',
   'seed-speaker',
   'speaker-jordan-bell',
   'seed-public'
 );
 
--- **Only the five the seed names.**
+-- **Only the six the seed names.**
 --
 -- The demo can also *produce* a user: converting a CRM prospect to a speaker writes one through
 -- `provisionSpeaker`, with a generated id and the contact's own address. Those are deliberately
@@ -779,6 +807,7 @@ DELETE FROM users
 WHERE id IN (
   'seed-organizer',
   'seed-reviewer',
+  'review-nina-alvarez',
   'seed-speaker',
   'speaker-jordan-bell',
   'seed-public'
@@ -803,9 +832,21 @@ INSERT INTO organizations (id, name, created_at) VALUES
 
 -- Only `seed-<persona>` is resolvable as a demo identity, so a second speaker enriches the
 -- programme without adding a second door into the speaker portal.
+-- A second reviewer, and the reason it is not a second *persona*.
+--
+-- Review needs two reviewers to be a demonstrable product: a round's pool means nothing with one
+-- person in the directory, one reviewer cannot show that a second cannot read their notes, and a
+-- reminder list of one is a button rather than an operation. But `seed-<persona>` is the only
+-- shape the demo door resolves, so adding a persona would put a fifth "Continue as…" button on
+-- the landing page — an identity-owned product decision, made from a review lane, to solve a
+-- review problem. Nina is a seeded *reviewer* instead: she appears in every organizer surface,
+-- holds real assignments and completed evaluations, and receives reminders. What she cannot do is
+-- sign in through the demo door, which is why the "two reviewers cannot see each other's drafts"
+-- evidence is at the service and HTTP tiers rather than in two browser contexts.
 INSERT INTO users (id, name, persona) VALUES
   ('seed-organizer', 'Olivia Organizer', 'organizer'),
   ('seed-reviewer', 'Ravi Reviewer', 'reviewer'),
+  ('review-nina-alvarez', 'Nina Alvarez', 'reviewer'),
   ('seed-speaker', 'Sam Speaker', 'speaker'),
   ('speaker-jordan-bell', 'Jordan Bell', 'speaker'),
   ('seed-public', 'Pat Attendee', 'public');
@@ -816,6 +857,9 @@ VALUES ('00000000-0000-4000-8000-000000000010', 'seed-organizer', 'organizer');
 INSERT INTO identity_emails (user_id, email) VALUES
   ('seed-organizer', 'organizer@greenroom.test'),
   ('seed-reviewer', 'reviewer@greenroom.test'),
+  -- Linked, so an outstanding-review reminder addressed to her is `queued` rather than
+  -- `unaddressable` — which is the state the reminder console has to be able to show.
+  ('review-nina-alvarez', 'nina.alvarez@greenroom.test'),
   ('seed-speaker', 'speaker@greenroom.test');
 
 INSERT INTO events (id, organization_id, name, timezone, created_at) VALUES
@@ -878,6 +922,7 @@ INSERT INTO event_roles (event_id, user_id, role) VALUES
   ('00000000-0000-4000-8000-000000000001', 'seed-organizer', 'reviewer'),
   ('00000000-0000-4000-8000-000000000002', 'seed-organizer', 'organizer'),
   ('00000000-0000-4000-8000-000000000001', 'seed-reviewer', 'reviewer'),
+  ('00000000-0000-4000-8000-000000000001', 'review-nina-alvarez', 'reviewer'),
   ('00000000-0000-4000-8000-000000000001', 'seed-speaker', 'speaker'),
   ('00000000-0000-4000-8000-000000000001', 'speaker-jordan-bell', 'speaker'),
   ('00000000-0000-4000-8000-000000000001', 'seed-public', 'public');
@@ -900,6 +945,11 @@ INSERT INTO message_templates (id, organization_id, template_key, version, chann
   ('template-speaker-task-reminder-v1', '00000000-0000-4000-8000-000000000010', 'speaker-task-reminder', 1, 'email', 'Reminder: {{taskTitle}}', 'Hello {{speakerName}}, "{{taskTitle}}" is due {{dueAt}} and is still open. You can complete it from your speaker portal.', '2026-08-10T12:00:00.000Z'),
   ('template-schedule-published-v1', '00000000-0000-4000-8000-000000000010', 'schedule-published', 1, 'email', 'The schedule is published', 'Hello {{speakerName}}, the schedule is published and your session has a time. Add it to your calendar: {{calendarUrl}}', '2026-08-10T12:00:00.000Z'),
   ('template-reviewer-assignment-v1', '00000000-0000-4000-8000-000000000010', 'reviewer-assignment', 1, 'email', 'Abstracts are waiting for your review', 'Hello {{reviewerName}}, abstracts have been assigned to you for round {{round}}. Open your review queue when you have time.', '2026-08-10T12:00:00.000Z'),
+  -- The outstanding-review nudge (issue #191), and a different message from the assignment notice
+  -- above it: that one says work arrived, this one says work is still open. It names the round by
+  -- the organizer's own name for it and states the count, because "you have reviews outstanding"
+  -- with no number is a message the recipient has to open the product to act on.
+  ('template-reviewer-reminder-v1', '00000000-0000-4000-8000-000000000010', 'reviewer-reminder', 1, 'email', 'A reminder about your outstanding reviews', 'Hello {{reviewerName}}, you have {{outstanding}} evaluation(s) still open in {{roundName}}. Open your review queue when you have a moment.', '2026-08-10T12:00:00.000Z'),
   ('template-decision-accepted-v1', '00000000-0000-4000-8000-000000000010', 'decision-accepted', 1, 'email', 'Your proposal was accepted', 'Hello {{submitterName}}, we are delighted to tell you that "{{proposalTitle}}" has been accepted. We will be in touch with next steps shortly.', '2026-08-10T12:00:00.000Z'),
   ('template-decision-declined-v1', '00000000-0000-4000-8000-000000000010', 'decision-declined', 1, 'email', 'About your proposal', 'Hello {{submitterName}}, thank you for submitting "{{proposalTitle}}". We had more strong proposals than slots this year and will not be able to programme it. We hope you will submit again.', '2026-08-10T12:00:00.000Z'),
   ('template-calendar-invite-v1', '00000000-0000-4000-8000-000000000010', 'speaker-calendar-invite', 1, 'email', 'Your session at {{eventName}}', 'Hello {{speakerName}}, here is the calendar invitation for {{sessionTitle}} at {{eventName}}. Accept it to add the session to your calendar; if the time changes we will send an update that replaces this entry.', '2026-08-10T12:00:00.000Z'),
@@ -908,8 +958,8 @@ INSERT INTO message_templates (id, organization_id, template_key, version, chann
   -- `D6` drew for decision notifications and this message stays well inside.
   ('template-proposal-submitted-v1', '00000000-0000-4000-8000-000000000010', 'proposal-submitted', 1, 'email', 'We have your proposal', 'Hello {{submitterName}}, thank you — "{{proposalTitle}}" is with the programme team. You can read or revise it from your proposals page while the call is open, and its decision will appear there.', '2026-08-10T12:00:00.000Z'),
   -- The two scheduled deadline messages (issue #210). Seeded rather than left to be provisioned
-  -- lazily so the demo's state after a reset is the state migration `1706` establishes for every
-  -- organization: a reset that restored nine of eleven would leave the demo quietly different
+  -- lazily so the demo's state after a reset is the state migration `1707` establishes for every
+  -- organization: a reset that restored only some of the twelve would leave the demo quietly different
   -- from every other workspace until something happened to send one.
   ('template-cfp-deadline-reminder-v1', '00000000-0000-4000-8000-000000000010', 'cfp-deadline-reminder', 1, 'email', 'Your draft for {{eventName}} is not submitted yet', 'Hello {{submitterName}}, the call for proposals for {{eventName}} closes {{closesAt}} and you still have {{draftCount}} unsubmitted on your proposals page. Open it and press Submit if you want it considered; if you have changed your mind, nothing else is needed and we will not write about it again.', '2026-08-10T12:00:00.000Z'),
   ('template-cfp-call-closed-v1', '00000000-0000-4000-8000-000000000010', 'cfp-call-closed', 1, 'email', 'Your call for proposals has closed', 'Hello {{organizerName}}, the call for proposals for {{eventName}} closed {{closesAt}} and is no longer taking submissions. The proposals you received are waiting in the review queue.', '2026-08-10T12:00:00.000Z');
@@ -1091,8 +1141,85 @@ INSERT INTO review_decisions (event_id, proposal_id, outcome, decided_by, decide
 INSERT INTO review_plans (event_id, criteria_json, updated_at) VALUES
   ('00000000-0000-4000-8000-000000000001', '[{"id":"relevance","name":"Relevance","description":"Fit for this audience","type":"numeric","minScore":1,"maxScore":5,"weight":2},{"id":"format","name":"Recommended format","description":"Choose the best delivery format","type":"dropdown","options":["Talk","Workshop","Panel"],"weight":1},{"id":"feedback","name":"Reviewer feedback","description":"Explain the recommendation","type":"text","maxLength":1000,"weight":1}]', '2026-08-09T12:00:00.000Z');
 
+/*
+ * Two rounds that differ in every dimension the product makes configurable, because a demo with
+ * one round proves nothing about rounds.
+ *
+ * `First pass` is blind, scores against the event plan, and its pool is both reviewers.
+ * `Programme committee` is open review, carries **its own scorecard**, and its pool is Nina alone
+ * — so the demo starts in the state the acceptance criteria describe: a reviewer who worked in
+ * round 1 is absent from round 2 until somebody adds them. Ravi's queue is round 1's, which is
+ * what keeps the seeded reviewer journey exactly as it was.
+ *
+ * Each carries a real `opens_at` and **no** `closes_at`, and the missing half is deliberate. The
+ * product honours the wall clock, so a fixed future close date is a timebomb on a deterministic
+ * fixture: past it, Ravi's seeded evaluation is refused, the browser journey that drives it fails,
+ * and `gate:browser` goes red on a date rather than on a change. Window *enforcement* is proved
+ * where a clock-dependent rule belongs — `review-rounds.test.ts` drives an unopened and a closed
+ * window against an injected clock — and the console still edits both bounds.
+ */
+INSERT INTO review_rounds (event_id, sequence, name, opens_at, closes_at, state, anonymized, criteria_json, pool_mode, created_at, updated_at) VALUES
+  ('00000000-0000-4000-8000-000000000001', 1, 'First pass', '2026-08-09T00:00:00.000Z', NULL, 'open', 1, NULL, 'named', '2026-08-09T11:00:00.000Z', '2026-08-09T11:00:00.000Z'),
+  ('00000000-0000-4000-8000-000000000001', 2, 'Programme committee', '2026-08-12T00:00:00.000Z', NULL, 'open', 0, '[{"id":"programme_fit","name":"Programme fit","description":"Balance across the final programme","type":"numeric","minScore":1,"maxScore":5,"weight":3},{"id":"delivery","name":"Delivery confidence","description":"Confidence this speaker can deliver it","type":"numeric","minScore":1,"maxScore":5,"weight":1},{"id":"committee_note","name":"Committee note","description":"One sentence for the record","type":"text","maxLength":500,"weight":1}]', 'named', '2026-08-12T09:00:00.000Z', '2026-08-12T09:00:00.000Z');
+
+INSERT INTO review_round_members (event_id, round_sequence, reviewer_id, added_at) VALUES
+  ('00000000-0000-4000-8000-000000000001', 1, 'seed-reviewer', '2026-08-09T11:00:00.000Z'),
+  ('00000000-0000-4000-8000-000000000001', 1, 'review-nina-alvarez', '2026-08-09T11:00:00.000Z'),
+  ('00000000-0000-4000-8000-000000000001', 2, 'review-nina-alvarez', '2026-08-12T09:00:00.000Z');
+
 INSERT INTO review_assignments (id, event_id, proposal_id, reviewer_id, round, created_at) VALUES
-  ('20000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000001', 'seed-reviewer', 1, '2026-08-09T12:00:00.000Z');
+  -- Ravi's own queue: unscored, so the seeded reviewer journey starts from an empty form.
+  ('20000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000001', 'seed-reviewer', 1, '2026-08-09T12:00:00.000Z'),
+  -- Nina's finished work, which is what puts real numbers on the organizer's results table.
+  ('20000000-0000-4000-8000-0000000000a2', '00000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000010', 'review-nina-alvarez', 1, '2026-08-09T12:10:00.000Z'),
+  ('20000000-0000-4000-8000-0000000000a3', '00000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000010', 'review-nina-alvarez', 2, '2026-08-12T09:10:00.000Z'),
+  ('20000000-0000-4000-8000-0000000000a4', '00000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000011', 'review-nina-alvarez', 2, '2026-08-12T09:11:00.000Z');
+
+INSERT INTO review_evaluations (assignment_id, reviewer_id, scores_json, notes, state, updated_at, completed_at, source) VALUES
+  ('20000000-0000-4000-8000-0000000000a2', 'review-nina-alvarez', '[{"criterionId":"relevance","value":4,"score":4},{"criterionId":"format","value":"Talk"},{"criterionId":"feedback","value":"Well scoped, and the examples are concrete."}]', 'Clear argument, would attend.', 'completed', '2026-08-10T09:00:00.000Z', '2026-08-10T09:00:00.000Z', 'manual'),
+  ('20000000-0000-4000-8000-0000000000a3', 'review-nina-alvarez', '[{"criterionId":"programme_fit","value":5,"score":5},{"criterionId":"delivery","value":3,"score":3},{"criterionId":"committee_note","value":"Anchors the operations track."}]', 'The strongest opener we have.', 'completed', '2026-08-12T14:00:00.000Z', '2026-08-12T14:00:00.000Z', 'manual'),
+  ('20000000-0000-4000-8000-0000000000a4', 'review-nina-alvarez', '[{"criterionId":"programme_fit","value":4,"score":4},{"criterionId":"delivery","value":2,"score":2},{"criterionId":"committee_note","value":"Well-prepared, and the workshop format is the right call."}]', 'A strong second choice for the opening slot.', 'completed', '2026-08-12T14:20:00.000Z', '2026-08-12T14:20:00.000Z', 'manual');
+
+/*
+ * The aggregates those evaluations produce, written out rather than left to be recomputed —
+ * a seed is a snapshot, and the product only writes `review_outcomes` when somebody presses
+ * Complete. The arithmetic is `SUM(value × weight) / SUM(weight)` over the **numeric** criteria
+ * of the round's own scorecard, and each line below states its own sum so a reader can check it
+ * against `d1-review-repository.integration.test.ts` without running anything:
+ *
+ *   round 1, `Designing the calm conference`, event plan (relevance ×2 is the only numeric):
+ *     (4×2) / 2 = 4.0
+ *   round 2, `Designing the calm conference`, committee scorecard (fit ×3, delivery ×1):
+ *     (5×3 + 3×1) / 4 = 4.5
+ *   round 2, `Accessible by default`:
+ *     (4×3 + 2×1) / 4 = 3.5
+ *
+ * Both round-2 numbers are load-bearing. Each differs from the unweighted mean of its own two
+ * values — 4.0 and 3.0 — so a results table showing 4.5 and 3.5 is showing that the weights are
+ * doing something rather than that an average was taken. And the two differ from each other,
+ * which is what makes sorting by aggregate, in either direction, something a person can watch
+ * change on the seeded demo rather than a claim in a document.
+ */
+INSERT INTO review_outcomes (event_id, proposal_id, round, completed_evaluation_count, average_score, updated_at) VALUES
+  ('00000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000010', 1, 1, 4.0, '2026-08-10T09:00:00.000Z'),
+  ('00000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000010', 2, 1, 4.5, '2026-08-12T14:00:00.000Z'),
+  ('00000000-0000-4000-8000-000000000001', '10000000-0000-4000-8000-000000000011', 2, 1, 3.5, '2026-08-12T14:20:00.000Z');
+
+/*
+ * One assistant draft, offered and unanswered, on the abstract Ravi opens first.
+ *
+ * The AI affordance already existed and already worked; what it did not have was a *seeded*
+ * instance, so the reviewer journey only met it if somebody thought to press the button. An
+ * offered suggestion sitting above the scoring form is the discoverability the issue asks for,
+ * and it is also the safest thing to seed: `offered` is the state that has changed nothing —
+ * no evaluation, no outcome, no decision — which is exactly the property the feature promises,
+ * and a reader can confirm it by noting that this row has no counterpart anywhere above.
+ *
+ * The provenance names the deterministic fixture provider, because that is what the demo runs;
+ * no credential and no network are involved in reaching this state.
+ */
+INSERT INTO review_suggestions (id, event_id, assignment_id, reviewer_id, proposal_id, round, summary, scores_json, state, provenance_model, provenance_prompt_version, provenance_generated_at, provenance_proposal_revision, responded_by, responded_at, created_at) VALUES
+  ('20000000-0000-4000-8000-0000000000a1', '00000000-0000-4000-8000-000000000001', '20000000-0000-4000-8000-000000000001', 'seed-reviewer', '10000000-0000-4000-8000-000000000001', 1, 'A practical, well-scoped session on hallway-track design. The abstract names concrete techniques rather than describing the problem, which suggests the talk will be actionable.', '[{"criterionId":"relevance","value":4,"rationale":"Directly addresses attendee experience, which this audience asks about every year."},{"criterionId":"format","value":"Workshop","rationale":"The techniques described are ones people would want to try in the room."},{"criterionId":"feedback","value":"Strong fit. Consider asking for one worked example from a conference the speaker has run.","rationale":"The abstract promises practice, and a worked example is what would prove it."}]', 'offered', 'fixture-suggester-v1', 'review-suggestion/v1', '2026-08-09T12:30:00.000Z', 'rev-f2833987', NULL, NULL, '2026-08-09T12:30:00.000Z');
 
 INSERT INTO cfp_forms (event_id, title, description, fields_json, status, version, published_at, published_json)
 VALUES (

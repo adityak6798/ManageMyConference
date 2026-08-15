@@ -7,6 +7,7 @@ DELETE FROM identity_login_challenges
 WHERE email IN (
   'organizer@greenroom.test',
   'reviewer@greenroom.test',
+  'nina.alvarez@greenroom.test',
   'speaker@greenroom.test'
 );
 
@@ -30,6 +31,7 @@ DELETE FROM identity_sessions
 WHERE user_id IN (
   'seed-organizer',
   'seed-reviewer',
+  'review-nina-alvarez',
   'seed-speaker',
   'speaker-jordan-bell',
   'seed-public'
@@ -44,6 +46,7 @@ DELETE FROM identity_audit_events
 WHERE actor_user_id IN (
   'seed-organizer',
   'seed-reviewer',
+  'review-nina-alvarez',
   'seed-speaker',
   'speaker-jordan-bell',
   'seed-public'
@@ -51,6 +54,7 @@ WHERE actor_user_id IN (
   OR subject_user_id IN (
     'seed-organizer',
     'seed-reviewer',
+    'review-nina-alvarez',
     'seed-speaker',
     'speaker-jordan-bell',
     'seed-public'
@@ -73,6 +77,7 @@ DELETE FROM identity_provider_accounts
 WHERE user_id IN (
   'seed-organizer',
   'seed-reviewer',
+  'review-nina-alvarez',
   'seed-speaker',
   'speaker-jordan-bell',
   'seed-public'
@@ -81,12 +86,13 @@ DELETE FROM identity_emails
 WHERE user_id IN (
   'seed-organizer',
   'seed-reviewer',
+  'review-nina-alvarez',
   'seed-speaker',
   'speaker-jordan-bell',
   'seed-public'
 );
 
--- **Only the five the seed names.**
+-- **Only the six the seed names.**
 --
 -- The demo can also *produce* a user: converting a CRM prospect to a speaker writes one through
 -- `provisionSpeaker`, with a generated id and the contact's own address. Those are deliberately
@@ -101,6 +107,7 @@ DELETE FROM users
 WHERE id IN (
   'seed-organizer',
   'seed-reviewer',
+  'review-nina-alvarez',
   'seed-speaker',
   'speaker-jordan-bell',
   'seed-public'

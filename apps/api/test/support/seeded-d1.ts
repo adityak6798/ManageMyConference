@@ -21,6 +21,13 @@ type D1Database = Awaited<ReturnType<Miniflare["getD1Database"]>>;
  * apostrophe in "the speaker's headshot" used to open a string literal that swallowed every
  * quote after it, and the whole seed then failed to apply with "SQL code did not contain a
  * statement" — a comment nobody would think to suspect.
+ *
+ * **`/* … *\/` blocks are dropped for exactly the same reason, and were not until now.** The seed
+ * fragments use them for the long explanations this repository writes, so "Ravi's queue is round
+ * 1's" put an odd number of quotes into the parser and merged three `INSERT`s into one chunk —
+ * which the seed survives, because D1 runs the merged string anyway, and which quietly broke a
+ * test that filters statements by the table they touch. Prose is not SQL in either comment form,
+ * and half a rule is the version that fails somewhere nobody is looking.
  */
 export function statements(sql: string): string[] {
   const found: string[] = [];
@@ -53,6 +60,15 @@ export function statements(sql: string): string[] {
     if (character === "-" && sql[index + 1] === "-") {
       const newline = sql.indexOf("\n", index);
       index = newline === -1 ? sql.length : newline;
+      current += "\n";
+      continue;
+    }
+
+    // A block comment runs to its terminator, wherever that is. An unterminated one is treated as
+    // running to the end of the file, which is what SQLite does with it too.
+    if (character === "/" && sql[index + 1] === "*") {
+      const close = sql.indexOf("*/", index + 2);
+      index = close === -1 ? sql.length : close + 1;
       current += "\n";
       continue;
     }

@@ -69,6 +69,26 @@ WHERE event_id IN (
     '00000000-0000-4000-8000-000000000020'
   )
 );
+-- Before the rounds, because `review_round_members` carries a composite foreign key to
+-- `review_rounds(event_id, sequence)` and a round with membership rows still pointing at it
+-- cannot be dropped. There is deliberately no trigger requiring assignments to be removed first;
+-- the pool-removal rule lives in `setRoundMembers`, while raw seed SQL does not go through it.
+DELETE FROM review_round_members
+WHERE event_id IN (
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
+);
+DELETE FROM review_rounds
+WHERE event_id IN (
+  SELECT id FROM events
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
+);
 DELETE FROM review_plans
 WHERE event_id IN (
   SELECT id FROM events

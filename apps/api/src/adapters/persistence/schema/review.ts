@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   type AnySQLiteColumn,
   check,
+  foreignKey,
   index,
   integer,
   primaryKey,
@@ -56,6 +57,85 @@ export function defineReviewSchema(references: {
     criteriaJson: text("criteria_json").notNull(),
     updatedAt: text("updated_at").notNull(),
   });
+  /**
+   * A named, date-bounded review round with its own scorecard, anonymization policy and pool.
+   *
+   * Keyed on `(event_id, sequence)` rather than a surrogate id, and that is the whole design of
+   * migration `1312`: `sequence` **is** the integer `review_assignments.round`,
+   * `review_outcomes.round` and `review_suggestions.round` have carried since `1300`, so rounds
+   * became first-class without rebuilding a single table that holds an assignment, an evaluation,
+   * a conflict, an outcome or a suggestion's provenance. See that migration for why the surrogate
+   * key was the more dangerous shape.
+   *
+   * The three assignment-time rules — the round exists, it is open, and a `named` pool contains
+   * the reviewer — are triggers in `1312` rather than table constraints Drizzle can express, for
+   * the same reason `review_suggestions`' conditional CHECK is: adding a foreign key to
+   * `review_assignments` would require rebuilding it.
+   *
+   * @spec PRD-REV-001 PRD-ABS-001
+   */
+  const reviewRounds = sqliteTable(
+    "review_rounds",
+    {
+      eventId: text("event_id")
+        .notNull()
+        .references(() => references.eventsId),
+      sequence: integer("sequence").notNull(),
+      name: text("name").notNull(),
+      /** NULL is unbounded on that side; a round with no window is open whenever `state` says so. */
+      opensAt: text("opens_at"),
+      closesAt: text("closes_at"),
+      state: text("state").notNull().default("draft"),
+      /** Whether reviewers in this round see the author. Read by reviewer-facing projections. */
+      anonymized: integer("anonymized").notNull().default(1),
+      /** This round's own scorecard; NULL scores against the event's `review_plans` row. */
+      criteriaJson: text("criteria_json"),
+      poolMode: text("pool_mode").notNull().default("named"),
+      createdAt: text("created_at").notNull(),
+      updatedAt: text("updated_at").notNull(),
+    },
+    (table) => [
+      primaryKey({ columns: [table.eventId, table.sequence] }),
+      unique("review_rounds_name_unique").on(table.eventId, table.name),
+      check("review_rounds_sequence", sql`${table.sequence} > 0`),
+      check("review_rounds_state", sql`${table.state} IN ('draft', 'open', 'closed')`),
+      check("review_rounds_anonymized", sql`${table.anonymized} IN (0, 1)`),
+      check("review_rounds_pool_mode", sql`${table.poolMode} IN ('event', 'named')`),
+      check(
+        "review_rounds_window",
+        sql`${table.opensAt} IS NULL OR ${table.closesAt} IS NULL OR ${table.opensAt} < ${table.closesAt}`,
+      ),
+    ],
+  );
+  /**
+   * The reviewer pool of one round.
+   *
+   * Keyed on the round, which is what makes "membership in one round does not implicitly grant
+   * membership in another" a property of the schema rather than a rule in a service: a reviewer in
+   * round 1 is simply not among round 2's rows.
+   */
+  const reviewRoundMembers = sqliteTable(
+    "review_round_members",
+    {
+      eventId: text("event_id").notNull(),
+      roundSequence: integer("round_sequence").notNull(),
+      reviewerId: text("reviewer_id")
+        .notNull()
+        .references(() => references.usersId),
+      addedAt: text("added_at").notNull(),
+    },
+    (table) => [
+      primaryKey({ columns: [table.eventId, table.roundSequence, table.reviewerId] }),
+      // A pool row cannot outlive its round or name one that does not exist. Declared as a
+      // composite foreign key rather than two column-level references, because the pair is what
+      // identifies a round.
+      foreignKey({
+        columns: [table.eventId, table.roundSequence],
+        foreignColumns: [reviewRounds.eventId, reviewRounds.sequence],
+      }),
+      index("review_round_members_reviewer_idx").on(table.eventId, table.reviewerId),
+    ],
+  );
   const reviewAssignments = sqliteTable(
     "review_assignments",
     {
@@ -271,6 +351,8 @@ export function defineReviewSchema(references: {
   return {
     cfpStatusAudit,
     cfpStatuses,
+    reviewRounds,
+    reviewRoundMembers,
     reviewPlans,
     reviewAssignments,
     reviewAssignmentCaps,

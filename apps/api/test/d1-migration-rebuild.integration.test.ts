@@ -29,7 +29,8 @@ const rebuildCoverage = {
   "1502_crm_prospect_stage_rebuild.sql": "seeded replay in the CRM D1 integration suite",
   "1703_delivery_domain_event_triggers.sql": "seeded replay below",
   "1705_delivery_proposal_submitted_trigger.sql": "seeded replay below",
-  "1707_delivery_cfp_deadline_triggers.sql": "seeded replay below",
+  "1706_delivery_reviewer_reminder_trigger.sql": "seeded replay below",
+  "1708_delivery_cfp_deadline_triggers.sql": "seeded replay below",
   "1802_publication_slug_reservations.sql": "creates and drops a transient audit table",
 } as const;
 
@@ -252,14 +253,14 @@ describe("communication_deliveries rebuild", () => {
     );
   });
 
-  it("replays 1707 over populated children and widens only by its two deadline triggers", async () => {
+  it("replays 1708 over populated children and preserves main's reviewer reminder trigger", async () => {
     /*
      * The same replay for issue #210's rebuild. It is `1705`'s file with two more values in one
      * `CHECK`, which is exactly the shape that looks safe and is not: the drop of the parent is
      * refused the moment any child holds a row, and `calendar_invite_states` — the child a copy of
      * `1703` forgets — is empty in the seed. So it is populated first, deliberately.
      */
-    const migrated = await createMigratedDatabase({ label: "rebuild-1707", seed: true });
+    const migrated = await createMigratedDatabase({ label: "rebuild-1708", seed: true });
     runtime = migrated.runtime;
     await migrated.database
       .prepare(
@@ -280,7 +281,7 @@ describe("communication_deliveries rebuild", () => {
     const before = (await census()).results?.[0];
     for (const total of Object.values(before ?? {})) expect(total).toBeGreaterThan(0);
 
-    await applyMigrationFile(migrated.database, "1707_delivery_cfp_deadline_triggers.sql");
+    await applyMigrationFile(migrated.database, "1708_delivery_cfp_deadline_triggers.sql");
 
     // Every row survives, and every child still resolves to the delivery it named.
     expect((await census()).results?.[0]).toEqual(before);
@@ -301,6 +302,10 @@ describe("communication_deliveries rebuild", () => {
     });
     // …a value that predates them, still admitted…
     await expect(insert("rebuild-kept", "proposal.submitted")).resolves.toMatchObject({
+      success: true,
+    });
+    // …and the trigger admitted by main's immediately preceding rebuild remains admitted.
+    await expect(insert("rebuild-reviewer-reminder", "reviewer.reminder")).resolves.toMatchObject({
       success: true,
     });
     // …and no widening beyond them.

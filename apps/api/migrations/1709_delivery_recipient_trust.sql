@@ -18,7 +18,7 @@
 -- ## Why `ADD COLUMN` rather than a rebuild
 --
 -- Nothing is being narrowed: the column is new, `NOT NULL` with a default that is legal for every
--- existing row, and carries a `CHECK` — which SQLite permits on an added column. Migration `1707`,
+-- existing row, and carries a `CHECK` — which SQLite permits on an added column. Migration `1708`,
 -- immediately before this one, rebuilt this table already, and there is no reason to do it again
 -- for an additive column.
 --

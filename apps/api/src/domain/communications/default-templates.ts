@@ -31,7 +31,7 @@
  *
  * So provisioning is **idempotent, and driven by use**: `CommunicationsService` materializes this
  * catalogue for an organization the first time it resolves a template for one, and the first time
- * an organizer lists them. Migration `1706` does the same for every organization that already
+ * an organizer lists them. Migration `1707` does the same for every organization that already
  * exists, so nothing waits for a first message. All three routes converge on the same rows because
  * `(organization_id, template_key, version)` is unique and version 1 is what each of them writes.
  *
@@ -45,7 +45,7 @@
  * The text is deliberately identical to `apps/api/seed/domains/communications-integrations/
  * data.sql`, which held these for the demo organization before any other organization could have
  * them, and which still restores all of them so a reset leaves the demo holding what every other
- * organization holds. `default-templates.integration.test.ts` asserts migration `1706` and this file agree,
+ * organization holds. `default-templates.integration.test.ts` asserts migration `1707` and this file agree,
  * so the two cannot drift.
  *
  * @spec PRD-COM-001
@@ -85,6 +85,12 @@ export const DEFAULT_TEMPLATES: readonly DefaultTemplate[] = [
     channel: "email",
     subject: "Abstracts are waiting for your review",
     body: "Hello {{reviewerName}}, abstracts have been assigned to you for round {{round}}. Open your review queue when you have time.",
+  },
+  {
+    key: "reviewer-reminder",
+    channel: "email",
+    subject: "A reminder about your outstanding reviews",
+    body: "Hello {{reviewerName}}, you have {{outstanding}} evaluation(s) still open in {{roundName}}. Open your review queue when you have a moment.",
   },
   {
     key: "decision-accepted",

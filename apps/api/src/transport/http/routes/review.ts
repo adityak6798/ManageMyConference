@@ -12,16 +12,21 @@ import {
   bulkProposalTransitionInputSchema,
   configureProposalStatusesInputSchema,
   configureReviewPlanInputSchema,
+  createReviewRoundInputSchema,
   declareConflictInputSchema,
   distributeReviewersInputSchema,
   type ProposalAcceptanceDto,
   proposalStatusSchema,
   recordProposalDecisionInputSchema,
+  remindReviewersInputSchema,
   respondToSuggestionInputSchema,
   reviewAssignmentParamsSchema,
   reviewEventParamsSchema,
+  reviewRoundParamsSchema,
   reviewSuggestionParamsSchema,
   saveEvaluationInputSchema,
+  setReviewRoundPoolInputSchema,
+  updateReviewRoundInputSchema,
 } from "@greenroom/contracts";
 import { SpeakerIdentityUnavailableError } from "../../../application/content/content-service";
 import { requireCapability, requireEventCapability } from "../../../application/identity/actor";
@@ -47,6 +52,26 @@ const routes = [
   "POST /api/events/:eventId/review/assignments",
   "POST /api/events/:eventId/review/assignments/distribute",
   "POST /api/events/:eventId/review/rounds",
+  /*
+   * The round as a configured resource, addressed under `round-plans` rather than `rounds`.
+   *
+   * Two names for one concept is a smell, so it is worth stating why this is the lesser of the
+   * available evils. `POST /review/rounds` already exists and means *advance the abstracts in a
+   * status into the next round* — an action, not a creation — and it is what the console and the
+   * browser suite call. Repurposing it would silently change what an in-flight client does;
+   * moving it would break one. `/review/plan` is taken too, by the event's rubric, so `plans`
+   * would sit one character away from a different resource in every log line and every path list.
+   *
+   * `round-plans` is the issue's own vocabulary ("first-class review plans and rounds") and
+   * collides with neither. `sequence` is the round's number — the same integer every assignment,
+   * outcome and suggestion of that round carries — and is allocated by the server, so it appears
+   * in the path but never in a creation body.
+   */
+  "GET /api/events/:eventId/review/round-plans",
+  "POST /api/events/:eventId/review/round-plans",
+  "PUT /api/events/:eventId/review/round-plans/:sequence",
+  "PUT /api/events/:eventId/review/round-plans/:sequence/pool",
+  "POST /api/events/:eventId/review/reminders",
   "DELETE /api/events/:eventId/review/assignments/:assignmentId",
   "POST /api/events/:eventId/review/transitions",
   "POST /api/events/:eventId/review/decisions",
@@ -172,6 +197,7 @@ export const reviewRoutes: RouteModule = {
             params.data.eventId,
             parsed.data.proposalIds,
             parsed.data.reviewerId,
+            parsed.data.round,
           ),
         },
         201,
@@ -242,6 +268,153 @@ export const reviewRoutes: RouteModule = {
         ),
         201,
       );
+    });
+    app.get("/api/events/:eventId/review/round-plans", async (context) => {
+      const params = reviewEventParamsSchema.safeParse(context.req.param());
+      if (!params.success)
+        return context.json(
+          envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+          400,
+        );
+      if (!reviewService) throw new Error("Review service is not configured");
+      return context.json({
+        rounds: await reviewService.listRounds(context.get("actor"), params.data.eventId),
+      });
+    });
+    app.post("/api/events/:eventId/review/round-plans", async (context) => {
+      const params = reviewEventParamsSchema.safeParse(context.req.param());
+      if (!params.success)
+        return context.json(
+          envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+          400,
+        );
+      requireEventCapability(context.get("actor"), params.data.eventId, "review:manage");
+      const parsed = createReviewRoundInputSchema.safeParse(await readJson(context.req));
+      if (!parsed.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "The review round is invalid.",
+            context.get("correlationId"),
+            validationFields(parsed.error.issues),
+          ),
+          400,
+        );
+      if (!reviewService) throw new Error("Review service is not configured");
+      return context.json(
+        {
+          round: await reviewService.createRound(
+            context.get("actor"),
+            params.data.eventId,
+            parsed.data,
+          ),
+        },
+        201,
+      );
+    });
+    app.put("/api/events/:eventId/review/round-plans/:sequence", async (context) => {
+      const params = reviewRoundParamsSchema.safeParse(context.req.param());
+      if (!params.success)
+        return context.json(
+          envelope("VALIDATION_FAILED", "Round path is malformed.", context.get("correlationId")),
+          400,
+        );
+      requireEventCapability(context.get("actor"), params.data.eventId, "review:manage");
+      const parsed = updateReviewRoundInputSchema.safeParse(await readJson(context.req));
+      if (!parsed.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "The review round is invalid.",
+            context.get("correlationId"),
+            validationFields(parsed.error.issues),
+          ),
+          400,
+        );
+      if (!reviewService) throw new Error("Review service is not configured");
+      return context.json({
+        round: await reviewService.updateRound(
+          context.get("actor"),
+          params.data.eventId,
+          params.data.sequence,
+          parsed.data,
+        ),
+      });
+    });
+    /**
+     * Replace a round's reviewer pool.
+     *
+     * A `PUT` of the whole list rather than add/remove verbs, because the organizer's mental model
+     * is "these are the reviewers of this round" and a pair of verbs makes two requests out of one
+     * edit — with a window between them in which the pool is a state nobody chose. Refused for a
+     * reviewer who already holds assignments in the round; the service says so in
+     * `fieldErrors.reviewerIds`.
+     */
+    app.put("/api/events/:eventId/review/round-plans/:sequence/pool", async (context) => {
+      const params = reviewRoundParamsSchema.safeParse(context.req.param());
+      if (!params.success)
+        return context.json(
+          envelope("VALIDATION_FAILED", "Round path is malformed.", context.get("correlationId")),
+          400,
+        );
+      requireEventCapability(context.get("actor"), params.data.eventId, "review:manage");
+      const parsed = setReviewRoundPoolInputSchema.safeParse(await readJson(context.req));
+      if (!parsed.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "The reviewer pool is invalid.",
+            context.get("correlationId"),
+            validationFields(parsed.error.issues),
+          ),
+          400,
+        );
+      if (!reviewService) throw new Error("Review service is not configured");
+      return context.json({
+        round: await reviewService.setRoundPool(
+          context.get("actor"),
+          params.data.eventId,
+          params.data.sequence,
+          parsed.data.reviewerIds,
+        ),
+      });
+    });
+    /**
+     * Remind selected reviewers that they still owe evaluations in a round.
+     *
+     * `200` rather than `201`: a reminder that had already been sent creates nothing, and this
+     * route's whole job is to report which of those two happened for each reviewer. The response
+     * is per reviewer for the same reason — a request naming four people where one has no linked
+     * address must not be reported as four messages sent.
+     */
+    app.post("/api/events/:eventId/review/reminders", async (context) => {
+      const params = reviewEventParamsSchema.safeParse(context.req.param());
+      if (!params.success)
+        return context.json(
+          envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+          400,
+        );
+      requireEventCapability(context.get("actor"), params.data.eventId, "review:manage");
+      const parsed = remindReviewersInputSchema.safeParse(await readJson(context.req));
+      if (!parsed.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "The reminder request is invalid.",
+            context.get("correlationId"),
+            validationFields(parsed.error.issues),
+          ),
+          400,
+        );
+      if (!reviewService) throw new Error("Review service is not configured");
+      return context.json({
+        reminders: await reviewService.remindOutstandingReviewers(
+          context.get("actor"),
+          params.data.eventId,
+          parsed.data.round,
+          parsed.data.reviewerIds,
+        ),
+      });
     });
     /**
      * Remove one review assignment.

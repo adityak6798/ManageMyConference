@@ -90,6 +90,8 @@
     "webhook_deliveries": "communications-integrations",
     "webhook_delivery_attempts": "communications-integrations",
     "webhook_idempotency_records": "communications-integrations",
-    "public_event_projection_versions": "publishing"
+    "public_event_projection_versions": "publishing",
+    "review_rounds": "review",
+    "review_round_members": "review"
   }
 }

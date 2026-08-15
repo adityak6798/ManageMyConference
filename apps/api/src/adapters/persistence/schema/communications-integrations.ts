@@ -70,7 +70,7 @@ export function defineCommunicationsIntegrationsSchema(references: {
       renderedBody: text("rendered_body"),
       /**
        * How much the recipient address was worth trusting when this was written (migration
-       * `1708`, which is why it is declared last: `ADD COLUMN` appends). `declared` is a form answer nobody verified; it is what the `#132` cap counts,
+       * `1709`, which is why it is declared last: `ADD COLUMN` appends). `declared` is a form answer nobody verified; it is what the `#132` cap counts,
        * and scoping the count to it is what stops the product's own follow-up mail to an accepted
        * guest spending the budget its later decline needs.
        */
@@ -82,11 +82,11 @@ export function defineCommunicationsIntegrationsSchema(references: {
       // drop the other's values. Five triggers and the `event` channel have no producer here yet;
       // migration 1750's header says why they are permitted anyway. `proposal.submitted` joined it
       // in migration 1705, from the CFP lane that produces it (issue #190), and the two
-      // `cfp.*` values in migration 1707 — the first deliveries on a *scheduled* rather than
-      // event-driven trigger (issue #210).
+      // `reviewer.reminder` in migration 1706, and the two `cfp.*` values in migration 1708 —
+      // the first deliveries on a *scheduled* rather than event-driven trigger (issue #210).
       check(
         "communication_deliveries_trigger_type",
-        sql`${table.triggerType} IN ('speaker.invited', 'reviewer.assigned', 'organizer.digest', 'projection.requested', 'schedule.published', 'speaker.scheduled', 'speaker.task_assigned', 'speaker.task_reminder', 'speaker.calendar_invite', 'decision.recorded', 'proposal.submitted', 'cfp.deadline_approaching', 'cfp.call_closed')`,
+        sql`${table.triggerType} IN ('speaker.invited', 'reviewer.assigned', 'reviewer.reminder', 'organizer.digest', 'projection.requested', 'schedule.published', 'speaker.scheduled', 'speaker.task_assigned', 'speaker.task_reminder', 'speaker.calendar_invite', 'decision.recorded', 'proposal.submitted', 'cfp.deadline_approaching', 'cfp.call_closed')`,
       ),
       // `event` carries a domain event rather than an outbound call; see migration 1703.
       check(

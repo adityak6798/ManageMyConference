@@ -18,6 +18,18 @@ export type DeliveryState = "queued" | "retrying" | "succeeded" | "terminal";
 export type TriggerType =
   | "speaker.invited"
   | "reviewer.assigned"
+  /**
+   * A reviewer still has outstanding evaluations in a round, and an organizer asked for them to
+   * be told.
+   *
+   * Distinct from `reviewer.assigned` rather than a second use of it, and migration `1706` exists
+   * for exactly that distinction: "you have been given work" and "you still have work
+   * outstanding" are different things to say to somebody, and `trigger_type` is the column the
+   * delivery history, the webhook fan-out and the schedule-mail consumer read to decide what a
+   * row *is*. Reusing the assignment trigger would also merge the two idempotency families, so a
+   * reviewer already told about the round could never be reminded about it.
+   */
+  | "reviewer.reminder"
   | "organizer.digest"
   | "projection.requested"
   | "schedule.published"
@@ -68,6 +80,7 @@ export type TriggerType =
 export const TRIGGER_CHANNELS = {
   "speaker.invited": ["email"],
   "reviewer.assigned": ["email"],
+  "reviewer.reminder": ["email"],
   "organizer.digest": ["email"],
   "speaker.scheduled": ["email"],
   "speaker.task_assigned": ["email"],

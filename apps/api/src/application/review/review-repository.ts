@@ -7,11 +7,52 @@ import type {
   ReviewConflict,
   ReviewOutcome,
 } from "../../domain/review/review";
+import type { ReviewRound } from "../../domain/review/round";
 import type { ReviewSuggestion } from "../../domain/review/suggestion";
 
 export class ReviewStateConflictError extends Error {}
 
 export interface ReviewRepository {
+  /**
+   * Every round of this event with its pool, lowest sequence first.
+   *
+   * The pool comes back on the round rather than through a second call, because every caller that
+   * has a round needs to know who is in it — assignment to check admission, the console to render
+   * it — and a shape that made the pool optional would let a caller decide the round admits
+   * everybody because it forgot to ask.
+   */
+  listRounds(eventId: string): Promise<readonly ReviewRound[]>;
+  findRound(eventId: string, sequence: number): Promise<ReviewRound | null>;
+  /**
+   * Create a round and its pool together.
+   *
+   * Implementations must refuse with `ReviewStateConflictError` when the sequence or the name is
+   * already taken in this event: two rounds sharing a name is a way to assign work to the wrong
+   * one, and two sharing a sequence is a contradiction about which round an assignment is in.
+   */
+  createRound(round: ReviewRound): Promise<void>;
+  /**
+   * Change a round's terms and state.
+   *
+   * The pool is *not* written here — `setRoundMembers` owns it — so a caller that reads a round,
+   * edits its dates and writes it back cannot silently restate a membership list that changed
+   * underneath it. Implementations must refuse with `ReviewStateConflictError` when storage does:
+   * a closed round's scorecard, window, anonymization and pool mode are frozen (`1312`).
+   */
+  updateRound(round: Omit<ReviewRound, "reviewerIds" | "createdAt">): Promise<void>;
+  /**
+   * Replace a round's pool.
+   *
+   * Implementations must refuse with `ReviewStateConflictError` when a removed reviewer still
+   * holds an assignment in that round: removing them would leave work authorized by a pool that
+   * no longer contains them, and the organizer's repair for that is to unassign first.
+   */
+  setRoundMembers(
+    eventId: string,
+    sequence: number,
+    reviewerIds: readonly string[],
+    addedAt: string,
+  ): Promise<void>;
   getPlan(eventId: string): Promise<EvaluationPlan | null>;
   savePlan(plan: EvaluationPlan): Promise<void>;
   createAssignments(assignments: readonly ReviewAssignment[]): Promise<readonly ReviewAssignment[]>;

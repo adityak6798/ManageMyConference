@@ -57,6 +57,7 @@ WHERE event_id IN (
   OR user_id IN (
     'seed-organizer',
     'seed-reviewer',
+    'review-nina-alvarez',
     'seed-speaker',
     'speaker-jordan-bell',
     'seed-public'
@@ -71,6 +72,7 @@ WHERE organization_id IN (
   OR user_id IN (
     'seed-organizer',
     'seed-reviewer',
+    'review-nina-alvarez',
     'seed-speaker',
     'speaker-jordan-bell',
     'seed-public'

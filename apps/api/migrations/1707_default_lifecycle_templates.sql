@@ -1,6 +1,6 @@
 -- @spec PRD-COM-001
 --
--- Give every organization that already exists the eleven lifecycle templates (issues #217, #210).
+-- Give every organization that already exists the twelve lifecycle templates (issues #217, #210).
 --
 -- ## What was wrong
 --
@@ -34,7 +34,7 @@
 -- guard is "does this organization have this template at all", so this migration adds a message
 -- where there was none and never overwrites, duplicates or reverts one somebody wrote.
 --
--- The `1706-` id prefix makes a provisioned default recognizable in the database without joining,
+-- The `1707-` id prefix makes a provisioned default recognizable in the database without joining,
 -- and keeps it distinct from both the seed's ids and the UUIDs the service mints.
 --
 -- ## Why one statement per template rather than one cross join
@@ -50,14 +50,14 @@
 --
 -- `cfp-deadline-reminder` and `cfp-call-closed` are the scheduled deadline messages. They belong
 -- to the same catalogue and to the same lane as the templates above, and splitting them into a
--- second backfill would mean two migrations doing one thing with the same guard. Migration `1707` widens
+-- second backfill would mean two migrations doing one thing with the same guard. Migration `1708` widens
 -- `communication_deliveries.trigger_type` so the deliveries they render can be written at all.
 
 INSERT INTO message_templates (
   id, organization_id, template_key, version, channel, subject, body, created_at
 )
 SELECT
-  '1706-' || o.id || '-speaker-invite',
+  '1707-' || o.id || '-speaker-invite',
   o.id,
   'speaker-invite',
   1,
@@ -75,7 +75,7 @@ INSERT INTO message_templates (
   id, organization_id, template_key, version, channel, subject, body, created_at
 )
 SELECT
-  '1706-' || o.id || '-speaker-task',
+  '1707-' || o.id || '-speaker-task',
   o.id,
   'speaker-task',
   1,
@@ -93,7 +93,7 @@ INSERT INTO message_templates (
   id, organization_id, template_key, version, channel, subject, body, created_at
 )
 SELECT
-  '1706-' || o.id || '-speaker-task-reminder',
+  '1707-' || o.id || '-speaker-task-reminder',
   o.id,
   'speaker-task-reminder',
   1,
@@ -111,7 +111,7 @@ INSERT INTO message_templates (
   id, organization_id, template_key, version, channel, subject, body, created_at
 )
 SELECT
-  '1706-' || o.id || '-schedule-published',
+  '1707-' || o.id || '-schedule-published',
   o.id,
   'schedule-published',
   1,
@@ -129,7 +129,7 @@ INSERT INTO message_templates (
   id, organization_id, template_key, version, channel, subject, body, created_at
 )
 SELECT
-  '1706-' || o.id || '-reviewer-assignment',
+  '1707-' || o.id || '-reviewer-assignment',
   o.id,
   'reviewer-assignment',
   1,
@@ -147,7 +147,25 @@ INSERT INTO message_templates (
   id, organization_id, template_key, version, channel, subject, body, created_at
 )
 SELECT
-  '1706-' || o.id || '-decision-accepted',
+  '1707-' || o.id || '-reviewer-reminder',
+  o.id,
+  'reviewer-reminder',
+  1,
+  'email',
+  'A reminder about your outstanding reviews',
+  'Hello {{reviewerName}}, you have {{outstanding}} evaluation(s) still open in {{roundName}}. Open your review queue when you have a moment.',
+  '2026-08-14T00:00:00.000Z'
+FROM organizations o
+WHERE NOT EXISTS (
+  SELECT 1 FROM message_templates existing
+  WHERE existing.organization_id = o.id AND existing.template_key = 'reviewer-reminder'
+);
+
+INSERT INTO message_templates (
+  id, organization_id, template_key, version, channel, subject, body, created_at
+)
+SELECT
+  '1707-' || o.id || '-decision-accepted',
   o.id,
   'decision-accepted',
   1,
@@ -165,7 +183,7 @@ INSERT INTO message_templates (
   id, organization_id, template_key, version, channel, subject, body, created_at
 )
 SELECT
-  '1706-' || o.id || '-decision-declined',
+  '1707-' || o.id || '-decision-declined',
   o.id,
   'decision-declined',
   1,
@@ -183,7 +201,7 @@ INSERT INTO message_templates (
   id, organization_id, template_key, version, channel, subject, body, created_at
 )
 SELECT
-  '1706-' || o.id || '-speaker-calendar-invite',
+  '1707-' || o.id || '-speaker-calendar-invite',
   o.id,
   'speaker-calendar-invite',
   1,
@@ -201,7 +219,7 @@ INSERT INTO message_templates (
   id, organization_id, template_key, version, channel, subject, body, created_at
 )
 SELECT
-  '1706-' || o.id || '-proposal-submitted',
+  '1707-' || o.id || '-proposal-submitted',
   o.id,
   'proposal-submitted',
   1,
@@ -219,7 +237,7 @@ INSERT INTO message_templates (
   id, organization_id, template_key, version, channel, subject, body, created_at
 )
 SELECT
-  '1706-' || o.id || '-cfp-deadline-reminder',
+  '1707-' || o.id || '-cfp-deadline-reminder',
   o.id,
   'cfp-deadline-reminder',
   1,
@@ -237,7 +255,7 @@ INSERT INTO message_templates (
   id, organization_id, template_key, version, channel, subject, body, created_at
 )
 SELECT
-  '1706-' || o.id || '-cfp-call-closed',
+  '1707-' || o.id || '-cfp-call-closed',
   o.id,
   'cfp-call-closed',
   1,

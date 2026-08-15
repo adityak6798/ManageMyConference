@@ -1,28 +1,34 @@
--- @spec PRD-COM-001 PRD-CFP-003
+-- @spec PRD-COM-001 PRD-REV-001
 --
--- Widen `communication_deliveries.trigger_type` by two values: `cfp.deadline_approaching` and
--- `cfp.call_closed` (issue #210).
+-- Widen `communication_deliveries.trigger_type` by one value: `reviewer.reminder`.
 --
--- ## Why two values and not a reuse
+-- ## Why this is in the communications block from the review lane
 --
--- These are the first deliveries on a **scheduled** trigger rather than an event-driven one, and
--- they are two different facts: one tells a submitter holding an unsubmitted draft that the call
--- is about to close, the other tells an organizer that their own call has closed. `trigger_type`
--- is what the delivery history, the webhook fan-out and the schedule-mail consumer read to decide
--- what a row *is*, so folding either into `proposal.submitted` would put a false statement into
--- the one column those readers trust — the reasoning `1705` sets out, applied again.
+-- `apps/api/migrations/README.md`: "A cross-domain migration uses the block of the domain that
+-- owns the table being changed." The table is communications'; the reason to change it is
+-- review's. `1705` is the worked example of that rule and this is the second one. Both halves are
+-- announced in the wave ledger under issue #191 so a concurrent communications lane meets the
+-- number rather than the conflict.
 --
--- Both are excluded from `REQUESTABLE_TRIGGERS` and from `requestTriggerTypeSchema`. The
--- scheduler decides who is reminded and resolves every address through identity from an account
--- id; a request naming one with an arbitrary recipient would be organizer-authored mail to any
--- address wearing the label of a message the product sends on its own (`#132`).
+-- ## Why not reuse `reviewer.assigned`
+--
+-- Because the repository already ruled that out, in writing, and the ruling is right.
+-- `docs/quality/scorecard.md` records under `ACC-REVIEW` that bulk reminder delivery is blocked by
+-- the missing trigger and that "review does not substitute `reviewer.assigned`". `trigger_type` is
+-- what the delivery history, the webhook fan-out and the schedule-mail consumer read to decide
+-- what a row *is*; a reminder labelled `reviewer.assigned` is a false statement in the one column
+-- those readers trust, and it would also collide with the assignment notice's own idempotency
+-- family — "you have been given work" and "you still have work outstanding" are two different
+-- things to tell somebody, and a reader that cannot tell them apart cannot report either.
+--
+-- This value closes the review half of `GAP-010`.
 --
 -- ## Why it rebuilds four tables
 --
--- SQLite cannot widen a `CHECK` in place, and D1 does not honour `PRAGMA foreign_keys` between
+-- SQLite cannot widen a CHECK in place, and D1 does not honour `PRAGMA foreign_keys` between
 -- statements — so the obvious create/copy/drop/rename recipe fails as soon as one child row
--- references the delivery being dropped. This is `1705`'s ordering, verbatim, for the same four
--- tables and for the same reason:
+-- references the delivery being dropped. `1703` worked out the ordering and `1705` restated it;
+-- this restates it again, unchanged:
 --
 --   1. build the new parent and copy into it;
 --   2. build new children pointing at the new parent and copy into them;
@@ -31,17 +37,17 @@
 --   5. rename the new parent into place, which rewrites the new children's REFERENCES to it,
 --      then rename the children.
 --
--- `communication_attempts`, `outbound_projection_state` and `calendar_invite_states` gain and
--- lose nothing here; they are rebuilt only because they point at the table that had to be. The
--- replay in `apps/api/test/d1-migration-rebuild.integration.test.ts` populates every one of them
--- before applying this file, which is what makes step 4 a claim rather than a hope.
+-- **There are three children, not two.** `communication_attempts` and `outbound_projection_state`
+-- have been there since `0019`; `calendar_invite_states` arrived in `1704` and is the one a copy
+-- of `1703` forgets, which makes step 4 fail on every deployment that has sent one calendar
+-- invitation. All three are restated verbatim and none of them gains or loses anything here.
 
 CREATE TABLE communication_deliveries_next (
   id TEXT PRIMARY KEY NOT NULL,
   organization_id TEXT NOT NULL REFERENCES organizations(id),
   event_id TEXT NOT NULL REFERENCES events(id),
   idempotency_key TEXT NOT NULL,
-  trigger_type TEXT NOT NULL CHECK (trigger_type IN ('speaker.invited', 'reviewer.assigned', 'organizer.digest', 'projection.requested', 'schedule.published', 'speaker.scheduled', 'speaker.task_assigned', 'speaker.task_reminder', 'speaker.calendar_invite', 'decision.recorded', 'proposal.submitted', 'cfp.deadline_approaching', 'cfp.call_closed')),
+  trigger_type TEXT NOT NULL CHECK (trigger_type IN ('speaker.invited', 'reviewer.assigned', 'reviewer.reminder', 'organizer.digest', 'projection.requested', 'schedule.published', 'speaker.scheduled', 'speaker.task_assigned', 'speaker.task_reminder', 'speaker.calendar_invite', 'decision.recorded', 'proposal.submitted')),
   channel TEXT NOT NULL CHECK (channel IN ('email', 'airtable', 'accelevents', 'event')),
   template_id TEXT REFERENCES message_templates(id),
   template_version INTEGER,
@@ -104,9 +110,6 @@ INSERT INTO outbound_projection_state_next (
 SELECT destination, event_id, resource_ref, version, delivery_id, projected_at
 FROM outbound_projection_state;
 
--- Restated verbatim from `1704`, including the UNIQUE on `delivery_id` and the composite primary
--- key. This is the child a copy of `1703` forgets, and forgetting it is what makes step 4 below
--- fail on every deployment that has sent one calendar invitation.
 CREATE TABLE calendar_invite_states_next (
   organization_id TEXT NOT NULL REFERENCES organizations(id),
   event_id TEXT NOT NULL REFERENCES events(id),

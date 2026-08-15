@@ -130,9 +130,9 @@ describe("lifecycle templates for every organization", () => {
     /*
      * The deployed database already holds a self-serve organization from the first real Google
      * sign-in (issue #216), created long before this catalogue existed. It must not have to send
-     * a message before it has templates, so migration `1706` writes them.
+     * a message before it has templates, so migration `1707` writes them.
      *
-     * Built by migrating up to the migration *before* `1706`, inserting the organization there,
+     * Built by migrating up to the migration *before* `1707`, inserting the organization there,
      * and then applying the rest — which is the real sequence rather than a simulation of it.
      */
     const migrated = await createMigratedDatabase({
@@ -148,7 +148,7 @@ describe("lifecycle templates for every organization", () => {
     expect(before?.tally).toBe(0);
 
     await applyMigrations(migrated.database as never, {
-      from: "1706_default_lifecycle_templates.sql",
+      from: "1707_default_lifecycle_templates.sql",
     });
 
     type Row = { template_key: string; version: number; subject: string; body: string };
@@ -189,7 +189,7 @@ describe("lifecycle templates for every organization", () => {
 
   it("seeds the demo organization every template the catalogue provisions, with the same words", async () => {
     /*
-     * The seed's copies were compared to migration `1706` and to nothing else, so the pair that
+     * The seed's copies were compared to migration `1707` and to nothing else, so the pair that
      * matters most could drift silently: what a *reset* leaves the demo holding versus what every
      * other organization is given. It already had — the two deadline messages (issue #210) reached
      * the catalogue and the migration and not `data.sql`, so a reset quietly left the demo two

@@ -1321,6 +1321,93 @@ export default {
           templateKey: "reviewer-assignment",
         }));
       },
+      /*
+       * The one lifecycle port that answers.
+       *
+       * `notifyLifecycle` is deliberately not used here, and the difference is the whole reason
+       * this method exists rather than being a third call to it: that helper swallows its own
+       * failures because nothing upstream of it can act on one — a speaker welcome that could not
+       * be queued must not fail an acceptance that already committed. A reminder is the opposite
+       * shape. An organizer pressed a button, is watching, and has to be told what happened to
+       * each person: queued, already sent, or nobody to write to. Swallowing that would show
+       * "reminded 4 reviewers" over four messages that do not exist.
+       *
+       * So this reports rather than throws — the port's contract still holds, and a real failure
+       * is logged and surfaces as `unaddressable` rather than as a 500 over an authorized action.
+       *
+       * The idempotency key is `(event, reviewer, round)`, which is what makes pressing twice
+       * queue once. It carries no timestamp and no occurrence counter, deliberately: this is the
+       * manual "please finish your reviews" nudge, sent once per round, and a key that let it
+       * repeat would make the button a way to mail somebody as many times as you can click. A
+       * recurring weekly reminder is a different message with a different key and is not this.
+       */
+      async remindOutstanding(fact) {
+        await recordLifecycle(fact.eventId, {
+          action: "review.reviewer_reminded",
+          targetType: "review-round",
+          targetId: `${fact.reviewerId}:r${fact.round}`,
+        });
+        const reviewer = await recipientFor(fact.reviewerId, {
+          eventId: fact.eventId,
+          reviewerId: fact.reviewerId,
+        });
+        if (!reviewer.asked || !reviewer.email) {
+          logger.warn(
+            { eventId: fact.eventId, reviewerId: fact.reviewerId },
+            "lifecycle.notification.unaddressable",
+          );
+          return "unaddressable";
+        }
+        try {
+          const organizationId = await organizationOf(fact.eventId);
+          if (!organizationId) throw new Error("Event has no owning organization");
+          const enqueued = await communications.enqueue({
+            organizationId,
+            eventId: fact.eventId,
+            idempotencyKey: `reviewer-reminder:${fact.eventId}:${fact.reviewerId}:r${fact.round}`,
+            triggerType: "reviewer.reminder",
+            channel: "email",
+            recipientRef: reviewer.email,
+            payload: {
+              reviewerName: reviewer.name ?? "reviewer",
+              round: fact.round,
+              roundName: fact.roundName,
+              outstanding: fact.outstanding,
+            },
+            templateKey: "reviewer-reminder",
+          });
+          // Only a delivery that was actually written belongs on the timeline; a converged retry
+          // wrote nothing and recording it would put a second "reminder sent" beside one message.
+          if (enqueued.created)
+            await auditRecorder.record({
+              organizationId,
+              eventId: fact.eventId,
+              action: "communications.delivery_enqueued",
+              targetType: "delivery",
+              targetId: enqueued.id,
+              idempotencyKey: lifecycleAuditKey({
+                action: "communications.delivery_enqueued",
+                eventId: fact.eventId,
+                targetId: enqueued.id,
+              }),
+            });
+          return enqueued.created ? "queued" : "already_sent";
+        } catch (error) {
+          // ERROR-INTENT: reported at error level with the identifiers needed to send the message
+          // by hand, and answered rather than thrown — the organizer's request is authorized and
+          // the review state it read is real, so this reports one reviewer as unreachable rather
+          // than failing the whole action.
+          logger.error(
+            {
+              eventId: fact.eventId,
+              reviewerId: fact.reviewerId,
+              error: error instanceof Error ? error.message : String(error),
+            },
+            "lifecycle.notification.failed",
+          );
+          return "unaddressable";
+        }
+      },
       async decisionRecorded(fact) {
         // The outcome is in the key for the same reason it is in the delivery's: a reversed
         // decision is a different thing that happened, and the log has to hold both.

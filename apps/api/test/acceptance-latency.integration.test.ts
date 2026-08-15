@@ -209,6 +209,8 @@ describe("the cost of confirming a speaker acceptance", () => {
     };
     const reviewNotifications: ReviewNotificationPort = {
       reviewerAssigned: async () => undefined,
+      // Not part of an acceptance, so this measurement never reaches it.
+      remindOutstanding: async () => "queued",
       decisionRecorded: async (fact) => {
         await recordLifecycle(fact.eventId, {
           action: `review.decision_${fact.outcome}`,

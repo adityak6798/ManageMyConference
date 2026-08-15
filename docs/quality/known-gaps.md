@@ -127,7 +127,17 @@ feature-by-feature verdict.
   the event's speakers from the console, and **the product now enqueues on its own**: accepting a
   proposal welcomes the speaker and announces each onboarding task, requesting a task tells them,
   assigning or distributing review work tells the reviewer once per round, and an accept/decline
-  decision reaches the submitter (issue #66). A published schedule commits an
+  decision reaches the submitter (issue #66). **The review half of this gap is closed** (issue
+  #191): an organizer selects reviewers who still owe evaluations in a round and sends them a
+  reminder, once per reviewer per round, through communications' public interface — the console
+  reports queued, already reminded, no email on file, or nothing outstanding for each of them, and
+  the delivery is in the same history and audit timeline as every other. It has its own
+  `reviewer.reminder` trigger type (`1706`) rather than borrowing `reviewer.assigned`, which is the
+  substitution this row's `ACC-REVIEW` counterpart ruled out: "you have been given work" and "you
+  still have work outstanding" are two different things to tell somebody. What is *not* here is the
+  **automated weekly** reminder the private rubric asks for — this is the manual nudge, and a
+  recurring occurrence needs its own idempotency key and a scheduled tick.
+  A published schedule commits an
   `EVT-SCHEDULE-PUBLISHED` record whose drain fans out one confirmation per speaker.
   The calendar half is no longer a download only: an organizer sends an iTIP `METHOD:REQUEST`
   invitation per speaker per session through the outbox, and the portal offers Google and Outlook
@@ -656,7 +666,7 @@ feature-by-feature verdict.
 
   **A submitter can only sign in through a door this deployment offers, and it offers one.** `DEMO_MODE=true` turns emailed-code sign-in off and no Google client is configured (`GAP-019`, `GAP-020`), so the only identities that exist here are the four seeded personas — which is what the public call's sign-in card offers, and why the browser journey signs in as `Sam Speaker`. A real submitter creating a *new* account used to be handed an organization and a "Your first event" alongside their proposals; **that is fixed** — the public call page's sign-in link declares its context on the attempt row, and a first sign-in started there provisions an identity and nothing else (`PRD-IAM-001`). The narrow door itself remains: this deployment offers personas and Google, and emailed-code sign-in stays off while `DEMO_MODE` is set.
 
-  **Closed 2026-08-14: every organization holds the lifecycle templates.** Issue #217. The catalogue is provisioned as rows the organization owns — backfilled by migration `1706` for every organization that already existed, and materialized on first resolution and on the organizer's first template list for every organization created after it. An organization that publishes its own wording keeps it, because provisioning only ever writes version 1 of a key with no rows at all. A missing template is now also reported on the event's own timeline rather than only in a Worker log, because `notifyLifecycle`'s catch — written for a transient storage failure — was hiding a permanent one that looked identical to success.
+  **Closed 2026-08-14: every organization holds the lifecycle templates.** Issue #217. The catalogue is provisioned as rows the organization owns — backfilled by migration `1707` for every organization that already existed, and materialized on first resolution and on the organizer's first template list for every organization created after it. An organization that publishes its own wording keeps it, because provisioning only ever writes version 1 of a key with no rows at all. A missing template is now also reported on the event's own timeline rather than only in a Worker log, because `notifyLifecycle`'s catch — written for a transient storage failure — was hiding a permanent one that looked identical to success.
 
   **The confirmation reaches no mailbox, and some accounts get none at all.** `COMMUNICATIONS_PROVIDERS` is unset, so `DeterministicProvider` marks every delivery sent. The confirmation's recipient and rendered body are asserted against delivery history, which is the strongest claim available without a provider, and it is not the claim "a submitter received an email". Separately, an account with no row in `identity_emails` is recorded as `lifecycle.notification.unaddressable` and receives nothing — reachable today with the seeded `Pat Attendee`, who has no address, which is why the dashboard rather than the message is the guarantee `PRD-CFP-004` makes. And "linked" is not "verified": `identity_emails` carries no verification column, so the strength of the address is whatever the sign-in door established, which on this deployment is a persona button.
 

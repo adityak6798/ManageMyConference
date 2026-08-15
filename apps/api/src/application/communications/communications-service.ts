@@ -731,7 +731,7 @@ export class CommunicationsService implements CommunicationsEnqueue {
    * The template a delivery will carry, provisioning this organization's defaults on a miss.
    *
    * The second read is what makes issue #217 impossible to reach through this path rather than
-   * merely unlikely: an organization created after migration `1706` ran, or one whose creation
+   * merely unlikely: an organization created after migration `1707` ran, or one whose creation
    * raced the migration, resolves its first lifecycle message by materializing the catalogue and
    * then finding the row. It costs one extra read only on the miss — after that the key exists
    * and the first `findTemplate` answers.

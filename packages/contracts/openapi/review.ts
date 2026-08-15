@@ -8,6 +8,7 @@ import {
   advanceReviewRoundInputSchema,
   advanceReviewRoundResponseSchema,
   assignReviewersInputSchema,
+  createReviewRoundInputSchema,
   bulkProposalTransitionInputSchema,
   configureProposalStatusesInputSchema,
   configureReviewPlanInputSchema,
@@ -19,6 +20,8 @@ import {
   proposalStatusesResponseSchema,
   proposalTransitionResponseSchema,
   recordProposalDecisionInputSchema,
+  remindReviewersInputSchema,
+  remindReviewersResponseSchema,
   reviewAssignmentParamsSchema,
   reviewAssignmentRemovalResponseSchema,
   reviewAssignmentsResponseSchema,
@@ -26,12 +29,17 @@ import {
   reviewEventParamsSchema,
   reviewOrganizerQuerySchema,
   reviewPlanResponseSchema,
+  reviewRoundParamsSchema,
+  reviewRoundResponseSchema,
+  reviewRoundsResponseSchema,
   respondToSuggestionInputSchema,
   reviewSuggestionParamsSchema,
   reviewSuggestionResponseSchema,
   reviewerQueueSchema,
   saveEvaluationInputSchema,
+  setReviewRoundPoolInputSchema,
   suggestionResponseResponseSchema,
+  updateReviewRoundInputSchema,
 } from "../src/index";
 import type { OpenApiFragment } from "./contract";
 
@@ -67,6 +75,99 @@ export const reviewPaths: OpenApiFragment = {
         400: errorResponse,
         401: errorResponse,
         403: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "get",
+      path: "/api/events/{eventId}/review/round-plans",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: { params: reviewEventParamsSchema },
+      responses: {
+        200: {
+          description: "Every configured review round with its reviewer pool",
+          content: json(reviewRoundsResponseSchema),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "post",
+      path: "/api/events/{eventId}/review/round-plans",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: {
+        params: reviewEventParamsSchema,
+        body: { required: true, content: json(createReviewRoundInputSchema) },
+      },
+      responses: {
+        201: {
+          description: "The created round; its sequence is allocated by the server",
+          content: json(reviewRoundResponseSchema),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "put",
+      path: "/api/events/{eventId}/review/round-plans/{sequence}",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: {
+        params: reviewRoundParamsSchema,
+        body: { required: true, content: json(updateReviewRoundInputSchema) },
+      },
+      responses: {
+        200: { description: "The updated round", content: json(reviewRoundResponseSchema) },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        404: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "put",
+      path: "/api/events/{eventId}/review/round-plans/{sequence}/pool",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: {
+        params: reviewRoundParamsSchema,
+        body: { required: true, content: json(setReviewRoundPoolInputSchema) },
+      },
+      responses: {
+        200: {
+          description: "The round with its new pool",
+          content: json(reviewRoundResponseSchema),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        404: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "post",
+      path: "/api/events/{eventId}/review/reminders",
+      security: [{ sessionCookie: [] }, { eventBearer: [] }],
+      request: {
+        params: reviewEventParamsSchema,
+        body: { required: true, content: json(remindReviewersInputSchema) },
+      },
+      responses: {
+        200: {
+          description:
+            "What became of each reviewer's reminder: queued, already sent, unaddressable, or nothing outstanding",
+          content: json(remindReviewersResponseSchema),
+        },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        404: errorResponse,
         500: errorResponse,
       },
     });
