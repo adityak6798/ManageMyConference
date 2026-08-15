@@ -1,3 +1,4 @@
+import type { UpdateSpeakerProfileInput } from "@greenroom/contracts";
 import { type FormEvent, useMemo, useRef, useState } from "react";
 import {
   clearSpeakerProfilePhoto,
@@ -15,6 +16,7 @@ import {
   FieldErrors,
   isImageAsset,
   plural,
+  presentSocialLinks,
   type Run,
   SOCIAL_PLATFORMS,
   shortDate,
@@ -23,17 +25,22 @@ import {
   withReference,
 } from "./shared";
 
-type ProfileDraft = Pick<
-  SpeakerProfile,
-  "name" | "pronouns" | "jobTitle" | "organization" | "bio"
-> & { socialLinks: Record<string, string>; expectedVersion: number };
+type ProfileDraft = {
+  name: string;
+  pronouns: string;
+  jobTitle: string;
+  organization: string;
+  bio: string;
+  socialLinks: Record<string, string>;
+  expectedVersion: number;
+};
 
 const draftFor = (speaker: SpeakerProfile): ProfileDraft => ({
   name: speaker.name,
-  pronouns: speaker.pronouns,
+  pronouns: speaker.pronouns ?? "",
   jobTitle: speaker.jobTitle,
-  organization: speaker.organization,
-  bio: speaker.bio,
+  organization: speaker.organization ?? "",
+  bio: speaker.bio ?? "",
   expectedVersion: speaker.version,
   socialLinks: Object.fromEntries(
     SOCIAL_PLATFORMS.map(({ key }) => [key, speaker.socialLinks?.[key] ?? ""]),
@@ -122,16 +129,22 @@ export function SpeakerOutreach({
   async function saveProfile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy || !editingProfile || !profileDraft) return;
-    const socialLinks = Object.fromEntries(
-      Object.entries(profileDraft.socialLinks).filter(([, value]) => value.trim()),
-    );
+    const socialLinks = presentSocialLinks(profileDraft.socialLinks);
+    const next = { ...profileDraft, socialLinks };
+    const savedDraft = draftFor(editingProfile);
+    const saved = { ...savedDraft, socialLinks: presentSocialLinks(savedDraft.socialLinks) };
+    const changes = Object.fromEntries(
+      Object.entries(next).filter(
+        ([key, value]) =>
+          key !== "expectedVersion" &&
+          JSON.stringify(value) !== JSON.stringify(saved[key as keyof ProfileDraft]),
+      ),
+    ) as UpdateSpeakerProfileInput;
+    if (!Object.keys(changes).length) return;
     await run(() =>
       updateSpeakerProfile(editingProfile.id, {
-        ...profileDraft,
-        bio: profileDraft.bio ?? "",
-        pronouns: profileDraft.pronouns ?? "",
-        organization: profileDraft.organization ?? "",
-        socialLinks,
+        ...changes,
+        expectedVersion: profileDraft.expectedVersion,
       }),
     ).then((result) => {
       if (result.ok)

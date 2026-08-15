@@ -1,10 +1,11 @@
 # Active execution plans
 
-Status: canonical | Owner: delivery | Last verified: 2026-08-11 (commit `3630977`)
+Status: canonical | Owner: delivery | Last verified: 2026-08-14
 
 ## `PLAN-002` Product lifecycle
 
-Status: active; single-artifact lifecycle acceptance shipped locally 2026-08-11, hosted CI pending
+Status: active; single-artifact lifecycle acceptance and closure surfaces are review-ready locally;
+hosted branch CI pending
 
 The bounded vertical slices for `JNY-001` through `JNY-009` are available through public application
 entrypoints. `ACC-DEMO-SMOKE` provides the deterministic reset/runbook, role-aware evaluator path,
@@ -13,10 +14,14 @@ accessibility/performance smoke, and scheduled quality gate.
 Issue #10's first acceptance criterion is met and measured:
 [`apps/web/e2e/lifecycle.spec.ts`](../../apps/web/e2e/lifecycle.spec.ts) carries one newly submitted
 proposal across review, acceptance, speaker provisioning, scheduling, and public publication in a
-single run and hands the fixture back. What remains before this plan can close:
+single run and hands the fixture back. `apps/web/e2e/zz-closure-surfaces.spec.ts` adds the adjacent
+closure journeys: custom-role field projection and locked writes, report exports/share/scheduled
+execution, public portal registration, persisted embeds, and the webhooks console's real
+unconfigured state. What remains before this plan can close:
 
 - hosted CI on this branch, and branch protection that makes those jobs required (`GAP-003`);
-- the two still-open deferred items of issue #10 — `DEBT-004` and `DEBT-005`;
+- the still-open deferred item of issue #10 — `DEBT-004`; `DEBT-005` closed through issues #48
+  and #84;
 - the missing brief features that no lifecycle test can substitute for: `GAP-010`
   (lifecycle-triggered communications and calendar delivery) and `GAP-012` (Accelevents).
   Multi-round and AI-assisted review shipped and closed `GAP-011`; portal resource and wiki pages

@@ -13,6 +13,7 @@ import { ContentConflictError } from "../src/application/content/content-reposit
 import type {
   ContentActorDirectoryPort,
   ContentProfileAuditPort,
+  ContentServiceDependencies,
   SpeakerNotificationPort,
 } from "../src/application/content/content-service";
 import {
@@ -21,10 +22,12 @@ import {
   SpeakerIdentityUnavailableError,
   SpeakerPhotoInvalidError,
 } from "../src/application/content/content-service";
+import type { ContentRemixPort } from "../src/application/content/content-remix-port";
 import { FixtureSchedulableContentQuery } from "../src/application/content/public";
 import type { SpeakerConversionPort } from "../src/application/content/speaker-conversion";
 import { type Actor, CapabilityDeniedError } from "../src/application/identity/actor";
 import { resolveSeededDemoActor } from "../src/application/identity/demo-session";
+import type { FieldLockedError } from "../src/application/identity/public";
 import {
   type AcceptedProposal,
   type AcceptedProposalQuery,
@@ -98,6 +101,8 @@ function setup(
     speakerNotifications?: SpeakerNotificationPort;
     /** Identity's answer to "what is this person called?" (issue #154). */
     identities?: ContentActorDirectoryPort;
+    remix?: ContentRemixPort;
+    shares?: NonNullable<ContentServiceDependencies["shares"]>;
     profileAudit?: ContentProfileAuditPort;
   } = {},
 ) {
@@ -131,6 +136,8 @@ function setup(
         : {}),
       ...(options.identities ? { identities: options.identities } : {}),
       ...(options.profileAudit ? { profileAudit: options.profileAudit } : {}),
+      ...(options.remix ? { remix: options.remix } : {}),
+      ...(options.shares ? { shares: options.shares } : {}),
       assetStorage: storage,
       proposals:
         options.proposals ??
@@ -274,6 +281,54 @@ function calendarService(
 const calendarLines = (document: string) => document.replaceAll("\r\n ", "").split("\r\n");
 
 describe("ContentService", () => {
+  it("redacts hidden fields and refuses locked writes for a custom event role", async () => {
+    const { service } = setup();
+    const accepted = await service.accept(
+      await resolveSeededDemoActor("organizer"),
+      command,
+      correlationId,
+    );
+    const custom = {
+      ...(await resolveSeededDemoActor("reviewer")),
+      eventAccess: [
+        {
+          eventId,
+          role: "custom" as const,
+          capabilities: new Set(["events:read", "content:read", "content:manage"] as const),
+          customRole: { id: "role-programme", name: "Programme operator" },
+          fieldPolicies: new Map([
+            ["speaker:email", "hide" as const],
+            ["speaker:bio", "lock" as const],
+            ["session:abstract", "hide" as const],
+          ]),
+        },
+      ],
+    };
+
+    const workspace = await service.workspace(custom, eventId);
+    expect(workspace.speakers[0]).not.toHaveProperty("email");
+    expect(workspace.speakers[0]).toHaveProperty("bio", "");
+    expect(workspace.sessions[0]).not.toHaveProperty("abstract");
+
+    await expect(
+      service.updateProfile(custom, samProfile.id, {
+        bio: "A locked change",
+      }),
+    ).rejects.toMatchObject({
+      subject: "speaker",
+      fields: ["bio"],
+    } satisfies Partial<FieldLockedError>);
+
+    await expect(
+      service.updateProfile(custom, samProfile.id, { name: "Sam Allowed" }),
+    ).resolves.toMatchObject({ name: "Sam Allowed", bio: "" });
+    await expect(
+      service.updateSession(custom, accepted.sessions[0]?.id ?? "missing", {
+        title: "A permitted title",
+      }),
+    ).resolves.toMatchObject({ title: "A permitted title", abstract: "Useful detail" });
+  });
+
   it("preserves speaker and organizer access when an actor has multiple event roles", async () => {
     const { service } = setup({
       proposals: new FakeAcceptedProposals([
@@ -319,6 +374,7 @@ describe("ContentService", () => {
     // withholds it is asserted in both directions rather than left to the one client that reads it.
     const asked: string[] = [];
     const identities: ContentActorDirectoryPort = {
+      isAssignedToEvent: async () => true,
       listAssignableOwnersForEvent: async (id) => {
         asked.push(id);
         return [
@@ -719,23 +775,37 @@ describe("ContentService", () => {
     });
   });
 
-  it("limits profile collaborators to the profiles and access level explicitly granted", async () => {
-    const { service } = setup();
+  it("limits profile collaborators to event participants and applies their field policy", async () => {
     const organizer = await resolveSeededDemoActor("organizer");
+    const reviewer = await resolveSeededDemoActor("reviewer");
     const collaborator: Actor = {
-      ...(await resolveSeededDemoActor("speaker")),
-      id: "agency-collaborator",
-      name: "Agency Collaborator",
-      capabilities: new Set(),
-      eventAccess: [],
+      ...reviewer,
+      eventAccess: reviewer.eventAccess.map((access) => ({
+        ...access,
+        fieldPolicies: new Map([["speaker:bio", "hide" as const]]),
+      })),
     };
+    const identities: ContentActorDirectoryPort = {
+      listAssignableOwnersForEvent: async () => [],
+      isAssignedToEvent: async (userId, scopedEventId) =>
+        scopedEventId === eventId && [collaborator.id, organizer.id].includes(userId),
+    };
+    const { service, repository } = setup({ identities });
+
+    await expect(
+      service.setProfileCollaborators(organizer, samProfile.id, [
+        { userId: "other-event-user", access: "edit" },
+      ]),
+    ).rejects.toBeInstanceOf(CapabilityDeniedError);
+    await expect(repository.listProfileCollaborators(samProfile.id)).resolves.toEqual([]);
+
     await service.setProfileCollaborators(organizer, samProfile.id, [
       { userId: collaborator.id, access: "view" },
     ]);
 
-    await expect(service.workspace(collaborator, eventId)).resolves.toMatchObject({
-      speakers: [{ id: samProfile.id }],
-    });
+    const projected = await service.workspace(collaborator, eventId);
+    expect(projected.speakers).toEqual([expect.objectContaining({ id: samProfile.id })]);
+    expect("bio" in (projected.speakers[0] ?? {})).toBe(false);
     await expect(
       service.updateProfile(collaborator, samProfile.id, {
         expectedVersion: 0,
@@ -750,16 +820,90 @@ describe("ContentService", () => {
     await service.setProfileCollaborators(organizer, samProfile.id, [
       { userId: collaborator.id, access: "edit" },
     ]);
+    const locked: Actor = {
+      ...collaborator,
+      eventAccess: collaborator.eventAccess.map((access) => ({
+        ...access,
+        fieldPolicies: new Map([["speaker:bio", "lock" as const]]),
+      })),
+    };
     await expect(
-      service.updateProfile(collaborator, samProfile.id, {
+      service.updateProfile(locked, samProfile.id, {
+        bio: "This field is locked",
+      }),
+    ).rejects.toMatchObject({ fields: ["bio"] });
+    await expect(
+      service.updateProfile(locked, samProfile.id, {
         expectedVersion: 0,
         name: "Agency edit",
-        pronouns: "",
-        jobTitle: "",
-        organization: "",
-        bio: "",
       }),
     ).resolves.toMatchObject({ name: "Agency edit", version: 1 });
+
+    await expect(
+      service.setProfileCollaborators(organizer, samProfile.id, [
+        { userId: "other-event-user", access: "view" },
+      ]),
+    ).rejects.toBeInstanceOf(CapabilityDeniedError);
+    await expect(repository.listProfileCollaborators(samProfile.id)).resolves.toEqual([
+      { userId: collaborator.id, access: "edit" },
+    ]);
+  });
+
+  it("does not let a custom role share or remix fields its policy hides", async () => {
+    const remix = { remix: vi.fn(async () => ({ text: "Draft", model: "fixture" })) };
+    const { service, repository } = setup({ remix });
+    const organizer = await resolveSeededDemoActor("organizer");
+    await service.accept(organizer, command, correlationId);
+    const session = (await repository.workspace(eventId)).sessions[0];
+    if (!session) throw new Error("accepted content created no session");
+
+    const hidden: Actor = {
+      id: "scoped-content-manager",
+      name: "Scoped content manager",
+      persona: "organizer",
+      organizations: organizer.organizations,
+      capabilities: new Set(["content:read", "content:manage"]),
+      eventAccess: [
+        {
+          eventId,
+          role: "custom",
+          capabilities: new Set(["content:read", "content:manage"]),
+          fieldPolicies: new Map([
+            ["speaker:bio", "hide"],
+            ["session:abstract", "hide"],
+          ]),
+        },
+      ],
+    };
+
+    await expect(
+      service.createProfileShare(hidden, samProfile.id, { lifetimeHours: 1 }),
+    ).rejects.toBeInstanceOf(CapabilityDeniedError);
+    await expect(
+      service.draftProfileRemix(hidden, samProfile.id, "Shorten it"),
+    ).rejects.toBeInstanceOf(CapabilityDeniedError);
+    await expect(
+      service.draftSessionRemix(hidden, session.id, "Shorten it"),
+    ).rejects.toBeInstanceOf(CapabilityDeniedError);
+    expect(remix.remix).not.toHaveBeenCalled();
+
+    const readable: Actor = {
+      ...hidden,
+      eventAccess: hidden.eventAccess.map((access) => ({
+        ...access,
+        fieldPolicies: new Map([
+          ["speaker:bio", "lock"],
+          ["session:abstract", "view"],
+        ]),
+      })),
+    };
+    await expect(service.draftProfileRemix(readable, samProfile.id, "Shorten it")).resolves.toEqual(
+      expect.objectContaining({ state: "draft", field: "bio" }),
+    );
+    await expect(service.draftSessionRemix(readable, session.id, "Shorten it")).resolves.toEqual(
+      expect.objectContaining({ state: "draft", field: "abstract" }),
+    );
+    expect(remix.remix).toHaveBeenCalledTimes(2);
   });
 
   it("retires a replaced or removed headshot from public visibility", async () => {

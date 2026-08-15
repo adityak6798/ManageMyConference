@@ -51,7 +51,7 @@ export function SessionEditor({
   function submit(formEvent: FormEvent<HTMLFormElement>) {
     formEvent.preventDefault();
     if (busy) return;
-    onSave({
+    const next = {
       title: draft.title,
       abstract: draft.abstract,
       format: draft.format,
@@ -59,7 +59,19 @@ export function SessionEditor({
       tags: commaList(draft.tags),
       tracks: commaList(draft.tracks),
       publicationState: draft.publicationState,
-    });
+    };
+    const savedPayload = {
+      ...saved,
+      tags: commaList(saved.tags),
+      tracks: commaList(saved.tracks),
+    };
+    const changes = Object.fromEntries(
+      Object.entries(next).filter(
+        ([key, value]) =>
+          JSON.stringify(value) !== JSON.stringify(savedPayload[key as keyof typeof savedPayload]),
+      ),
+    ) as UpdateContentSessionInput;
+    if (Object.keys(changes).length) onSave(changes);
   }
 
   return (

@@ -106,6 +106,7 @@
     "capability_links": "platform",
     "report_definitions": "platform",
     "report_schedules": "platform",
+    "report_run_claims": "platform",
     "report_runs": "platform",
     "event_field_locks": "identity-access",
     "publication_embeds": "publishing",

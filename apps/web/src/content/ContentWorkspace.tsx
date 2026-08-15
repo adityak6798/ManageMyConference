@@ -82,7 +82,11 @@ function LoadFailure({
 }
 
 // @spec PRD-SPK-001 PRD-SPK-002 PRD-CNT-001
-export function ContentWorkspace({ eventId, role }: Props) {
+export function ContentWorkspace({
+  eventId,
+  role,
+  canAdministerShares = role === "organizer",
+}: Props) {
   const [busy, setBusy] = useState(false);
   const describeLoadFailure = useCallback(
     (reason: unknown) =>
@@ -130,7 +134,15 @@ export function ContentWorkspace({ eventId, role }: Props) {
   if (!workspace) return <LoadingWorkspace />;
 
   if (role === "organizer")
-    return <OrganizerView eventId={eventId} workspace={workspace} busy={busy} run={run} />;
+    return (
+      <OrganizerView
+        eventId={eventId}
+        workspace={workspace}
+        busy={busy}
+        run={run}
+        canAdministerShares={canAdministerShares}
+      />
+    );
 
   const profile = workspace.speakers[0];
   if (!profile)

@@ -92,17 +92,27 @@ feature-by-feature verdict.
   Closure: a tested, resumable command rewraps subscription and idempotency envelopes, reports the
   versions remaining, and refuses retirement while any row still names the old version.
 
-- `GAP-026` **The trusted webhook egress service is specified but not deployed or live-verified.**
-  The Worker adapter fails closed and can communicate only with an authenticated enforcement
-  origin. `apps/webhook-egress` now contains the separately operated Node implementation,
-  executable mixed-answer and rebinding checks, a live-probe command, hourly monitor definition,
-  and bearer-rotation procedure. It has not been durably deployed; the only hosted experiment was
-  an anonymous expiring preview and is not evidence. Impact: webhook routes correctly return
-  `503 WEBHOOK_UNAVAILABLE` without configuration, but production webhook delivery cannot be
-  claimed. Owner: communications-integrations. Governing ID: `PRD-INT-001`, `ACC-INTEGRATION`.
-  Closure: [issue #194](https://github.com/adityak6798/ManageMyConference/issues/194) deploys the
-  service and records live mixed-answer, rebinding, TLS-hostname, redirect and token-isolation
-  verification.
+- `GAP-026` **The trusted webhook egress service is deployed, but the full live verification and
+  signed API delivery are failing.** The singleton Cloudflare Container is live at
+  `greenroom-webhook-egress.adityak6798.workers.dev`; the hourly credential-backed monitor has
+  repeatedly passed safe validation, a 204 delivery and redirect refusal, including run
+  `31863143295` at main commit `6f6b32c`. That proves a real deployed enforcement path, not the
+  former anonymous preview. It does not prove the reason this service exists. Full run
+  `31864761848` reached the DNS-rebinding dispatch loop and received HTTP 503 from the egress
+  service. The workflow initially reported green because `node | tee` returned `tee`'s status;
+  commit `5ba2227` adds `pipefail` and archives stderr, so that result cannot be cited as a pass.
+  Follow-up run `31864803497` then failed correctly at the same rebinding dispatch with HTTP 503,
+  proving that the workflow repair reports the service failure rather than relabelling it.
+  Separately, three signed-delivery attempts reached the deployed Greenroom API but subscription
+  creation returned 500 (correlations `6abd6083-351d-40c2-a9bc-938e59160aff`,
+  `dce7c7c8-814c-48e1-aa43-388bd9271273`, and
+  `e802530e-d93b-49ea-ad16-62d4220e0f03`); no subscription row was committed. The checked-in probe
+  target refuses a leaked egress bearer and requires the Greenroom signature wire shape, so it is
+  suitable for the end-to-end check once creation works. Impact: ordinary monitoring is live, but
+  rebinding refusal and API-to-target interoperability cannot yet be claimed. Owner:
+  communications-integrations. Governing ID: `PRD-INT-001`, `ACC-INTEGRATION`. Closure:
+  [issue #194](https://github.com/adityak6798/ManageMyConference/issues/194) records a genuinely
+  passing full probe and one succeeded signed delivery; a stub result does not close it.
 
 - `GAP-008` **Partially closed by issue #61.** The Worker now serves `apps/web/dist`, applies an SPA
   fallback to deep links, and every web API client uses one optional `VITE_API_BASE_URL` (same-origin
@@ -753,18 +763,28 @@ feature-by-feature verdict.
   `ACC-DEMO-SMOKE`. Closure: the audit renders a deliberately long unbreakable string into one row
   of each measured surface before measuring, so the floor is a property of the check rather than of
   the seed — or each surface gets a component-level test that asserts the constraint directly.
-- `GAP-031` **The programme, portal and reporting surfaces this branch adds have no browser
-  journey, and scheduled report delivery has never sent anything.** Issues #192 and #196 shipped
-  custom event roles with per-field access, organization portals, the report builder with its
-  exports and share links, persisted embeds, agenda draft generation, and the webhooks console
-  that seven built routes never had. Each is covered by unit, service and D1 integration tests,
-  and each is visited by the `lifecycle-demo` axe and 390px sweeps — which enumerate the sidebar
-  and therefore pick up a new workspace automatically. **What none of them has is a Playwright
-  spec that drives it as a journey**: nothing composes a portal and registers against it, nothing
-  builds a report and opens its share link, nothing accepts a generated arrangement onto the
-  board. Those are the paths that have historically broken without a test noticing.
+- `GAP-031` **Browser journeys now cover every named surface; a staged scheduled-report send is
+  still absent.** `zz-closure-surfaces.spec.ts` drives a custom event role and asserts both the
+  serialized absence of hidden email/abstract fields and the 403 field error on a locked bio;
+  exports and reads CSV, XLSX and JSON; opens and revokes an anonymous report capability URL;
+  creates, publishes, registers against and withdraws an organization portal; and issues, reads
+  and withdraws a persisted embed. That work found two unreachable implementations rather than
+  merely adding tests: anonymous `/sites/:slug` had no web root at all, and the webhooks client
+  omitted the idempotency header every configured mutation route requires. Agenda draft generation
+  is already driven by `agenda.spec.ts`; the webhooks journey drives the actual local deployment
+  state and confirms it remains explicitly unconfigured rather than inventing a successful
+  lifecycle.
 
-  **Scheduled report delivery is wired into the one-minute tick and has never reached a mailbox.**
+  **Scheduled report delivery still has not reached a mailbox or staged provider.** The browser
+  journey creates a due schedule and invokes the Worker's real scheduled handler. This local
+  deployment has no `AUTH_EMAIL_ENDPOINT`/`AUTH_EMAIL_TOKEN`, so the run is observed as `failed`
+  with the exact configuration reason and then removed. `reporting.test.ts` exercises a successful
+  provider boundary and resolves its delivered URL to masked live rows, but that provider is an
+  in-memory stub and is recorded as such. The same pass found and fixed two adjacent defects: cron
+  links previously lacked the frozen event authority needed to resolve their report, and a provider
+  failure left an undelivered live capability behind; schedules now persist bounded delegated
+  scope and revoke a link whose delivery fails.
+
   It sends through the same provider-neutral binding pair the emailed sign-in code uses,
   `AUTH_EMAIL_ENDPOINT`/`AUTH_EMAIL_TOKEN`, which are unset on a demo deployment — so `deliver`
   throws and the run is recorded as `failed`, deliberately, because an unconfigured deployment
@@ -774,6 +794,5 @@ feature-by-feature verdict.
   another lane's migration block, so these sends do not appear in the communications history or
   share its retry ladder. `DEBT-014` records the same trade from the capability-link side.
 
-  Owner: publishing, platform, identity-access. Governing ID: `PRD-PUB-002`, `PRD-OPS-004`,
-  `PRD-IAM-002`, `ACC-PUBLIC`, `ACC-OPS`. Closure: a browser spec per surface that carries one
-  artifact end to end, and one scheduled report observed arriving from a staged provider.
+  Owner: platform. Governing ID: `PRD-OPS-004`, `ACC-OPS`. Closure: one scheduled report observed
+  arriving from a staged provider; every browser-surfaces clause is closed.

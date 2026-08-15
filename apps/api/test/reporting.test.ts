@@ -22,18 +22,18 @@ import type {
 import {
   MAX_REPORT_SCAN,
   maskValue,
-  type ReportRow,
   ReportQueryInvalidError,
+  type ReportRow,
   ReportTooExpensiveError,
   runQuery,
   validateQuery,
 } from "../src/application/platform/report-catalogue";
 import {
   occurrenceKey,
+  ReportingService,
   ReportPiiDeniedError,
   type ReportRepository,
   ReportShareUnavailableError,
-  ReportingService,
 } from "../src/application/platform/reporting-service";
 
 const EVENT = "00000000-0000-4000-8000-0000000000a1";
@@ -164,7 +164,8 @@ describe("the report query engine", () => {
 function harness(over: { rows?: ReportRow[]; unauthorized?: boolean } = {}) {
   const stored = new Map<string, Awaited<ReturnType<ReportingService["save"]>>>();
   const links: (CapabilityLink & { tokenHash: string; passwordHash: string | null })[] = [];
-  const runs: { scheduleId: string; occurrenceKey: string; outcome: string }[] = [];
+  const runs: { id: string; scheduleId: string; occurrenceKey: string; outcome: string }[] = [];
+  const claims = new Set<string>();
   const schedules: Awaited<ReturnType<ReportingService["createSchedule"]>>[] = [];
   const delivered: { recipients: readonly string[]; url: string }[] = [];
   let nextId = 0;
@@ -197,10 +198,10 @@ function harness(over: { rows?: ReportRow[]; unauthorized?: boolean } = {}) {
     listSchedules: async (reportId) => schedules.filter((s) => s.reportId === reportId),
     removeSchedule: async () => 1,
     listDueSchedules: async () => schedules.map((s) => ({ ...s, eventId: EVENT })),
-    recordRun: async (run, key) => {
-      if (runs.some((r) => r.scheduleId === run.scheduleId && r.occurrenceKey === key))
-        return false;
-      runs.push({ scheduleId: run.scheduleId, occurrenceKey: key, outcome: run.outcome });
+    claimRun: async (run, key) => {
+      const claimKey = `${run.scheduleId}:${key}`;
+      if (claims.has(claimKey)) return false;
+      claims.add(claimKey);
       const index = schedules.findIndex((s) => s.id === run.scheduleId);
       if (index >= 0)
         schedules[index] = {
@@ -208,6 +209,14 @@ function harness(over: { rows?: ReportRow[]; unauthorized?: boolean } = {}) {
           lastFiredKey: key,
         };
       return true;
+    },
+    recordRun: async (run) => {
+      runs.push({
+        id: run.id,
+        scheduleId: run.scheduleId,
+        occurrenceKey: run.occurrenceKey,
+        outcome: run.outcome,
+      });
     },
     listRuns: async () => [],
   };
@@ -285,7 +294,7 @@ function harness(over: { rows?: ReportRow[]; unauthorized?: boolean } = {}) {
     newId: () => `00000000-0000-4000-8000-0000000000${(nextId++).toString().padStart(2, "0")}`,
     now: () => NOW,
   });
-  return { service, links, runs, delivered, schedules };
+  return { service, links, runs, delivered, schedules, claims };
 }
 
 const savedReport = (service: ReportingService) =>
@@ -399,7 +408,43 @@ describe("share links", () => {
     expect(created.url).toContain("https://greenroom.test/reports/");
     const resolved = await service.resolveShare(created.token);
     expect(resolved.result.rows[0]?.email).toBe("a…@example.test");
-    expect(links[0]?.scope).toEqual({ allowPii: false });
+    expect(links[0]?.scope).toEqual({
+      allowPii: false,
+      capabilities: ["events:read", "reports:pii"],
+      fieldPolicies: [],
+    });
+  });
+
+  it("freezes the same least-restrictive field decision used by live projections", async () => {
+    const { service, links } = harness();
+    const report = await savedReport(service);
+    const multiGrant = {
+      ...scoped,
+      eventAccess: [
+        {
+          eventId: EVENT,
+          role: "custom" as const,
+          capabilities: new Set(["events:read"] as const),
+          fieldPolicies: new Map([["speaker:email", "hide" as const]]),
+        },
+        {
+          eventId: EVENT,
+          role: "custom" as const,
+          capabilities: new Set(["events:read"] as const),
+          fieldPolicies: new Map([["speaker:email", "lock" as const]]),
+        },
+      ],
+    };
+    await service.createShare(multiGrant, EVENT, report.id, { lifetimeHours: 24 });
+    expect(links.at(-1)?.scope.fieldPolicies).toEqual([["speaker:email", "lock"]]);
+
+    await service.createShare(
+      { ...multiGrant, eventAccess: [...multiGrant.eventAccess, organizer.eventAccess[0]!] },
+      EVENT,
+      report.id,
+      { lifetimeHours: 24 },
+    );
+    expect(links.at(-1)?.scope.fieldPolicies).toEqual([]);
   });
 
   it("refuses a caller without reports:pii asking for an unmasked link", async () => {
@@ -430,12 +475,17 @@ describe("share links", () => {
 
     const guarded = await service.createShare(organizer, EVENT, report.id, {
       lifetimeHours: 24,
+      viewLimit: 1,
       password: "correct horse",
     });
+    await expect(service.resolveShare(guarded.token)).rejects.toThrow(ReportShareUnavailableError);
     await expect(service.resolveShare(guarded.token, "wrong")).rejects.toThrow(
       ReportShareUnavailableError,
     );
     await expect(service.resolveShare(guarded.token, "correct horse")).resolves.toBeTruthy();
+    await expect(service.resolveShare(guarded.token, "correct horse")).rejects.toThrow(
+      ReportShareUnavailableError,
+    );
     await expect(service.resolveShare("token-that-never-existed")).rejects.toThrow(
       ReportShareUnavailableError,
     );
@@ -482,12 +532,61 @@ describe("scheduled delivery", () => {
     // Duplicated addresses converge, so one person is not sent the same report twice.
     expect(delivered[0]?.recipients).toEqual(["ops@example.test"]);
     expect(runs).toHaveLength(1);
-    // A scheduled link never carries unmasked personal data: nobody is present to decide.
-    expect(links.at(-1)?.scope).toEqual({ allowPii: false });
+    // A scheduled link never carries unmasked personal data, and holds only the event authority
+    // frozen when the recurring instruction was created.
+    expect(links.at(-1)?.scope).toEqual({
+      allowPii: false,
+      capabilities: ["events:read", "reports:pii"],
+      fieldPolicies: [],
+    });
+    const token = delivered[0]?.url.split("/").at(-1);
+    expect(token).toBeTruthy();
+    const resolved = await service.resolveShare(token ?? "");
+    expect(resolved.result.rows[0]?.email).toBe("a…@example.test");
+  });
+
+  it("claims before delivery, so overlapping ticks cannot send the same occurrence twice", async () => {
+    const { service, delivered, runs, claims } = harness();
+    const report = await savedReport(service);
+    await service.createSchedule(organizer, EVENT, report.id, {
+      cadence: "daily",
+      minuteOfDay: 9 * 60,
+      timezone: "Europe/London",
+      recipients: ["ops@example.test"],
+    });
+    let releaseDelivery: (() => void) | undefined;
+    let announceStarted: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+      announceStarted = resolve;
+    });
+    const release = new Promise<void>((resolve) => {
+      releaseDelivery = resolve;
+    });
+    const concurrent = new ReportingService({
+      ...(service as unknown as { dependencies: ConstructorParameters<typeof ReportingService>[0] })
+        .dependencies,
+      delivery: {
+        deliver: async (delivery) => {
+          delivered.push(delivery);
+          announceStarted?.();
+          await release;
+        },
+      },
+    });
+
+    const first = concurrent.tick();
+    await started;
+    await expect(concurrent.tick()).resolves.toEqual({ fired: 0, failed: 0 });
+    expect(delivered).toHaveLength(1);
+    expect(claims.size).toBe(1);
+    expect(runs).toHaveLength(0);
+    releaseDelivery?.();
+    await expect(first).resolves.toEqual({ fired: 1, failed: 0 });
+    expect(runs[0]?.outcome).toBe("delivered");
   });
 
   it("records a failed delivery instead of aborting the tick", async () => {
-    const { service, runs } = harness();
+    const { service, runs, links } = harness();
     const report = await savedReport(service);
     await service.createSchedule(organizer, EVENT, report.id, {
       cadence: "daily",
@@ -507,6 +606,26 @@ describe("scheduled delivery", () => {
     });
     const outcome = await broken.tick();
     expect(outcome).toEqual({ fired: 0, failed: 1 });
+    expect(runs[0]?.outcome).toBe("failed");
+    expect(links.at(-1)?.revokedAt).toBe(NOW.toISOString());
+  });
+
+  it("records a migrated empty-scope schedule as failed without sending a dead link", async () => {
+    const { service, runs, links, delivered, schedules } = harness();
+    const report = await savedReport(service);
+    await service.createSchedule(organizer, EVENT, report.id, {
+      cadence: "daily",
+      minuteOfDay: 9 * 60,
+      timezone: "Europe/London",
+      recipients: ["ops@example.test"],
+    });
+    const schedule = schedules[0];
+    if (!schedule) throw new Error("Expected the schedule to be stored");
+    schedules[0] = { ...schedule, scope: {} };
+
+    await expect(service.tick()).resolves.toEqual({ fired: 0, failed: 1 });
+    expect(delivered).toHaveLength(0);
+    expect(links).toHaveLength(0);
     expect(runs[0]?.outcome).toBe("failed");
   });
 });

@@ -212,3 +212,38 @@ Where a row carries a gap, the gap is part of the record: it names what is not t
 `GAP-*`/`DEBT-*` entry that owns it. Full detail is in [known gaps](known-gaps.md) and the
 [technical debt register](../exec-plans/tech-debt.md); the feature-level picture is in
 [competition traceability](../product/competition-traceability.md).
+
+## Closure and external-evidence addendum — 2026-08-14
+
+This append-only correction supersedes the older addendum's statement that the programme, portal
+and reporting work has no browser journey. `apps/web/e2e/zz-closure-surfaces.spec.ts` now verifies
+the
+wire-level absence of hidden speaker email and session abstract fields, a locked bio's structured
+403 refusal, usable custom-role content, CSV/XLSX/JSON bytes, an anonymous report link through
+revocation, portal publication/registration/consent/unpublication, and persisted JSON embed issue,
+read and withdrawal. It also drives the webhooks console against the local deployment's explicit
+unconfigured state. `agenda.spec.ts` already drives generated placement through persistence and
+edit. These journeys exposed and fixed three reachability/lifecycle defects: `/sites/:slug` had no
+anonymous web root, every configured webhooks mutation omitted its required idempotency key, and
+scheduled report links did not carry the frozen authority needed to resolve their own data.
+
+The scheduled-report claim remains bounded: the browser creates a due schedule and invokes the
+real scheduled handler, then observes the exact missing-provider failure. A service test proves the
+success path with an in-memory provider and resolves its delivered URL to masked live rows. No
+mailbox or staged provider received that report, so `GAP-031` remains open for that final clause.
+
+The webhook service is durably deployed and ordinary credential-backed monitoring passes, but the
+full evidence is red. Runs `31864761848` and `31864803497` received HTTP 503 at the rebinding
+dispatch; the latter correctly failed after `pipefail` prevented `tee` from masking the probe's
+exit. Three separate attempts to create the live Greenroom subscription returned HTTP 500 before
+committing a row, so no signed API-to-target delivery occurred. `GAP-026` and issue #194 remain open.
+
+The SessionBoard wrapper pins evaluator commit
+`d8fafa41cdc484309e3fda953c5567cc2d462734`, isolates and resets D1 state, records target commit and
+tree cleanliness, and selects all 18 required scenarios. This branch's run stopped explicitly
+blocked without `ANTHROPIC_API_KEY`, so it has no current score. The most recent older completed
+report is directional only because its target commit was not captured: 65.9% overall / 97.6%
+coverage / 16 manual, from a declared baseline of 60.5% / 92.4% / 21. Its areas were CFP 85.1%,
+Abstract Management 36.5%, Speaker Management 57.8%, Content Management 62.9%, AI Agenda 100%, and
+Public Widgets 67.6%. Issue #193 remains open until a current, attributable run completes; #230,
+`GAP-028`, `GAP-029`, #132, #190 and `GAP-030` continue to own known non-100% work.

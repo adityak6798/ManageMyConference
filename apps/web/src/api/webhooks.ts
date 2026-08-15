@@ -55,7 +55,7 @@ const decode = <T>(response: Response, schema: z.ZodType<T>) =>
 
 const send = (method: "POST" | "PATCH", payload?: unknown) => ({
   method,
-  headers: { "content-type": "application/json" },
+  headers: { "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
   ...(payload === undefined ? {} : { body: JSON.stringify(payload) }),
 });
 
@@ -101,6 +101,7 @@ export async function deleteWebhook(
 ) {
   const response = await fetcher(`${base(organizationId)}/${subscriptionId}`, {
     method: "DELETE",
+    headers: { "idempotency-key": crypto.randomUUID() },
   });
   if (response.ok) return;
   const envelope = (await response.json()) as ApiErrorEnvelope;

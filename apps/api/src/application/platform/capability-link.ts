@@ -17,18 +17,18 @@
  * **A link names a resource, never a session.** `resourceKind` says which domain resolves it and
  * `resourceRef` is that domain's own identifier, carried opaquely and with no foreign key —
  * platform does not own reports' or content's rows any more than it owns anybody else's. The
- * resolving domain reads under **no actor at all**; a link is not an impersonation of whoever
- * created it, and resolving as its creator is precisely how a capability URL comes to outlive the
- * access that justified it.
+ * resolving domain normally reads under **no human actor at all**. Where a resource needs an
+ * application actor (scheduled reports do), its scope carries a bounded snapshot of the
+ * creator's event authority; it never restores the creator's session or current identity.
  *
  * **`scope` is the per-kind policy, decided when the link is minted.** A report's link carries
  * `allowPii`; a speaker-portal link will carry whatever that lane decides a visitor may do. It is
  * on the link rather than on the request because the person opening it is anonymous and cannot be
  * asked to hold a capability.
  *
- * `speaker-profile` and `speaker-asset` are declared here and resolved by nothing yet. That is
- * deliberate: issue #189's `GAP-028` residual needs exactly this shape, and a kind declared in
- * advance is a lane adding a resolver instead of a second token table.
+ * Content resolves `speaker-profile` and `speaker-asset` through the same primitive. Their
+ * creation, listing and revocation remain organizer-only because an anonymous link must not widen
+ * a custom role's field projection.
  *
  * @spec PRD-OPS-004 PRD-IAM-002 ARC-DOM-001
  */
@@ -85,8 +85,8 @@ export interface CapabilityLinkStore {
    *
    * Must be **one statement**: it has to test liveness — not revoked, not expired, a view left —
    * and increment the view count together, or two concurrent resolves of a one-view link both
-   * pass the test before either writes. Kind and password are predicates of that same statement:
-   * a wrong endpoint or password must not consume a limited view.
+   * pass before either writes. Kind and password are predicates of that statement, so neither a
+   * wrong endpoint nor a wrong password consumes a limited view.
    */
   spend(
     tokenHash: string,

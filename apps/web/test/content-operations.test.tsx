@@ -104,7 +104,7 @@ const run = async (action: () => Promise<unknown>) => {
  * each has its own suite — but leaving a read unanswered would make every test depend on a
  * rejected promise settling, and would put a failure notice inside a panel about something else.
  */
-function mount(value: Workspace) {
+function mount(value: Workspace, canAdministerShares = true) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL) => {
@@ -117,7 +117,15 @@ function mount(value: Workspace) {
       });
     }),
   );
-  return render(<ContentOperations eventId={eventId} workspace={value} busy={false} run={run} />);
+  return render(
+    <ContentOperations
+      eventId={eventId}
+      workspace={value}
+      busy={false}
+      run={run}
+      canAdministerShares={canAdministerShares}
+    />,
+  );
 }
 
 /** The disclosure a tool lives in, found through the heading its summary carries. */
@@ -364,6 +372,7 @@ describe("the organizer's tool panels", () => {
         })}
         busy={false}
         run={run}
+        canAdministerShares
       />,
     );
     expect(
@@ -371,5 +380,13 @@ describe("the organizer's tool panels", () => {
         name: "Save workflow for Ada Speaker",
       }),
     ).toBeInTheDocument();
+  });
+
+  it("omits organizer-only share administration from the custom-role presentation", () => {
+    mount(workspace(), false);
+
+    expect(screen.queryByText("Private profile share links")).not.toBeInTheDocument();
+    expect(screen.getByText("AI bio remix")).toBeInTheDocument();
+    expect(screen.getByText("Profile collaborators")).toBeInTheDocument();
   });
 });

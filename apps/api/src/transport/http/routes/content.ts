@@ -13,7 +13,6 @@ import {
   bulkDownloadDeliverablesInputSchema,
   clearSpeakerPhotoInputSchema,
   configureContentWorkflowStatusesInputSchema,
-  remindSpeakerTasksInputSchema,
   bulkRequestSpeakerTaskInputSchema,
   contentSessionParamsSchema,
   contentRemixInputSchema,
@@ -26,6 +25,7 @@ import {
   inviteSpeakersInputSchema,
   profileParamsSchema,
   recordSpeakerMessageInputSchema,
+  remindSpeakerTasksInputSchema,
   requestSpeakerTaskInputSchema,
   restoreContentRevisionInputSchema,
   saveSpeakerTaskTemplatesInputSchema,
@@ -55,6 +55,7 @@ import {
   SpeakerRemindersUnavailableError,
 } from "../../../application/content/content-service";
 import { requireCapability, requireEventCapability } from "../../../application/identity/actor";
+import { FieldLockedError } from "../../../application/identity/public";
 import { envelope, PUBLIC_CACHE_CONTROL, readJson, validationFields } from "../runtime";
 import type { HttpApp, HttpDependencies, RouteModule } from "./contract";
 
@@ -1203,6 +1204,13 @@ export const contentRoutes: RouteModule = {
     });
   },
   translateError(error: unknown) {
+    if (error instanceof FieldLockedError)
+      return {
+        code: "FORBIDDEN" as const,
+        message: error.message,
+        status: 403 as const,
+        fields: Object.fromEntries(error.fields.map((field) => [field, [error.message]])),
+      };
     if (error instanceof SpeakerIdentityUnavailableError)
       return {
         code: "VALIDATION_FAILED" as const,

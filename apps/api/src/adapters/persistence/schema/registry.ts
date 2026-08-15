@@ -153,6 +153,7 @@ export const {
   publicEventProjections,
   capabilityLinks,
   reportDefinitions,
+  reportRunClaims,
   reportRuns,
   reportSchedules,
   reviewAssignments,
