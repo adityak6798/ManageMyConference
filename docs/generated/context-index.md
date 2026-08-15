@@ -3,7 +3,7 @@
 
 | Domain | Specs | Journeys | Acceptance | Plans | Index |
 |---|---|---|---|---|---|
-| platform | `ARC-001`, `ARC-DOM-001`, `ENG-CI-001`, `PRD-OPS-001`, `PRD-OPS-002`, `PRD-OPS-003` | — | `ACC-HARNESS`, `ACC-DEMO-SMOKE`, `ACC-OPS` | `PLAN-001`, `PLAN-002` | [docs/architecture/README.md](../architecture/README.md) |
+| platform | `ARC-001`, `ARC-DOM-001`, `ENG-CI-001`, `PRD-OPS-001`, `PRD-OPS-002`, `PRD-OPS-003`, `PRD-OPS-004` | — | `ACC-HARNESS`, `ACC-DEMO-SMOKE`, `ACC-OPS` | `PLAN-001`, `PLAN-002` | [docs/architecture/README.md](../architecture/README.md) |
 | identity-access | `PRD-IAM-001`, `PRD-IAM-002` | `JNY-010` | — | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
 | events | `PRD-EVT-001`, `PRD-EVT-002` | — | `ACC-IDENTITY-EVENTS`, `ACC-EVENT-TEMPLATES` | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
 | cfp | `PRD-CFP-001`, `PRD-CFP-002`, `PRD-CFP-003`, `PRD-CFP-004`, `PRD-ABS-001` | `JNY-001`, `JNY-002` | `ACC-CFP` | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
@@ -12,7 +12,7 @@
 | crm | `PRD-CRM-001` | `JNY-008` | `ACC-CRM` | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
 | agenda | `PRD-AGD-001` | `JNY-006` | `ACC-AGENDA` | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
 | communications-integrations | `PRD-COM-001`, `PRD-INT-001` | `JNY-009` | `ACC-INTEGRATION` | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
-| publishing | `PRD-PUB-001` | `JNY-007` | `ACC-PUBLIC` | `PLAN-002`, `PLAN-003` | [docs/product/specifications.md](../product/specifications.md) |
+| publishing | `PRD-PUB-001`, `PRD-PUB-002` | `JNY-007` | `ACC-PUBLIC` | `PLAN-002`, `PLAN-003` | [docs/product/specifications.md](../product/specifications.md) |
 
 ## Identifier backlinks
 
@@ -785,6 +785,20 @@
 - `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `code` / `repository-fact`: [packages/contracts/src/domains/platform.ts](../../packages/contracts/src/domains/platform.ts)
 
+### `PRD-OPS-004`
+- `code` / `repository-fact`: [apps/api/src/adapters/persistence/d1-capability-links.ts](../../apps/api/src/adapters/persistence/d1-capability-links.ts)
+- `code` / `repository-fact`: [apps/api/src/adapters/persistence/schema/platform.ts](../../apps/api/src/adapters/persistence/schema/platform.ts)
+- `code` / `repository-fact`: [apps/api/src/adapters/platform/report-link-delivery.ts](../../apps/api/src/adapters/platform/report-link-delivery.ts)
+- `code` / `repository-fact`: [apps/api/src/application/platform/capability-link.ts](../../apps/api/src/application/platform/capability-link.ts)
+- `code` / `repository-fact`: [apps/web/src/PublicReportApp.tsx](../../apps/web/src/PublicReportApp.tsx)
+- `code` / `repository-fact`: [apps/web/src/ReportsWorkspace.tsx](../../apps/web/src/ReportsWorkspace.tsx)
+- `code` / `repository-fact`: [apps/web/src/api/reports.ts](../../apps/web/src/api/reports.ts)
+- `code` / `repository-fact`: [apps/web/src/workspaces/reports.tsx](../../apps/web/src/workspaces/reports.tsx)
+- `specification` / `normative`: [docs/exec-plans/tech-debt.md](../../docs/exec-plans/tech-debt.md)
+- `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
+- `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
+- `code` / `repository-fact`: [packages/contracts/src/domains/platform.ts](../../packages/contracts/src/domains/platform.ts)
+
 ### `PRD-PUB-001`
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/d1-embed-repository.ts](../../apps/api/src/adapters/persistence/d1-embed-repository.ts)
 - `code` / `repository-fact`: [apps/api/src/adapters/persistence/d1-itinerary-repository.ts](../../apps/api/src/adapters/persistence/d1-itinerary-repository.ts)
@@ -810,6 +824,19 @@
 - `specification` / `normative`: [docs/exec-plans/tech-debt.md](../../docs/exec-plans/tech-debt.md)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
+- `code` / `repository-fact`: [packages/contracts/src/domains/publishing.ts](../../packages/contracts/src/domains/publishing.ts)
+
+### `PRD-PUB-002`
+- `code` / `repository-fact`: [apps/api/src/adapters/persistence/d1-site-repository.ts](../../apps/api/src/adapters/persistence/d1-site-repository.ts)
+- `code` / `repository-fact`: [apps/api/src/adapters/persistence/schema/publishing.ts](../../apps/api/src/adapters/persistence/schema/publishing.ts)
+- `code` / `repository-fact`: [apps/api/src/adapters/publishing/sanitize-site-html.ts](../../apps/api/src/adapters/publishing/sanitize-site-html.ts)
+- `code` / `repository-fact`: [apps/api/src/application/publishing/site-service.ts](../../apps/api/src/application/publishing/site-service.ts)
+- `code` / `repository-fact`: [apps/api/src/domain/publishing/site.ts](../../apps/api/src/domain/publishing/site.ts)
+- `code` / `repository-fact`: [apps/web/src/SitesWorkspace.tsx](../../apps/web/src/SitesWorkspace.tsx)
+- `code` / `repository-fact`: [apps/web/src/api/sites.ts](../../apps/web/src/api/sites.ts)
+- `code` / `repository-fact`: [apps/web/src/workspaces/sites.tsx](../../apps/web/src/workspaces/sites.tsx)
+- `specification` / `normative`: [docs/product/specifications.md](../../docs/product/specifications.md)
+- `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `code` / `repository-fact`: [packages/contracts/src/domains/publishing.ts](../../packages/contracts/src/domains/publishing.ts)
 
 ### `PRD-REV-001`
