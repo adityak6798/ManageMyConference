@@ -58,7 +58,10 @@ describe("capability_links creator-lifecycle rebuild", () => {
   afterEach(async () => runtime?.dispose());
 
   it("preserves populated links and installs creator deletion as revocation", async () => {
-    const migrated = await createMigratedDatabase({ label: "rebuild-capability-links", seed: true });
+    const migrated = await createMigratedDatabase({
+      label: "rebuild-capability-links",
+      seed: true,
+    });
     runtime = migrated.runtime;
     await migrated.database
       .prepare("INSERT INTO users (id, name, persona) VALUES (?, ?, ?)")
