@@ -1707,11 +1707,13 @@ Passes 2 and 3 then found that three of *those repairs* were incomplete or wrong
 question was inverted in the drain and left as it was in the inbound sibling, the cap's SQL and its
 domain twin disagreed for a local part beginning with `+`, and #211's rule reached two of its three
 siblings, with the third repair introducing a false "your work is gone" notice while removing a
-silent one. Passes 5 to 7 found defects in the *tests and the prose*: an assertion that no mutation
+silent one. Pass 4 found the batched membership write executed by no test at all. Passes 5 to 8 found defects
+in the *tests and the prose*: an assertion that no mutation
 could kill, a wait equal to the test timeout it was meant to exceed, a comment claiming a
 user-visible symptom the composition cannot produce, and several counts and bounds stated more
-generously than the code supports. That is the shape a repair pass has, and it is the argument for
-reviewing the repairs rather than the original diff.
+generously than the code supports — including, twice, a sentence the lane's own earlier commit had
+written while the code still behaved the way it described. That is the shape a repair pass has, and
+it is the argument for reviewing the repairs rather than the original diff.
 
 **What is still not proven.** No mail has ever left this codebase. Every provider test stubs
 `fetch`, and this lane adds none that do not — the per-channel split is verified against stubs and

@@ -73,11 +73,17 @@ response** — check the logs rather than the screen when a `live` sync fails im
 The rule is otherwise identical: a `live` deployment that has configured *some* of the inbound
 bindings and not the rest is refused, and a sync must never report a count from the fixture roster
 while an operator believes it read their registration platform. A `live` deployment that has
-configured **none** of them keeps the fixture roster — it is a channel nobody asked for rather
-than one half set up — except where `ENVIRONMENT` names production, where the fixture roster is
-refused outright. That refusal throws rather than answering, because this resolves on the request
-an organizer made and they are the right person to be told. The organizer surface prints the mode
-on screen for the same reason.
+configured **none** of them keeps the fixture roster **only where `ENVIRONMENT` names a development
+deployment** — there it is a channel nobody asked for rather than one half set up. Anywhere else,
+including a name nobody recognizes, the fixture roster is refused outright. That refusal throws
+rather than answering, because this resolves on the request an organizer made and they are the
+right person to be told. The organizer surface prints the mode on screen for the same reason.
+
+Asking "is this development?" rather than "is this production?" here is the same repair the drain
+got, and this half is the more costly one to get wrong: a delivery that answers `fake:` sends
+nothing, while a *sync* that answers from the in-repository roster writes invented people into a
+real event's content on Apply. `provider-configuration.test.ts` asserts the refusal for
+`production-eu`, `prod-us`, `staging`, an empty value and an absent one, on both halves.
 
 ### Reaching a failure in `fixture` mode
 

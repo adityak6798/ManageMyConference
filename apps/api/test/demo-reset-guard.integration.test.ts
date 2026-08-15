@@ -246,8 +246,12 @@ describe("the remote demo reset guard, against a real seeded database", () => {
      *
      * `seed/reset.sql` used to be a full teardown — an unscoped delete of every row in the three
      * guarded tables — so overriding the guard silently destroyed this person's workspace and
-     * exited with `Remote demo restored`. Every cleanup is now scoped to the ids the seed
-     * inserts, so the restore rebuilds the demo and cannot reach anything it did not create.
+     * exited with `Remote demo restored`. Every cleanup is scoped now, and to the right thing
+     * rather than to the narrowest thing: an organization-scoped table names the two seeded
+     * organizations, and an event-scoped one resolves *every* event those organizations own,
+     * including events the demo itself created. So the restore does reach rows the seed did not
+     * insert — inside the demo's own organizations, which is what makes a second reset work at
+     * all — and reaches nothing in anybody else's, which is the property this case asserts.
      *
      * The guard is unchanged and still refuses, deliberately: it reads what the database holds,
      * and a real organization on the demo deployment is still worth stopping for. What has

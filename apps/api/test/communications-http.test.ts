@@ -227,11 +227,11 @@ describe("communications HTTP acceptance", () => {
     );
     expect(templates.status).toBe(200);
     /*
-     * The organization's own template beside the nine defaults, not instead of them.
+     * The organization's own template beside the provisioned defaults, not instead of them.
      *
      * Listing provisions this organization's lifecycle catalogue (issue #217): before that, a
      * self-serve organization opened this page to an empty list — a surface saying the product
-     * has no messages and there is nothing to edit — while nine lifecycle triggers silently
+     * has no messages and there is nothing to edit — while every lifecycle trigger silently
      * resolved nothing. Asserted by membership rather than by array shape, because the order is
      * the repository's and the count is the catalogue's.
      */

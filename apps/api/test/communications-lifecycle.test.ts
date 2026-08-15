@@ -366,7 +366,7 @@ describe("a schedule publication reaching the outbox", () => {
     /*
      * Issue #217, at the trigger it was easiest to see. Nothing seeds a template here, and before
      * the default catalogue this delivery went terminal with `SCHEDULE_TEMPLATE_MISSING` — which
-     * is exactly what every self-serve organization got for all nine lifecycle messages.
+     * is exactly what every self-serve organization got for every lifecycle message.
      */
     const test = harness();
     await publicationEvent(test);

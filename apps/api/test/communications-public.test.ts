@@ -449,7 +449,7 @@ describe("sending a template to an event's speakers", () => {
 
     const templates = await service.templates(organizer, organizationId);
 
-    // Filtered to the key under test: listing also provisions this organization's nine lifecycle
+    // Filtered to the key under test: listing also provisions this organization's lifecycle
     // defaults (issue #217), each at version 1, and they are not what this asserts.
     expect(
       templates.filter(({ key }) => key === "speaker-welcome").map(({ version }) => version),
