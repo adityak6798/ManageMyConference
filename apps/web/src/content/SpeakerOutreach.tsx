@@ -128,6 +128,9 @@ export function SpeakerOutreach({
     await run(() =>
       updateSpeakerProfile(editingProfile.id, {
         ...profileDraft,
+        bio: profileDraft.bio ?? "",
+        pronouns: profileDraft.pronouns ?? "",
+        organization: profileDraft.organization ?? "",
         socialLinks,
       }),
     ).then((result) => {

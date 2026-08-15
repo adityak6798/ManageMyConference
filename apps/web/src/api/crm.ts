@@ -4,6 +4,9 @@ import {
   contactDashboardResponseSchema,
   contactListResponseSchema,
   contactResponseSchema,
+  type CrmCampaignDto,
+  crmCampaignListResponseSchema,
+  crmCampaignSchema,
   duplicateListResponseSchema,
   importContactsResponseSchema,
   importPreviewResponseSchema,
@@ -37,7 +40,7 @@ export class CrmApiError extends Error {
   }
 }
 
-const decode = <T>(response: Response, schema: z.ZodType<T>) =>
+const decode = <Schema extends z.ZodType>(response: Response, schema: Schema) =>
   decodeResponse(
     response,
     schema,
@@ -78,7 +81,12 @@ export async function listProspects(eventId: string, filter = "all"): Promise<Pr
 }
 export async function createProspect(
   eventId: string,
-  input: { name: string; email: string; ownerId: string; nextActionAt?: string | undefined },
+  input: {
+    name: string;
+    email: string;
+    ownerId: string;
+    nextActionAt?: string | undefined;
+  },
 ) {
   const response = await fetch(`/api/events/${eventId}/prospects`, {
     method: "POST",
@@ -96,7 +104,9 @@ export async function createProspect(
 export async function convertProspect(eventId: string, prospectId: string) {
   return (
     await decode(
-      await fetch(`/api/events/${eventId}/prospects/${prospectId}/convert`, { method: "POST" }),
+      await fetch(`/api/events/${eventId}/prospects/${prospectId}/convert`, {
+        method: "POST",
+      }),
       prospectResponseSchema,
     )
   ).prospect;
@@ -349,6 +359,36 @@ export async function sendOutreach(
   },
 ) {
   return decode(await send(directory(organizationId, "outreach"), input), outreachResponseSchema);
+}
+
+export async function listCrmCampaigns(organizationId: string): Promise<CrmCampaignDto[]> {
+  return (
+    await decode(await fetch(directory(organizationId, "campaigns")), crmCampaignListResponseSchema)
+  ).campaigns;
+}
+
+export async function createCrmCampaign(
+  organizationId: string,
+  input: {
+    eventId: string;
+    name: string;
+    templateKey: string;
+    scheduledAt?: string;
+    contactIds?: readonly string[];
+    segmentId?: string;
+  },
+) {
+  const response = await send(directory(organizationId, "campaigns"), input);
+  return crmCampaignSchema.parse((await response.json()).campaign);
+}
+
+export async function launchCrmCampaign(organizationId: string, campaignId: string) {
+  const response = await send(directory(organizationId, `campaigns/${campaignId}/launch`), {});
+  return crmCampaignSchema.parse((await response.json()).campaign);
+}
+export async function cancelCrmCampaign(organizationId: string, campaignId: string) {
+  const response = await send(directory(organizationId, `campaigns/${campaignId}/cancel`), {});
+  return crmCampaignSchema.parse((await response.json()).campaign);
 }
 
 export async function getContactDashboard(organizationId: string) {

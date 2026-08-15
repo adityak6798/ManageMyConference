@@ -418,7 +418,13 @@ describe("review HTTP API", () => {
     const advertised = ((await workspace.json()) as { statuses: { key: string }[] }).statuses.map(
       ({ key }) => key,
     );
-    expect(advertised).toEqual(["submitted", "accepted", "declined"]);
+    expect(advertised).toEqual([
+      "submitted",
+      "accepted",
+      "waitlisted",
+      "revision_requested",
+      "declined",
+    ]);
 
     // Every pipeline status the workspace offered is a status a transition accepts. The two
     // reserved ones are reachable too, but through the decision route — see the transition
@@ -431,7 +437,7 @@ describe("review HTTP API", () => {
       });
       expect(response.status, `${toStatus} was advertised but refused`).toBe(200);
     }
-    for (const outcome of ["accepted", "declined"]) {
+    for (const outcome of ["accepted", "waitlisted", "revision_requested", "declined"]) {
       const response = await app.request(`/api/events/${eventId}/review/decisions`, {
         method: "POST",
         headers,
@@ -468,6 +474,8 @@ describe("review HTTP API", () => {
         { key: "reviewed" },
         { key: "withdrawn" },
         { key: "accepted", label: "Accepted" },
+        { key: "waitlisted", label: "Waitlist" },
+        { key: "revision_requested", label: "Request revision" },
         { key: "declined", label: "Declined" },
       ],
     });
@@ -489,6 +497,8 @@ describe("review HTTP API", () => {
       statuses: [
         { key: "submitted" },
         { key: "accepted", label: "In the programme" },
+        { key: "waitlisted", label: "Waitlist" },
+        { key: "revision_requested", label: "Request revision" },
         { key: "declined", label: "Declined" },
       ],
     });

@@ -35,6 +35,8 @@ export interface SuggestionRequest {
   readonly answers: readonly { readonly label: string; readonly value: string }[];
   readonly criteria: readonly ReviewCriterion[];
   readonly round: number;
+  /** Organizer-authored perspective; guidance only and never an instruction to write state. */
+  readonly persona?: string;
   /** Milliseconds the caller is willing to wait. Implementations must not exceed it. */
   readonly timeoutMs: number;
 }

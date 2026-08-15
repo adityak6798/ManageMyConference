@@ -34,7 +34,9 @@ const SOURCE_STATUSES = [
   { key: "screening", label: "Screening", sortOrder: 1 },
   { key: "shortlisted", label: "Shortlisted", sortOrder: 2 },
   { key: "accepted", label: "Accepted", sortOrder: 90 },
-  { key: "declined", label: "Declined", sortOrder: 91 },
+  { key: "waitlisted", label: "Waitlist", sortOrder: 91 },
+  { key: "revision_requested", label: "Request revision", sortOrder: 92 },
+  { key: "declined", label: "Declined", sortOrder: 93 },
 ];
 
 // A weighted criterion and a dropdown alongside the plain numeric one, so the round trip proves
@@ -222,6 +224,8 @@ describe("Review template slice", () => {
       "status:screening",
       "status:shortlisted",
       "status:accepted",
+      "status:waitlisted",
+      "status:revision_requested",
       "status:declined",
       "criterion:fit",
       "criterion:novelty",
@@ -305,6 +309,8 @@ describe("Review template slice", () => {
       "status:screening",
       "status:shortlisted",
       "status:accepted",
+      "status:waitlisted",
+      "status:revision_requested",
       "status:declined",
     ]);
     expect(workspace.statuses).toEqual(SOURCE_STATUSES);
@@ -510,7 +516,12 @@ describe("Review template slice: a hand-edited payload", () => {
     expect(workspace.plan?.criteria).toEqual(criteria);
     // An empty status list is completed with the reserved decision keys rather than refused,
     // which is what `configureStatuses` does with any submission that omits them.
-    expect(workspace.statuses.map(({ key }) => key)).toEqual(["accepted", "declined"]);
+    expect(workspace.statuses.map(({ key }) => key)).toEqual([
+      "accepted",
+      "waitlisted",
+      "revision_requested",
+      "declined",
+    ]);
   });
 });
 

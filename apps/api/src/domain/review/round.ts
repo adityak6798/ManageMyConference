@@ -28,6 +28,12 @@ export type ReviewRoundState = "draft" | "open" | "closed";
  */
 export type ReviewRoundPoolMode = "event" | "named";
 
+export type ReviewRoundFilter = {
+  /** `status`, `track`, `format`, `level`, `language`, `tags`, or a configured CFP field id. */
+  readonly field: string;
+  readonly values: readonly string[];
+};
+
 /**
  * A named, date-bounded review round with its own scorecard, anonymization policy and pool.
  *
@@ -44,6 +50,8 @@ export type ReviewRound = {
   readonly eventId: string;
   readonly sequence: number;
   readonly name: string;
+  readonly instructions: string;
+  readonly aiPersona: string;
   /** NULL is unbounded on that side. A round with no window is governed by `state` alone. */
   readonly opensAt: string | null;
   readonly closesAt: string | null;
@@ -73,6 +81,18 @@ export type ReviewRound = {
    * plan can go on changing (until it locks) without restating what a round already judged under.
    */
   readonly criteria: readonly ReviewCriterion[] | null;
+  /** Filters and their explicitly recomputed, immutable membership snapshot. */
+  readonly filters: readonly ReviewRoundFilter[];
+  readonly includedProposalIds: readonly string[];
+  readonly filterVersion: number;
+  /** Empty means every non-authorship answer; otherwise only these CFP field ids. */
+  readonly visibleFieldIds: readonly string[];
+  readonly filesVisible: boolean;
+  readonly maxEvaluationsPerProposal: number;
+  readonly weeklyReminderWeekday: number | null;
+  readonly weeklyReminderHour: number | null;
+  readonly reminderTimezone: string | null;
+  readonly invitationOccurrence: number;
   readonly poolMode: ReviewRoundPoolMode;
   /** The pool, as stored. Under `event` it records who is there rather than restricting who may be. */
   readonly reviewerIds: readonly string[];

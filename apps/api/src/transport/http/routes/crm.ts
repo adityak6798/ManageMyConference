@@ -9,6 +9,9 @@
 import type { Context } from "hono";
 import {
   contactDirectoryParamsSchema,
+  createCrmCampaignInputSchema,
+  crmCampaignPathSchema,
+  crmEngagementInputSchema,
   contactFiltersSchema,
   contactListQuerySchema,
   contactPathSchema,
@@ -19,6 +22,7 @@ import {
   importContactsInputSchema,
   mergeContactsInputSchema,
   outreachInputSchema,
+  submitSpeakerInterestInputSchema,
   prospectListQuerySchema,
   deletePipelineStageInputSchema,
   pipelineStagePathSchema,
@@ -29,6 +33,7 @@ import {
   updateProspectInputSchema,
 } from "@greenroom/contracts";
 import {
+  CampaignStateConflictError,
   ContactAlreadySourcedError,
   ContactEmailTakenError,
   ContactImportInvalidError,
@@ -48,6 +53,7 @@ import {
   SegmentNotFoundError,
 } from "../../../application/crm/public";
 import { requireCapability } from "../../../application/identity/actor";
+import { clientAddress, submissionThrottle } from "../throttle";
 import { envelope, validationFields, readJson, type Variables } from "../runtime";
 import type { HttpApp, HttpDependencies, RouteModule } from "./contract";
 
@@ -56,6 +62,7 @@ type CrmContext = Context<{ Variables: Variables }>;
 
 const routes = [
   "GET /api/events/:eventId/prospects",
+  "POST /api/public/events/:eventId/speaker-interest",
   "POST /api/events/:eventId/prospects",
   "GET /api/events/:eventId/prospects/owners",
   "GET /api/events/:eventId/pipeline/stages",
@@ -80,6 +87,11 @@ const routes = [
   "POST /api/organizations/:organizationId/crm/imports",
   "POST /api/organizations/:organizationId/crm/outreach/preview",
   "POST /api/organizations/:organizationId/crm/outreach",
+  "GET /api/organizations/:organizationId/crm/campaigns",
+  "POST /api/organizations/:organizationId/crm/campaigns",
+  "POST /api/organizations/:organizationId/crm/campaigns/:campaignId/launch",
+  "POST /api/organizations/:organizationId/crm/campaigns/:campaignId/cancel",
+  "POST /api/organizations/:organizationId/crm/engagements",
   "GET /api/organizations/:organizationId/crm/dashboard",
 ] as const;
 
@@ -88,6 +100,32 @@ export const crmRoutes: RouteModule = {
   routes,
   register(app: HttpApp, dependencies: HttpDependencies) {
     const { crm } = dependencies;
+    app.post("/api/public/events/:eventId/speaker-interest", async (context) => {
+      if (!crm) throw new Error("CRM service is not configured");
+      const path = eventIdParamsSchema.safeParse(context.req.param());
+      if (!path.success) return malformed(context, "Event ID is malformed.");
+      const throttled = submissionThrottle.check(
+        clientAddress(context.req.raw.headers),
+        Date.now(),
+      );
+      if (!throttled.allowed) {
+        context.header("retry-after", String(throttled.retryAfterSeconds));
+        return context.json(
+          envelope(
+            "RATE_LIMITED",
+            "Too many submissions. Try again shortly.",
+            context.get("correlationId"),
+          ),
+          429,
+        );
+      }
+      const input = submitSpeakerInterestInputSchema.safeParse(await readJson(context.req));
+      if (!input.success) return malformed(context, "The interest form could not be submitted.");
+      return context.json(
+        { interest: await crm.submitInterest(path.data.eventId, input.data) },
+        201,
+      );
+    });
     app.get("/api/events/:eventId/prospects", async (context) => {
       requireCapability(context.get("actor"), "crm:manage");
       if (!crm) throw new Error("CRM service is not configured");
@@ -490,6 +528,62 @@ export const crmRoutes: RouteModule = {
       return context.json(await service.sendOutreach(actor, organizationId, input.data));
     });
 
+    app.get("/api/organizations/:organizationId/crm/campaigns", async (context) => {
+      const { service, actor, organizationId } = directory(context);
+      if (!organizationId) return malformed(context, "Organization ID is malformed.");
+      return context.json({ campaigns: await service.listCampaigns(actor, organizationId) });
+    });
+
+    app.post("/api/organizations/:organizationId/crm/campaigns", async (context) => {
+      const { service, actor, organizationId } = directory(context);
+      const input = createCrmCampaignInputSchema.safeParse(await readJson(context.req));
+      if (!organizationId || !input.success)
+        return malformed(context, "The campaign could not be created.");
+      return context.json(
+        { campaign: await service.createCampaign(actor, organizationId, input.data) },
+        201,
+      );
+    });
+
+    app.post(
+      "/api/organizations/:organizationId/crm/campaigns/:campaignId/launch",
+      async (context) => {
+        const { service, actor } = directory(context);
+        const path = crmCampaignPathSchema.safeParse(context.req.param());
+        if (!path.success) return malformed(context, "Campaign identity is malformed.");
+        return context.json({
+          campaign: await service.launchCampaign(
+            actor,
+            path.data.organizationId,
+            path.data.campaignId,
+          ),
+        });
+      },
+    );
+    app.post(
+      "/api/organizations/:organizationId/crm/campaigns/:campaignId/cancel",
+      async (context) => {
+        const { service, actor } = directory(context);
+        const path = crmCampaignPathSchema.safeParse(context.req.param());
+        if (!path.success) return malformed(context, "Campaign identity is malformed.");
+        return context.json({
+          campaign: await service.cancelCampaign(
+            actor,
+            path.data.organizationId,
+            path.data.campaignId,
+          ),
+        });
+      },
+    );
+
+    app.post("/api/organizations/:organizationId/crm/engagements", async (context) => {
+      const { service, actor, organizationId } = directory(context);
+      const input = crmEngagementInputSchema.safeParse(await readJson(context.req));
+      if (!organizationId || !input.success)
+        return malformed(context, "The engagement could not be recorded.");
+      return context.json(await service.recordEngagement(actor, organizationId, input.data), 201);
+    });
+
     app.get("/api/organizations/:organizationId/crm/contacts/:contactId", async (context) => {
       const { service, actor, path } = contactRoute(context);
       if (!path.success) return malformed(context, "Contact identity is malformed.");
@@ -602,7 +696,11 @@ export const crmRoutes: RouteModule = {
         status: 409 as const,
         fields: error.fields,
       };
-    if (error instanceof ContactMergeInvalidError || error instanceof ContactAlreadySourcedError)
+    if (
+      error instanceof CampaignStateConflictError ||
+      error instanceof ContactMergeInvalidError ||
+      error instanceof ContactAlreadySourcedError
+    )
       return { code: "CONFLICT" as const, message: error.message, status: 409 as const };
     if (error instanceof ContactImportInvalidError)
       return {

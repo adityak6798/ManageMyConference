@@ -336,6 +336,7 @@ describe("review round HTTP API", () => {
         JSON.stringify({ name: "x", anonymized: true, poolMode: "named", state: "open" }),
       ],
       ["PUT", "/review/round-plans/1/pool", JSON.stringify({ reviewerIds: [] })],
+      ["POST", "/review/round-plans/1/invitations", JSON.stringify({ mode: "all" })],
       ["POST", "/review/reminders", JSON.stringify({ round: 1, reviewerIds: [RAVI] })],
     ] as const) {
       const denied = await app.request(`/api/events/${eventId}${path}`, {

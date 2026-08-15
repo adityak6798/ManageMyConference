@@ -11,6 +11,9 @@ import {
   evaluationResponseSchema,
   remindReviewersInputSchema,
   remindReviewersResponseSchema,
+  recomputeReviewRoundInputSchema,
+  inviteReviewRoundInputSchema,
+  inviteReviewRoundResponseSchema,
   reviewRoundResponseSchema,
   reviewRoundsResponseSchema,
   setReviewRoundPoolInputSchema,
@@ -41,7 +44,10 @@ export class ReviewApiError extends Error {
     super(envelope.error.message);
   }
 }
-async function decode<T>(response: Response, schema: z.ZodType<T>): Promise<T> {
+async function decode<Schema extends z.ZodType>(
+  response: Response,
+  schema: Schema,
+): Promise<z.output<Schema>> {
   return decodeResponse(response, schema, (envelope) => new ReviewApiError(envelope));
 }
 const json = (body: unknown) => ({
@@ -158,6 +164,33 @@ export async function setReviewRoundPool(
     method: "PUT",
   });
   return decode(response, reviewRoundResponseSchema);
+}
+export async function recomputeReviewRound(
+  eventId: string,
+  sequence: number,
+  input: z.input<typeof recomputeReviewRoundInputSchema>,
+) {
+  return decode(
+    await fetch(
+      `/api/events/${eventId}/review/round-plans/${sequence}/recompute`,
+      json(recomputeReviewRoundInputSchema.parse(input)),
+    ),
+    reviewRoundResponseSchema,
+  );
+}
+
+export async function inviteReviewRound(
+  eventId: string,
+  sequence: number,
+  input: z.input<typeof inviteReviewRoundInputSchema>,
+) {
+  return decode(
+    await fetch(
+      `/api/events/${eventId}/review/round-plans/${sequence}/invitations`,
+      json(inviteReviewRoundInputSchema.parse(input)),
+    ),
+    inviteReviewRoundResponseSchema,
+  );
 }
 /**
  * Remind selected reviewers about their outstanding evaluations in a round.

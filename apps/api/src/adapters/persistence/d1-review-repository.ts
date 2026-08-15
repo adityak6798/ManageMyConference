@@ -47,21 +47,35 @@ type RoundRow = {
   event_id: string;
   sequence: number;
   name: string;
+  instructions: string;
+  ai_persona: string;
   opens_at: string | null;
   closes_at: string | null;
   state: ReviewRoundState;
   anonymized: number;
   criteria_json: string | null;
+  filters_json: string;
+  included_proposal_ids_json: string;
+  filter_version: number;
+  visible_field_ids_json: string;
+  files_visible: number;
+  max_evaluations_per_proposal: number;
+  weekly_reminder_weekday: number | null;
+  weekly_reminder_hour: number | null;
+  reminder_timezone: string | null;
+  invitation_occurrence: number;
   pool_mode: ReviewRoundPoolMode;
   created_at: string;
   updated_at: string;
 };
 const ROUND_COLUMNS =
-  "event_id, sequence, name, opens_at, closes_at, state, anonymized, criteria_json, pool_mode, created_at, updated_at";
+  "event_id, sequence, name, instructions, ai_persona, opens_at, closes_at, state, anonymized, criteria_json, filters_json, included_proposal_ids_json, filter_version, visible_field_ids_json, files_visible, max_evaluations_per_proposal, weekly_reminder_weekday, weekly_reminder_hour, reminder_timezone, invitation_occurrence, pool_mode, created_at, updated_at";
 const round = (row: RoundRow, reviewerIds: readonly string[]): ReviewRound => ({
   eventId: row.event_id,
   sequence: row.sequence,
   name: row.name,
+  instructions: row.instructions,
+  aiPersona: row.ai_persona,
   opensAt: row.opens_at,
   closesAt: row.closes_at,
   state: row.state,
@@ -69,6 +83,16 @@ const round = (row: RoundRow, reviewerIds: readonly string[]): ReviewRound => ({
   // exactly here rather than at every reader.
   anonymized: row.anonymized === 1,
   criteria: row.criteria_json === null ? null : JSON.parse(row.criteria_json),
+  filters: JSON.parse(row.filters_json),
+  includedProposalIds: JSON.parse(row.included_proposal_ids_json),
+  filterVersion: row.filter_version,
+  visibleFieldIds: JSON.parse(row.visible_field_ids_json),
+  filesVisible: row.files_visible === 1,
+  maxEvaluationsPerProposal: row.max_evaluations_per_proposal,
+  weeklyReminderWeekday: row.weekly_reminder_weekday,
+  weeklyReminderHour: row.weekly_reminder_hour,
+  reminderTimezone: row.reminder_timezone,
+  invitationOccurrence: row.invitation_occurrence,
   poolMode: row.pool_mode,
   reviewerIds,
   createdAt: row.created_at,
@@ -210,6 +234,10 @@ const assignmentRefusal = (error: unknown): ReviewStateConflictError | null => {
     return new ReviewStateConflictError("That review round is not open");
   if (text.includes("REVIEW_ROUND_POOL"))
     return new ReviewStateConflictError("That reviewer is not in this round's pool");
+  if (text.includes("REVIEW_ROUND_FILTER"))
+    return new ReviewStateConflictError("That proposal is not in this round's filter snapshot");
+  if (text.includes("REVIEW_PROPOSAL_CAP"))
+    return new ReviewStateConflictError("That proposal reached this round's evaluation cap");
   return null;
 };
 
@@ -271,6 +299,30 @@ export class D1ReviewRepository implements ReviewRepository {
     }
     return (rounds.results ?? []).map((row) => round(row, pools.get(row.sequence) ?? []));
   }
+  async listScheduledRounds() {
+    const [rounds, members] = await Promise.all([
+      this.database
+        .prepare(
+          `SELECT ${ROUND_COLUMNS} FROM review_rounds WHERE state = 'open' AND weekly_reminder_weekday IS NOT NULL AND weekly_reminder_hour IS NOT NULL AND reminder_timezone IS NOT NULL ORDER BY event_id, sequence`,
+        )
+        .all<RoundRow>(),
+      this.database
+        .prepare(
+          "SELECT event_id, round_sequence, reviewer_id FROM review_round_members ORDER BY event_id, round_sequence, reviewer_id",
+        )
+        .all<{ event_id: string; round_sequence: number; reviewer_id: string }>(),
+    ]);
+    this.ensure(rounds, "list scheduled review rounds");
+    this.ensure(members, "list scheduled review round members");
+    const pools = new Map<string, string[]>();
+    for (const row of members.results ?? []) {
+      const key = `${row.event_id}:${row.round_sequence}`;
+      pools.set(key, [...(pools.get(key) ?? []), row.reviewer_id]);
+    }
+    return (rounds.results ?? []).map((row) =>
+      round(row, pools.get(`${row.event_id}:${row.sequence}`) ?? []),
+    );
+  }
   async findRound(eventId: string, sequence: number) {
     const [rounds, members] = await Promise.all([
       this.database
@@ -302,17 +354,29 @@ export class D1ReviewRepository implements ReviewRepository {
       results = await this.database.batch([
         this.database
           .prepare(
-            `INSERT INTO review_rounds (${ROUND_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO review_rounds (${ROUND_COLUMNS}) VALUES (${Array.from({ length: 23 }, () => "?").join(", ")})`,
           )
           .bind(
             item.eventId,
             item.sequence,
             item.name,
+            item.instructions,
+            item.aiPersona,
             item.opensAt,
             item.closesAt,
             item.state,
             item.anonymized ? 1 : 0,
             item.criteria === null ? null : JSON.stringify(item.criteria),
+            JSON.stringify(item.filters),
+            JSON.stringify(item.includedProposalIds),
+            item.filterVersion,
+            JSON.stringify(item.visibleFieldIds),
+            item.filesVisible ? 1 : 0,
+            item.maxEvaluationsPerProposal,
+            item.weeklyReminderWeekday,
+            item.weeklyReminderHour,
+            item.reminderTimezone,
+            item.invitationOccurrence,
             item.poolMode,
             item.createdAt,
             item.updatedAt,
@@ -360,27 +424,49 @@ export class D1ReviewRepository implements ReviewRepository {
   async updateRound(item: Omit<ReviewRound, "reviewerIds" | "createdAt">) {
     const criteria = item.criteria === null ? null : JSON.stringify(item.criteria);
     const anonymized = item.anonymized ? 1 : 0;
+    const filters = JSON.stringify(item.filters);
+    const included = JSON.stringify(item.includedProposalIds);
+    const visibleFields = JSON.stringify(item.visibleFieldIds);
+    const filesVisible = item.filesVisible ? 1 : 0;
     const unlocked =
-      "((criteria_json IS ? AND anonymized IS ?) OR NOT EXISTS (SELECT 1 FROM review_assignments WHERE event_id = review_rounds.event_id AND round = review_rounds.sequence))";
+      "((criteria_json IS ? AND anonymized IS ? AND instructions IS ? AND ai_persona IS ? AND filters_json IS ? AND included_proposal_ids_json IS ? AND visible_field_ids_json IS ? AND files_visible IS ? AND max_evaluations_per_proposal IS ?) OR NOT EXISTS (SELECT 1 FROM review_assignments WHERE event_id = review_rounds.event_id AND round = review_rounds.sequence))";
     let result: D1Result<unknown>;
     try {
       result = await this.database
         .prepare(
-          `UPDATE review_rounds SET name = ?, opens_at = ?, closes_at = ?, state = ?, anonymized = ?, criteria_json = ?, pool_mode = ?, updated_at = ? WHERE event_id = ? AND sequence = ? AND ${unlocked}`,
+          `UPDATE review_rounds SET name = ?, instructions = ?, ai_persona = ?, opens_at = ?, closes_at = ?, state = ?, anonymized = ?, criteria_json = ?, filters_json = ?, included_proposal_ids_json = ?, filter_version = ?, visible_field_ids_json = ?, files_visible = ?, max_evaluations_per_proposal = ?, weekly_reminder_weekday = ?, weekly_reminder_hour = ?, reminder_timezone = ?, pool_mode = ?, updated_at = ? WHERE event_id = ? AND sequence = ? AND ${unlocked}`,
         )
         .bind(
           item.name,
+          item.instructions,
+          item.aiPersona,
           item.opensAt,
           item.closesAt,
           item.state,
           anonymized,
           criteria,
+          filters,
+          included,
+          item.filterVersion,
+          visibleFields,
+          filesVisible,
+          item.maxEvaluationsPerProposal,
+          item.weeklyReminderWeekday,
+          item.weeklyReminderHour,
+          item.reminderTimezone,
           item.poolMode,
           item.updatedAt,
           item.eventId,
           item.sequence,
           criteria,
           anonymized,
+          item.instructions,
+          item.aiPersona,
+          filters,
+          included,
+          visibleFields,
+          filesVisible,
+          item.maxEvaluationsPerProposal,
         )
         .run();
     } catch (error) {
@@ -406,6 +492,20 @@ export class D1ReviewRepository implements ReviewRepository {
           : "Review round not found",
       );
     }
+  }
+
+  async claimRoundInvitationOccurrence(eventId: string, sequence: number): Promise<number> {
+    const result = await this.database
+      .prepare(
+        "UPDATE review_rounds SET invitation_occurrence = invitation_occurrence + 1 WHERE event_id = ? AND sequence = ? RETURNING invitation_occurrence",
+      )
+      .bind(eventId, sequence)
+      .all<{ invitation_occurrence: number }>();
+    this.ensure(result, "claim a review-round invitation occurrence");
+    const occurrence = result.results?.[0]?.invitation_occurrence;
+    if (typeof occurrence !== "number")
+      throw new ReviewStateConflictError("Review round no longer exists");
+    return occurrence;
   }
   /**
    * Replace a round's pool.
@@ -862,6 +962,37 @@ export class D1ReviewRepository implements ReviewRepository {
       .all<DecisionRow>();
     this.ensure(result, "list review decisions");
     return (result.results ?? []).map(decision);
+  }
+  async listDecisionHistory(eventId: string) {
+    const result = await this.database
+      .prepare(
+        "SELECT event_id, proposal_id, outcome, decided_by, decided_at, note, revision FROM review_decision_history WHERE event_id = ? ORDER BY decided_at, proposal_id, revision",
+      )
+      .bind(eventId)
+      .all<DecisionRow>();
+    this.ensure(result, "list review decision history");
+    return (result.results ?? []).map(decision);
+  }
+
+  async suggestionReport(eventId: string) {
+    const result = await this.database
+      .prepare(
+        "SELECT round,provenance_model,state,COUNT(*) AS count FROM review_suggestions WHERE event_id=? GROUP BY round,provenance_model,state ORDER BY round,provenance_model,state",
+      )
+      .bind(eventId)
+      .all<{
+        round: number;
+        provenance_model: string;
+        state: ReviewSuggestion["state"];
+        count: number;
+      }>();
+    this.ensure(result, "report review suggestions");
+    return (result.results ?? []).map((row) => ({
+      round: row.round,
+      model: row.provenance_model,
+      state: row.state,
+      count: row.count,
+    }));
   }
   async saveSuggestion(item: ReviewSuggestion) {
     const result = await this.database

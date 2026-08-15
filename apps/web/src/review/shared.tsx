@@ -62,7 +62,21 @@ const fieldErrorsOf = (error: unknown): Record<string, string[]> =>
 
 const OUTCOME_LABEL: Record<DecisionOutcome, string> = {
   accepted: "Accepted",
+  waitlisted: "Waitlisted",
+  revision_requested: "Revision requested",
   declined: "Declined",
+};
+const OUTCOME_ACTION: Record<DecisionOutcome, string> = {
+  accepted: "Accept",
+  waitlisted: "Waitlist",
+  revision_requested: "Request revision",
+  declined: "Decline",
+};
+const OUTCOME_NOUN: Record<DecisionOutcome, string> = {
+  accepted: "acceptance",
+  waitlisted: "waitlisting",
+  revision_requested: "revision request",
+  declined: "decline",
 };
 
 /**
@@ -156,6 +170,8 @@ export {
   listTitles,
   message,
   OUTCOME_LABEL,
+  OUTCOME_ACTION,
+  OUTCOME_NOUN,
   ProposalAnswers,
   ROUND_STATE,
   roundDate,

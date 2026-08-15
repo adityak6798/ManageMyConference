@@ -183,6 +183,18 @@ Programme, portals and reporting evidence addendum (`ACC-IDENTITY-EVENTS`, `ACC-
   journey: no spec composes a portal and registers against it, builds a report and opens its share
   link, or accepts a generated arrangement onto the board. That is the honest limit of these rows.
 
+### R7 residual supersession
+
+The older prose inside `ACC-REVIEW`, `ACC-SPEAKER`, and `ACC-CRM` predates the R7 closure and its
+absence clauses are superseded by this verified scope: review now includes XLSX parity, reserved
+CFP-track filtering, round instructions/filter snapshots/field and file visibility/per-proposal
+caps, per-recipient invitation state, DST-safe weekly occurrences, four decision dispositions with
+immutable history, AI personas and aggregate draft reports. Content now includes collaborator
+grants, bounded and revocable profile/asset shares, draft-only remix, application-boundary field
+policy, and data-backed workflow statuses. CRM now includes the throttled interest writer,
+scheduled campaign lifecycle, idempotent engagement/suppression ingestion, and transition-derived
+funnel analytics. SMS is deliberately deferred as `DEBT-015`, not represented as shipped.
+
 ## What each row's automated evidence actually is
 
 - Browser evidence is `apps/web/e2e/*.spec.ts`, one shared local D1 fixture, `workers: 1`.

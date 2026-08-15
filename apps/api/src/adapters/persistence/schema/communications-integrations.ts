@@ -86,7 +86,7 @@ export function defineCommunicationsIntegrationsSchema(references: {
       // the first deliveries on a *scheduled* rather than event-driven trigger (issue #210).
       check(
         "communication_deliveries_trigger_type",
-        sql`${table.triggerType} IN ('speaker.invited', 'reviewer.assigned', 'reviewer.reminder', 'organizer.digest', 'projection.requested', 'schedule.published', 'speaker.scheduled', 'speaker.task_assigned', 'speaker.task_reminder', 'speaker.calendar_invite', 'decision.recorded', 'proposal.submitted', 'cfp.deadline_approaching', 'cfp.call_closed')`,
+        sql`${table.triggerType} IN ('speaker.invited', 'reviewer.assigned', 'reviewer.invited', 'reviewer.reminder', 'reviewer.weekly_reminder', 'organizer.digest', 'projection.requested', 'schedule.published', 'speaker.scheduled', 'speaker.task_assigned', 'speaker.task_reminder', 'speaker.calendar_invite', 'decision.recorded', 'proposal.submitted', 'cfp.deadline_approaching', 'cfp.call_closed')`,
       ),
       // `event` carries a domain event rather than an outbound call; see migration 1703.
       check(

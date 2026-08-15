@@ -93,6 +93,18 @@ export function defineReviewSchema(references: {
       poolMode: text("pool_mode").notNull().default("named"),
       createdAt: text("created_at").notNull(),
       updatedAt: text("updated_at").notNull(),
+      instructions: text("instructions").notNull().default(""),
+      filtersJson: text("filters_json").notNull().default("[]"),
+      includedProposalIdsJson: text("included_proposal_ids_json").notNull().default("[]"),
+      filterVersion: integer("filter_version").notNull().default(1),
+      visibleFieldIdsJson: text("visible_field_ids_json").notNull().default("[]"),
+      filesVisible: integer("files_visible", { mode: "boolean" }).notNull().default(false),
+      maxEvaluationsPerProposal: integer("max_evaluations_per_proposal").notNull().default(100),
+      weeklyReminderWeekday: integer("weekly_reminder_weekday"),
+      weeklyReminderHour: integer("weekly_reminder_hour"),
+      reminderTimezone: text("reminder_timezone"),
+      invitationOccurrence: integer("invitation_occurrence").notNull().default(0),
+      aiPersona: text("ai_persona").notNull().default(""),
     },
     (table) => [
       primaryKey({ columns: [table.eventId, table.sequence] }),
@@ -101,6 +113,27 @@ export function defineReviewSchema(references: {
       check("review_rounds_state", sql`${table.state} IN ('draft', 'open', 'closed')`),
       check("review_rounds_anonymized", sql`${table.anonymized} IN (0, 1)`),
       check("review_rounds_pool_mode", sql`${table.poolMode} IN ('event', 'named')`),
+      check("review_rounds_filters_json", sql`json_valid(${table.filtersJson})`),
+      check(
+        "review_rounds_included_proposal_ids_json",
+        sql`json_valid(${table.includedProposalIdsJson})`,
+      ),
+      check("review_rounds_filter_version", sql`${table.filterVersion} > 0`),
+      check("review_rounds_visible_field_ids_json", sql`json_valid(${table.visibleFieldIdsJson})`),
+      check("review_rounds_files_visible", sql`${table.filesVisible} IN (0, 1)`),
+      check(
+        "review_rounds_proposal_cap",
+        sql`${table.maxEvaluationsPerProposal} BETWEEN 1 AND 100`,
+      ),
+      check(
+        "review_rounds_weekly_reminder_weekday",
+        sql`${table.weeklyReminderWeekday} BETWEEN 0 AND 6`,
+      ),
+      check(
+        "review_rounds_weekly_reminder_hour",
+        sql`${table.weeklyReminderHour} BETWEEN 0 AND 23`,
+      ),
+      check("review_rounds_invitation_occurrence", sql`${table.invitationOccurrence} >= 0`),
       check(
         "review_rounds_window",
         sql`${table.opensAt} IS NULL OR ${table.closesAt} IS NULL OR ${table.opensAt} < ${table.closesAt}`,
@@ -318,8 +351,42 @@ export function defineReviewSchema(references: {
     },
     (table) => [
       primaryKey({ columns: [table.eventId, table.proposalId] }),
-      check("review_decisions_outcome", sql`${table.outcome} IN ('accepted', 'declined')`),
+      check(
+        "review_decisions_outcome",
+        sql`${table.outcome} IN ('accepted', 'waitlisted', 'revision_requested', 'declined')`,
+      ),
       index("review_decisions_event_outcome_idx").on(table.eventId, table.outcome),
+    ],
+  );
+  const reviewDecisionHistory = sqliteTable(
+    "review_decision_history",
+    {
+      eventId: text("event_id")
+        .notNull()
+        .references(() => references.eventsId),
+      proposalId: text("proposal_id")
+        .notNull()
+        .references(() => references.cfpSubmissionsId),
+      revision: integer("revision").notNull(),
+      outcome: text("outcome").notNull(),
+      decidedBy: text("decided_by")
+        .notNull()
+        .references(() => references.usersId),
+      decidedAt: text("decided_at").notNull(),
+      note: text("note").notNull(),
+    },
+    (table) => [
+      primaryKey({ columns: [table.eventId, table.proposalId, table.revision] }),
+      check(
+        "review_decision_history_outcome",
+        sql`${table.outcome} IN ('accepted','waitlisted','revision_requested','declined')`,
+      ),
+      index("review_decision_history_event_time_idx").on(
+        table.eventId,
+        table.decidedAt,
+        table.proposalId,
+        table.revision,
+      ),
     ],
   );
   const reviewEvents = sqliteTable(
@@ -361,6 +428,7 @@ export function defineReviewSchema(references: {
     reviewSuggestions,
     reviewOutcomes,
     reviewDecisions,
+    reviewDecisionHistory,
     reviewEvents,
   };
 }

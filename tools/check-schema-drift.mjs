@@ -79,7 +79,13 @@ export const UNMODELLED_OBJECTS = [
   "trigger:review_assignment_requires_round",
   "trigger:review_assignment_requires_open_round",
   "trigger:review_assignment_requires_pool_membership",
+  // Snapshot membership and the per-proposal cap are assignment-time invariants (`1320`).
+  "trigger:review_assignment_requires_filter_membership",
+  "trigger:review_assignment_proposal_cap",
   "trigger:review_round_closed_terms_locked",
+  // Every numbered decision occurrence is copied to immutable history (`1323`).
+  "trigger:review_decision_history_insert",
+  "trigger:review_decision_history_change",
   "trigger:public_event_projections_slug_reservation_insert",
   "trigger:public_event_projections_slug_reservation_update",
   // Published projection history is immutable while its owning event exists. The delete guard

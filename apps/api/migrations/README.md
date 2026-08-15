@@ -52,7 +52,7 @@ memory — `grep "REFERENCES review_assignments" apps/api/migrations/` and
 (`0006`), and `review_suggestions` (`1310`) — with `review_evaluations.suggestion_id` citing
 suggestions in turn, so the two are a pair rather than two independent copies.
 
-**Ten triggers to restate**, where `1301` restates five:
+**Twelve triggers to restate**, where `1301` restates five:
 
 | Trigger | Added by | On |
 |---|---|---|
@@ -66,6 +66,8 @@ suggestions in turn, so the two are a pair rather than two independent copies.
 | `review_assignment_requires_round` | `1312` | `review_assignments` |
 | `review_assignment_requires_open_round` | `1312` | `review_assignments` |
 | `review_assignment_requires_pool_membership` | `1312` | `review_assignments` |
+| `review_assignment_requires_filter_membership` | `1320` | `review_assignments` |
+| `review_assignment_proposal_cap` | `1320` | `review_assignments` |
 
 SQLite drops a table's triggers with the table, so forgetting any of them leaves its rule holding
 in the service and no longer holding in the schema — the half that was the point. The two

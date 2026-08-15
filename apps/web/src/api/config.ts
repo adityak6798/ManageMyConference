@@ -34,11 +34,11 @@ const responseReference = (response: Response) =>
   response.headers.get("x-correlation-id") ?? "unavailable";
 
 /** Decode both halves of an HTTP contract without losing the request's trace reference. */
-export async function decodeResponse<T>(
+export async function decodeResponse<Schema extends z.ZodType>(
   response: Response,
-  schema: z.ZodType<T>,
+  schema: Schema,
   apiError: (envelope: ApiErrorEnvelope) => Error,
-): Promise<T> {
+): Promise<z.output<Schema>> {
   let body: unknown;
   try {
     body = await response.json();

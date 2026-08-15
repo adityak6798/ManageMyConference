@@ -1906,7 +1906,9 @@
                             "enum": [
                               "speaker.invited",
                               "reviewer.assigned",
+                              "reviewer.invited",
                               "reviewer.reminder",
+                              "reviewer.weekly_reminder",
                               "organizer.digest",
                               "projection.requested",
                               "schedule.published",
@@ -2876,7 +2878,9 @@
                           "enum": [
                             "speaker.invited",
                             "reviewer.assigned",
+                            "reviewer.invited",
                             "reviewer.reminder",
+                            "reviewer.weekly_reminder",
                             "organizer.digest",
                             "projection.requested",
                             "schedule.published",
@@ -3360,7 +3364,9 @@
                           "enum": [
                             "speaker.invited",
                             "reviewer.assigned",
+                            "reviewer.invited",
                             "reviewer.reminder",
+                            "reviewer.weekly_reminder",
                             "organizer.digest",
                             "projection.requested",
                             "schedule.published",
@@ -3930,7 +3936,9 @@
                                 "enum": [
                                   "speaker.invited",
                                   "reviewer.assigned",
+                                  "reviewer.invited",
                                   "reviewer.reminder",
+                                  "reviewer.weekly_reminder",
                                   "organizer.digest",
                                   "projection.requested",
                                   "schedule.published",
@@ -6444,12 +6452,7 @@
                           "eventId",
                           "proposalId",
                           "title",
-                          "abstract",
-                          "format",
-                          "speakerProfileIds",
-                          "tags",
-                          "tracks",
-                          "publicationState"
+                          "speakerProfileIds"
                         ]
                       }
                     },
@@ -6501,12 +6504,8 @@
                           },
                           "workflowStatus": {
                             "type": "string",
-                            "enum": [
-                              "invited",
-                              "onboarding",
-                              "ready",
-                              "blocked"
-                            ]
+                            "minLength": 1,
+                            "maxLength": 60
                           },
                           "logistics": {
                             "type": "object",
@@ -6537,11 +6536,7 @@
                           "userId",
                           "sourcePersonId",
                           "name",
-                          "email",
-                          "bio",
-                          "pronouns",
                           "jobTitle",
-                          "organization",
                           "version"
                         ]
                       }
@@ -6871,6 +6866,55 @@
                         "required": [
                           "id",
                           "name"
+                        ]
+                      }
+                    },
+                    "workflowStatuses": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "eventId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "key": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 60
+                          },
+                          "label": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 80
+                          },
+                          "category": {
+                            "type": "string",
+                            "enum": [
+                              "open",
+                              "ready",
+                              "blocked"
+                            ]
+                          },
+                          "sortOrder": {
+                            "type": "integer"
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "eventId",
+                          "key",
+                          "label",
+                          "category",
+                          "sortOrder",
+                          "createdAt"
                         ]
                       }
                     }
@@ -7364,12 +7408,7 @@
                         "eventId",
                         "proposalId",
                         "title",
-                        "abstract",
-                        "format",
-                        "speakerProfileIds",
-                        "tags",
-                        "tracks",
-                        "publicationState"
+                        "speakerProfileIds"
                       ]
                     }
                   },
@@ -7795,12 +7834,7 @@
                           "eventId",
                           "proposalId",
                           "title",
-                          "abstract",
-                          "format",
-                          "speakerProfileIds",
-                          "tags",
-                          "tracks",
-                          "publicationState"
+                          "speakerProfileIds"
                         ]
                       }
                     },
@@ -7852,12 +7886,8 @@
                           },
                           "workflowStatus": {
                             "type": "string",
-                            "enum": [
-                              "invited",
-                              "onboarding",
-                              "ready",
-                              "blocked"
-                            ]
+                            "minLength": 1,
+                            "maxLength": 60
                           },
                           "logistics": {
                             "type": "object",
@@ -7888,11 +7918,7 @@
                           "userId",
                           "sourcePersonId",
                           "name",
-                          "email",
-                          "bio",
-                          "pronouns",
                           "jobTitle",
-                          "organization",
                           "version"
                         ]
                       }
@@ -8222,6 +8248,55 @@
                         "required": [
                           "id",
                           "name"
+                        ]
+                      }
+                    },
+                    "workflowStatuses": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "eventId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "key": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 60
+                          },
+                          "label": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 80
+                          },
+                          "category": {
+                            "type": "string",
+                            "enum": [
+                              "open",
+                              "ready",
+                              "blocked"
+                            ]
+                          },
+                          "sortOrder": {
+                            "type": "integer"
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "eventId",
+                          "key",
+                          "label",
+                          "category",
+                          "sortOrder",
+                          "createdAt"
                         ]
                       }
                     }
@@ -22612,12 +22687,7 @@
                           "eventId",
                           "proposalId",
                           "title",
-                          "abstract",
-                          "format",
-                          "speakerProfileIds",
-                          "tags",
-                          "tracks",
-                          "publicationState"
+                          "speakerProfileIds"
                         ]
                       }
                     },
@@ -22669,12 +22739,8 @@
                           },
                           "workflowStatus": {
                             "type": "string",
-                            "enum": [
-                              "invited",
-                              "onboarding",
-                              "ready",
-                              "blocked"
-                            ]
+                            "minLength": 1,
+                            "maxLength": 60
                           },
                           "logistics": {
                             "type": "object",
@@ -22705,11 +22771,7 @@
                           "userId",
                           "sourcePersonId",
                           "name",
-                          "email",
-                          "bio",
-                          "pronouns",
                           "jobTitle",
-                          "organization",
                           "version"
                         ]
                       }
@@ -23039,6 +23101,55 @@
                         "required": [
                           "id",
                           "name"
+                        ]
+                      }
+                    },
+                    "workflowStatuses": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "eventId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "key": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 60
+                          },
+                          "label": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 80
+                          },
+                          "category": {
+                            "type": "string",
+                            "enum": [
+                              "open",
+                              "ready",
+                              "blocked"
+                            ]
+                          },
+                          "sortOrder": {
+                            "type": "integer"
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "eventId",
+                          "key",
+                          "label",
+                          "category",
+                          "sortOrder",
+                          "createdAt"
                         ]
                       }
                     }
@@ -23430,12 +23541,7 @@
                           "eventId",
                           "proposalId",
                           "title",
-                          "abstract",
-                          "format",
-                          "speakerProfileIds",
-                          "tags",
-                          "tracks",
-                          "publicationState"
+                          "speakerProfileIds"
                         ]
                       }
                     },
@@ -23487,12 +23593,8 @@
                           },
                           "workflowStatus": {
                             "type": "string",
-                            "enum": [
-                              "invited",
-                              "onboarding",
-                              "ready",
-                              "blocked"
-                            ]
+                            "minLength": 1,
+                            "maxLength": 60
                           },
                           "logistics": {
                             "type": "object",
@@ -23523,11 +23625,7 @@
                           "userId",
                           "sourcePersonId",
                           "name",
-                          "email",
-                          "bio",
-                          "pronouns",
                           "jobTitle",
-                          "organization",
                           "version"
                         ]
                       }
@@ -23857,6 +23955,55 @@
                         "required": [
                           "id",
                           "name"
+                        ]
+                      }
+                    },
+                    "workflowStatuses": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "eventId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "key": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 60
+                          },
+                          "label": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 80
+                          },
+                          "category": {
+                            "type": "string",
+                            "enum": [
+                              "open",
+                              "ready",
+                              "blocked"
+                            ]
+                          },
+                          "sortOrder": {
+                            "type": "integer"
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "eventId",
+                          "key",
+                          "label",
+                          "category",
+                          "sortOrder",
+                          "createdAt"
                         ]
                       }
                     }
@@ -27013,12 +27160,7 @@
                                       "eventId",
                                       "proposalId",
                                       "title",
-                                      "abstract",
-                                      "format",
-                                      "speakerProfileIds",
-                                      "tags",
-                                      "tracks",
-                                      "publicationState"
+                                      "speakerProfileIds"
                                     ]
                                   }
                                 },
@@ -27070,12 +27212,8 @@
                                       },
                                       "workflowStatus": {
                                         "type": "string",
-                                        "enum": [
-                                          "invited",
-                                          "onboarding",
-                                          "ready",
-                                          "blocked"
-                                        ]
+                                        "minLength": 1,
+                                        "maxLength": 60
                                       },
                                       "logistics": {
                                         "type": "object",
@@ -27106,11 +27244,7 @@
                                       "userId",
                                       "sourcePersonId",
                                       "name",
-                                      "email",
-                                      "bio",
-                                      "pronouns",
                                       "jobTitle",
-                                      "organization",
                                       "version"
                                     ]
                                   }
@@ -27442,6 +27576,55 @@
                                       "name"
                                     ]
                                   }
+                                },
+                                "workflowStatuses": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "id": {
+                                        "type": "string"
+                                      },
+                                      "eventId": {
+                                        "type": "string",
+                                        "format": "uuid"
+                                      },
+                                      "key": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 60
+                                      },
+                                      "label": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 80
+                                      },
+                                      "category": {
+                                        "type": "string",
+                                        "enum": [
+                                          "open",
+                                          "ready",
+                                          "blocked"
+                                        ]
+                                      },
+                                      "sortOrder": {
+                                        "type": "integer"
+                                      },
+                                      "createdAt": {
+                                        "type": "string",
+                                        "format": "date-time"
+                                      }
+                                    },
+                                    "required": [
+                                      "id",
+                                      "eventId",
+                                      "key",
+                                      "label",
+                                      "category",
+                                      "sortOrder",
+                                      "createdAt"
+                                    ]
+                                  }
                                 }
                               },
                               "required": [
@@ -27547,6 +27730,12 @@
                                       },
                                       "abstract": {
                                         "type": "string"
+                                      },
+                                      "track": {
+                                        "type": "string",
+                                        "nullable": true,
+                                        "minLength": 1,
+                                        "maxLength": 120
                                       },
                                       "submitterName": {
                                         "type": "string"
@@ -28093,6 +28282,8 @@
                                         "type": "string",
                                         "enum": [
                                           "accepted",
+                                          "waitlisted",
+                                          "revision_requested",
                                           "declined"
                                         ]
                                       },
@@ -28105,6 +28296,11 @@
                                       },
                                       "note": {
                                         "type": "string"
+                                      },
+                                      "revision": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "exclusiveMinimum": true
                                       }
                                     },
                                     "required": [
@@ -28114,6 +28310,89 @@
                                       "decidedBy",
                                       "decidedAt",
                                       "note"
+                                    ]
+                                  }
+                                },
+                                "decisionHistory": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "eventId": {
+                                        "type": "string",
+                                        "format": "uuid"
+                                      },
+                                      "proposalId": {
+                                        "type": "string",
+                                        "format": "uuid"
+                                      },
+                                      "outcome": {
+                                        "type": "string",
+                                        "enum": [
+                                          "accepted",
+                                          "waitlisted",
+                                          "revision_requested",
+                                          "declined"
+                                        ]
+                                      },
+                                      "decidedBy": {
+                                        "type": "string"
+                                      },
+                                      "decidedAt": {
+                                        "type": "string",
+                                        "format": "date-time"
+                                      },
+                                      "note": {
+                                        "type": "string"
+                                      },
+                                      "revision": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "exclusiveMinimum": true
+                                      }
+                                    },
+                                    "required": [
+                                      "eventId",
+                                      "proposalId",
+                                      "outcome",
+                                      "decidedBy",
+                                      "decidedAt",
+                                      "note",
+                                      "revision"
+                                    ]
+                                  }
+                                },
+                                "aiReport": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "object",
+                                    "properties": {
+                                      "round": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "exclusiveMinimum": true
+                                      },
+                                      "model": {
+                                        "type": "string"
+                                      },
+                                      "state": {
+                                        "type": "string",
+                                        "enum": [
+                                          "offered",
+                                          "accepted",
+                                          "rejected"
+                                        ]
+                                      },
+                                      "count": {
+                                        "type": "integer",
+                                        "minimum": 0
+                                      }
+                                    },
+                                    "required": [
+                                      "round",
+                                      "model",
+                                      "state",
+                                      "count"
                                     ]
                                   }
                                 },
@@ -28164,6 +28443,16 @@
                                         "type": "string",
                                         "minLength": 1,
                                         "maxLength": 80
+                                      },
+                                      "instructions": {
+                                        "type": "string",
+                                        "maxLength": 5000,
+                                        "default": ""
+                                      },
+                                      "aiPersona": {
+                                        "type": "string",
+                                        "maxLength": 2000,
+                                        "default": ""
                                       },
                                       "opensAt": {
                                         "type": "string",
@@ -28335,6 +28624,95 @@
                                             }
                                           ]
                                         }
+                                      },
+                                      "filters": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "object",
+                                          "properties": {
+                                            "field": {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 80,
+                                              "pattern": "^[a-zA-Z0-9_-]+$"
+                                            },
+                                            "values": {
+                                              "type": "array",
+                                              "items": {
+                                                "type": "string",
+                                                "minLength": 1,
+                                                "maxLength": 160
+                                              },
+                                              "minItems": 1,
+                                              "maxItems": 50
+                                            }
+                                          },
+                                          "required": [
+                                            "field",
+                                            "values"
+                                          ]
+                                        },
+                                        "default": []
+                                      },
+                                      "includedProposalIds": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "string",
+                                          "format": "uuid"
+                                        },
+                                        "default": []
+                                      },
+                                      "filterVersion": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "exclusiveMinimum": true,
+                                        "default": 1
+                                      },
+                                      "visibleFieldIds": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "string",
+                                          "minLength": 1,
+                                          "maxLength": 80
+                                        },
+                                        "default": []
+                                      },
+                                      "filesVisible": {
+                                        "type": "boolean",
+                                        "default": true
+                                      },
+                                      "maxEvaluationsPerProposal": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "exclusiveMinimum": true,
+                                        "maximum": 100,
+                                        "default": 100
+                                      },
+                                      "weeklyReminderWeekday": {
+                                        "type": "integer",
+                                        "nullable": true,
+                                        "minimum": 0,
+                                        "maximum": 6,
+                                        "default": null
+                                      },
+                                      "weeklyReminderHour": {
+                                        "type": "integer",
+                                        "nullable": true,
+                                        "minimum": 0,
+                                        "maximum": 23,
+                                        "default": null
+                                      },
+                                      "reminderTimezone": {
+                                        "type": "string",
+                                        "nullable": true,
+                                        "minLength": 1,
+                                        "maxLength": 80,
+                                        "default": null
+                                      },
+                                      "invitationOccurrence": {
+                                        "type": "integer",
+                                        "minimum": 0,
+                                        "default": 0
                                       },
                                       "poolMode": {
                                         "type": "string",
@@ -31223,6 +31601,7 @@
                                     "email",
                                     "call",
                                     "meeting",
+                                    "engagement",
                                     "stage-change",
                                     "conversion"
                                   ]
@@ -31699,6 +32078,7 @@
                                   "email",
                                   "call",
                                   "meeting",
+                                  "engagement",
                                   "stage-change",
                                   "conversion"
                                 ]
@@ -32435,6 +32815,7 @@
                                   "email",
                                   "call",
                                   "meeting",
+                                  "engagement",
                                   "stage-change",
                                   "conversion"
                                 ]
@@ -33016,6 +33397,7 @@
                                   "email",
                                   "call",
                                   "meeting",
+                                  "engagement",
                                   "stage-change",
                                   "conversion"
                                 ]
@@ -33569,6 +33951,7 @@
                                   "email",
                                   "call",
                                   "meeting",
+                                  "engagement",
                                   "stage-change",
                                   "conversion"
                                 ]
@@ -39091,6 +39474,12 @@
                               "abstract": {
                                 "type": "string"
                               },
+                              "track": {
+                                "type": "string",
+                                "nullable": true,
+                                "minLength": 1,
+                                "maxLength": 120
+                              },
                               "submitterName": {
                                 "type": "string"
                               },
@@ -39595,6 +39984,16 @@
                                 "minLength": 1,
                                 "maxLength": 80
                               },
+                              "instructions": {
+                                "type": "string",
+                                "maxLength": 5000,
+                                "default": ""
+                              },
+                              "aiPersona": {
+                                "type": "string",
+                                "maxLength": 2000,
+                                "default": ""
+                              },
                               "opensAt": {
                                 "type": "string",
                                 "nullable": true,
@@ -39765,6 +40164,95 @@
                                     }
                                   ]
                                 }
+                              },
+                              "filters": {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "field": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 80,
+                                      "pattern": "^[a-zA-Z0-9_-]+$"
+                                    },
+                                    "values": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 160
+                                      },
+                                      "minItems": 1,
+                                      "maxItems": 50
+                                    }
+                                  },
+                                  "required": [
+                                    "field",
+                                    "values"
+                                  ]
+                                },
+                                "default": []
+                              },
+                              "includedProposalIds": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "format": "uuid"
+                                },
+                                "default": []
+                              },
+                              "filterVersion": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "exclusiveMinimum": true,
+                                "default": 1
+                              },
+                              "visibleFieldIds": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 80
+                                },
+                                "default": []
+                              },
+                              "filesVisible": {
+                                "type": "boolean",
+                                "default": true
+                              },
+                              "maxEvaluationsPerProposal": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "exclusiveMinimum": true,
+                                "maximum": 100,
+                                "default": 100
+                              },
+                              "weeklyReminderWeekday": {
+                                "type": "integer",
+                                "nullable": true,
+                                "minimum": 0,
+                                "maximum": 6,
+                                "default": null
+                              },
+                              "weeklyReminderHour": {
+                                "type": "integer",
+                                "nullable": true,
+                                "minimum": 0,
+                                "maximum": 23,
+                                "default": null
+                              },
+                              "reminderTimezone": {
+                                "type": "string",
+                                "nullable": true,
+                                "minLength": 1,
+                                "maxLength": 80,
+                                "default": null
+                              },
+                              "invitationOccurrence": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "default": 0
                               },
                               "poolMode": {
                                 "type": "string",
@@ -43002,6 +43490,8 @@
                     "type": "string",
                     "enum": [
                       "accepted",
+                      "waitlisted",
+                      "revision_requested",
                       "declined"
                     ]
                   },
@@ -43045,6 +43535,12 @@
                           },
                           "abstract": {
                             "type": "string"
+                          },
+                          "track": {
+                            "type": "string",
+                            "nullable": true,
+                            "minLength": 1,
+                            "maxLength": 120
                           },
                           "submitterName": {
                             "type": "string"
@@ -43151,6 +43647,8 @@
                             "type": "string",
                             "enum": [
                               "accepted",
+                              "waitlisted",
+                              "revision_requested",
                               "declined"
                             ]
                           },
@@ -43163,6 +43661,11 @@
                           },
                           "note": {
                             "type": "string"
+                          },
+                          "revision": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "exclusiveMinimum": true
                           }
                         },
                         "required": [
@@ -43594,6 +44097,12 @@
                           },
                           "abstract": {
                             "type": "string"
+                          },
+                          "track": {
+                            "type": "string",
+                            "nullable": true,
+                            "minLength": 1,
+                            "maxLength": 120
                           },
                           "submitterName": {
                             "type": "string"
@@ -44140,6 +44649,8 @@
                             "type": "string",
                             "enum": [
                               "accepted",
+                              "waitlisted",
+                              "revision_requested",
                               "declined"
                             ]
                           },
@@ -44152,6 +44663,11 @@
                           },
                           "note": {
                             "type": "string"
+                          },
+                          "revision": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "exclusiveMinimum": true
                           }
                         },
                         "required": [
@@ -44161,6 +44677,89 @@
                           "decidedBy",
                           "decidedAt",
                           "note"
+                        ]
+                      }
+                    },
+                    "decisionHistory": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "eventId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "proposalId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "outcome": {
+                            "type": "string",
+                            "enum": [
+                              "accepted",
+                              "waitlisted",
+                              "revision_requested",
+                              "declined"
+                            ]
+                          },
+                          "decidedBy": {
+                            "type": "string"
+                          },
+                          "decidedAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          },
+                          "note": {
+                            "type": "string"
+                          },
+                          "revision": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "exclusiveMinimum": true
+                          }
+                        },
+                        "required": [
+                          "eventId",
+                          "proposalId",
+                          "outcome",
+                          "decidedBy",
+                          "decidedAt",
+                          "note",
+                          "revision"
+                        ]
+                      }
+                    },
+                    "aiReport": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "round": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "exclusiveMinimum": true
+                          },
+                          "model": {
+                            "type": "string"
+                          },
+                          "state": {
+                            "type": "string",
+                            "enum": [
+                              "offered",
+                              "accepted",
+                              "rejected"
+                            ]
+                          },
+                          "count": {
+                            "type": "integer",
+                            "minimum": 0
+                          }
+                        },
+                        "required": [
+                          "round",
+                          "model",
+                          "state",
+                          "count"
                         ]
                       }
                     },
@@ -44211,6 +44810,16 @@
                             "type": "string",
                             "minLength": 1,
                             "maxLength": 80
+                          },
+                          "instructions": {
+                            "type": "string",
+                            "maxLength": 5000,
+                            "default": ""
+                          },
+                          "aiPersona": {
+                            "type": "string",
+                            "maxLength": 2000,
+                            "default": ""
                           },
                           "opensAt": {
                             "type": "string",
@@ -44382,6 +44991,95 @@
                                 }
                               ]
                             }
+                          },
+                          "filters": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "field": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 80,
+                                  "pattern": "^[a-zA-Z0-9_-]+$"
+                                },
+                                "values": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 160
+                                  },
+                                  "minItems": 1,
+                                  "maxItems": 50
+                                }
+                              },
+                              "required": [
+                                "field",
+                                "values"
+                              ]
+                            },
+                            "default": []
+                          },
+                          "includedProposalIds": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "format": "uuid"
+                            },
+                            "default": []
+                          },
+                          "filterVersion": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "exclusiveMinimum": true,
+                            "default": 1
+                          },
+                          "visibleFieldIds": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 80
+                            },
+                            "default": []
+                          },
+                          "filesVisible": {
+                            "type": "boolean",
+                            "default": true
+                          },
+                          "maxEvaluationsPerProposal": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "exclusiveMinimum": true,
+                            "maximum": 100,
+                            "default": 100
+                          },
+                          "weeklyReminderWeekday": {
+                            "type": "integer",
+                            "nullable": true,
+                            "minimum": 0,
+                            "maximum": 6,
+                            "default": null
+                          },
+                          "weeklyReminderHour": {
+                            "type": "integer",
+                            "nullable": true,
+                            "minimum": 0,
+                            "maximum": 23,
+                            "default": null
+                          },
+                          "reminderTimezone": {
+                            "type": "string",
+                            "nullable": true,
+                            "minLength": 1,
+                            "maxLength": 80,
+                            "default": null
+                          },
+                          "invitationOccurrence": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "default": 0
                           },
                           "poolMode": {
                             "type": "string",
@@ -45795,6 +46493,16 @@
                             "minLength": 1,
                             "maxLength": 80
                           },
+                          "instructions": {
+                            "type": "string",
+                            "maxLength": 5000,
+                            "default": ""
+                          },
+                          "aiPersona": {
+                            "type": "string",
+                            "maxLength": 2000,
+                            "default": ""
+                          },
                           "opensAt": {
                             "type": "string",
                             "nullable": true,
@@ -45965,6 +46673,95 @@
                                 }
                               ]
                             }
+                          },
+                          "filters": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "field": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 80,
+                                  "pattern": "^[a-zA-Z0-9_-]+$"
+                                },
+                                "values": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 160
+                                  },
+                                  "minItems": 1,
+                                  "maxItems": 50
+                                }
+                              },
+                              "required": [
+                                "field",
+                                "values"
+                              ]
+                            },
+                            "default": []
+                          },
+                          "includedProposalIds": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "format": "uuid"
+                            },
+                            "default": []
+                          },
+                          "filterVersion": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "exclusiveMinimum": true,
+                            "default": 1
+                          },
+                          "visibleFieldIds": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 80
+                            },
+                            "default": []
+                          },
+                          "filesVisible": {
+                            "type": "boolean",
+                            "default": true
+                          },
+                          "maxEvaluationsPerProposal": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "exclusiveMinimum": true,
+                            "maximum": 100,
+                            "default": 100
+                          },
+                          "weeklyReminderWeekday": {
+                            "type": "integer",
+                            "nullable": true,
+                            "minimum": 0,
+                            "maximum": 6,
+                            "default": null
+                          },
+                          "weeklyReminderHour": {
+                            "type": "integer",
+                            "nullable": true,
+                            "minimum": 0,
+                            "maximum": 23,
+                            "default": null
+                          },
+                          "reminderTimezone": {
+                            "type": "string",
+                            "nullable": true,
+                            "minLength": 1,
+                            "maxLength": 80,
+                            "default": null
+                          },
+                          "invitationOccurrence": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "default": 0
                           },
                           "poolMode": {
                             "type": "string",
@@ -46291,6 +47088,16 @@
                     "minLength": 1,
                     "maxLength": 80
                   },
+                  "instructions": {
+                    "type": "string",
+                    "maxLength": 5000,
+                    "default": ""
+                  },
+                  "aiPersona": {
+                    "type": "string",
+                    "maxLength": 2000,
+                    "default": ""
+                  },
                   "opensAt": {
                     "type": "string",
                     "nullable": true,
@@ -46463,6 +47270,78 @@
                       "named"
                     ]
                   },
+                  "filters": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "field": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80,
+                          "pattern": "^[a-zA-Z0-9_-]+$"
+                        },
+                        "values": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 160
+                          },
+                          "minItems": 1,
+                          "maxItems": 50
+                        }
+                      },
+                      "required": [
+                        "field",
+                        "values"
+                      ]
+                    },
+                    "maxItems": 20,
+                    "default": []
+                  },
+                  "visibleFieldIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80
+                    },
+                    "maxItems": 100,
+                    "default": []
+                  },
+                  "filesVisible": {
+                    "type": "boolean",
+                    "default": false
+                  },
+                  "maxEvaluationsPerProposal": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "exclusiveMinimum": true,
+                    "maximum": 100,
+                    "default": 100
+                  },
+                  "weeklyReminderWeekday": {
+                    "type": "integer",
+                    "nullable": true,
+                    "minimum": 0,
+                    "maximum": 6,
+                    "default": null
+                  },
+                  "weeklyReminderHour": {
+                    "type": "integer",
+                    "nullable": true,
+                    "minimum": 0,
+                    "maximum": 23,
+                    "default": null
+                  },
+                  "reminderTimezone": {
+                    "type": "string",
+                    "nullable": true,
+                    "minLength": 1,
+                    "maxLength": 80,
+                    "default": null
+                  },
                   "state": {
                     "type": "string",
                     "enum": [
@@ -46515,6 +47394,16 @@
                           "type": "string",
                           "minLength": 1,
                           "maxLength": 80
+                        },
+                        "instructions": {
+                          "type": "string",
+                          "maxLength": 5000,
+                          "default": ""
+                        },
+                        "aiPersona": {
+                          "type": "string",
+                          "maxLength": 2000,
+                          "default": ""
                         },
                         "opensAt": {
                           "type": "string",
@@ -46686,6 +47575,95 @@
                               }
                             ]
                           }
+                        },
+                        "filters": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "field": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 80,
+                                "pattern": "^[a-zA-Z0-9_-]+$"
+                              },
+                              "values": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 160
+                                },
+                                "minItems": 1,
+                                "maxItems": 50
+                              }
+                            },
+                            "required": [
+                              "field",
+                              "values"
+                            ]
+                          },
+                          "default": []
+                        },
+                        "includedProposalIds": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "default": []
+                        },
+                        "filterVersion": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "exclusiveMinimum": true,
+                          "default": 1
+                        },
+                        "visibleFieldIds": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 80
+                          },
+                          "default": []
+                        },
+                        "filesVisible": {
+                          "type": "boolean",
+                          "default": true
+                        },
+                        "maxEvaluationsPerProposal": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "exclusiveMinimum": true,
+                          "maximum": 100,
+                          "default": 100
+                        },
+                        "weeklyReminderWeekday": {
+                          "type": "integer",
+                          "nullable": true,
+                          "minimum": 0,
+                          "maximum": 6,
+                          "default": null
+                        },
+                        "weeklyReminderHour": {
+                          "type": "integer",
+                          "nullable": true,
+                          "minimum": 0,
+                          "maximum": 23,
+                          "default": null
+                        },
+                        "reminderTimezone": {
+                          "type": "string",
+                          "nullable": true,
+                          "minLength": 1,
+                          "maxLength": 80,
+                          "default": null
+                        },
+                        "invitationOccurrence": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "default": 0
                         },
                         "poolMode": {
                           "type": "string",
@@ -47023,6 +48001,16 @@
                     "minLength": 1,
                     "maxLength": 80
                   },
+                  "instructions": {
+                    "type": "string",
+                    "maxLength": 5000,
+                    "default": ""
+                  },
+                  "aiPersona": {
+                    "type": "string",
+                    "maxLength": 2000,
+                    "default": ""
+                  },
                   "opensAt": {
                     "type": "string",
                     "nullable": true,
@@ -47195,6 +48183,78 @@
                       "named"
                     ]
                   },
+                  "filters": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "field": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80,
+                          "pattern": "^[a-zA-Z0-9_-]+$"
+                        },
+                        "values": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 160
+                          },
+                          "minItems": 1,
+                          "maxItems": 50
+                        }
+                      },
+                      "required": [
+                        "field",
+                        "values"
+                      ]
+                    },
+                    "maxItems": 20,
+                    "default": []
+                  },
+                  "visibleFieldIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80
+                    },
+                    "maxItems": 100,
+                    "default": []
+                  },
+                  "filesVisible": {
+                    "type": "boolean",
+                    "default": false
+                  },
+                  "maxEvaluationsPerProposal": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "exclusiveMinimum": true,
+                    "maximum": 100,
+                    "default": 100
+                  },
+                  "weeklyReminderWeekday": {
+                    "type": "integer",
+                    "nullable": true,
+                    "minimum": 0,
+                    "maximum": 6,
+                    "default": null
+                  },
+                  "weeklyReminderHour": {
+                    "type": "integer",
+                    "nullable": true,
+                    "minimum": 0,
+                    "maximum": 23,
+                    "default": null
+                  },
+                  "reminderTimezone": {
+                    "type": "string",
+                    "nullable": true,
+                    "minLength": 1,
+                    "maxLength": 80,
+                    "default": null
+                  },
                   "state": {
                     "type": "string",
                     "enum": [
@@ -47238,6 +48298,16 @@
                           "type": "string",
                           "minLength": 1,
                           "maxLength": 80
+                        },
+                        "instructions": {
+                          "type": "string",
+                          "maxLength": 5000,
+                          "default": ""
+                        },
+                        "aiPersona": {
+                          "type": "string",
+                          "maxLength": 2000,
+                          "default": ""
                         },
                         "opensAt": {
                           "type": "string",
@@ -47409,6 +48479,95 @@
                               }
                             ]
                           }
+                        },
+                        "filters": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "field": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 80,
+                                "pattern": "^[a-zA-Z0-9_-]+$"
+                              },
+                              "values": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 160
+                                },
+                                "minItems": 1,
+                                "maxItems": 50
+                              }
+                            },
+                            "required": [
+                              "field",
+                              "values"
+                            ]
+                          },
+                          "default": []
+                        },
+                        "includedProposalIds": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "default": []
+                        },
+                        "filterVersion": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "exclusiveMinimum": true,
+                          "default": 1
+                        },
+                        "visibleFieldIds": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 80
+                          },
+                          "default": []
+                        },
+                        "filesVisible": {
+                          "type": "boolean",
+                          "default": true
+                        },
+                        "maxEvaluationsPerProposal": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "exclusiveMinimum": true,
+                          "maximum": 100,
+                          "default": 100
+                        },
+                        "weeklyReminderWeekday": {
+                          "type": "integer",
+                          "nullable": true,
+                          "minimum": 0,
+                          "maximum": 6,
+                          "default": null
+                        },
+                        "weeklyReminderHour": {
+                          "type": "integer",
+                          "nullable": true,
+                          "minimum": 0,
+                          "maximum": 23,
+                          "default": null
+                        },
+                        "reminderTimezone": {
+                          "type": "string",
+                          "nullable": true,
+                          "minLength": 1,
+                          "maxLength": 80,
+                          "default": null
+                        },
+                        "invitationOccurrence": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "default": 0
                         },
                         "poolMode": {
                           "type": "string",
@@ -47842,6 +49001,16 @@
                           "minLength": 1,
                           "maxLength": 80
                         },
+                        "instructions": {
+                          "type": "string",
+                          "maxLength": 5000,
+                          "default": ""
+                        },
+                        "aiPersona": {
+                          "type": "string",
+                          "maxLength": 2000,
+                          "default": ""
+                        },
                         "opensAt": {
                           "type": "string",
                           "nullable": true,
@@ -48012,6 +49181,95 @@
                               }
                             ]
                           }
+                        },
+                        "filters": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "field": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 80,
+                                "pattern": "^[a-zA-Z0-9_-]+$"
+                              },
+                              "values": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 160
+                                },
+                                "minItems": 1,
+                                "maxItems": 50
+                              }
+                            },
+                            "required": [
+                              "field",
+                              "values"
+                            ]
+                          },
+                          "default": []
+                        },
+                        "includedProposalIds": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "default": []
+                        },
+                        "filterVersion": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "exclusiveMinimum": true,
+                          "default": 1
+                        },
+                        "visibleFieldIds": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 80
+                          },
+                          "default": []
+                        },
+                        "filesVisible": {
+                          "type": "boolean",
+                          "default": true
+                        },
+                        "maxEvaluationsPerProposal": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "exclusiveMinimum": true,
+                          "maximum": 100,
+                          "default": 100
+                        },
+                        "weeklyReminderWeekday": {
+                          "type": "integer",
+                          "nullable": true,
+                          "minimum": 0,
+                          "maximum": 6,
+                          "default": null
+                        },
+                        "weeklyReminderHour": {
+                          "type": "integer",
+                          "nullable": true,
+                          "minimum": 0,
+                          "maximum": 23,
+                          "default": null
+                        },
+                        "reminderTimezone": {
+                          "type": "string",
+                          "nullable": true,
+                          "minLength": 1,
+                          "maxLength": 80,
+                          "default": null
+                        },
+                        "invitationOccurrence": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "default": 0
                         },
                         "poolMode": {
                           "type": "string",
@@ -49238,6 +50496,12 @@
                           },
                           "abstract": {
                             "type": "string"
+                          },
+                          "track": {
+                            "type": "string",
+                            "nullable": true,
+                            "minLength": 1,
+                            "maxLength": 120
                           },
                           "submitterName": {
                             "type": "string"
@@ -52876,12 +54140,7 @@
                           "eventId",
                           "proposalId",
                           "title",
-                          "abstract",
-                          "format",
-                          "speakerProfileIds",
-                          "tags",
-                          "tracks",
-                          "publicationState"
+                          "speakerProfileIds"
                         ]
                       }
                     },
@@ -52933,12 +54192,8 @@
                           },
                           "workflowStatus": {
                             "type": "string",
-                            "enum": [
-                              "invited",
-                              "onboarding",
-                              "ready",
-                              "blocked"
-                            ]
+                            "minLength": 1,
+                            "maxLength": 60
                           },
                           "logistics": {
                             "type": "object",
@@ -52969,11 +54224,7 @@
                           "userId",
                           "sourcePersonId",
                           "name",
-                          "email",
-                          "bio",
-                          "pronouns",
                           "jobTitle",
-                          "organization",
                           "version"
                         ]
                       }
@@ -53303,6 +54554,55 @@
                         "required": [
                           "id",
                           "name"
+                        ]
+                      }
+                    },
+                    "workflowStatuses": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "eventId": {
+                            "type": "string",
+                            "format": "uuid"
+                          },
+                          "key": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 60
+                          },
+                          "label": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 80
+                          },
+                          "category": {
+                            "type": "string",
+                            "enum": [
+                              "open",
+                              "ready",
+                              "blocked"
+                            ]
+                          },
+                          "sortOrder": {
+                            "type": "integer"
+                          },
+                          "createdAt": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "eventId",
+                          "key",
+                          "label",
+                          "category",
+                          "sortOrder",
+                          "createdAt"
                         ]
                       }
                     }
@@ -60357,6 +61657,7 @@
                                   "email",
                                   "call",
                                   "meeting",
+                                  "engagement",
                                   "stage-change",
                                   "conversion"
                                 ]
@@ -60888,6 +62189,48 @@
                           "contacts"
                         ]
                       }
+                    },
+                    "pipelineTransitions": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "default": 0
+                    },
+                    "averageDaysToConversion": {
+                      "type": "number",
+                      "nullable": true,
+                      "minimum": 0,
+                      "default": null
+                    },
+                    "transitionFunnel": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "fromStage": {
+                            "type": "string",
+                            "nullable": true,
+                            "minLength": 1,
+                            "maxLength": 60,
+                            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+                          },
+                          "toStage": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 60,
+                            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+                          },
+                          "prospects": {
+                            "type": "integer",
+                            "minimum": 0
+                          }
+                        },
+                        "required": [
+                          "fromStage",
+                          "toStage",
+                          "prospects"
+                        ]
+                      },
+                      "default": []
                     }
                   },
                   "required": [
@@ -92443,12 +93786,8 @@
                         },
                         "workflowStatus": {
                           "type": "string",
-                          "enum": [
-                            "invited",
-                            "onboarding",
-                            "ready",
-                            "blocked"
-                          ]
+                          "minLength": 1,
+                          "maxLength": 60
                         },
                         "logistics": {
                           "type": "object",
@@ -92479,11 +93818,7 @@
                         "userId",
                         "sourcePersonId",
                         "name",
-                        "email",
-                        "bio",
-                        "pronouns",
                         "jobTitle",
-                        "organization",
                         "version"
                       ]
                     }
@@ -92902,12 +94237,8 @@
                         },
                         "workflowStatus": {
                           "type": "string",
-                          "enum": [
-                            "invited",
-                            "onboarding",
-                            "ready",
-                            "blocked"
-                          ]
+                          "minLength": 1,
+                          "maxLength": 60
                         },
                         "logistics": {
                           "type": "object",
@@ -92938,11 +94269,7 @@
                         "userId",
                         "sourcePersonId",
                         "name",
-                        "email",
-                        "bio",
-                        "pronouns",
                         "jobTitle",
-                        "organization",
                         "version"
                       ]
                     }
@@ -93276,12 +94603,8 @@
                         },
                         "workflowStatus": {
                           "type": "string",
-                          "enum": [
-                            "invited",
-                            "onboarding",
-                            "ready",
-                            "blocked"
-                          ]
+                          "minLength": 1,
+                          "maxLength": 60
                         },
                         "logistics": {
                           "type": "object",
@@ -93312,11 +94635,7 @@
                         "userId",
                         "sourcePersonId",
                         "name",
-                        "email",
-                        "bio",
-                        "pronouns",
                         "jobTitle",
-                        "organization",
                         "version"
                       ]
                     }
@@ -93606,12 +94925,8 @@
                 "properties": {
                   "workflowStatus": {
                     "type": "string",
-                    "enum": [
-                      "invited",
-                      "onboarding",
-                      "ready",
-                      "blocked"
-                    ]
+                    "minLength": 1,
+                    "maxLength": 60
                   },
                   "logistics": {
                     "type": "object",
@@ -93691,12 +95006,8 @@
                         },
                         "workflowStatus": {
                           "type": "string",
-                          "enum": [
-                            "invited",
-                            "onboarding",
-                            "ready",
-                            "blocked"
-                          ]
+                          "minLength": 1,
+                          "maxLength": 60
                         },
                         "logistics": {
                           "type": "object",
@@ -93727,11 +95038,7 @@
                         "userId",
                         "sourcePersonId",
                         "name",
-                        "email",
-                        "bio",
-                        "pronouns",
                         "jobTitle",
-                        "organization",
                         "version"
                       ]
                     }

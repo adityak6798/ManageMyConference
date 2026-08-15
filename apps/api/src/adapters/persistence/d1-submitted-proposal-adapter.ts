@@ -148,12 +148,19 @@ const proposal = (row: ProposalRow): SubmittedProposal => {
   const abstract =
     visibleAnswers.find(({ fieldId }) => fieldId === "abstract") ??
     visibleAnswers.find(({ type, fieldId }) => type === "long_text" && fieldId !== title?.fieldId);
+  // A track is a real CFP classification only when the published form declares the reserved
+  // `track` select field. A free-text answer that happens to be labelled "Track" is display data,
+  // not a stable vocabulary review may silently distribute against.
+  const track = visibleAnswers.find(
+    ({ fieldId, type }) => fieldId.trim().toLowerCase() === "track" && type === "select",
+  )?.value;
   const submitter = submitterOf(fields, answers);
   return {
     id: row.id,
     eventId: row.event_id,
     title: title?.value || `Proposal ${row.id}`,
     abstract: abstract?.value || "See submitted answers.",
+    ...(track ? { track } : {}),
     submitterName: submitter?.name ?? MASKED_SUBMITTER_NAME,
     submitter,
     submitterUserId: row.submitter_user_id,

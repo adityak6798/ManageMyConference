@@ -76,12 +76,16 @@ export type ReviewOutcome = {
  */
 export const ACCEPTED_PROPOSAL_STATUS = "accepted";
 export const DECLINED_PROPOSAL_STATUS = "declined";
+export const WAITLISTED_PROPOSAL_STATUS = "waitlisted";
+export const REVISION_REQUESTED_PROPOSAL_STATUS = "revision_requested";
 export const RESERVED_PROPOSAL_STATUSES = [
   { key: ACCEPTED_PROPOSAL_STATUS, label: "Accepted", sortOrder: 90 },
-  { key: DECLINED_PROPOSAL_STATUS, label: "Declined", sortOrder: 91 },
+  { key: WAITLISTED_PROPOSAL_STATUS, label: "Waitlist", sortOrder: 91 },
+  { key: REVISION_REQUESTED_PROPOSAL_STATUS, label: "Request revision", sortOrder: 92 },
+  { key: DECLINED_PROPOSAL_STATUS, label: "Declined", sortOrder: 93 },
 ] as const;
 
-export type DecisionOutcome = typeof ACCEPTED_PROPOSAL_STATUS | typeof DECLINED_PROPOSAL_STATUS;
+export type DecisionOutcome = (typeof RESERVED_PROPOSAL_STATUSES)[number]["key"];
 
 /**
  * A recorded acceptance decision.

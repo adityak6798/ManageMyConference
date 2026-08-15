@@ -32,7 +32,10 @@ const BACKFILL = "1312_review_plans.sql";
 
 type Runnable = {
   prepare(query: string): {
-    bind(...values: unknown[]): { run(): Promise<unknown>; all<T>(): Promise<{ results?: T[] }> };
+    bind(...values: unknown[]): {
+      run(): Promise<unknown>;
+      all<T>(): Promise<{ results?: T[] }>;
+    };
     run(): Promise<unknown>;
     all<T>(): Promise<{ results?: T[] }>;
   };
@@ -53,29 +56,34 @@ async function preMigrationHistory() {
     label: "review-round-backfill",
     through: "1311_review_decision_revision.sql",
   });
-  await applyMigrations(migrated.database as never, { from: "1400_content_resources.sql" });
+  await applyMigrations(migrated.database as never, {
+    from: "1400_content_resources.sql",
+  });
   const database = migrated.database as unknown as Runnable;
   /*
-   * The real seed, minus the two tables that do not exist yet.
+   * The real seed, minus the review tables that do not exist yet.
    *
    * Hand-writing a fixture would have meant hand-writing every column of `organizations`,
    * `events`, `users`, `cfp_submissions` and six review tables — and a hand-written fixture is
    * only ever as realistic as whoever wrote it remembered to be. The seed is the shape a
    * deployment actually holds, so it is used, with the statements that touch `review_rounds` and
-   * `review_round_members` filtered out because `1312` is the migration that creates them and
-   * this database has deliberately not applied it.
+   * `review_round_members` filtered out because `1312` creates them, plus decision history from
+   * the later `1323`; this database has deliberately not applied either migration.
    */
   const sql = await readFile(new URL("../seed/reset.sql", import.meta.url), "utf8");
   for (const statement of statements(sql)) {
     // `statements` strips both comment forms, so this matches SQL rather than the prose beside it
     // — the seed's own comments name both tables while explaining the cleanup ordering.
-    if (/\breview_rounds\b|\breview_round_members\b/.test(statement)) continue;
+    if (/\breview_rounds\b|\breview_round_members\b|\breview_decision_history\b/.test(statement))
+      continue;
     try {
       await database.prepare(statement).run();
     } catch (error) {
       // A seed load that fails here reports a bare `FOREIGN KEY constraint failed` naming no
       // table, which is a long way from the statement that caused it.
-      throw new Error(`seed statement failed: ${statement.slice(0, 200)}`, { cause: error });
+      throw new Error(`seed statement failed: ${statement.slice(0, 200)}`, {
+        cause: error,
+      });
     }
   }
 

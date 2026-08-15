@@ -64,7 +64,14 @@ export interface ProspectContact {
 
 export interface ProspectActivity {
   readonly id: string;
-  readonly kind: "note" | "email" | "call" | "meeting" | "stage-change" | "conversion";
+  readonly kind:
+    | "note"
+    | "email"
+    | "call"
+    | "meeting"
+    | "engagement"
+    | "stage-change"
+    | "conversion";
   readonly summary: string;
   readonly private: boolean;
   readonly occurredAt: string;
@@ -76,7 +83,14 @@ export interface ProspectActivity {
  * report is actually asked. `created` and `migration` are not moves anybody made: one is the
  * prospect arriving, the other is the row this history was derived for.
  */
-export const transitionSources = ["board", "detail", "created", "conversion", "migration"] as const;
+export const transitionSources = [
+  "board",
+  "detail",
+  "created",
+  "interest",
+  "conversion",
+  "migration",
+] as const;
 export type TransitionSource = (typeof transitionSources)[number];
 
 export interface ProspectTransition {

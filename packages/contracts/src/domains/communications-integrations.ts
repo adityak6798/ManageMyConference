@@ -12,7 +12,9 @@ export const deliveryStateSchema = z.enum(["queued", "retrying", "succeeded", "t
 export const triggerTypeSchema = z.enum([
   "speaker.invited",
   "reviewer.assigned",
+  "reviewer.invited",
   "reviewer.reminder",
+  "reviewer.weekly_reminder",
   "organizer.digest",
   "projection.requested",
   "schedule.published",
@@ -72,7 +74,9 @@ export const triggerChannels: Record<
 > = {
   "speaker.invited": ["email"],
   "reviewer.assigned": ["email"],
+  "reviewer.invited": ["email"],
   "reviewer.reminder": ["email"],
+  "reviewer.weekly_reminder": ["email"],
   "organizer.digest": ["email"],
   "speaker.scheduled": ["email"],
   "speaker.task_assigned": ["email"],

@@ -22,8 +22,33 @@ export class MemoryReviewRepository implements ReviewRepository {
   private evaluations = new Map<string, Evaluation>();
   private outcomes = new Map<string, ReviewOutcome>();
   private decisions = new Map<string, ProposalDecision>();
+  private decisionHistory: ProposalDecision[] = [];
   private suggestions = new Map<string, ReviewSuggestion>();
   readonly events: ReviewCompletedEvent[] = [];
+
+  async suggestionReport(eventId: string) {
+    const counts = new Map<
+      string,
+      { round: number; model: string; state: ReviewSuggestion["state"]; count: number }
+    >();
+    for (const item of this.suggestions.values()) {
+      if (item.eventId !== eventId) continue;
+      const key = JSON.stringify([item.round, item.provenance.model, item.state]);
+      const current = counts.get(key);
+      counts.set(key, {
+        round: item.round,
+        model: item.provenance.model,
+        state: item.state,
+        count: (current?.count ?? 0) + 1,
+      });
+    }
+    return [...counts.values()].sort(
+      (left, right) =>
+        left.round - right.round ||
+        left.model.localeCompare(right.model) ||
+        left.state.localeCompare(right.state),
+    );
+  }
 
   private roundKey = (eventId: string, sequence: number) => `${eventId}:${sequence}`;
 
@@ -31,6 +56,15 @@ export class MemoryReviewRepository implements ReviewRepository {
     return [...this.rounds.values()]
       .filter((round) => round.eventId === eventId)
       .sort((left, right) => left.sequence - right.sequence);
+  }
+  async listScheduledRounds() {
+    return [...this.rounds.values()].filter(
+      (round) =>
+        round.state === "open" &&
+        round.weeklyReminderWeekday !== null &&
+        round.weeklyReminderHour !== null &&
+        round.reminderTimezone !== null,
+    );
   }
   async findRound(eventId: string, sequence: number) {
     return this.rounds.get(this.roundKey(eventId, sequence)) ?? null;
@@ -59,7 +93,15 @@ export class MemoryReviewRepository implements ReviewRepository {
         existing.anonymized !== round.anonymized ||
         existing.opensAt !== round.opensAt ||
         existing.closesAt !== round.closesAt ||
-        existing.poolMode !== round.poolMode)
+        existing.poolMode !== round.poolMode ||
+        existing.instructions !== round.instructions ||
+        existing.aiPersona !== round.aiPersona ||
+        JSON.stringify(existing.filters) !== JSON.stringify(round.filters) ||
+        JSON.stringify(existing.includedProposalIds) !==
+          JSON.stringify(round.includedProposalIds) ||
+        JSON.stringify(existing.visibleFieldIds) !== JSON.stringify(round.visibleFieldIds) ||
+        existing.filesVisible !== round.filesVisible ||
+        existing.maxEvaluationsPerProposal !== round.maxEvaluationsPerProposal)
     )
       throw new ReviewStateConflictError("A closed round's terms cannot be changed");
     // The round-scoped twin of `review_plan_lock`, restated so a suite driven against this
@@ -87,6 +129,15 @@ export class MemoryReviewRepository implements ReviewRepository {
     )
       throw new ReviewStateConflictError("Another round of this event already has that name");
     this.rounds.set(key, { ...existing, ...round });
+  }
+
+  async claimRoundInvitationOccurrence(eventId: string, sequence: number) {
+    const key = this.roundKey(eventId, sequence);
+    const existing = this.rounds.get(key);
+    if (!existing) throw new ReviewStateConflictError("Review round no longer exists");
+    const invitationOccurrence = existing.invitationOccurrence + 1;
+    this.rounds.set(key, { ...existing, invitationOccurrence });
+    return invitationOccurrence;
   }
   async setRoundMembers(
     eventId: string,
@@ -146,6 +197,19 @@ export class MemoryReviewRepository implements ReviewRepository {
         throw new ReviewStateConflictError("That review round is not open");
       if (round.poolMode === "named" && !round.reviewerIds.includes(assignment.reviewerId))
         throw new ReviewStateConflictError("That reviewer is not in this round's pool");
+      if (
+        round.includedProposalIds.length &&
+        !round.includedProposalIds.includes(assignment.proposalId)
+      )
+        throw new ReviewStateConflictError("That proposal is not in this round's filter snapshot");
+      const count = [...this.assignments.values(), ...assignments].filter(
+        (item) =>
+          item.eventId === assignment.eventId &&
+          item.proposalId === assignment.proposalId &&
+          (item.round ?? 1) === (assignment.round ?? 1),
+      ).length;
+      if (count > round.maxEvaluationsPerProposal)
+        throw new ReviewStateConflictError("That proposal reached this round's evaluation cap");
     }
     for (const assignment of assignments) this.assignments.set(assignment.id, assignment);
     return assignments;
@@ -320,7 +384,9 @@ export class MemoryReviewRepository implements ReviewRepository {
     const revision = existing
       ? existing.revision + (existing.outcome === decision.outcome ? 0 : 1)
       : 1;
-    this.decisions.set(key, { ...decision, revision });
+    const stored = { ...decision, revision };
+    this.decisions.set(key, stored);
+    if (!existing || revision !== existing.revision) this.decisionHistory.push(stored);
     return revision;
   }
   async findDecision(eventId: string, proposalId: string) {
@@ -328,6 +394,9 @@ export class MemoryReviewRepository implements ReviewRepository {
   }
   async listDecisions(eventId: string) {
     return [...this.decisions.values()].filter((decision) => decision.eventId === eventId);
+  }
+  async listDecisionHistory(eventId: string) {
+    return this.decisionHistory.filter((decision) => decision.eventId === eventId);
   }
   async saveSuggestion(suggestion: ReviewSuggestion) {
     this.suggestions.set(suggestion.id, suggestion);

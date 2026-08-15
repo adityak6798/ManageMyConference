@@ -3,6 +3,7 @@ import type {
   ContentRevision,
   ContentSession,
   ContentWorkspace,
+  ContentWorkflowStatus,
   SpeakerAsset,
   SpeakerMessage,
   SpeakerProfile,
@@ -53,6 +54,18 @@ export interface SpeakerWorkflowFields {
 }
 
 export interface ContentRepository {
+  listProfileCollaborators(
+    profileId: string,
+  ): Promise<readonly { userId: string; access: "view" | "edit" }[]>;
+  replaceProfileCollaborators(
+    profileId: string,
+    collaborators: readonly { userId: string; access: "view" | "edit" }[],
+    addedBy: string,
+    addedAt: string,
+  ): Promise<void>;
+  isProfileCollaborator(profileId: string, userId: string, edit?: boolean): Promise<boolean>;
+  listWorkflowStatuses(eventId: string): Promise<readonly ContentWorkflowStatus[]>;
+  saveWorkflowStatuses(eventId: string, statuses: readonly ContentWorkflowStatus[]): Promise<void>;
   findSessionByProposal(eventId: string, proposalId: string): Promise<ContentSession | null>;
   accept(content: AcceptedContent): Promise<void>;
   workspace(eventId: string, userId?: string): Promise<ContentWorkspace>;

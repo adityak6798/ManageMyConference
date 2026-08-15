@@ -3,6 +3,24 @@
 -- **organization**. Every table below reaches one of those two, and each is scoped through the
 -- parent whose rows this reset actually deletes — so a row belonging to a real conference on the
 -- same deployment is left where it is, and no child outlives the parent it points at.
+DELETE FROM crm_engagements
+WHERE organization_id IN (
+  '00000000-0000-4000-8000-000000000010',
+  '00000000-0000-4000-8000-000000000020'
+);
+DELETE FROM crm_contact_suppressions
+WHERE contact_id IN (
+  SELECT id FROM crm_organization_contacts
+  WHERE organization_id IN (
+    '00000000-0000-4000-8000-000000000010',
+    '00000000-0000-4000-8000-000000000020'
+  )
+);
+DELETE FROM crm_campaigns
+WHERE organization_id IN (
+  '00000000-0000-4000-8000-000000000010',
+  '00000000-0000-4000-8000-000000000020'
+);
 DELETE FROM crm_contact_activities
 WHERE contact_id IN (
   SELECT id FROM crm_organization_contacts

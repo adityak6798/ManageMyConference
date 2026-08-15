@@ -85,14 +85,15 @@ export interface CapabilityLinkStore {
    *
    * Must be **one statement**: it has to test liveness — not revoked, not expired, a view left —
    * and increment the view count together, or two concurrent resolves of a one-view link both
-   * pass the test before either writes. The password digest comes back with it so the caller can
-   * compare without a second read; comparing here rather than in SQL keeps the comparison out of
-   * a query plan and lets the refusal be indistinguishable from every other.
+   * pass the test before either writes. Kind and password are predicates of that same statement:
+   * a wrong endpoint or password must not consume a limited view.
    */
   spend(
     tokenHash: string,
+    kind: CapabilityLinkKind,
+    passwordHash: string | null,
     now: string,
-  ): Promise<{ link: CapabilityLink; passwordHash: string | null } | null>;
+  ): Promise<CapabilityLink | null>;
 }
 
 /**
@@ -130,13 +131,19 @@ export const MAX_CAPABILITY_LINK_HOURS = 720;
 export async function spendCapabilityLink(
   store: CapabilityLinkStore,
   hash: (value: string) => Promise<string>,
-  input: { token: string; password?: string | undefined; now: string },
+  input: {
+    token: string;
+    kind: CapabilityLinkKind;
+    password?: string | undefined;
+    now: string;
+  },
 ): Promise<CapabilityLink> {
-  const spent = await store.spend(await hash(input.token), input.now);
+  const spent = await store.spend(
+    await hash(input.token),
+    input.kind,
+    input.password ? await hash(input.password) : null,
+    input.now,
+  );
   if (!spent) throw new CapabilityLinkUnavailableError();
-  if (spent.passwordHash) {
-    if (!input.password || (await hash(input.password)) !== spent.passwordHash)
-      throw new CapabilityLinkUnavailableError();
-  }
-  return spent.link;
+  return spent;
 }
