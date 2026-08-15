@@ -1580,7 +1580,7 @@ export function AgendaWorkspace({
           </Card>
         </div>
 
-        {view === "conflicts" || view === "list" ? null : (
+        {view === "conflicts" ? null : (
           <UnscheduledRail
             sessions={unscheduled}
             selection={selection}
