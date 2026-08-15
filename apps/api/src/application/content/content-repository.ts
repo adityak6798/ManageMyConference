@@ -60,7 +60,7 @@ export interface ContentRepository {
    * Write a profile with no revision and no guard.
    *
    * No production path calls this, and none should: an organizer's or speaker's profile edit
-   * goes through `reviseProfile`, a headshot through `updateProfilePhoto`, and an import
+   * goes through `reviseProfile`, a headshot through `reviseProfilePhoto`, and an import
    * through `updateProfileWorkflow`. Each of those writes what it is actually changing, so
    * none of them can put a column back the way it read it. This survives for fixtures.
    */
@@ -96,6 +96,16 @@ export interface ContentRepository {
    * rather than answer with the object it constructed.
    */
   updateProfilePhoto(profileId: string, assetId: string | null): Promise<boolean>;
+  /**
+   * Revise the canonical headshot choice and retire the previous choice in one operation.
+   * `expectedVersion` refuses a stale form rather than layering it onto somebody else's edit.
+   */
+  reviseProfilePhoto(
+    profileId: string,
+    draft: ContentRevisionDraft,
+    expectedVersion: number,
+    assetId: string | null,
+  ): Promise<SpeakerProfile | null>;
   /**
    * Take the next portal-invitation occurrence for one profile, and answer the number it took.
    *
@@ -143,6 +153,20 @@ export interface ContentRepository {
     versionGroupId?: string,
   ): Promise<{ versionGroupId: string; versionNumber: number }>;
   deleteAsset(assetId: string): Promise<void>;
+  /**
+   * Finish metadata deletion after object storage has accepted it.
+   *
+   * A profile may have selected the asset after the service's first clear. The repository
+   * therefore re-decides from the committed profile row: when referenced, it records and clears
+   * that choice in the same batch that deletes the asset; otherwise the guarded delete proceeds
+   * without manufacturing a profile revision. The returned profile is the one newly revised,
+   * or null when deletion needed no second profile change.
+   */
+  deleteAssetAfterStorage(
+    assetId: string,
+    profileId: string,
+    draft: ContentRevisionDraft,
+  ): Promise<SpeakerProfile | null>;
   /**
    * Has this speaker been given any work on this event yet?
    *
@@ -221,6 +245,7 @@ export interface ContentRepository {
     profileId: string,
     draft: ContentRevisionDraft,
     edit: ContentEdit<SpeakerProfile>,
+    expectedVersion?: number,
   ): Promise<SpeakerProfile | null>;
   /** `reviseProfile` for a session: the same single-operation guarantee. */
   reviseSession(

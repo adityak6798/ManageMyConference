@@ -357,6 +357,7 @@ describe("D1EventTemplateRepository", () => {
     const composed = compose(database, interpose(database));
     const destination = await composed.events.create(actorFor([SOURCE]), {
       organizationId: ORGANIZATION,
+      idempotencyKey: "00000000-0000-4000-8000-000000000358",
       name: "Greenroom Demo Summit 2027",
       timezone: "America/New_York",
     });

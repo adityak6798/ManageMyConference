@@ -111,12 +111,13 @@ export async function updateSpeakerProfile(
 export async function setSpeakerProfilePhoto(
   profileId: string,
   assetId: string,
+  expectedVersion: number,
   fetcher: typeof fetch = fetch,
 ): Promise<void> {
   const response = await fetcher(`/api/speaker-profiles/${profileId}/photo`, {
     method: "PUT",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(setSpeakerPhotoInputSchema.parse({ assetId })),
+    body: JSON.stringify(setSpeakerPhotoInputSchema.parse({ assetId, expectedVersion })),
   });
   if (!response.ok) await decode(response, contentWorkspaceSchema);
 }
@@ -124,9 +125,14 @@ export async function setSpeakerProfilePhoto(
 /** Take the headshot off the profile; the uploaded file itself is untouched. */
 export async function clearSpeakerProfilePhoto(
   profileId: string,
+  expectedVersion: number,
   fetcher: typeof fetch = fetch,
 ): Promise<void> {
-  const response = await fetcher(`/api/speaker-profiles/${profileId}/photo`, { method: "DELETE" });
+  const response = await fetcher(`/api/speaker-profiles/${profileId}/photo`, {
+    method: "DELETE",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ expectedVersion }),
+  });
   if (!response.ok) await decode(response, contentWorkspaceSchema);
 }
 

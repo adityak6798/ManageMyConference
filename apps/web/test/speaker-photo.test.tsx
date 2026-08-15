@@ -31,7 +31,9 @@ const profile = (photoAssetId?: string) => ({
   email: "alex.morgan@example.test",
   bio: "",
   pronouns: "",
+  jobTitle: "",
   organization: "Greenroom Labs",
+  version: 0,
   ...(photoAssetId ? { photoAssetId } : {}),
 });
 
@@ -128,7 +130,7 @@ describe("choosing a speaker headshot", () => {
       expect(sent).toContainEqual({
         url: `/api/speaker-profiles/${profileId}/photo`,
         method: "PUT",
-        body: { assetId: headshotId },
+        body: { assetId: headshotId, expectedVersion: 0 },
       }),
     );
 
@@ -200,7 +202,7 @@ describe("choosing a speaker headshot", () => {
       expect(sent).toContainEqual({
         url: `/api/speaker-profiles/${profileId}/photo`,
         method: "PUT",
-        body: { assetId: headshotId },
+        body: { assetId: headshotId, expectedVersion: 0 },
       }),
     );
     expect(await within(assets).findByRole("status")).toHaveTextContent(
@@ -216,7 +218,7 @@ describe("choosing a speaker headshot", () => {
       expect(sent).toContainEqual({
         url: `/api/speaker-profiles/${profileId}/photo`,
         method: "DELETE",
-        body: {},
+        body: { expectedVersion: 0 },
       }),
     );
     expect(screen.queryByRole("alert")).toBeNull();

@@ -47,12 +47,16 @@ export async function listAssignedEvents(fetcher: typeof fetch = fetch): Promise
 
 export async function createEvent(
   input: CreateEventInput,
+  idempotencyKey?: string,
   fetcher: typeof fetch = fetch,
 ): Promise<EventDto> {
   const validated = createEventInputSchema.parse(input);
   const response = await fetcher("/api/events", {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
+    },
     body: JSON.stringify(validated),
   });
   return (await decode(response, createEventResponseSchema)).event;

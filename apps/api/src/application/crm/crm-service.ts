@@ -41,7 +41,6 @@ import {
   ContactNotFoundError,
   EventOutsideOrganizationError,
   OutreachRecipientsEmptyError,
-  PipelineStageInUseError,
   PipelineStageInvalidError,
   PipelineStageNotFoundError,
   ProspectAlreadyConvertedError,
@@ -313,24 +312,7 @@ export class CrmService {
     const authorized = this.authorize(actor, command.eventId);
     await this.requireAssignableOwner(command.eventId, command.ownerId);
     const now = this.dependencies.now().toISOString();
-    /*
-     * Where a new prospect lands is the board's first `open` stage rather than the literal
-     * `identified`. An organizer who renamed or reordered their intake column would otherwise
-     * find every new card arriving in a column they had moved to the end — the board would be
-     * configurable everywhere except where things enter it.
-     *
-     * The fallback is the first column a card may be *put* in, never simply the leftmost one.
-     * A board whose stages are all `won`, `nurture` or `lost` is a board this service accepts,
-     * and it can begin with Converted — so `stages[0]` created a prospect standing in Converted
-     * with no `speakerId` and no `convertedAt` behind it, which is the exact state `update`
-     * refuses to reach and the board refuses to accept a drop into. When Converted is the only
-     * column left there is nowhere honest to land, and creating is refused in the same words.
-     */
-    const stages = await this.ensureStages(command.eventId);
-    const entry =
-      stages.find(({ category }) => category === "open") ??
-      stages.find(({ key }) => isMovableStage(key));
-    if (!entry) throw new PipelineStageInvalidError(CONVERTED_IS_NOT_A_DESTINATION);
+    const entry = await this.entryStage(command.eventId);
     const prospect: Prospect = {
       id: this.dependencies.newId(),
       eventId: command.eventId,
@@ -376,17 +358,15 @@ export class CrmService {
     if (command.ownerId !== undefined && command.ownerId !== current.ownerId)
       await this.requireAssignableOwner(eventId, command.ownerId);
     const now = this.dependencies.now().toISOString();
-    const moving = command.stage !== undefined && command.stage !== current.stage;
+    const moving = command.stage !== undefined;
     /*
      * A stage the board does not have is refused here rather than by a CHECK. The constraint
      * that used to do it pinned five keys and is gone (`1502`); which keys exist is data now,
      * so this is the boundary — and it has to be, because a stored key with no column would
      * render a card nowhere at all.
      */
-    let stageLabels = new Map<string, string>();
     if (moving) {
       const stages = await this.ensureStages(eventId);
-      stageLabels = new Map(stages.map((stage) => [stage.key, stage.label]));
       const target = stages.find(({ key }) => key === command.stage);
       if (!target) throw new PipelineStageNotFoundError("That stage is not on this board");
       if (!isMovableStage(target.key))
@@ -397,17 +377,6 @@ export class CrmService {
     // HTTP schema refuses it — so the timeline cannot disagree with the stage, and it lands
     // in the same repository call as the organizer's note.
     const activities: ProspectActivity[] = [];
-    if (moving)
-      activities.push({
-        id: this.dependencies.newId(),
-        kind: "stage-change",
-        // Labels rather than keys: the timeline is read by a person, and `future-fit` is not
-        // what their board calls that column.
-        summary: `${stageLabels.get(current.stage) ?? current.stage} → ${stageLabels.get(command.stage as string) ?? command.stage}`,
-        private: false,
-        occurredAt: now,
-        actorId: authorized.id,
-      });
     if (command.activity)
       activities.push({
         id: this.dependencies.newId(),
@@ -436,16 +405,12 @@ export class CrmService {
           ]
         : current.contacts,
     };
-    await this.dependencies.repository.update(
+    return this.dependencies.repository.update(
       updated,
       activities,
       contact,
       moving
         ? {
-            id: this.dependencies.newId(),
-            eventId,
-            prospectId: current.id,
-            fromStage: current.stage,
             toStage: updated.stage,
             actorId: authorized.id,
             // The command carries where the move came from, so a report can tell a drag on the
@@ -455,7 +420,6 @@ export class CrmService {
           }
         : undefined,
     );
-    return updated;
   }
 
   /* ------------------------------ the board itself ------------------------------ */
@@ -490,6 +454,23 @@ export class CrmService {
   }
 
   /**
+   * Where every newly tracked person enters this event's board.
+   *
+   * The board's first `open` stage wins rather than the literal `identified`, so direct creation
+   * and directory sourcing cannot disagree after an organizer renames or reorders intake. The
+   * fallback is the first column a card may be put in, never simply the leftmost one: a board
+   * beginning with Converted must not create an unconverted prospect inside it.
+   */
+  private async entryStage(eventId: string): Promise<PipelineStage> {
+    const stages = await this.ensureStages(eventId);
+    const entry =
+      stages.find(({ category }) => category === "open") ??
+      stages.find(({ key }) => isMovableStage(key));
+    if (!entry) throw new PipelineStageInvalidError(CONVERTED_IS_NOT_A_DESTINATION);
+    return entry;
+  }
+
+  /**
    * Add, rename and reorder in one command, because on a board they are one act.
    *
    * The whole list is sent rather than a diff: a reorder moves every column, and three narrow
@@ -521,16 +502,6 @@ export class CrmService {
     if (!keys.includes(CONVERTED_STAGE_KEY))
       throw new PipelineStageInvalidError(
         "The Converted stage cannot be removed: it is where converting a prospect puts it.",
-      );
-
-    // A stage nobody is standing in may simply go. One that still holds cards has to be deleted
-    // through `deletePipelineStage`, which asks where they should go.
-    const counts = await this.dependencies.repository.countByStage(eventId);
-    const dropped = existing.filter(({ key }) => !keys.includes(key));
-    const occupied = dropped.filter(({ key }) => (counts.get(key) ?? 0) > 0);
-    if (occupied.length)
-      throw new PipelineStageInUseError(
-        `${occupied.map(({ label }) => label).join(", ")} still ${occupied.length === 1 ? "holds" : "hold"} prospects. Choose where they should move first.`,
       );
 
     const byKey = new Map(existing.map((stage) => [stage.key, stage]));
@@ -1340,11 +1311,12 @@ export class CrmService {
       }
     }
     if (!prospectId) {
+      const entry = await this.entryStage(command.eventId);
       const prospect: Prospect = {
         id: this.dependencies.newId(),
         eventId: command.eventId,
         name: contact.name,
-        stage: "identified",
+        stage: entry.key,
         ownerId: command.ownerId,
         nextAction: "Confirm interest for this event",
         nextActionAt: null,

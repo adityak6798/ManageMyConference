@@ -164,6 +164,7 @@ describe("API client credentials", () => {
     await expect(
       service.create(machine, {
         organizationId: ORGANIZATION,
+        idempotencyKey: "00000000-0000-4000-8000-000000000111",
         name: "Created by API",
         timezone: "UTC",
       }),

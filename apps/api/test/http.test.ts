@@ -494,7 +494,11 @@ describe("events HTTP transport", () => {
     });
     const cookie = session.headers.get("set-cookie")?.split(";")[0];
     expect(cookie).toBeTruthy();
-    const headers = { "content-type": "application/json", cookie: cookie ?? "" };
+    const headers = {
+      "content-type": "application/json",
+      cookie: cookie ?? "",
+      "Idempotency-Key": "00000000-0000-4000-8000-000000000498",
+    };
     const created = await app.request("/api/events", {
       method: "POST",
       headers,
@@ -505,6 +509,28 @@ describe("events HTTP transport", () => {
       }),
     });
     expect(created.status).toBe(201);
+    const replayed = await app.request("/api/events", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        organizationId: "00000000-0000-4000-8000-000000000010",
+        name: "Greenroom Summit",
+        timezone: "America/Los_Angeles",
+      }),
+    });
+    expect(replayed.status).toBe(201);
+    expect((await replayed.json()).event.id).toBe((await created.json()).event.id);
+    const conflicting = await app.request("/api/events", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        organizationId: "00000000-0000-4000-8000-000000000010",
+        name: "A different summit",
+        timezone: "America/Los_Angeles",
+      }),
+    });
+    expect(conflicting.status).toBe(409);
+    await expect(conflicting.json()).resolves.toMatchObject({ error: { code: "CONFLICT" } });
     const reloaded = await app.request("/api/events", { headers });
     await expect(reloaded.json()).resolves.toMatchObject({
       events: [{ name: "Greenroom Summit" }],

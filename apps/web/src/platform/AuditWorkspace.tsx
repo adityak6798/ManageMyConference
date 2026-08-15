@@ -136,6 +136,12 @@ export function AuditWorkspace({ eventId }: { eventId: string }) {
                     <td data-label="Action">{record.action}</td>
                     <td data-label="Target">
                       {record.targetType} <code>{record.targetId}</code>
+                      {record.targetVersion !== undefined ? (
+                        <>
+                          {" "}
+                          <span>{`v${record.targetVersion}`}</span>
+                        </>
+                      ) : null}
                     </td>
                     <td data-label="Correlation">
                       <code>{record.correlationId ?? "—"}</code>

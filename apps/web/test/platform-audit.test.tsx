@@ -25,6 +25,7 @@ const human = {
   action: "review.decision_accepted",
   targetType: "proposal",
   targetId: "proposal-1",
+  targetVersion: 7,
   correlationId: "corr-1",
 };
 
@@ -71,6 +72,7 @@ describe("the audit timeline surface", () => {
     expect(decision.getByText("Olivia Organizer")).toBeInTheDocument();
     expect(decision.getByText("human")).toBeInTheDocument();
     expect(decision.getByText("proposal-1")).toBeInTheDocument();
+    expect(decision.getByText("v7")).toBeInTheDocument();
     expect(decision.getByText("corr-1")).toBeInTheDocument();
 
     // A record nobody signed says so rather than showing a blank or inventing a name.

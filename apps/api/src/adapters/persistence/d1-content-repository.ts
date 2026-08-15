@@ -59,6 +59,7 @@ const PROFILE_WRITTEN_COLUMNS = [
   "name",
   "bio",
   "pronouns",
+  "job_title",
   "organization",
   "photo_asset_id",
   "workflow_status",
@@ -183,11 +184,12 @@ export class D1ContentRepository
       sessions,
       speakers: workspace.speakers
         .filter(({ id }) => speakerIds.has(id))
-        .map(({ id, name, bio, pronouns, organization, photoAssetId, socialLinks }) => ({
+        .map(({ id, name, bio, pronouns, jobTitle, organization, photoAssetId, socialLinks }) => ({
           id,
           name,
           bio,
           pronouns,
+          ...(jobTitle ? { jobTitle } : {}),
           organization,
           ...(photoAssetId ? { photoAssetId } : {}),
           // Omitted rather than sent empty, so a speaker with no links adds no key to the
@@ -381,7 +383,7 @@ export class D1ContentRepository
   }
   async workspace(eventId: string, userId?: string): Promise<ContentWorkspace> {
     const profileRows = await this.rows(
-      `SELECT * FROM speaker_profiles WHERE event_id = ?${userId ? " AND user_id = ?" : ""} ORDER BY name`,
+      `SELECT profile.*, (SELECT COALESCE(MAX(revision_number),0) FROM content_revisions WHERE entity_type='profile' AND entity_id=profile.id) AS profile_version FROM speaker_profiles AS profile WHERE event_id = ?${userId ? " AND user_id = ?" : ""} ORDER BY name`,
       eventId,
       ...(userId ? [userId] : []),
     );
@@ -486,12 +488,13 @@ export class D1ContentRepository
   private profileWrite(profile: SpeakerProfile, where?: RowGuard): D1Statement {
     return this.database
       .prepare(
-        `UPDATE speaker_profiles SET name=?,bio=?,pronouns=?,organization=?,photo_asset_id=?,workflow_status=?,logistics_json=?,custom_fields_json=?,social_links_json=? WHERE ${where?.sql ?? "id=?"}`,
+        `UPDATE speaker_profiles SET name=?,bio=?,pronouns=?,job_title=?,organization=?,photo_asset_id=?,workflow_status=?,logistics_json=?,custom_fields_json=?,social_links_json=? WHERE ${where?.sql ?? "id=?"}`,
       )
       .bind(
         profile.name,
         profile.bio,
         profile.pronouns,
+        profile.jobTitle ?? "",
         profile.organization,
         profile.photoAssetId ?? null,
         profile.workflowStatus ?? "onboarding",
@@ -721,8 +724,62 @@ export class D1ContentRepository
           .bind(asset.versionGroupId, assetId),
       );
     const results = await this.database.batch(statements);
-    if (results.some((result) => !result.success))
-      throw new Error("Content asset deletion batch failed");
+    const failed = results.find((result) => !result.success);
+    if (failed)
+      throw new Error(`Content asset deletion batch failed: ${failed.error ?? "unknown error"}`);
+  }
+  async deleteAssetAfterStorage(assetId: string, profileId: string, draft: ContentRevisionDraft) {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const profile = await this.findProfile(profileId);
+      if (!profile || profile.photoAssetId !== assetId) {
+        try {
+          await this.deleteAsset(assetId);
+          return null;
+        } catch (error) {
+          if (error instanceof Error && error.message.includes("profile still references asset"))
+            continue;
+          throw error;
+        }
+      }
+      const asset = await this.findAsset(assetId);
+      try {
+        return await this.revise<SpeakerProfile>(
+          "profile",
+          profileId,
+          draft,
+          (current) => {
+            const { photoAssetId: _removed, ...withoutPhoto } = current;
+            return { ...withoutPhoto, version: (current.version ?? 0) + 1 };
+          },
+          "speaker_profiles",
+          PROFILE_WRITTEN_COLUMNS,
+          (row) => this.profile(row),
+          (next, where) => this.profileWrite(next, where),
+          profile.version ?? 0,
+          () => [
+            this.database
+              .prepare("DELETE FROM content_asset_comments WHERE asset_id=?")
+              .bind(assetId),
+            this.database.prepare("DELETE FROM speaker_assets WHERE id=?").bind(assetId),
+            ...(asset?.isLatest !== false && asset?.versionGroupId
+              ? [
+                  this.database
+                    .prepare(
+                      "UPDATE speaker_assets SET is_latest=1 WHERE id=(SELECT id FROM speaker_assets WHERE version_group_id=? AND id<>? ORDER BY version_number DESC LIMIT 1)",
+                    )
+                    .bind(asset.versionGroupId, assetId),
+                ]
+              : []),
+          ],
+        );
+      } catch (error) {
+        if (error instanceof ContentConflictError) continue;
+        throw error;
+      }
+    }
+    throw new ContentConflictError(
+      "This profile changed while its asset was being deleted. Reload and try again.",
+    );
   }
   async hasSpeakerWork(eventId: string, profileId: string) {
     // `LIMIT 1` and no columns beyond the constant: the caller wants existence, and the index on
@@ -793,7 +850,10 @@ export class D1ContentRepository
   }
   async findProfile(profileId: string) {
     const row = (
-      await this.rows("SELECT * FROM speaker_profiles WHERE id = ? LIMIT 1", profileId)
+      await this.rows(
+        "SELECT profile.*, (SELECT COALESCE(MAX(revision_number),0) FROM content_revisions WHERE entity_type='profile' AND entity_id=profile.id) AS profile_version FROM speaker_profiles AS profile WHERE id = ? LIMIT 1",
+        profileId,
+      )
     )[0];
     return row ? this.profile(row) : null;
   }
@@ -810,7 +870,7 @@ export class D1ContentRepository
   async findProfileBySource(eventId: string, sourcePersonId: string) {
     const row = (
       await this.rows(
-        "SELECT * FROM speaker_profiles WHERE event_id = ? AND source_person_id = ? LIMIT 1",
+        "SELECT profile.*, (SELECT COALESCE(MAX(revision_number),0) FROM content_revisions WHERE entity_type='profile' AND entity_id=profile.id) AS profile_version FROM speaker_profiles AS profile WHERE event_id = ? AND source_person_id = ? LIMIT 1",
         eventId,
         sourcePersonId,
       )
@@ -1036,6 +1096,8 @@ export class D1ContentRepository
     guarded: readonly string[],
     read: (row: Row) => T,
     write: (next: T, where: RowGuard) => D1Statement,
+    expectedVersion?: number,
+    sideEffects?: (current: T, next: T) => readonly D1Statement[],
   ): Promise<T | null> {
     let lastFailure = "";
     for (let attempt = 0; attempt < 5; attempt += 1) {
@@ -1049,6 +1111,11 @@ export class D1ContentRepository
       )[0];
       if (!row) return null;
       const current = read(row);
+      const revisionNumber = Number(row.latest_revision ?? 0);
+      if (expectedVersion !== undefined && revisionNumber !== expectedVersion)
+        throw new ContentConflictError(
+          "This profile changed after you opened it. Reload and try again.",
+        );
       const next = edit(current);
       const where = this.unchanged(guarded, row);
       const result = await this.batch([
@@ -1061,7 +1128,7 @@ export class D1ContentRepository
             draft.eventId,
             entityType,
             entityId,
-            Number(row.latest_revision ?? 0) + 1,
+            revisionNumber + 1,
             JSON.stringify(current),
             draft.actorId,
             // Never earlier than the revision it follows. The draft is stamped when the actor
@@ -1074,16 +1141,37 @@ export class D1ContentRepository
             ...where.values,
           ),
         write(next, where),
+        ...(sideEffects?.(current, next) ?? []),
       ]);
       if ("changes" in result) {
         if (result.changes[0] === 1) return next;
+        if (expectedVersion !== undefined) {
+          const stillExists = (
+            await this.rows(`SELECT id FROM ${table} WHERE id=? LIMIT 1`, entityId)
+          )[0];
+          // A concurrent deletion is still indistinguishable from a row that was never there
+          // to the service's authorization boundary. A surviving row lost the version race.
+          if (!stillExists) return null;
+          throw new ContentConflictError(
+            "This profile changed while you were saving. Reload and try again.",
+          );
+        }
         continue;
       }
       lastFailure = result.failure;
+      if (lastFailure.includes("profile photo asset does not exist"))
+        throw new ContentConflictError(
+          "This profile's saved headshot is no longer available. Reload and try again.",
+        );
       // The composite guard names all three of its columns; the primary key names only `id`, so
       // a duplicated revision id is a fault to report rather than contention to retry.
       if (!/UNIQUE constraint failed:[^\n]*content_revisions\.revision_number/.test(lastFailure))
         throw new Error(`D1 content revision failed: ${lastFailure}`);
+      if (expectedVersion !== undefined)
+        throw new ContentConflictError(
+          "This profile changed while you were saving. Reload and try again.",
+          { cause: new Error(lastFailure) },
+        );
     }
     throw new ContentConflictError(
       "This record is being edited by someone else. Reload and try again.",
@@ -1098,16 +1186,51 @@ export class D1ContentRepository
     profileId: string,
     draft: ContentRevisionDraft,
     edit: ContentEdit<SpeakerProfile>,
+    expectedVersion?: number,
   ) {
-    return this.revise(
+    return this.revise<SpeakerProfile>(
       "profile",
       profileId,
       draft,
-      edit,
+      (current) => ({ ...edit(current), version: (current.version ?? 0) + 1 }),
       "speaker_profiles",
       PROFILE_WRITTEN_COLUMNS,
       (row) => this.profile(row),
       (next, where) => this.profileWrite(next, where),
+      expectedVersion,
+      (current, next) =>
+        current.photoAssetId && current.photoAssetId !== next.photoAssetId
+          ? [
+              this.database
+                .prepare(
+                  "UPDATE speaker_assets SET visibility='private' WHERE id=? AND speaker_profile_id=? AND EXISTS (SELECT 1 FROM content_revisions WHERE id=?)",
+                )
+                // Any profile revision can replace a photo (notably restore). Binding the
+                // privacy side effect to the winning revision keeps a losing CAS from hiding
+                // the winner's current photo.
+                .bind(current.photoAssetId, profileId, draft.id),
+            ]
+          : [],
+    );
+  }
+
+  async reviseProfilePhoto(
+    profileId: string,
+    draft: ContentRevisionDraft,
+    expectedVersion: number,
+    assetId: string | null,
+  ) {
+    return this.reviseProfile(
+      profileId,
+      draft,
+      (current) => {
+        const { photoAssetId: _previous, ...withoutPhoto } = current;
+        return {
+          ...withoutPhoto,
+          ...(assetId ? { photoAssetId: assetId } : {}),
+        };
+      },
+      expectedVersion,
     );
   }
 
@@ -1157,7 +1280,9 @@ export class D1ContentRepository
       email: row.email ?? "",
       bio: row.bio ?? "",
       pronouns: row.pronouns ?? "",
+      jobTitle: row.job_title ?? "",
       organization: row.organization ?? "",
+      version: Number(row.profile_version ?? row.latest_revision ?? 0),
       ...(row.photo_asset_id ? { photoAssetId: row.photo_asset_id } : {}),
       workflowStatus: (row.workflow_status ?? "onboarding") as SpeakerProfile["workflowStatus"],
       logistics: parse<Record<string, string>>(row.logistics_json ?? "{}"),

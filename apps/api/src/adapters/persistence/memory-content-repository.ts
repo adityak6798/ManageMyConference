@@ -43,6 +43,16 @@ export class MemoryContentRepository
   // Not part of `ContentWorkspace`: a checklist line is event configuration, not somebody's
   // work, so it is read by `listTaskTemplates` and never lands in a speaker's projection.
   private taskTemplates: readonly SpeakerTaskTemplate[] = [];
+
+  private profileVersion(profile: SpeakerProfile): SpeakerProfile {
+    const version = Math.max(
+      0,
+      ...this.revisions
+        .filter(({ entityType, entityId }) => entityType === "profile" && entityId === profile.id)
+        .map(({ revisionNumber }) => revisionNumber),
+    );
+    return { ...profile, jobTitle: profile.jobTitle ?? "", version };
+  }
   private imports = new Map<string, "pending" | "complete">();
 
   constructor(seed?: ContentWorkspace) {
@@ -145,9 +155,9 @@ export class MemoryContentRepository
     this.imports.delete(`${eventId}:${email}`);
   }
   async workspace(eventId: string, userId?: string): Promise<ContentWorkspace> {
-    const speakers = this.speakers.filter(
-      (item) => item.eventId === eventId && (!userId || item.userId === userId),
-    );
+    const speakers = this.speakers
+      .filter((item) => item.eventId === eventId && (!userId || item.userId === userId))
+      .map((profile) => this.profileVersion(profile));
     const profileIds = new Set(speakers.map(({ id }) => id));
     const sessions = this.sessions.filter(
       (item) =>
@@ -234,11 +244,12 @@ export class MemoryContentRepository
       sessions,
       speakers: workspace.speakers
         .filter(({ id }) => speakerIds.has(id))
-        .map(({ id, name, bio, pronouns, organization, photoAssetId, socialLinks }) => ({
+        .map(({ id, name, bio, pronouns, jobTitle, organization, photoAssetId, socialLinks }) => ({
           id,
           name,
           bio,
           pronouns,
+          ...(jobTitle ? { jobTitle } : {}),
           organization,
           ...(photoAssetId ? { photoAssetId } : {}),
           ...(socialLinks && Object.keys(socialLinks).length > 0 ? { socialLinks } : {}),
@@ -290,6 +301,22 @@ export class MemoryContentRepository
       return assetId ? { ...withoutPhoto, photoAssetId: assetId } : withoutPhoto;
     });
     return true;
+  }
+  async reviseProfilePhoto(
+    profileId: string,
+    draft: ContentRevisionDraft,
+    expectedVersion: number,
+    assetId: string | null,
+  ) {
+    return this.reviseProfile(
+      profileId,
+      draft,
+      (profile) => {
+        const { photoAssetId: _removed, ...withoutPhoto } = profile;
+        return { ...withoutPhoto, ...(assetId ? { photoAssetId: assetId } : {}) };
+      },
+      expectedVersion,
+    );
   }
   async updateTask(task: SpeakerTask) {
     if (!this.tasks.some(({ id }) => id === task.id)) return false;
@@ -349,6 +376,19 @@ export class MemoryContentRepository
     }
     this.comments = this.comments.filter(({ assetId: candidate }) => candidate !== assetId);
   }
+  async deleteAssetAfterStorage(assetId: string, profileId: string, draft: ContentRevisionDraft) {
+    const stored = this.speakers.find(({ id }) => id === profileId);
+    const current = stored ? this.profileVersion(stored) : null;
+    // Invoke both async methods before yielding. Their in-memory mutations are synchronous, so
+    // no headshot selection can interleave between the canonical clear and metadata deletion.
+    const revised =
+      current?.photoAssetId === assetId
+        ? this.reviseProfilePhoto(profileId, draft, current.version ?? 0, null)
+        : Promise.resolve(null);
+    const deleted = this.deleteAsset(assetId);
+    await deleted;
+    return revised;
+  }
   async hasSpeakerWork(eventId: string, profileId: string) {
     return this.tasks.some(
       (task) => task.eventId === eventId && task.speakerProfileId === profileId,
@@ -361,7 +401,8 @@ export class MemoryContentRepository
     this.messages = [...this.messages, message];
   }
   async findProfile(profileId: string) {
-    return this.speakers.find(({ id }) => id === profileId) ?? null;
+    const profile = this.speakers.find(({ id }) => id === profileId);
+    return profile ? this.profileVersion(profile) : null;
   }
   async findSession(sessionId: string) {
     return this.sessions.find(({ id }) => id === sessionId) ?? null;
@@ -479,12 +520,18 @@ export class MemoryContentRepository
     current: T | undefined,
     draft: ContentRevisionDraft,
     edit: ContentEdit<T>,
+    expectedVersion?: number,
   ): T | null {
     if (!current) return null;
-    const next = edit(current);
     const existing = this.revisions.filter(
       (revision) => revision.entityType === entityType && revision.entityId === current.id,
     );
+    const version = Math.max(0, ...existing.map(({ revisionNumber }) => revisionNumber));
+    if (expectedVersion !== undefined && expectedVersion !== version)
+      throw new ContentConflictError(
+        "This profile changed after you opened it. Reload and try again.",
+      );
+    const next = edit(current);
     this.revisions = [
       ...this.revisions,
       {
@@ -492,7 +539,7 @@ export class MemoryContentRepository
         eventId: draft.eventId,
         entityType,
         entityId: current.id,
-        revisionNumber: Math.max(0, ...existing.map(({ revisionNumber }) => revisionNumber)) + 1,
+        revisionNumber: version + 1,
         snapshotJson: JSON.stringify(current),
         actorId: draft.actorId,
         // Never earlier than the revision it follows, matching D1. See `D1ContentRepository`.
@@ -511,14 +558,35 @@ export class MemoryContentRepository
     profileId: string,
     draft: ContentRevisionDraft,
     edit: ContentEdit<SpeakerProfile>,
+    expectedVersion?: number,
   ) {
+    const stored = this.speakers.find(({ id }) => id === profileId);
     const next = this.revise(
       "profile",
-      this.speakers.find(({ id }) => id === profileId),
+      stored ? this.profileVersion(stored) : undefined,
       draft,
-      edit,
+      (current) => {
+        const edited = edit(current);
+        if (
+          edited.photoAssetId &&
+          !this.assets.some(
+            (asset) => asset.id === edited.photoAssetId && asset.speakerProfileId === profileId,
+          )
+        )
+          throw new ContentConflictError(
+            "This profile's saved headshot is no longer available. Reload and try again.",
+          );
+        return { ...edited, version: (current.version ?? 0) + 1 };
+      },
+      expectedVersion,
     );
-    if (next) this.speakers = this.speakers.map((item) => (item.id === next.id ? next : item));
+    if (next) {
+      this.speakers = this.speakers.map((item) => (item.id === next.id ? next : item));
+      if (stored?.photoAssetId && stored.photoAssetId !== next.photoAssetId)
+        this.assets = this.assets.map((asset) =>
+          asset.id === stored.photoAssetId ? { ...asset, visibility: "private" } : asset,
+        );
+    }
     return next;
   }
   async reviseSession(

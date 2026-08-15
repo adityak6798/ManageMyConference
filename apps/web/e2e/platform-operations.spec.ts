@@ -14,6 +14,7 @@
  * This spec mutates nothing. Every route it touches is a read.
  */
 import { expect, type Page, test } from "@playwright/test";
+import { fillAdditionalEvent } from "./event-creation";
 
 async function openConsoleAs(page: Page, persona: "organizer" | "reviewer") {
   await page.goto("/");
@@ -171,7 +172,7 @@ test("a brand-new event's inbox says its public page is not live", async ({ page
   const name = `Greenroom Inbox Trial ${Date.now()}`;
   await openConsoleAs(page, "organizer");
   await page.getByRole("link", { name: /Event settings/ }).click();
-  await page.getByLabel("Event name", { exact: true }).fill(name);
+  await fillAdditionalEvent(page, { name });
   await page.getByRole("button", { name: "Create event" }).click();
   await expect(page.getByRole("combobox", { name: "Event workspace" })).toContainText(name);
 
@@ -223,7 +224,7 @@ test("the activity timeline records a real mutation with the organizer who made 
   const name = `Greenroom Activity Trial ${Date.now()}`;
   await openConsoleAs(page, "organizer");
   await page.getByRole("link", { name: /Event settings/ }).click();
-  await page.getByLabel("Event name", { exact: true }).fill(name);
+  await fillAdditionalEvent(page, { name });
   await page.getByRole("button", { name: "Create event" }).click();
   await expect(page.getByRole("combobox", { name: "Event workspace" })).toContainText(name);
 

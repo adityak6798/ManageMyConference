@@ -104,3 +104,17 @@ plaintext merely to replay a response, so those two operations neither accept no
 no key: it is naturally convergent, and an unkeyed retry answers `204` when the client is already
 revoked. No API-client route advertises key-scoped semantics it does not implement. This is the
 public contract decision for issue #100, not an accidental unfinished idempotency path.
+
+`POST /api/events` accepts an optional `Idempotency-Key`. Omitting it preserves the original
+unkeyed create contract. Supplying it scopes a retry to the signed-in actor, organization, and
+operation, replays the event fields returned by the first successful create even if the event was
+renamed later, and returns `409 CONFLICT` if the same key is reused with a different name or time
+zone. The key is a header, not an `idempotencyKey` body field.
+
+Speaker profile versioning is additive too. `PATCH /api/speaker-profiles/{profileId}` and the
+profile-photo `PUT`/`DELETE` accept `expectedVersion`; current console clients send it and receive
+`409 CONFLICT` for a stale view. Older profile PATCH bodies may omit both `expectedVersion` and the
+new `jobTitle`, older photo PUT bodies may omit `expectedVersion`, and the historical bodyless
+photo DELETE remains valid. In those compatibility cases the service guards the version it reads
+inside the request, so the canonical revision/audit path remains one path without narrowing a
+previously accepted request shape.
