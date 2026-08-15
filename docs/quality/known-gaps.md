@@ -707,6 +707,23 @@ feature-by-feature verdict.
   `ready`/`blocked` in `packages/contracts/src/domains/content.ts`, in contrast with the CRM's
   stages, which issue #197 has just turned into data.
 
+  **Two of the six now have a primitive waiting, and neither capability is thereby implemented.**
+  Issue #196 needed the same two shapes and built them as conventions rather than as one feature's
+  private machinery, so this lane adds a resolver instead of a second convention
+  ([`ADR-006`](../decisions/adr-006-field-access-and-capability-links.md), `DEBT-014`):
+
+  - *Share links* — `capability_links` is the one anonymous-share table. A token stored only as a
+    hash, addressing `(resource_kind, resource_ref)` with no foreign key, with an optional
+    password, an expiry capped at 30 days, an optional view limit, and revocation.
+    **`speaker-profile` and `speaker-asset` are already declared kinds and are resolved by
+    nothing**, deliberately: what is missing is a resolver and a surface, not a token model.
+  - *Locked portal fields* — `event_field_locks` is the per-event write surface this entry says is
+    "fixed in code". It is merged onto every non-organizer grant at the stricter of the two and
+    enforced by `assertEditable` in `updateMyProfile`, so a speaker portal is already governed by
+    it; what content owns is deciding which of its own fields an organizer may freeze.
+
+  The other four are untouched by that work.
+
   Impact: a reader of the issue finds six named capabilities with nothing behind them, and the
   `ACC-SPEAKER` row must not be read as covering any of them — it says so. Owner: content.
   Governing ID: `PRD-SPK-001`, `PRD-SPK-002`, `PRD-CNT-001`, `ACC-SPEAKER`. Closure: each

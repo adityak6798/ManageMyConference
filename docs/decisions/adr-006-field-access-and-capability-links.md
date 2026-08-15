@@ -85,7 +85,7 @@ by nothing, deliberately, so `GAP-028`'s lane consumes this rather than minting 
   revoked where a message in a mailbox cannot, and staying out of the outbox avoids widening
   `communication_deliveries.trigger_type` — a pinned CHECK, and therefore a table rebuild in
   another lane's migration block. The cost is that these sends are absent from the communications
-  history and share none of its retry ladder; `GAP-029` and `DEBT-014` record it.
+  history and share none of its retry ladder; `GAP-031` and `DEBT-014` record it.
 
 ## Alternatives considered
 

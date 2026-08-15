@@ -51,8 +51,8 @@ issues #28 and #90).
 
 | Command | Result |
 |---|---|
-| `npm run check` | exit 0 — `gate:integrity` (gate drift over 6 gates, Biome/Ruff format, `greenroom-context check`, Python CLI tests, lint + AST error policy, typecheck, OpenAPI drift, declared-schema drift over 94 tables and 66 migrations), then `gate:test-build` (1003 tests in `@greenroom/api`, 371 in `@greenroom/web`, and the `node --test` tool suite, plus both production builds), then `gate:d1` (242 tests in 27 files), then `gate:evidence` |
-| `npm run gate:browser` (`setup:local`, production web build, `reset`, then the suite) | 72 passed, on derived ports with no manual port assignment. This is the clean-reset run; building first also proves Wrangler can serve the production frontend artifact from a clean checkout |
+| `npm run check` | exit 0 — `gate:integrity` (gate drift over 6 gates, Biome/Ruff format, `greenroom-context check`, Python CLI tests, lint + AST error policy, typecheck, OpenAPI drift, declared-schema drift over 96 tables and 71 migrations), then `gate:test-build` (1123 tests in `@greenroom/api`, 380 in `@greenroom/web`, and the `node --test` tool suite, plus both production builds), then `gate:d1` (248 tests in 27 files), then `gate:evidence` |
+| `npm run gate:browser` (`setup:local`, production web build, `reset`, then the suite) | 79 passed, on derived ports with no manual port assignment. This is the clean-reset run; building first also proves Wrangler can serve the production frontend artifact from a clean checkout |
 | `npm run test:quality` | 7 passed |
 | `npm run gate:security` | exit 0 — `npm audit --audit-level=high` found 0 vulnerabilities |
 | gitleaks | **not runnable locally.** It is a marketplace action; it succeeded in the `security` job of run `31471037575` at head `10eab436` |
@@ -174,10 +174,14 @@ Programme, portals and reporting evidence addendum (`ACC-IDENTITY-EVENTS`, `ACC-
   the named reason a session could not be seated, and the stale-board refusal on accept.
 - **Embeds** (`embed-lifecycle.test.ts`) cover every output format, the immutable output and token,
   and revocation.
-- **Not covered by any of these**: no browser spec drives the new workspaces end to end. They are
-  visited by the `lifecycle-demo` axe and 390px sweeps, which enumerate the sidebar and therefore
-  pick them up automatically, but no spec asserts a portal, report, embed or generated arrangement
-  as a *journey* in the browser. That is the honest limit of these rows.
+- **Not covered by any of these**: no browser spec drives the new workspaces end to end. Each is
+  audited by the `lifecycle-demo` axe and 390px sweeps, which enumerate the sidebar and refuse a
+  destination with no declared readiness signal — so `/reports`, `/sites`, `/roles` and
+  `/integrations/webhooks` each name in `READY` the content their audit waits for, and
+  `/integrations/webhooks` names the *unconfigured* state, because that is what a deployment with
+  no webhook egress renders and no suite here audits a configured one. What none of that is, is a
+  journey: no spec composes a portal and registers against it, builds a report and opens its share
+  link, or accepts a generated arrangement onto the board. That is the honest limit of these rows.
 
 ## What each row's automated evidence actually is
 
