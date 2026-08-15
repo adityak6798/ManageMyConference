@@ -1883,6 +1883,16 @@ describe("D1 CRM organization directory", () => {
     );
     if (!firstLease) throw new Error("The scheduled campaign was not claimed");
     expect(firstLease.state).toBe("running");
+    expect(
+      (
+        await repository.listDueCampaigns("2026-08-11T10:10:00.000Z", "2026-08-11T09:55:00.000Z")
+      ).map(({ id }) => id),
+    ).not.toContain(campaign.id);
+    expect(
+      (
+        await repository.listDueCampaigns("2026-08-11T10:20:00.000Z", "2026-08-11T10:05:00.000Z")
+      ).map(({ id }) => id),
+    ).toContain(campaign.id);
     const reclaimed = await repository.transitionCampaign(
       organizationId,
       campaign.id,
