@@ -37452,6 +37452,7 @@
                                 "outcome": {
                                   "type": "string",
                                   "enum": [
+                                    "pending",
                                     "delivered",
                                     "failed"
                                   ]

@@ -18,6 +18,7 @@ import {
   type ReportDefinition,
   ReportNameTakenError,
   type ReportRepository,
+  type CompletedReportRun,
   type ReportRun,
   type ReportSchedule,
 } from "../../application/platform/reporting-service";
@@ -300,7 +301,7 @@ export class D1ReportRepository implements ReportRepository {
     return changedRows(inserted, "claim a report run") > 0;
   }
 
-  async recordRun(run: ReportRun): Promise<void> {
+  async recordRun(run: CompletedReportRun): Promise<void> {
     const result = await this.database
       .prepare(
         "INSERT INTO report_runs (id, schedule_id, occurrence_key, ran_at, outcome, detail) VALUES (?,?,?,?,?,?)",
@@ -327,7 +328,7 @@ export class D1ReportRepository implements ReportRepository {
           "SELECT id, schedule_id, occurrence_key, ran_at, outcome, detail FROM report_runs " +
           "UNION ALL " +
           "SELECT c.run_id AS id, c.schedule_id, c.occurrence_key, c.claimed_at AS ran_at, " +
-          "'failed' AS outcome, 'Delivery did not complete.' AS detail FROM report_run_claims c " +
+          "'pending' AS outcome, 'Delivery is in progress or was interrupted.' AS detail FROM report_run_claims c " +
           "LEFT JOIN report_runs r ON r.id = c.run_id WHERE r.id IS NULL" +
           ") WHERE schedule_id = ? ORDER BY ran_at DESC, id DESC LIMIT ?",
         scheduleId,

@@ -223,9 +223,11 @@ export interface ReportRun {
   readonly scheduleId: string;
   readonly occurrenceKey: string;
   readonly ranAt: string;
-  readonly outcome: "delivered" | "failed";
+  readonly outcome: "pending" | "delivered" | "failed";
   readonly detail: string;
 }
+
+export type CompletedReportRun = ReportRun & { readonly outcome: "delivered" | "failed" };
 
 export interface ReportRepository {
   list(eventId: string): Promise<readonly ReportDefinition[]>;
@@ -244,7 +246,7 @@ export interface ReportRepository {
   /** Durably claims one occurrence before delivery, answering false if it was already claimed. */
   claimRun(run: ReportRun, lastFiredKey: string): Promise<boolean>;
   /** Appends the delivery result after the external effect finishes. */
-  recordRun(run: ReportRun): Promise<void>;
+  recordRun(run: CompletedReportRun): Promise<void>;
   listRuns(scheduleId: string, limit: number): Promise<readonly ReportRun[]>;
 }
 
@@ -794,10 +796,11 @@ export class ReportingService {
         scheduleId: schedule.id,
         occurrenceKey: key,
         ranAt: now.toISOString(),
-        // If the worker disappears, listRuns projects the unmatched durable claim as this
-        // truthful failure, while a retry still cannot deliver the occurrence twice.
-        outcome: "failed" as const,
-        detail: "Delivery did not complete.",
+        // Until the immutable result is appended, the durable claim is honestly pending: it may
+        // be inside the provider await or may have been interrupted. Either way, a retry still
+        // cannot deliver the occurrence twice.
+        outcome: "pending" as const,
+        detail: "Delivery is in progress or was interrupted.",
       };
       if (!(await this.dependencies.repository.claimRun(claim, key))) continue;
       let outcome: "delivered" | "failed" = "delivered";

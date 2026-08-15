@@ -50,6 +50,7 @@ import {
   PUBLICATION_LABEL,
   PUBLICATION_TONE,
   photoVisibility,
+  presentSocialLinks,
   plural,
   type Run,
   type SpeakerAsset,
@@ -191,14 +192,13 @@ export function SpeakerView({
     if (busy) return;
     setSocialErrors({});
     // Blank means "no link", so an emptied box is sent as an absence rather than as "".
-    const socialLinks = Object.fromEntries(
-      Object.entries(draft.socialLinks).filter(([, value]) => value.trim()),
-    );
+    const socialLinks = presentSocialLinks(draft.socialLinks);
     const next = { ...draft, socialLinks };
+    const savedPayload = { ...saved, socialLinks: presentSocialLinks(saved.socialLinks) };
     const changes = Object.fromEntries(
       Object.entries(next).filter(
         ([key, value]) =>
-          JSON.stringify(value) !== JSON.stringify(saved[key as keyof ProfileDraft]),
+          JSON.stringify(value) !== JSON.stringify(savedPayload[key as keyof ProfileDraft]),
       ),
     ) as UpdateSpeakerProfileInput;
     if (!Object.keys(changes).length) return;

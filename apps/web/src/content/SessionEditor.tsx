@@ -60,10 +60,15 @@ export function SessionEditor({
       tracks: commaList(draft.tracks),
       publicationState: draft.publicationState,
     };
+    const savedPayload = {
+      ...saved,
+      tags: commaList(saved.tags),
+      tracks: commaList(saved.tracks),
+    };
     const changes = Object.fromEntries(
       Object.entries(next).filter(
         ([key, value]) =>
-          JSON.stringify(value) !== JSON.stringify(saved[key as keyof typeof saved]),
+          JSON.stringify(value) !== JSON.stringify(savedPayload[key as keyof typeof savedPayload]),
       ),
     ) as UpdateContentSessionInput;
     if (Object.keys(changes).length) onSave(changes);

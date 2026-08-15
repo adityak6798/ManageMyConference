@@ -81,7 +81,7 @@ prevent the holder from editing an allowed sibling.
 For report capability links, password verification and finite-view spending are one atomic
 write, so an absent or wrong password never consumes the holder's remaining view. A scheduled
 delivery durably claims its unique occurrence before contacting the provider, then appends the
-immutable result. An unmatched claim is shown as an interrupted failure; two overlapping ticks
-cannot both send it.
+immutable result. An unmatched claim is shown as pending because it may be inside the provider
+await or may have been interrupted; two overlapping ticks cannot both send it.
 
 Detailed wire and event contracts belong in [interfaces](../interfaces/README.md); data ownership belongs in [domain boundaries](../architecture/domain-boundaries.md).

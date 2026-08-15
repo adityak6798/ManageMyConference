@@ -219,6 +219,11 @@ function commaList(value: string) {
     .filter(Boolean);
 }
 
+/** The canonical API representation of controlled social-link inputs. */
+function presentSocialLinks(links: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(Object.entries(links).filter(([, value]) => value.trim()));
+}
+
 /**
  * The platforms a speaker can record a link for, with the label each surface uses.
  *
@@ -420,6 +425,7 @@ export {
   PUBLICATION_LABEL,
   PUBLICATION_TONE,
   photoVisibility,
+  presentSocialLinks,
   plural,
   sessionDraft,
   shortDate,

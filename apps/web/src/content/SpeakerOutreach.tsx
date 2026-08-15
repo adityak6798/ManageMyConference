@@ -16,6 +16,7 @@ import {
   FieldErrors,
   isImageAsset,
   plural,
+  presentSocialLinks,
   type Run,
   SOCIAL_PLATFORMS,
   shortDate,
@@ -128,11 +129,10 @@ export function SpeakerOutreach({
   async function saveProfile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy || !editingProfile || !profileDraft) return;
-    const socialLinks = Object.fromEntries(
-      Object.entries(profileDraft.socialLinks).filter(([, value]) => value.trim()),
-    );
+    const socialLinks = presentSocialLinks(profileDraft.socialLinks);
     const next = { ...profileDraft, socialLinks };
-    const saved = draftFor(editingProfile);
+    const savedDraft = draftFor(editingProfile);
+    const saved = { ...savedDraft, socialLinks: presentSocialLinks(savedDraft.socialLinks) };
     const changes = Object.fromEntries(
       Object.entries(next).filter(
         ([key, value]) =>

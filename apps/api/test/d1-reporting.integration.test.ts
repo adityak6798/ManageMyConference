@@ -61,8 +61,8 @@ describe("scheduled report claims against D1", () => {
     scheduleId: SCHEDULE,
     occurrenceKey: "daily:2026-08-14",
     ranAt: NOW,
-    outcome: "failed",
-    detail: "Delivery did not complete.",
+    outcome: "pending",
+    detail: "Delivery is in progress or was interrupted.",
   };
 
   it("admits one pre-delivery claim and keeps an interrupted claim visible", async () => {
