@@ -687,6 +687,7 @@ export function PublicCfpView({
                             key={state}
                             type="button"
                             onClick={() => {
+                              // ERROR-INTENT: guarded reports rejection through the shared action feedback.
                               void guarded(
                                 async () => {
                                   await respondToParticipantInvitation(invitation, state);
