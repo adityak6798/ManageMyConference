@@ -38,7 +38,9 @@ export function mergePass(ledger, pass) {
       ...finding,
       firstSeenPass: existing?.firstSeenPass ?? pass.pass,
       lastSeenPass: pass.pass,
-      status: finding.status ?? existing?.status ?? "open",
+      // A recurring finding is open again. Carry identity across passes, never a stale closure.
+      status: finding.status ?? "open",
+      evidence: finding.evidence,
     });
   }
   return {
@@ -88,7 +90,7 @@ export function publicationProblems(ledger, head) {
         "findings comment can claim to describe this head.",
     );
   for (const pass of ledger.passes)
-    if (typeof pass.durationMinutes !== "number")
+    if (!Number.isFinite(pass.durationMinutes) || pass.durationMinutes < 0)
       problems.push(
         `Review pass ${pass.pass} has no duration. Record elapsed minutes so review cost and ` +
           "finding yield can be tuned from evidence.",
@@ -115,6 +117,9 @@ export function renderFindings(ledger, head) {
       `${finding.status ?? "open"} | ${finding.evidence ?? "—"} | pass ${finding.firstSeenPass} |`,
   );
   return [
+    // Keep both shipped markers on the same stable comment. Older tool-rendered comments used
+    // `greenroom:findings`; Ship It examples used `ship-it-findings`. Either updater finds this.
+    `<!-- greenroom:findings -->`,
     `<!-- ship-it-findings -->`,
     `## Ship It review findings`,
     "",

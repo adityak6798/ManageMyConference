@@ -103,8 +103,9 @@ Read [review-loop.md](references/review-loop.md) before starting adversarial rev
   last pass ran against a commit that is no longer the head. A repair after the review moves the
   head, and a comment naming the old one describes a review of code that is no longer there.
 - Use the ledger dispositions `fixed`, `rejected`, `duplicate`, `outdated`, or `deferred` and
-  include evidence for every closed row. The renderer owns the stable `ship-it-findings` marker;
-  do not hand-write a parallel findings table under a different marker.
+  include evidence for every closed row. The renderer owns both shipped legacy markers on the
+  same stable comment (`greenroom:findings` and `ship-it-findings`); do not hand-write a parallel
+  findings table under another marker.
 - Add or update one PR comment containing the triaged findings table. Include Ralph and automated-review findings, their disposition, and evidence.
 - Before calling the PR review-ready, give every actionable item that will survive merge a durable issue tracker. Link an appropriate open issue and update its scope when needed; create a new issue only when no existing issue cleanly owns the work. Avoid duplicates. Record the owner, deferral rationale or current state, and a concrete closure condition in the issue.
 - Add or update a separate PR comment titled `Remaining work` listing unresolved blockers, deferred items, external verification, ownership, and the linked issue for every actionable follow-on. If nothing remains, say so explicitly.

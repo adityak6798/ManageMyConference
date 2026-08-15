@@ -105,6 +105,24 @@ test("a finding raised in an early pass survives later passes", () => {
   assert.equal(ledger.findings[0].status, "open");
 });
 
+test("a finding re-raised after a fix reopens and discards stale closure evidence", () => {
+  let ledger = mergePass(emptyLedger(), {
+    pass: 1,
+    head: "aaa",
+    durationMinutes: 4,
+    findings: [finding({ status: "fixed", evidence: "commit abc, pass 1" })],
+  });
+  ledger = mergePass(ledger, {
+    pass: 2,
+    head: "bbb",
+    durationMinutes: 2,
+    findings: [finding()],
+  });
+  assert.equal(ledger.findings[0].status, "open");
+  assert.equal(ledger.findings[0].evidence, undefined);
+  assert.match(publicationProblems(ledger, "bbb")[0], /major still open/);
+});
+
 test("findings are ordered by severity", () => {
   const ledger = mergePass(emptyLedger(), {
     pass: 1,
@@ -191,12 +209,25 @@ test("late-pass findings appear in the rendered comment against the final head",
   assert.match(comment, /Reviewed head: `bbb`/);
   assert.match(comment, /Late finding from the repair pass/);
   assert.match(comment, /ship-it-findings/);
+  assert.match(comment, /greenroom:findings/);
   assert.match(comment, /5 review minute/);
 });
 
 test("publication requires review duration for every pass", () => {
   const ledger = mergePass(emptyLedger(), { pass: 1, head: "aaa", findings: [] });
   assert.match(publicationProblems(ledger, "aaa")[0], /pass 1 has no duration/);
+});
+
+test("publication rejects impossible review durations", () => {
+  for (const durationMinutes of [Number.NaN, Number.POSITIVE_INFINITY, -1]) {
+    const ledger = mergePass(emptyLedger(), {
+      pass: 1,
+      head: "aaa",
+      durationMinutes,
+      findings: [],
+    });
+    assert.match(publicationProblems(ledger, "aaa")[0], /has no duration/);
+  }
 });
 
 test("pass duration and yield are recorded so the policy can be tuned", () => {

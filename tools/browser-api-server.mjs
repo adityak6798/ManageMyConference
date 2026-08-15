@@ -6,7 +6,7 @@
  * by Playwright's webServer capture. The product still owes those logs to operators, so the
  * harness writes them to a durable file instead of suppressing them.
  */
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { closeSync, mkdirSync, openSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -18,6 +18,44 @@ export function browserApiLogPath(environment = resolveWorktreeEnvironment()) {
 
 export function browserApiCommand() {
   return process.platform === "win32" ? "npm.cmd" : "npm";
+}
+
+export function processTreePids(rootPid, processTable) {
+  const children = new Map();
+  for (const line of processTable.split("\n")) {
+    const match = line.trim().match(/^(\d+)\s+(\d+)$/);
+    if (!match) continue;
+    const pid = Number(match[1]);
+    const parent = Number(match[2]);
+    children.set(parent, [...(children.get(parent) ?? []), pid]);
+  }
+  const result = [];
+  const visit = (pid) => {
+    for (const child of children.get(pid) ?? []) {
+      visit(child);
+      result.push(child);
+    }
+  };
+  visit(rootPid);
+  return result;
+}
+
+export function terminateProcessTree(
+  rootPid,
+  {
+    signal = "SIGTERM",
+    processTable = execFileSync("ps", ["-axo", "pid=,ppid="], { encoding: "utf8" }),
+    kill = process.kill,
+  } = {},
+) {
+  for (const pid of [...processTreePids(rootPid, processTable), rootPid]) {
+    try {
+      kill(pid, signal);
+    } catch (error) {
+      // ERROR-INTENT: a descendant can exit between `ps` and `kill`; only ESRCH is already done.
+      if (error?.code !== "ESRCH") throw error;
+    }
+  }
 }
 
 export function runBrowserApi({ root = resolveWorktreeEnvironment().root } = {}) {
@@ -33,7 +71,7 @@ export function runBrowserApi({ root = resolveWorktreeEnvironment().root } = {})
 
   const forward = (signal) => {
     if (child.killed) return;
-    child.kill(signal);
+    terminateProcessTree(child.pid, { signal });
   };
   process.once("SIGINT", () => forward("SIGINT"));
   process.once("SIGTERM", () => forward("SIGTERM"));
