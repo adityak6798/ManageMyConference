@@ -84,7 +84,10 @@ export const DIMENSIONS = [
     id: "harness-and-gates",
     depth: "deep",
     why: "A weakened gate makes every later review less trustworthy, and does it silently.",
-    matches: (file) => /^tools\/|^\.github\/|^context\/|^context-manifest\.json$/.test(file),
+    matches: (file) =>
+      /^tools\/|^\.github\/|^context\/|^context-manifest\.json$/.test(file) ||
+      /^apps\/web\/playwright\..*config\.ts$/.test(file) ||
+      /^apps\/web\/e2e\/(fixtures|global-setup|quality-global-setup)\.ts$/.test(file),
   },
   {
     id: "product-behaviour",

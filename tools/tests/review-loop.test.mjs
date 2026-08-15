@@ -66,8 +66,16 @@ test("touching a generator alongside its output is not generated-only", () => {
 });
 
 test("harness and gate changes are reviewed deeply", () => {
-  const map = riskMap([".github/workflows/ci.yml", "tools/check-evidence.mjs"], manifest);
+  const map = riskMap(
+    [".github/workflows/ci.yml", "tools/check-evidence.mjs", "apps/web/e2e/fixtures.ts"],
+    manifest,
+  );
   assert.ok(map.deep.includes("harness-and-gates"));
+  assert.ok(
+    map.dimensions
+      .find((dimension) => dimension.id === "harness-and-gates")
+      .files.includes("apps/web/e2e/fixtures.ts"),
+  );
 });
 
 test("deployed egress code is a deep provider effect", () => {
