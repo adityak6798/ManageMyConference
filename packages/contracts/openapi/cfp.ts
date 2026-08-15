@@ -15,6 +15,7 @@ import {
   eventIdParamsSchema,
   proposalConfirmationResponseSchema,
   proposalParticipantResponseSchema,
+  proposalParticipantInvitationsResponseSchema,
   respondProposalParticipantInputSchema,
   saveCfpInputSchema,
   saveProposalInputSchema,
@@ -133,6 +134,22 @@ export const cfpPaths: OpenApiFragment = {
         400: errorResponse,
         401: errorResponse,
         // A bearer credential — an event token or an API client — is refused here.
+        403: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "get",
+      path: "/api/events/{eventId}/cfp/participant-invitations",
+      security: [{ sessionCookie: [] }],
+      request: { params: eventIdParamsSchema },
+      responses: {
+        200: {
+          description: "Participant invitations linked to the signed-in account's address",
+          content: json(proposalParticipantInvitationsResponseSchema),
+        },
+        400: errorResponse,
+        401: errorResponse,
         403: errorResponse,
         500: errorResponse,
       },

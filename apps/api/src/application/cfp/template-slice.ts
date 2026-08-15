@@ -303,6 +303,7 @@ function matches(
 }
 
 const FIELD_TYPES: readonly CfpFieldType[] = ["short_text", "long_text", "email", "select"];
+const CHOICE_ID = /^[a-zA-Z0-9_-]+$/;
 
 /**
  * The form's shape limits, as `cfpFieldSchema`, `cfpFieldsSchema` and `saveCfpInputSchema` state
@@ -430,6 +431,7 @@ function readField(raw: unknown): CfpField {
       typeof item.label !== "string" ||
       typeof item.active !== "boolean" ||
       !within(item.id, 1, LIMIT.id) ||
+      !CHOICE_ID.test(item.id) ||
       !within(item.label.trim(), 1, LIMIT.option)
     )
       throw unreadable();

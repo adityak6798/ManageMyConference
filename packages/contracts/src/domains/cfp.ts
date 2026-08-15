@@ -248,6 +248,17 @@ export const proposalParticipantResponseSchema = z.object({
   participant: z.object({ id: z.string().uuid(), state: proposalParticipantStateSchema }),
   revision: z.number().int().positive(),
 });
+export const proposalParticipantInvitationSchema = z.object({
+  eventId: z.string().uuid(),
+  proposalId: z.string().uuid(),
+  proposalTitle: z.string().nullable(),
+  participant: proposalParticipantSchema,
+  revision: z.number().int().positive(),
+});
+export const proposalParticipantInvitationsResponseSchema = z.object({
+  invitations: z.array(proposalParticipantInvitationSchema),
+});
+export type ProposalParticipantInvitationDto = z.infer<typeof proposalParticipantInvitationSchema>;
 /**
  * What a submitter is told about their own proposal.
  *

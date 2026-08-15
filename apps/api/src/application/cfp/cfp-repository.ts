@@ -117,6 +117,11 @@ export interface CfpRepository {
   findSubmissionById(eventId: string, proposalId: string): Promise<ProposalSubmission | null>;
   /** Any lifecycle, for a participant response after identity has been verified by the service. */
   findProposalById(eventId: string, proposalId: string): Promise<ProposalSubmission | null>;
+  /** Proposals naming this normalized participant address, for the invited account's inbox. */
+  listParticipantInvitations(
+    eventId: string,
+    participantEmail: string,
+  ): Promise<readonly ProposalSubmission[]>;
   createSubmission(submission: ProposalSubmission): Promise<ProposalSubmission | null>;
   /** One proposal of any lifecycle, scoped to the account that owns it. */
   findProposalForOwner(

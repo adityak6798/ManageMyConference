@@ -12,6 +12,7 @@
 import {
   cfpConditionMatches,
   type ProposalParticipantInput,
+  type ProposalParticipantInvitationDto,
   type SessionDto,
 } from "@greenroom/contracts";
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
@@ -20,6 +21,8 @@ import {
   type CfpFormDto,
   createProposalDraft,
   loadMyProposals,
+  loadParticipantInvitations,
+  respondToParticipantInvitation,
   saveProposal,
   submitOwnedProposal,
   type SubmitterProposalDto,
@@ -106,6 +109,7 @@ export function PublicCfpView({
   const [session, setSession] = useState<SessionDto | null>(null);
   const [doors, setDoors] = useState<AuthDoors | null>(null);
   const [proposals, setProposals] = useState<readonly SubmitterProposalDto[]>([]);
+  const [invitations, setInvitations] = useState<readonly ProposalParticipantInvitationDto[]>([]);
   /** The owned proposal the form is bound to, or null when the form is a fresh one. */
   const [editing, setEditing] = useState<SubmitterProposalDto | null>(null);
   const [participants, setParticipants] = useState<ProposalParticipantInput[]>([]);
@@ -135,6 +139,9 @@ export function PublicCfpView({
     const listed = await loadMyProposals(eventId);
     if (generation === refreshGeneration.current) setProposals(listed);
   }, [eventId]);
+  const refreshInvitations = useCallback(async () => {
+    setInvitations(await loadParticipantInvitations(eventId));
+  }, [eventId]);
 
   useEffect(() => {
     let live = true;
@@ -152,7 +159,8 @@ export function PublicCfpView({
          * went wrong, contact support" is the wrong thing to say about an empty dashboard.
          */
         // ERROR-INTENT: an absent list is what a failed read leaves, and the page renders that.
-        if (identity.session) void refreshProposals().catch(() => undefined);
+        if (identity.session)
+          void Promise.all([refreshProposals(), refreshInvitations()]).catch(() => undefined);
       })
       .catch((reason: unknown) => {
         // ERROR-INTENT: rendered rather than rethrown. A visitor whose identity could not be read
@@ -164,7 +172,7 @@ export function PublicCfpView({
     return () => {
       live = false;
     };
-  }, [refreshProposals]);
+  }, [refreshInvitations, refreshProposals]);
 
   /**
    * Report a refusal beside the control that caused it, keeping any field errors it carried.
@@ -230,7 +238,8 @@ export function PublicCfpView({
        * outcome is already rendered, and the next action or page load reads it again.
        */
       // ERROR-INTENT: a list that failed to reload is stale and nothing more.
-      if (refreshes && signedIn) void refreshProposals().catch(() => undefined);
+      if (refreshes && signedIn)
+        void Promise.all([refreshProposals(), refreshInvitations()]).catch(() => undefined);
     }
   }
 
@@ -651,6 +660,52 @@ export function PublicCfpView({
               Sign out
             </button>
           </p>
+          {invitations.length ? (
+            <section aria-labelledby="participant-invitations-title">
+              <h3 id="participant-invitations-title">Co-presenter invitations</h3>
+              <ul className="pub-proposal-list">
+                {invitations.map((invitation) => (
+                  <li className="pub-proposal" key={invitation.participant.id}>
+                    <div>
+                      <p className="pub-proposal-title">
+                        {invitation.proposalTitle ?? "Untitled proposal"}
+                      </p>
+                      <p className="pub-note">
+                        Invited as{" "}
+                        {invitation.participant.role === "moderator" ? "moderator" : "co-presenter"}
+                        {invitation.participant.state === "pending"
+                          ? "."
+                          : ` · ${invitation.participant.state}.`}
+                      </p>
+                    </div>
+                    {invitation.participant.state === "pending" ? (
+                      <div className="pub-proposal-side">
+                        {(["accepted", "declined"] as const).map((state) => (
+                          <button
+                            className="pub-button"
+                            disabled={submitting}
+                            key={state}
+                            type="button"
+                            onClick={() => {
+                              void guarded(
+                                async () => {
+                                  await respondToParticipantInvitation(invitation, state);
+                                  await refreshInvitations();
+                                },
+                                `The invitation could not be ${state === "accepted" ? "accepted" : "declined"}.`,
+                              );
+                            }}
+                          >
+                            {state === "accepted" ? "Accept invitation" : "Decline invitation"}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
           {proposals.length === 0 ? (
             <p className="pub-note">
               Nothing yet. Fill in the form below and save it as a draft, or submit it straight away

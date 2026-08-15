@@ -94,7 +94,10 @@ const complete = {
 async function open(
   options: {
     notifications?: CfpNotificationPort;
-    participantIdentities?: { findByEmail(email: string): Promise<Actor | null> };
+    participantIdentities?: {
+      findByEmail(email: string): Promise<Actor | null>;
+      findRecipient(userId: string): Promise<{ email: string | null } | null>;
+    };
   } = {},
 ) {
   let clock = new Date("2026-08-10T12:00:00.000Z");
@@ -395,6 +398,8 @@ describe("a proposal that belongs to an account", () => {
     const { service, repository } = await open({
       participantIdentities: {
         findByEmail: async (email) => (email === "inez@example.test" ? invited : null),
+        findRecipient: async (userId) =>
+          userId === invited.id ? { email: "inez@example.test" } : null,
       },
     });
     const current = await service.getForOrganizer(organizer, eventId);
@@ -475,7 +480,10 @@ describe("a proposal that belongs to an account", () => {
   it("does not let an owner rewrite private fields of an accepted participant", async () => {
     const invited = submitter("user-invited", "Inez Invited");
     const { service } = await open({
-      participantIdentities: { findByEmail: async () => invited },
+      participantIdentities: {
+        findByEmail: async () => invited,
+        findRecipient: async () => ({ email: "inez@example.test" }),
+      },
     });
     const participant = {
       id: "10000000-0000-4000-8000-000000000099",
@@ -501,6 +509,20 @@ describe("a proposal that belongs to an account", () => {
     ).rejects.toMatchObject({
       fieldErrors: { participants: ["An accepted participant must update their own profile."] },
     });
+    await expect(
+      service.saveProposal(pat, eventId, draft.id, complete, draft.revision + 1, []),
+    ).rejects.toMatchObject({
+      fieldErrors: {
+        participants: ["An accepted participant must remove themselves from the proposal."],
+      },
+    });
+    await expect(service.participantInvitations(invited, eventId)).resolves.toMatchObject([
+      {
+        proposalId: draft.id,
+        participant: { ...participant, state: "accepted" },
+        revision: draft.revision + 1,
+      },
+    ]);
   });
 
   it("saves a title-only draft, resumes it, and submits it later", async () => {

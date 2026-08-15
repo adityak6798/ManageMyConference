@@ -18,6 +18,7 @@ import {
   saveProposalInputSchema,
   respondProposalParticipantInputSchema,
   proposalParticipantResponseSchema,
+  proposalParticipantInvitationsResponseSchema,
   submitProposalInputSchema,
   submitterProposalResponseSchema,
   submitterProposalsResponseSchema,
@@ -59,6 +60,7 @@ const routes = [
   "PUT /api/events/:eventId/cfp/proposals/:proposalId",
   "POST /api/events/:eventId/cfp/proposals/:proposalId/submit",
   "POST /api/events/:eventId/cfp/proposals/:proposalId/participants/:participantId/respond",
+  "GET /api/events/:eventId/cfp/participant-invitations",
   "GET /api/public/events/:eventId/cfp",
   "POST /api/public/events/:eventId/submissions",
 ] as const;
@@ -200,6 +202,26 @@ export const cfpRoutes: RouteModule = {
      * scoped to this module's own prefix.
      */
     app.use("/api/events/:eventId/cfp/proposals/*", refuseMachineCredentials);
+    app.use("/api/events/:eventId/cfp/participant-invitations", refuseMachineCredentials);
+    app.get("/api/events/:eventId/cfp/participant-invitations", async (context) => {
+      if (!cfpService) throw new CfpUnavailableError("CFP service is unavailable");
+      const params = eventIdParamsSchema.safeParse(context.req.param());
+      if (!params.success)
+        return context.json(
+          envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+          400,
+        );
+      submitterFor(context.get("actor"));
+      context.header("cache-control", "private, no-store");
+      return context.json(
+        proposalParticipantInvitationsResponseSchema.parse({
+          invitations: await cfpService.participantInvitations(
+            context.get("actor"),
+            params.data.eventId,
+          ),
+        }),
+      );
+    });
 
     app.get("/api/events/:eventId/cfp/proposals", async (context) => {
       if (!cfpService) throw new CfpUnavailableError("CFP service is unavailable");

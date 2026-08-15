@@ -298,6 +298,29 @@ describe("D1: the submission window in SQL", () => {
       fields: [{ id: "renamed", label: "Renamed" }],
     });
   });
+
+  it("discovers participant invitations by normalized address inside structured JSON", async () => {
+    const { repository } = await published({ opensAt: null, closesAt: null });
+    const invited = {
+      ...draftOf("50000000-0000-4000-8000-000000000099", PAT, AT, "participant-invite"),
+      participants: [
+        {
+          id: "10000000-0000-4000-8000-000000000099",
+          name: "Inez Invited",
+          email: "inez@example.test",
+          role: "co_speaker" as const,
+          state: "pending" as const,
+        },
+      ],
+    };
+    await expect(repository.createDraft(invited)).resolves.toMatchObject({ id: invited.id });
+    await expect(
+      repository.listParticipantInvitations(eventId, " INEZ@EXAMPLE.TEST "),
+    ).resolves.toMatchObject([{ id: invited.id, participants: invited.participants }]);
+    await expect(
+      repository.listParticipantInvitations(eventId, "other@example.test"),
+    ).resolves.toEqual([]);
+  });
 });
 
 describe("D1: a draft is not a submission", () => {

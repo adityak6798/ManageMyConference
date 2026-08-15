@@ -82,6 +82,16 @@ export class MemoryCfpRepository implements CfpRepository {
       ) ?? null,
     );
   }
+  listParticipantInvitations(eventId: string, participantEmail: string) {
+    const email = participantEmail.trim().toLowerCase();
+    return Promise.resolve(
+      [...this.submissions.values()].filter(
+        (proposal) =>
+          proposal.eventId === eventId &&
+          proposal.participants?.some((participant) => participant.email === email),
+      ),
+    );
+  }
   findProposalForOwner(eventId: string, proposalId: string, submitterUserId: string) {
     return Promise.resolve(
       [...this.submissions.values()].find(

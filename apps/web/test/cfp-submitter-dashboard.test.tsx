@@ -75,6 +75,7 @@ function mount(
     status?: "open" | "closed";
     /** Replaces the published form's questions, for the conditional-visibility cases. */
     liveFields?: readonly Record<string, unknown>[];
+    invitations?: readonly Record<string, unknown>[];
     write?: (url: string, init: RequestInit) => Promise<Response> | undefined;
   } = {},
 ) {
@@ -97,6 +98,8 @@ function mount(
         if (answered) return answered;
       }
       if (url === proposalsPath) return jsonResponse({ proposals: listed });
+      if (url === `/api/events/${eventId}/cfp/participant-invitations`)
+        return jsonResponse({ invitations: options.invitations ?? [] });
       return jsonResponse({ error: {} }, 404);
     }),
   );
@@ -140,6 +143,41 @@ afterEach(() => {
 });
 
 describe("the signed-in applicant's proposals", () => {
+  it("discovers and answers an invitation linked to the signed-in account", async () => {
+    const invitation = {
+      eventId,
+      proposalId: "50000000-0000-4000-8000-000000000001",
+      proposalTitle: "Taming CI",
+      participant: {
+        id: "10000000-0000-4000-8000-000000000099",
+        name: "Pat Attendee",
+        email: "pat@example.test",
+        role: "co_speaker",
+        state: "pending",
+      },
+      revision: 2,
+    };
+    const test = mount({
+      invitations: [invitation],
+      write: (url) =>
+        url.endsWith(`/participants/${invitation.participant.id}/respond`)
+          ? jsonResponse({
+              participant: { id: invitation.participant.id, state: "accepted" },
+              revision: 3,
+            })
+          : undefined,
+    });
+    await screen.findByText("Co-presenter invitations");
+    expect(screen.getByText("Taming CI")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Accept invitation" }));
+    await waitFor(() =>
+      expect(test.calls.find(({ url }) => url.includes("/participants/"))?.body).toEqual({
+        state: "accepted",
+        expectedRevision: 2,
+      }),
+    );
+  });
+
   it("submits even when the list read that follows the draft fails", async () => {
     /*
      * A view must not gate the action.

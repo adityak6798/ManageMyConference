@@ -7,6 +7,9 @@ import {
   cfpWindowInputSchema,
   createProposalDraftInputSchema,
   proposalConfirmationResponseSchema,
+  proposalParticipantInvitationsResponseSchema,
+  proposalParticipantResponseSchema,
+  type ProposalParticipantInvitationDto,
   type SaveCfpInput,
   type ProposalParticipantInput,
   saveProposalInputSchema,
@@ -14,6 +17,7 @@ import {
   submitProposalInputSchema,
   submitterProposalResponseSchema,
   submitterProposalsResponseSchema,
+  respondProposalParticipantInputSchema,
 } from "@greenroom/contracts";
 import type { z } from "zod";
 import { apiFetch as fetch, decodeResponse } from "./config";
@@ -122,6 +126,38 @@ export async function loadMyProposals(
       submitterProposalsResponseSchema,
     )
   ).proposals;
+}
+export async function loadParticipantInvitations(
+  eventId: string,
+  fetcher: typeof fetch = fetch,
+): Promise<ProposalParticipantInvitationDto[]> {
+  return (
+    await decode(
+      await fetcher(`/api/events/${eventId}/cfp/participant-invitations`),
+      proposalParticipantInvitationsResponseSchema,
+    )
+  ).invitations;
+}
+export async function respondToParticipantInvitation(
+  invitation: ProposalParticipantInvitationDto,
+  state: "accepted" | "declined",
+  fetcher: typeof fetch = fetch,
+) {
+  const body = respondProposalParticipantInputSchema.parse({
+    state,
+    expectedRevision: invitation.revision,
+  });
+  return decode(
+    await fetcher(
+      `/api/events/${invitation.eventId}/cfp/proposals/${invitation.proposalId}/participants/${invitation.participant.id}/respond`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    ),
+    proposalParticipantResponseSchema,
+  );
 }
 export async function createProposalDraft(
   eventId: string,

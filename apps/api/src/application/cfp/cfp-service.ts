@@ -117,6 +117,11 @@ const participantsFor = (
   current: readonly ProposalParticipant[],
   input: readonly ParticipantInput[],
 ): readonly ProposalParticipant[] => {
+  const inputIds = new Set(input.map(({ id }) => id));
+  if (current.some(({ id, state }) => state === "accepted" && !inputIds.has(id)))
+    throw new CfpValidationError({
+      participants: ["An accepted participant must remove themselves from the proposal."],
+    });
   const emails = new Set<string>();
   const ids = new Set<string>();
   return input.map((participant) => {
@@ -233,6 +238,7 @@ export class CfpService {
     private readonly notifications?: CfpNotificationPort,
     private readonly participantIdentities?: {
       findByEmail(email: string): Promise<Actor | null>;
+      findRecipient(userId: string): Promise<{ email: string | null } | null>;
     },
   ) {}
   async routingStatuses(actor: Actor | null, eventId: string) {
@@ -791,6 +797,30 @@ export class CfpService {
       ? { proposalId, eventId, cfpVersion: proposal.cfpVersion, submittedAt: proposal.submittedAt }
       : null;
   }
+  /** Accept or decline only the invitation bound to this signed-in identity. */
+  async participantInvitations(actor: Actor | null, eventId: string) {
+    const participantActor = submitterFor(actor);
+    if (!this.participantIdentities) return [];
+    const recipient = await this.participantIdentities.findRecipient(participantActor.id);
+    if (!recipient?.email) return [];
+    const proposals = await this.repository.listParticipantInvitations(eventId, recipient.email);
+    return proposals.flatMap((proposal) => {
+      const participant = proposal.participants?.find(
+        ({ email }) => email === recipient.email?.trim().toLowerCase(),
+      );
+      if (!participant) return [];
+      return [
+        {
+          eventId,
+          proposalId: proposal.id,
+          proposalTitle: proposalTitleOf(proposal.fields, proposal.answers),
+          participant,
+          revision: proposal.revision ?? 1,
+        },
+      ];
+    });
+  }
+
   /** Accept or decline only the invitation bound to this signed-in identity. */
   async respondToParticipantInvitation(
     actor: Actor | null,

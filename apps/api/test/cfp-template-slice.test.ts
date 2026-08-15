@@ -523,6 +523,21 @@ describe("CFP template slice: a hand-edited payload", () => {
     await refuses(form({ fields: [FIELDS[0], { ...FIELDS[1], options: [] }] }));
   });
 
+  it("refuses stable choice ids the public CFP contract cannot emit", async () => {
+    await refuses(
+      form({
+        fields: [
+          FIELDS[0],
+          {
+            ...FIELDS[1],
+            options: [],
+            choices: [{ id: "platform track", label: "Platform", active: true }],
+          },
+        ],
+      }),
+    );
+  });
+
   it("refuses a condition on a question the applicant has not been asked yet", async () => {
     const condition = { fieldId: "track", operator: "equals" as const, values: ["Platform"] };
     await refuses(form({ fields: [{ ...FIELDS[0], visibleWhen: condition }, FIELDS[1]] }));

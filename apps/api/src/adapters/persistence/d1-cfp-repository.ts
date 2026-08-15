@@ -278,6 +278,23 @@ export class D1CfpRepository implements CfpRepository {
     const row = result.results?.[0];
     return row ? submission(row) : null;
   }
+  async listParticipantInvitations(eventId: string, participantEmail: string) {
+    const result = await this.database
+      .prepare(
+        `SELECT ${PROPOSAL_COLUMNS} FROM cfp_submissions
+         WHERE event_id = ? AND EXISTS (
+           SELECT 1 FROM json_each(cfp_submissions.participants_json) AS participant
+           WHERE lower(trim(json_extract(participant.value, '$.email'))) = ?
+         ) ORDER BY submitted_at, id`,
+      )
+      .bind(eventId, participantEmail.trim().toLowerCase())
+      .all<SubmissionRow>();
+    if (!result.success)
+      throw new Error(
+        `D1 failed to list proposal participant invitations: ${result.error ?? "unknown error"}`,
+      );
+    return (result.results ?? []).map(submission);
+  }
   async findProposalForOwner(eventId: string, proposalId: string, submitterUserId: string) {
     const result = await this.database
       .prepare(
