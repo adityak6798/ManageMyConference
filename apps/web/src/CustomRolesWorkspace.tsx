@@ -57,7 +57,13 @@ const describe = (reason: unknown) =>
     : "Something went wrong. Please retry; if it continues, contact support.";
 
 /** `*` is the subject-wide default, and it is worth naming rather than printing the asterisk. */
-const fieldLabel = (field: string) => (field === "*" ? "Every other field" : field);
+const fieldLabel = (field: string) =>
+  field === "*"
+    ? "Every other field"
+    : field
+        .replace(/Id$/, "")
+        .replace(/([a-z])([A-Z])/g, "$1 $2")
+        .replace(/^./, (first) => first.toUpperCase());
 
 const emptyDraft = (template: Template): CustomRoleDraft => ({
   name: "",
@@ -298,15 +304,17 @@ export function CustomRolesWorkspace({
           </div>
         )}
         {canManage ? (
-          <div className="actions">
+          <div className="role-template-grid" aria-label="Role templates">
             {data.templates.map((template) => (
               <button
                 key={template.key}
                 type="button"
+                className="role-template-card secondary"
                 disabled={busy}
                 onClick={() => startNew(template.key)}
               >
-                New from “{template.label}”
+                <strong>{template.label}</strong>
+                <span>Use as a starting point</span>
               </button>
             ))}
           </div>
@@ -327,30 +335,44 @@ export function CustomRolesWorkspace({
         title="Portal field locks"
         hint="What the person whose record it is may still change on their own portal. Locking is per event, so freezing biographies once the programme is printed does not touch next year's."
       >
-        {data.catalogue.map((subject) => (
-          <fieldset key={subject.subject} disabled={!canManage}>
-            <legend>{SUBJECT_LABEL[subject.subject as Subject]}</legend>
-            {subject.fields.map((entry) => (
-              <label key={entry.field}>
-                {fieldLabel(entry.field)}
-                <select
-                  value={lockOf(subject.subject as Subject, entry.field)}
-                  onChange={(changed) =>
-                    setLock(subject.subject as Subject, entry.field, changed.target.value as Policy)
-                  }
-                >
-                  {POLICIES.filter((policy) => !(entry.required && policy === "hide")).map(
-                    (policy) => (
-                      <option key={policy} value={policy}>
-                        {POLICY_LABEL[policy]}
-                      </option>
-                    ),
-                  )}
-                </select>
-              </label>
-            ))}
-          </fieldset>
-        ))}
+        <div className="portal-lock-groups">
+          {data.catalogue.map((subject, subjectIndex) => (
+            <details key={subject.subject} open={subjectIndex === 0}>
+              <summary>
+                <span>{SUBJECT_LABEL[subject.subject as Subject]}</span>
+                <span className="sub">Choose what owners can update</span>
+              </summary>
+              <fieldset className="portal-lock-grid" disabled={!canManage}>
+                <legend className="visually-hidden">
+                  {SUBJECT_LABEL[subject.subject as Subject]} fields
+                </legend>
+                {subject.fields.map((entry) => (
+                  <label key={entry.field}>
+                    <span>{fieldLabel(entry.field)}</span>
+                    <select
+                      value={lockOf(subject.subject as Subject, entry.field)}
+                      onChange={(changed) =>
+                        setLock(
+                          subject.subject as Subject,
+                          entry.field,
+                          changed.target.value as Policy,
+                        )
+                      }
+                    >
+                      {POLICIES.filter((policy) => !(entry.required && policy === "hide")).map(
+                        (policy) => (
+                          <option key={policy} value={policy}>
+                            {POLICY_LABEL[policy]}
+                          </option>
+                        ),
+                      )}
+                    </select>
+                  </label>
+                ))}
+              </fieldset>
+            </details>
+          ))}
+        </div>
         {canManage ? (
           <div className="actions">
             <button

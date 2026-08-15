@@ -15,12 +15,7 @@
  *    states, in words, which one applicants can see.
  */
 
-import {
-  cfpChoiceSchema,
-  type CfpChoice,
-  type CfpField,
-  type CfpRoutingRule,
-} from "@greenroom/contracts";
+import { type CfpChoice, type CfpField, type CfpRoutingRule } from "@greenroom/contracts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CfpApiError,
@@ -52,63 +47,103 @@ import {
   typeLabel,
 } from "./model";
 
-export function parseStableChoices(value: string): CfpChoice[] {
-  const seen = new Set<string>();
-  return value
-    .split(",")
-    .map((entry) => {
-      const [id, ...label] = entry.split(":");
-      return cfpChoiceSchema.safeParse({
-        id: id?.trim(),
-        label: label.join(":").trim(),
-        active: true,
-      });
-    })
-    .filter((result) => result.success)
-    .map((result) => result.data)
-    .filter(({ id }) => {
-      if (seen.has(id)) return false;
-      seen.add(id);
-      return true;
-    });
-}
-
-function StableChoicesInput({
+function ChoiceListEditor({
   fieldId,
+  options,
   choices,
   onChange,
 }: {
   fieldId: string;
-  choices: CfpChoice[];
-  onChange: (choices: CfpChoice[]) => void;
+  options?: string[];
+  choices?: CfpChoice[];
+  onChange: (change: { options: string[]; choices?: CfpChoice[] }) => void;
 }) {
-  const canonical = choices.map(({ id, label }) => `${id}: ${label}`).join(", ");
-  const [value, setValue] = useState(canonical);
-  const focused = useRef(false);
-  useEffect(() => {
-    if (!focused.current) setValue(canonical);
-  }, [canonical]);
+  const stable = choices !== undefined;
+  const visible = stable ? choices.filter(({ active }) => active) : (options ?? []);
   return (
-    <input
-      id={`editor-options-${fieldId}`}
-      value={value}
-      aria-describedby={`editor-options-hint-${fieldId}`}
-      onBlur={() => {
-        focused.current = false;
-        setValue(
-          parseStableChoices(value)
-            .map(({ id, label }) => `${id}: ${label}`)
-            .join(", "),
+    <div className="cfp-choice-editor" id={`editor-options-${fieldId}`}>
+      {visible.map((choice, index) => {
+        const label = typeof choice === "string" ? choice : choice.label;
+        const stableId = typeof choice === "string" ? null : choice.id;
+        return (
+          <div className="cfp-choice-row" key={stableId ?? `${fieldId}-${index}`}>
+            <span className="cfp-choice-marker" aria-hidden="true" />
+            <label className="visually-hidden" htmlFor={`editor-option-${fieldId}-${index}`}>
+              Option {index + 1}
+            </label>
+            <input
+              id={`editor-option-${fieldId}-${index}`}
+              value={label}
+              placeholder={`Option ${index + 1}`}
+              maxLength={120}
+              onChange={(event) => {
+                if (stable) {
+                  onChange({
+                    options: [],
+                    choices: choices.map((item) =>
+                      item.id === stableId ? { ...item, label: event.target.value } : item,
+                    ),
+                  });
+                } else {
+                  onChange({
+                    options: (options ?? []).map((item, itemIndex) =>
+                      itemIndex === index ? event.target.value : item,
+                    ),
+                  });
+                }
+              }}
+            />
+            <button
+              type="button"
+              className="ghost small cfp-choice-remove"
+              aria-label={`Remove option ${index + 1}`}
+              disabled={visible.length === 1}
+              onClick={() => {
+                if (stable) {
+                  onChange({
+                    options: [],
+                    choices: choices.map((item) =>
+                      item.id === stableId ? { ...item, active: false } : item,
+                    ),
+                  });
+                } else {
+                  onChange({
+                    options: (options ?? []).filter((_, itemIndex) => itemIndex !== index),
+                  });
+                }
+              }}
+            >
+              Remove
+            </button>
+          </div>
         );
-      }}
-      onFocus={() => {
-        focused.current = true;
-      }}
-      onChange={(event) => {
-        setValue(event.target.value);
-        onChange(parseStableChoices(event.target.value));
-      }}
-    />
+      })}
+      <button
+        type="button"
+        className="secondary small cfp-choice-add"
+        disabled={visible.length >= 30}
+        onClick={() => {
+          if (stable) {
+            onChange({
+              options: [],
+              choices: [
+                ...choices,
+                {
+                  id: `choice-${crypto.randomUUID()}`,
+                  label: `Option ${visible.length + 1}`,
+                  active: true,
+                },
+              ],
+            });
+          } else {
+            onChange({ options: [...(options ?? []), `Option ${visible.length + 1}`] });
+          }
+        }}
+      >
+        <IconPlus size={14} /> Add option
+      </button>
+      <p className="hint">Options appear in this order on the public form.</p>
+    </div>
   );
 }
 // This state-owning composer intentionally exceeds 400 lines. Its draft ordering, selected field,
@@ -974,7 +1009,12 @@ export function CfpWorkspace({
                             onChange={(event) =>
                               updateField(field.id, {
                                 type: event.target.value as CfpField["type"],
-                                options: event.target.value === "select" ? field.options : [],
+                                options:
+                                  event.target.value === "select"
+                                    ? field.options.length
+                                      ? field.options
+                                      : ["Option 1"]
+                                    : [],
                               })
                             }
                           >
@@ -1000,41 +1040,24 @@ export function CfpWorkspace({
                           />
                         </div>
                         {field.type === "select" ? (
-                          <div className="field cfp-span">
-                            <label htmlFor={`editor-options-${field.id}`}>
-                              {field.id === "track" || field.id === "format"
-                                ? "Stable choices (id: label, comma separated)"
-                                : "Options (comma separated)"}
-                            </label>
-                            {field.id === "track" || field.id === "format" ? (
-                              <StableChoicesInput
-                                fieldId={field.id}
-                                choices={field.choices ?? []}
-                                onChange={(choices) =>
-                                  updateField(field.id, { options: [], choices })
-                                }
-                              />
-                            ) : (
-                              <input
-                                id={`editor-options-${field.id}`}
-                                value={field.options.join(", ")}
-                                aria-describedby={`editor-options-hint-${field.id}`}
-                                onChange={(event) =>
-                                  updateField(field.id, {
-                                    options: event.target.value
-                                      .split(",")
-                                      .map((option) => option.trim())
-                                      .filter(Boolean),
-                                    choices: undefined,
-                                  })
-                                }
-                              />
-                            )}
-                            <p className="hint" id={`editor-options-hint-${field.id}`}>
-                              {field.id === "track" || field.id === "format"
-                                ? "Use valid id: label pairs. Malformed and duplicate IDs are ignored; inactive choices remain valid on existing proposals."
-                                : "A select question needs at least one option."}
-                            </p>
+                          <div className="field cfp-span cfp-choice-field">
+                            <span className="field-label">Answer options</span>
+                            <ChoiceListEditor
+                              fieldId={field.id}
+                              options={field.options}
+                              {...(field.id === "track" || field.id === "format"
+                                ? {
+                                    choices:
+                                      field.choices ??
+                                      field.options.map((label, optionIndex) => ({
+                                        id: `${field.id}-${optionIndex + 1}`,
+                                        label,
+                                        active: true,
+                                      })),
+                                  }
+                                : {})}
+                              onChange={(change) => updateField(field.id, change)}
+                            />
                           </div>
                         ) : null}
                         {index > 0 ? (
@@ -1158,9 +1181,6 @@ export function CfpWorkspace({
                           />
                           Required
                         </label>
-                        <code className="cfp-code" title={`Answer key: ${field.id}`}>
-                          {field.id}
-                        </code>
                         <div className="cfp-question-actions">
                           <button
                             type="button"

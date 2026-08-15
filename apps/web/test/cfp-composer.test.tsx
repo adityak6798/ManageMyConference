@@ -11,7 +11,7 @@
  */
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CfpWorkspace, parseStableChoices } from "../src/CfpWorkspace";
+import { CfpWorkspace } from "../src/CfpWorkspace";
 
 const eventId = "00000000-0000-4000-8000-000000000001";
 
@@ -88,19 +88,6 @@ const question = (label: string) =>
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
-});
-
-describe("stable choice parsing", () => {
-  it("keeps only contract-valid id-label pairs and the first occurrence of an id", () => {
-    expect(
-      parseStableChoices(
-        "platform: Platform & Infra, missing label:, no separator, bad id: Bad, platform: Duplicate, talk: Talk: 30 min",
-      ),
-    ).toEqual([
-      { id: "platform", label: "Platform & Infra", active: true },
-      { id: "talk", label: "Talk: 30 min", active: true },
-    ]);
-  });
 });
 
 describe("publishing what is on screen", () => {
@@ -259,9 +246,11 @@ describe("building the question list", () => {
     render(<CfpWorkspace eventId={eventId} organizer timezone={TIMEZONE} />);
 
     fireEvent.change(await screen.findByLabelText("Field type"), { target: { value: "select" } });
-    fireEvent.change(screen.getByLabelText("Options (comma separated)"), {
-      target: { value: "Beginner, Intermediate ,, Advanced" },
-    });
+    fireEvent.change(screen.getByLabelText("Option 1"), { target: { value: "Beginner" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add option" }));
+    fireEvent.change(screen.getByLabelText("Option 2"), { target: { value: "Intermediate" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add option" }));
+    fireEvent.change(screen.getByLabelText("Option 3"), { target: { value: "Advanced" } });
     fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
 
     await waitFor(() => expect(writes(calls)).toHaveLength(1));
@@ -272,7 +261,7 @@ describe("building the question list", () => {
     ]);
 
     fireEvent.change(screen.getByLabelText("Field type"), { target: { value: "short_text" } });
-    expect(screen.queryByLabelText("Options (comma separated)")).toBeNull();
+    expect(screen.queryByText("Answer options")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
 
     await waitFor(() => expect(writes(calls)).toHaveLength(2));

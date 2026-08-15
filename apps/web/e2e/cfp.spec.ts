@@ -108,7 +108,9 @@ test("organizer composes, sees draft diverge from the live form, publishes, and 
   await added.getByLabel("Field type").selectOption("select");
   await added.getByLabel("Question label").fill("Experience level");
   await added.getByLabel("Guidance").fill("Choose the closest match");
-  await added.getByLabel("Options (comma separated)").fill("New, Experienced");
+  await added.getByLabel("Option 1").fill("New");
+  await added.getByRole("button", { name: "Add option" }).click();
+  await added.getByLabel("Option 2").fill("Experienced");
   await added.getByLabel("Required").check();
   // Appended last, then moved one place up: fourth of the five questions on the form.
   await page.getByRole("button", { name: "Move Experience level up" }).click();

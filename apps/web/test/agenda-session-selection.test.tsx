@@ -485,7 +485,7 @@ describe("choosing which sessions an assisted pass seats", () => {
     await waitFor(() => expect(screen.queryByText(NO_ROOM)).toBeNull());
   });
 
-  it("offers no selection control once every session is scheduled", async () => {
+  it("keeps the unscheduled drop target discoverable once every session is scheduled", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(() =>
@@ -502,6 +502,8 @@ describe("choosing which sessions an assisted pass seats", () => {
     render(<AgendaWorkspace event={event} onError={onError} />);
 
     await waitFor(() => expect(action().disabled).toBe(true));
-    expect(screen.queryByRole("region", { name: /Unscheduled/i })).toBeNull();
+    const emptyRail = screen.getByRole("region", { name: /Unscheduled/i });
+    expect(within(emptyRail).getByText("Everything is scheduled")).toBeInTheDocument();
+    expect(within(emptyRail).getByText(/Drag a card from the grid/)).toBeInTheDocument();
   });
 });

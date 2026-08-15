@@ -1564,12 +1564,10 @@ export function AgendaWorkspace({
         <Notice tone="success">No conflicts. This draft is ready to publish.</Notice>
       )}
 
-      {/* The rail earns a side column only while it holds sessions beside a board view.
-          List view keeps the full width for its table and stacks a non-empty rail below. */}
-      <div
-        className="agenda-layout"
-        data-rail={unscheduledCount > 0 && view !== "conflicts" && view !== "list"}
-      >
+      {/* Room and track views keep the rail visible even when it is empty. The rail is the
+          discoverable source and destination for drag-and-drop; removing it after the last
+          placement made it impossible to learn how to move a session back out of the grid. */}
+      <div className="agenda-layout" data-rail={view !== "conflicts" && view !== "list"}>
         <div
           className="agenda-panel"
           id={`panel-${view}`}
@@ -1582,7 +1580,7 @@ export function AgendaWorkspace({
           </Card>
         </div>
 
-        {view === "conflicts" || !unscheduledCount ? null : (
+        {view === "conflicts" || view === "list" ? null : (
           <UnscheduledRail
             sessions={unscheduled}
             selection={selection}

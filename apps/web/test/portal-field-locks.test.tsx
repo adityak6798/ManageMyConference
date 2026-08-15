@@ -58,7 +58,7 @@ afterEach(cleanup);
 it("saves the whole lock set, not the field that changed", async () => {
   render(<CustomRolesWorkspace organizationId={ORGANIZATION} eventId={EVENT} canManage={true} />);
   // The stored lock is what the screen shows before anybody touches it.
-  const biography = await screen.findByRole("combobox", { name: "biography" });
+  const biography = await screen.findByRole("combobox", { name: "Biography" });
   expect((biography as HTMLSelectElement).value).toBe("lock");
 
   fireEvent.change(screen.getByRole("combobox", { name: "photoUrl" }), {
@@ -79,7 +79,7 @@ it("saves the whole lock set, not the field that changed", async () => {
 
 it("does not offer to hide a field the record cannot be identified without", async () => {
   render(<CustomRolesWorkspace organizationId={ORGANIZATION} eventId={EVENT} canManage={true} />);
-  const name = await screen.findByRole("combobox", { name: "name" });
+  const name = await screen.findByRole("combobox", { name: "Name" });
 
   expect([...(name as HTMLSelectElement).options].map((option) => option.value)).toEqual([
     "view",
