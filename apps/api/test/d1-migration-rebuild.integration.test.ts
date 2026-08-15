@@ -38,7 +38,8 @@ const rebuildCoverage = {
   "1706_delivery_reviewer_reminder_trigger.sql": "seeded replay below",
   "1708_delivery_cfp_deadline_triggers.sql": "seeded replay below",
   "1802_publication_slug_reservations.sql": "creates and drops a transient audit table",
-  "1903_capability_link_creator_lifecycle.sql": "populated replay below",
+  "1903_capability_link_creator_lifecycle.sql":
+    "populated replay in the capability-links D1 integration suite",
 } as const;
 
 describe("migration rebuild coverage", () => {
@@ -50,59 +51,6 @@ describe("migration rebuild coverage", () => {
       if (/\bDROP\s+TABLE\b/i.test(sql)) dropping.push(name);
     }
     expect(dropping).toEqual(Object.keys(rebuildCoverage).sort());
-  });
-});
-
-describe("capability_links creator-lifecycle rebuild", () => {
-  let runtime: Miniflare | undefined;
-  afterEach(async () => runtime?.dispose());
-
-  it("preserves populated links and installs creator deletion as revocation", async () => {
-    const migrated = await createMigratedDatabase({
-      label: "rebuild-capability-links",
-      seed: true,
-    });
-    runtime = migrated.runtime;
-    await migrated.database
-      .prepare("INSERT INTO users (id, name, persona) VALUES (?, ?, ?)")
-      .bind("rebuild-link-creator", "Disposable link creator", "organizer")
-      .run();
-    await migrated.database
-      .prepare(
-        "INSERT INTO capability_links (id, resource_kind, resource_ref, organization_id, event_id, token_hash, created_by, created_at, expires_at, scope_json) VALUES (?, 'report', ?, ?, ?, ?, ?, ?, ?, '{}')",
-      )
-      .bind(
-        "rebuild-link",
-        "report-before-rebuild",
-        "00000000-0000-4000-8000-000000000010",
-        "00000000-0000-4000-8000-000000000001",
-        "a".repeat(64),
-        "rebuild-link-creator",
-        "2026-08-14T00:00:00.000Z",
-        "2026-08-15T00:00:00.000Z",
-      )
-      .run();
-
-    await applyMigrationFile(migrated.database, "1903_capability_link_creator_lifecycle.sql");
-    const copied = await migrated.database
-      .prepare("SELECT resource_ref, created_by FROM capability_links WHERE id = ?")
-      .bind("rebuild-link")
-      .first<{ resource_ref: string; created_by: string }>();
-    expect(copied).toEqual({
-      resource_ref: "report-before-rebuild",
-      created_by: "rebuild-link-creator",
-    });
-
-    await migrated.database
-      .prepare("DELETE FROM users WHERE id = ?")
-      .bind("rebuild-link-creator")
-      .run();
-    expect(
-      await migrated.database
-        .prepare("SELECT id FROM capability_links WHERE id = ?")
-        .bind("rebuild-link")
-        .first(),
-    ).toBeNull();
   });
 });
 
