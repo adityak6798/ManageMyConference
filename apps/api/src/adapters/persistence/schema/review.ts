@@ -86,7 +86,7 @@ export function defineReviewSchema(references: {
       opensAt: text("opens_at"),
       closesAt: text("closes_at"),
       state: text("state").notNull().default("draft"),
-      /** Whether reviewers in this round see the author. Read by the projection, export and AI input. */
+      /** Whether reviewers in this round see the author. Read by reviewer-facing projections. */
       anonymized: integer("anonymized").notNull().default(1),
       /** This round's own scorecard; NULL scores against the event's `review_plans` row. */
       criteriaJson: text("criteria_json"),

@@ -25,6 +25,8 @@ import { fieldErrorsOf, message, type PillTone, ROUND_STATE } from "./shared";
 
 type Reminder = { outstanding: number; state: string };
 
+const reminderKey = (round: number, reviewerId: string) => `${round}:${reviewerId}`;
+
 /** What each reminder outcome says, and how loudly. Four states, four sentences. */
 const REMINDER: Record<string, { label: string; tone: PillTone }> = {
   queued: { label: "Reminder queued", tone: "ok" },
@@ -48,7 +50,7 @@ export function ReviewerProgressPanel({
   const [selected, setSelected] = useState<readonly string[]>([]);
   const [busy, setBusy] = useState(false);
   /*
-   * What the last reminder run reported, per reviewer.
+   * What the last reminder run reported, per round and reviewer.
    *
    * Component state rather than something read back from the server, and that is a deliberate
    * boundary: the durable record of a reminder is a `communication_deliveries` row, which
@@ -83,7 +85,7 @@ export function ReviewerProgressPanel({
         ...current,
         ...Object.fromEntries(
           result.reminders.map((entry) => [
-            entry.reviewerId,
+            reminderKey(activeRound, entry.reviewerId),
             { outstanding: entry.outstanding, state: entry.state },
           ]),
         ),
@@ -151,7 +153,7 @@ export function ReviewerProgressPanel({
               <tbody>
                 {roundProgress.map((entry) => {
                   const forRound = rounds.find((item) => item.sequence === entry.round);
-                  const reminder = sent[entry.reviewerId];
+                  const reminder = sent[reminderKey(entry.round, entry.reviewerId)];
                   return (
                     <tr key={`${entry.round}:${entry.reviewerId}`}>
                       <td data-label="Round">

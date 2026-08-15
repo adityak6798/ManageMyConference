@@ -329,6 +329,41 @@ describe("reviewer progress and reminders", () => {
     expect(await within(progress).findByText("Reminder queued")).toBeVisible();
   });
 
+  it("keeps reminder outcomes isolated by round when the same reviewer appears in both", async () => {
+    const twoRounds = workspace({
+      rounds: [round(), round({ sequence: 2, name: "Programme committee" })],
+      roundProgress: [
+        { round: 1, reviewerId: RAVI, assigned: 3, completed: 1, outstanding: 2 },
+        { round: 2, reviewerId: RAVI, assigned: 1, completed: 0, outstanding: 1 },
+      ],
+    });
+    stubApi((url) => {
+      if (url.includes("/review/organizer")) return jsonResponse(twoRounds);
+      if (url.endsWith("/review/reminders"))
+        return jsonResponse({
+          reminders: [{ reviewerId: RAVI, outstanding: 2, state: "queued" }],
+        });
+      return undefined;
+    });
+    render(<OrganizerReviewWorkspace eventId={eventId} />);
+
+    const progress = await screen.findByRole("region", { name: "Reviewer progress" });
+    const roundPicker = within(progress).getByLabelText("Round");
+    fireEvent.click(within(progress).getByRole("button", { name: "Remind everyone outstanding" }));
+    expect(await within(progress).findByText("Reminder queued")).toBeVisible();
+
+    fireEvent.change(roundPicker, { target: { value: "2" } });
+    expect(within(progress).queryByText("Reminder queued")).not.toBeInTheDocument();
+    expect(
+      within(progress)
+        .getAllByRole("row")
+        .find((row) => row.textContent?.includes("Programme committee")),
+    ).toHaveTextContent("Not reminded");
+
+    fireEvent.change(roundPicker, { target: { value: "1" } });
+    expect(within(progress).getByText("Reminder queued")).toBeVisible();
+  });
+
   it("names each outcome rather than reporting a count of messages that may not exist", async () => {
     stubApi((url) => {
       if (url.includes("/review/organizer")) return jsonResponse(withOutstanding());
