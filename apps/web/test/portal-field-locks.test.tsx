@@ -61,7 +61,7 @@ it("saves the whole lock set, not the field that changed", async () => {
   const biography = await screen.findByRole("combobox", { name: "Biography" });
   expect((biography as HTMLSelectElement).value).toBe("lock");
 
-  fireEvent.change(screen.getByRole("combobox", { name: "photoUrl" }), {
+  fireEvent.change(screen.getByRole("combobox", { name: "Photo Url" }), {
     target: { value: "hide" },
   });
   fireEvent.click(screen.getByRole("button", { name: "Save portal locks" }));
