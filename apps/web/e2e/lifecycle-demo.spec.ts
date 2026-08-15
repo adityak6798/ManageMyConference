@@ -442,12 +442,9 @@ test("audits every organizer destination and the Wave 2 evaluator surfaces", asy
   // #144: the dashboard leads. The accepted-sessions table is above the authoring tools and
   // inside the first screen, where it used to start 1420px down — 32% of a 4475px page.
   const sessionsHeading = page.getByRole("heading", { name: "Accepted sessions" });
-  const resourcesHeading = page.getByRole("heading", { name: "Speaker resources" });
   await expect(sessionsHeading).toBeVisible();
   const sessionsBox = await sessionsHeading.boundingBox();
-  const resourcesBox = await resourcesHeading.boundingBox();
   expect(sessionsBox, "the accepted-sessions table is rendered").not.toBeNull();
-  expect(resourcesBox, "the resource tool is rendered").not.toBeNull();
   // Measured against the viewport actually in use, not a number that happens to exceed it —
   // neither Playwright config sets a viewport, so this runs at the 1280x720 default and a 900px
   // threshold would have accepted a table 130px below the fold while claiming it was above it.
@@ -456,10 +453,11 @@ test("audits every organizer destination and the Wave 2 evaluator surfaces", asy
     sessionsBox?.y ?? 0,
     `accepted sessions is inside the first ${firstScreen}px screen, not behind authoring forms`,
   ).toBeLessThan(firstScreen);
-  expect(sessionsBox?.y ?? 0, "the dashboard is above the authoring tools").toBeLessThan(
-    resourcesBox?.y ?? 0,
-  );
-  // Authoring is one deliberate action away, and its HTML fields are not rendered until then.
+  // Resource authoring moved to its focused People > Files job and remains one deliberate action
+  // away; its HTML fields are not rendered until then.
+  await page.goto("/people?tab=files");
+  const resourcesHeading = page.getByRole("heading", { name: "Speaker resources" });
+  await expect(resourcesHeading).toBeVisible();
   await expect(page.locator('input[value="Speaker handbook"]')).toHaveCount(0);
   await resourcesHeading.click();
   await page.getByRole("button", { name: "Edit Speaker handbook" }).click();
