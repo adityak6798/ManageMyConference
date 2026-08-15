@@ -58,20 +58,30 @@ describe("the landing surfaces", () => {
     expect(
       await screen.findByRole("heading", {
         level: 1,
-        name: "One workspace from the first proposal to the closing keynote.",
+        name: "Run the whole conference without losing the thread.",
       }),
     ).toBeInTheDocument();
-    expect(screen.getAllByRole("link", { name: "Get started" })[0]).toHaveAttribute(
+    expect(screen.getAllByRole("link", { name: "Try the demo" })[0]).toHaveAttribute(
       "href",
       "/signin",
     );
-    expect(screen.getAllByRole("link", { name: "Explore the demo" })[0]).toHaveAttribute(
+    expect(screen.getAllByRole("link", { name: "See product proof" })[0]).toHaveAttribute(
       "href",
       "#signin-panel",
     );
     // The page describes the two capabilities that are built but unproven as exactly that,
     // rather than counting them among the seven that ship.
     expect(screen.getAllByText("Built, not yet proven end to end")).toHaveLength(2);
+    expect(
+      screen.getByRole("heading", { name: "Four principles, not a pile of features" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Six steps. One continuous record." }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "View source" })).toHaveAttribute(
+      "href",
+      "https://github.com/adityak6798/ManageMyConference",
+    );
   });
 
   it("offers the demo personas at the root of a seeded deployment", async () => {
@@ -249,7 +259,7 @@ describe("the landing surfaces", () => {
     expect(
       screen.queryByRole("heading", {
         level: 1,
-        name: "One workspace from the first proposal to the closing keynote.",
+        name: "Run the whole conference without losing the thread.",
       }),
     ).toBeNull();
   });

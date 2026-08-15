@@ -57,6 +57,7 @@
     "apps/web/e2e/global-setup.ts",
     "apps/web/e2e/fixtures.ts",
     "apps/web/e2e/quality-global-setup.ts",
+    "apps/web/e2e/capture-product.mjs",
     "docs/demo-runbook.md",
     "apps/web/src/AppShell.tsx",
     "apps/web/src/InstanceMarker.tsx",

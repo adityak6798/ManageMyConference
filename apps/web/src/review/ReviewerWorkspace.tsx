@@ -87,91 +87,110 @@ export function ReviewerWorkspace({ eventId }: { eventId: string }) {
   const active = resolved;
   if (!active) return null;
 
+  const remaining = data.assignments.length - completed;
+
   return (
-    <div className="split">
-      <div className="review-main">
+    <div className="reviewer-workspace">
+      <header className="reviewer-heading">
+        <div>
+          <p className="reviewer-eyebrow">Review workspace</p>
+          <h2>
+            {remaining
+              ? `${remaining} ${remaining === 1 ? "evaluation" : "evaluations"} left`
+              : "Your queue is complete"}
+          </h2>
+          <p>Work through assigned proposals. Drafts stay private until you complete them.</p>
+        </div>
+        <p className="reviewer-progress">
+          <strong>{completed}</strong>
+          <span>of {data.assignments.length} complete</span>
+        </p>
+      </header>
+      <div className="reviewer-layout">
         <Card
-          labelledBy="review-proposal-title"
-          title={active.proposal.title}
-          /*
-           * Which policy this abstract arrives under, said in the words of what the reviewer can
-           * see rather than as a flag.
-           *
-           * The policy is the round's now, not the deployment's: a blind first pass and an open
-           * programme committee are two different rounds of the same event, and the server sends
-           * genuinely different bytes for each. So this reads the round rather than inferring
-           * blindness from a missing field — a proposal whose submitter is absent because the form
-           * collected no address is not a blind review, and the old test conflated the two.
-           *
-           * The open-review branch **names the author**, which is the whole point of the setting.
-           * It previously said "Authors and co-authors are shown" and then showed only the
-           * co-authors: the name was on the wire and rendered nowhere, so an organizer who turned
-           * blind review off got the exposure without the benefit.
-           */
-          hint={
-            active.round && !active.round.anonymized
-              ? `${active.round.name} — open review. Submitted by ${active.proposal.submitterName}.`
-              : `${active.round?.name ? `${active.round.name} — ` : ""}Blind review — the submitter's name and contact details are hidden from reviewers.`
-          }
-          actions={<Pill tone={queueState(active).tone}>{queueState(active).label}</Pill>}
+          labelledBy="review-queue-title"
+          title="Your queue"
+          hint={`${completed} of ${data.assignments.length} complete`}
+          tight
         >
-          {active.roundClosedReason ? (
-            <Notice tone="warn" role="alert">
-              {active.roundClosedReason}
-            </Notice>
-          ) : null}
-          <p className="review-abstract">{active.proposal.abstract}</p>
-          <ProposalAnswers answers={active.proposal.answers} />
-          {/* Only an open round carries these; a blind projection has no co-authors to render. */}
-          {(active.proposal.coAuthors ?? []).length ? (
-            <p className="detail-reviewers">
-              <span className="detail-term">Co-authors and presenters</span>
-              {(active.proposal.coAuthors ?? [])
-                .map(({ name, role }) => `${name} — ${role}`)
-                .join(", ")}
-            </p>
-          ) : null}
+          <ul className="review-queue">
+            {data.assignments.map((item) => {
+              const state = queueState(item);
+              const current = item.assignment.id === active.assignment.id;
+              return (
+                <li key={item.assignment.id}>
+                  <button
+                    type="button"
+                    aria-current={current ? "true" : undefined}
+                    onClick={() => setActiveId(item.assignment.id)}
+                  >
+                    <span className="queue-title">{item.proposal.title}</span>
+                    <Pill tone={state.tone}>{state.label}</Pill>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
         </Card>
 
-        <EvaluationCard
-          key={active.assignment.id}
-          eventId={eventId}
-          item={active}
-          // A closed round is view-only, and the queue says so before the reviewer types rather
-          // than refusing the save afterwards.
-          readOnlyReason={active.roundClosedReason ?? null}
-          suggestionsEnabled={data.suggestionsEnabled ?? false}
-          reload={async () => {
-            await load();
-          }}
-        />
-      </div>
+        <div className="review-main">
+          <Card
+            labelledBy="review-proposal-title"
+            title={active.proposal.title}
+            /*
+             * Which policy this abstract arrives under, said in the words of what the reviewer can
+             * see rather than as a flag.
+             *
+             * The policy is the round's now, not the deployment's: a blind first pass and an open
+             * programme committee are two different rounds of the same event, and the server sends
+             * genuinely different bytes for each. So this reads the round rather than inferring
+             * blindness from a missing field — a proposal whose submitter is absent because the form
+             * collected no address is not a blind review, and the old test conflated the two.
+             *
+             * The open-review branch **names the author**, which is the whole point of the setting.
+             * It previously said "Authors and co-authors are shown" and then showed only the
+             * co-authors: the name was on the wire and rendered nowhere, so an organizer who turned
+             * blind review off got the exposure without the benefit.
+             */
+            hint={
+              active.round && !active.round.anonymized
+                ? `${active.round.name} — open review. Submitted by ${active.proposal.submitterName}.`
+                : `${active.round?.name ? `${active.round.name} — ` : ""}Blind review — the submitter's name and contact details are hidden from reviewers.`
+            }
+            actions={<Pill tone={queueState(active).tone}>{queueState(active).label}</Pill>}
+          >
+            {active.roundClosedReason ? (
+              <Notice tone="warn" role="alert">
+                {active.roundClosedReason}
+              </Notice>
+            ) : null}
+            <p className="review-abstract">{active.proposal.abstract}</p>
+            <ProposalAnswers answers={active.proposal.answers} />
+            {/* Only an open round carries these; a blind projection has no co-authors to render. */}
+            {(active.proposal.coAuthors ?? []).length ? (
+              <p className="detail-reviewers">
+                <span className="detail-term">Co-authors and presenters</span>
+                {(active.proposal.coAuthors ?? [])
+                  .map(({ name, role }) => `${name} — ${role}`)
+                  .join(", ")}
+              </p>
+            ) : null}
+          </Card>
 
-      <Card
-        labelledBy="review-queue-title"
-        title="Your queue"
-        hint={`${completed} of ${data.assignments.length} complete`}
-        tight
-      >
-        <ul className="review-queue">
-          {data.assignments.map((item) => {
-            const state = queueState(item);
-            const current = item.assignment.id === active.assignment.id;
-            return (
-              <li key={item.assignment.id}>
-                <button
-                  type="button"
-                  aria-current={current ? "true" : undefined}
-                  onClick={() => setActiveId(item.assignment.id)}
-                >
-                  <span className="queue-title">{item.proposal.title}</span>
-                  <Pill tone={state.tone}>{state.label}</Pill>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      </Card>
+          <EvaluationCard
+            key={active.assignment.id}
+            eventId={eventId}
+            item={active}
+            // A closed round is view-only, and the queue says so before the reviewer types rather
+            // than refusing the save afterwards.
+            readOnlyReason={active.roundClosedReason ?? null}
+            suggestionsEnabled={data.suggestionsEnabled ?? false}
+            reload={async () => {
+              await load();
+            }}
+          />
+        </div>
+      </div>
     </div>
   );
 }

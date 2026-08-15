@@ -87,10 +87,10 @@ test("a demo persona signs out and returns to the landing page", async ({ page }
   await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toBeVisible();
 
   await page.getByRole("button", { name: "Sign out" }).click();
-  await expect(page.getByRole("link", { name: "Explore the demo" }).first()).toBeVisible();
+  await expect(page.getByRole("link", { name: "Try the demo" }).first()).toBeVisible();
 
   await page.reload();
-  await expect(page.getByRole("link", { name: "Explore the demo" }).first()).toBeVisible();
+  await expect(page.getByRole("link", { name: "Try the demo" }).first()).toBeVisible();
   await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toHaveCount(0);
 });
 

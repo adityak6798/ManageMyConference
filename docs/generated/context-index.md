@@ -79,6 +79,7 @@
 ### `ACC-DEMO-SMOKE`
 - `test` / `repository-fact`: [apps/api/test/demo-reset-guard.integration.test.ts](../../apps/api/test/demo-reset-guard.integration.test.ts)
 - `test` / `repository-fact`: [apps/web/e2e/00-seed-state.spec.ts](../../apps/web/e2e/00-seed-state.spec.ts)
+- `code` / `repository-fact`: [apps/web/e2e/capture-product.mjs](../../apps/web/e2e/capture-product.mjs)
 - `test` / `repository-fact`: [apps/web/e2e/lifecycle-demo.spec.ts](../../apps/web/e2e/lifecycle-demo.spec.ts)
 - `test` / `repository-fact`: [apps/web/test/design-foundation.test.tsx](../../apps/web/test/design-foundation.test.tsx)
 - `specification` / `normative`: [docs/demo-runbook.md](../../docs/demo-runbook.md)

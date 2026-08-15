@@ -20,7 +20,7 @@ const EMBED_SURFACES = ["schedule", "sessions", "speakers", "gallery", "itinerar
  * console Overview, which the organizer sweep below already covers.
  */
 const MARKETING_SURFACES = [
-  { path: "/", heading: "One workspace from the first proposal to the closing keynote." },
+  { path: "/", heading: "Run the whole conference without losing the thread." },
   { path: "/signin", heading: "Sign in" },
 ] as const;
 

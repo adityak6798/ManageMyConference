@@ -732,12 +732,53 @@ img.pub-avatar {
 
 /* ------------------------------- forms ------------------------------- */
 
+/* On an open call, event context and deadline stay beside the work they govern. All applicant
+   account state and the form occupy the working column; the layout collapses in reading order. */
+.pub-detail:has(> .pub-form) {
+  display: grid;
+  grid-template-columns: minmax(14rem, 0.55fr) minmax(0, 1fr);
+  gap: 0 var(--s-10);
+  align-items: start;
+}
+.pub-detail:has(> .pub-form) > * {
+  grid-column: 2;
+}
+.pub-detail:has(> .pub-form) > .pub-head,
+.pub-detail:has(> .pub-form) > .lede {
+  grid-column: 1;
+}
+.pub-detail:has(> .pub-form) > .pub-head {
+  position: sticky;
+  top: var(--s-5);
+  margin-bottom: var(--s-4);
+}
+.pub-detail:has(> .pub-form) > .lede {
+  margin-top: var(--s-5);
+}
+
 .pub-form {
   margin-top: var(--s-6);
   padding: var(--s-6);
   border: 1px solid var(--line-strong);
   border-radius: var(--r-xl);
   background: var(--surface);
+}
+
+@media (max-width: 780px) {
+  .pub-detail:has(> .pub-form) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .pub-detail:has(> .pub-form) > *,
+  .pub-detail:has(> .pub-form) > .pub-head,
+  .pub-detail:has(> .pub-form) > .lede {
+    grid-column: 1;
+  }
+  .pub-detail:has(> .pub-form) > .pub-head {
+    position: static;
+  }
+  .pub-form {
+    padding: var(--s-5);
+  }
 }
 .pub-cfp-field {
   display: grid;

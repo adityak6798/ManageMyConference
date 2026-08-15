@@ -31,15 +31,7 @@ type Workspace = {
   realSession: boolean;
 };
 
-type Capability = {
-  title: string;
-  body: string;
-  /** "built" means the behaviour exists and is tested here, but its last mile is unexercised. */
-  state: "ships" | "built";
-  qualifier?: string;
-};
-
-const capabilities: Capability[] = [
+const productProof = [
   {
     title: "Proposal forms that branch",
     body: "Ask a workshop pitch different questions from a lightning talk, and send each answer to the triage queue that should see it. Conditions and routes travel with the published form, and the route a submission resolved to is written down beside it.",
@@ -92,6 +84,54 @@ const capabilities: Capability[] = [
     state: "ships",
   },
 ];
+
+const pillars = [
+  [
+    "One operational record",
+    "Proposals, decisions, speakers, sessions, and the public programme move through one deliberate lifecycle.",
+  ],
+  [
+    "Clear work for every role",
+    "Organizers see operations; reviewers see their queue; speakers see what they owe; attendees see only what is published.",
+  ],
+  [
+    "Publishing you can trust",
+    "A single versioned projection powers the event site, schedule, detail pages, itinerary, embeds, and JSON feed.",
+  ],
+  [
+    "Open by default",
+    "Run it yourself, inspect the source, and verify the limits. Greenroom does not hide critical event data behind a proprietary export.",
+  ],
+] as const;
+
+const lifecycle = [
+  ["01", "Shape the call", "Publish conditional proposal questions and a real submission window."],
+  [
+    "02",
+    "Collect proposals",
+    "Keep guest submissions, account drafts, revisions, and participants intact.",
+  ],
+  [
+    "03",
+    "Review fairly",
+    "Route blind assignments through a locked rubric with conflicts and drafts.",
+  ],
+  [
+    "04",
+    "Prepare speakers",
+    "Turn acceptances into profiles, tasks, private uploads, and calendar actions.",
+  ],
+  [
+    "05",
+    "Build the programme",
+    "Place sessions, resolve conflicts, and publish the agenda deliberately.",
+  ],
+  [
+    "06",
+    "Welcome attendees",
+    "Serve one public programme across pages, itineraries, embeds, and JSON.",
+  ],
+] as const;
 
 /**
  * Shared chrome, rendered once and kept across the move between the two surfaces.
@@ -153,7 +193,7 @@ function LandingChrome({ children, active }: { children: ReactNode; active: "hom
 function CapabilityList() {
   return (
     <ol className="landing-capabilities">
-      {capabilities.map((capability, index) => (
+      {productProof.map((capability, index) => (
         <li key={capability.title}>
           <p className="landing-capability-index" aria-hidden="true">
             {String(index + 1).padStart(2, "0")}
@@ -187,23 +227,22 @@ function LandingSurface({
       <div className="landing-hero">
         <div className="landing-hero-copy">
           <p className="landing-eyebrow">Conference operations, end to end</p>
-          <h1>One workspace from the first proposal to the closing keynote.</h1>
+          <h1>Run the whole conference without losing the thread.</h1>
           <p className="landing-lede">
-            Greenroom collects and routes proposals, runs blind review, builds the schedule, keeps
-            every speaker's outstanding task visible, and publishes the programme your attendees
-            read — with one source of truth underneath all of it.
+            Greenroom connects the call for proposals, blind review, speaker readiness, scheduling,
+            and the public programme in one open-source workspace.
           </p>
           <div className="landing-doors">
             <a className="landing-door" {...linkProps("/signin")}>
-              Get started
+              {doors?.demoMode ? "Try the demo" : "Get started"}
             </a>
             {doors?.demoMode ? (
               <a className="landing-door secondary" href="#signin-panel">
-                Explore the demo
+                See product proof
               </a>
             ) : (
               <a className="landing-door secondary" href="#capabilities">
-                See what ships
+                See product proof
               </a>
             )}
           </div>
@@ -223,17 +262,96 @@ function LandingSurface({
         />
       </div>
 
-      <section className="landing-section" id="capabilities" aria-labelledby="capabilities-title">
+      <section
+        className="landing-section landing-proof"
+        id="capabilities"
+        aria-labelledby="capabilities-title"
+      >
         <div className="landing-section-head">
-          <h2 id="capabilities-title">Nine things a conference team needs</h2>
+          <p className="landing-eyebrow">Product proof</p>
+          <h2 id="capabilities-title">A real conference, already in motion</h2>
           <p>
-            Seven of them ship today. Two are marked{" "}
-            <strong>built, not yet proven end to end</strong>: the behaviour exists here and is
-            tested here, but its last mile — a real mail client, a live registration API — has not
-            been exercised yet. You would rather read that here than discover it during your event.
+            The demo fixture contains routed proposals, review work, speaker tasks, a placed agenda,
+            and a published event. These are generated captures of that same deterministic product.
           </p>
         </div>
-        <CapabilityList />
+        <div className="landing-captures">
+          {["overview", "forms", "agenda", "public-event"].map((capture) => (
+            <figure key={capture}>
+              <img src={`/product-captures/${capture}.webp`} alt="" width="1440" height="900" />
+              <figcaption>
+                {capture === "public-event"
+                  ? "Public event"
+                  : `${capture[0]?.toUpperCase()}${capture.slice(1)}`}
+              </figcaption>
+            </figure>
+          ))}
+        </div>
+      </section>
+
+      <section className="landing-section" aria-labelledby="pillars-title">
+        <div className="landing-section-head">
+          <p className="landing-eyebrow">Why Greenroom</p>
+          <h2 id="pillars-title">Four principles, not a pile of features</h2>
+        </div>
+        <div className="landing-pillars">
+          {pillars.map(([title, body]) => (
+            <article key={title}>
+              <h3>{title}</h3>
+              <p>{body}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="landing-section" aria-labelledby="lifecycle-title">
+        <div className="landing-section-head">
+          <p className="landing-eyebrow">The conference lifecycle</p>
+          <h2 id="lifecycle-title">Six steps. One continuous record.</h2>
+        </div>
+        <ol className="landing-lifecycle">
+          {lifecycle.map(([number, title, body]) => (
+            <li key={number}>
+              <span>{number}</span>
+              <div>
+                <h3>{title}</h3>
+                <p>{body}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
+      </section>
+
+      <section className="landing-section landing-trust" aria-labelledby="trust-title">
+        <div>
+          <p className="landing-eyebrow">Open source and inspectable</p>
+          <h2 id="trust-title">Trust the system because you can verify it.</h2>
+        </div>
+        <div>
+          <p>
+            Greenroom keeps product behavior in specifications, validates its public contracts, and
+            ships deterministic evidence for its core journeys.
+          </p>
+          <a
+            className="landing-door secondary"
+            href="https://github.com/adityak6798/ManageMyConference"
+          >
+            View source
+          </a>
+        </div>
+      </section>
+
+      <section className="landing-section landing-transparency" aria-labelledby="limits-title">
+        <h2 id="limits-title">What is—and is not—proven</h2>
+        <p>
+          Core conference workflows run end to end in the seeded product. Live email rendering and
+          live Accelevents exchange remain deployment-dependent; Greenroom labels those integrations
+          instead of presenting deterministic adapters as third-party proof.
+        </p>
+        <details>
+          <summary>See the detailed product evidence</summary>
+          <CapabilityList />
+        </details>
       </section>
 
       <section className="landing-section landing-close" aria-labelledby="close-title">
@@ -247,11 +365,11 @@ function LandingSurface({
         </p>
         <div className="landing-doors">
           <a className="landing-door" {...linkProps("/signin")}>
-            Get started
+            {doors?.demoMode ? "Try the demo" : "Get started"}
           </a>
           {doors?.demoMode ? (
             <a className="landing-door secondary" href="#signin-panel">
-              Explore the demo
+              Continue as organizer
             </a>
           ) : null}
         </div>
