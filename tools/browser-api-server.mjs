@@ -42,13 +42,12 @@ export function processTreePids(rootPid, processTable) {
 
 export function terminateProcessTree(
   rootPid,
-  {
-    signal = "SIGTERM",
-    processTable = execFileSync("ps", ["-axo", "pid=,ppid="], { encoding: "utf8" }),
-    kill = process.kill,
-  } = {},
+  { signal = "SIGTERM", processTable, kill = process.kill, platform = process.platform } = {},
 ) {
-  for (const pid of [...processTreePids(rootPid, processTable), rootPid]) {
+  const resolvedProcessTable =
+    processTable ??
+    (platform === "win32" ? "" : execFileSync("ps", ["-axo", "pid=,ppid="], { encoding: "utf8" }));
+  for (const pid of [...processTreePids(rootPid, resolvedProcessTable), rootPid]) {
     try {
       kill(pid, signal);
     } catch (error) {

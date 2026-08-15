@@ -48,3 +48,15 @@ test("browser API terminates descendants before their supervisor", () => {
     [100, "SIGTERM"],
   ]);
 });
+
+test("browser API avoids POSIX process discovery on Windows", () => {
+  const killed = [];
+  terminateProcessTree(100, {
+    platform: "win32",
+    kill: (pid, signal) => {
+      killed.push([pid, signal]);
+      return false;
+    },
+  });
+  assert.deepEqual(killed, [[100, "SIGTERM"]]);
+});

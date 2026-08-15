@@ -9,7 +9,8 @@ export function terminateProcessTree(
   options?: {
     signal?: NodeJS.Signals;
     processTable?: string;
-    kill?: (pid: number, signal: NodeJS.Signals) => true;
+    kill?: (pid: number, signal: NodeJS.Signals) => boolean;
+    platform?: NodeJS.Platform;
   },
 ): void;
 export function runBrowserApi(options?: { root?: string }): {
