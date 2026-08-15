@@ -466,9 +466,9 @@ test("audits every organizer destination and the Wave 2 evaluator surfaces", asy
   await page.goto("/schedule?tab=agenda");
   await expect(page.getByRole("button", { name: "Generate draft" })).toBeVisible();
   await expect(page.getByText("2 of 2 scheduled")).toBeVisible();
-  await page
-    .getByRole("combobox", { name: "Day", exact: true })
-    .selectOption({ label: "Wed, Sep 2" });
+  // The room board shows one day at a time, so every event day is exposed without making an
+  // organizer infer that a session on day two is hidden inside the Day select.
+  await page.getByRole("button", { name: "Wed, Sep 2 1 scheduled sessions" }).click();
   await expect(
     page.getByRole("button", {
       name: /Accessible by default\. Workshop lab, 10:00–11:00/,

@@ -48,10 +48,10 @@ import {
   type Carry,
   type Cell,
   CONFLICT_LABELS,
-  conflictPublicationSummary,
   type Conflict,
   cellKey,
   clockFor,
+  conflictPublicationSummary,
   DEFAULT_TRACK_COLOR,
   type Draft,
   errorsByRow,
@@ -330,6 +330,15 @@ export function AgendaWorkspace({
       roomName(left.roomId).localeCompare(roomName(right.roomId))
     );
   });
+  const scheduledSessionsByDay = new Map<string, Set<string>>();
+  for (const placement of draft.placements) {
+    const slot = slotOf(placement.slotId);
+    if (!slot) continue;
+    const day = dayOf(slot);
+    const scheduled = scheduledSessionsByDay.get(day) ?? new Set<string>();
+    scheduled.add(placement.sessionId);
+    scheduledSessionsByDay.set(day, scheduled);
+  }
 
   // Cell order matches DOM order so the arrow keys move focus where the eye expects.
   const boardCells: Cell[] =
@@ -1512,6 +1521,31 @@ export function AgendaWorkspace({
           Publish schedule
         </button>
       </div>
+
+      {isBoardView && days.length > 1 ? (
+        <fieldset className="agenda-day-switcher">
+          <legend className="agenda-day-switcher-label">Showing one day at a time</legend>
+          {days.map((day) => {
+            const count = scheduledSessionsByDay.get(day)?.size ?? 0;
+            return (
+              <button
+                key={day}
+                type="button"
+                className="secondary small agenda-day-button"
+                aria-pressed={activeDay === day}
+                disabled={busy}
+                onClick={() => setSelectedDay(day)}
+              >
+                <span>{labelForDay(day)}</span>
+                <span className="count" aria-hidden="true">
+                  {count}
+                </span>
+                <span className="visually-hidden">{count} scheduled sessions</span>
+              </button>
+            );
+          })}
+        </fieldset>
+      ) : null}
 
       {feedback.node}
 

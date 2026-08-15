@@ -7,8 +7,9 @@
  * and a different day bucket depending on the event's timezone, and that is cheap to
  * assert without a server.
  */
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+
 import type { EventDto } from "@greenroom/contracts";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgendaWorkspace } from "../src/agenda/AgendaWorkspace";
 
@@ -133,6 +134,11 @@ describe("AgendaWorkspace timezone rendering", () => {
     expect(zoneLabel()).toHaveTextContent("Times are shown in America/New_York (EDT)");
     // Midnight Eastern belongs to the next day, so Eastern really does split these two.
     expect(screen.getByRole("option", { name: "Wed, Sep 2" })).toBeInTheDocument();
+    // Every day is also exposed without opening the select. A session on another day should not
+    // look missing merely because the room board initially shows the event's first day.
+    expect(
+      screen.getByRole("button", { name: "Wed, Sep 2 0 scheduled sessions" }),
+    ).toBeInTheDocument();
     expect(onError).not.toHaveBeenCalled();
   });
 

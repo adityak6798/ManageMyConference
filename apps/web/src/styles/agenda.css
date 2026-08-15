@@ -51,6 +51,45 @@
   min-width: 130px;
 }
 
+.agenda-day-switcher {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.agenda-day-switcher-label {
+  float: left;
+  margin-right: var(--s-1);
+  padding: 0;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-weight: 620;
+}
+.agenda-day-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+.agenda-day-button[aria-pressed="true"] {
+  border-color: var(--green-700);
+  background: var(--green-50);
+  color: var(--green-800);
+}
+.agenda-day-button .count {
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: var(--r-full);
+  background: var(--neutral-bg);
+  color: var(--neutral-fg);
+  font-size: var(--text-2xs);
+  line-height: 1.4;
+  text-align: center;
+}
+
 .agenda-layout {
   display: grid;
   gap: var(--s-4);
