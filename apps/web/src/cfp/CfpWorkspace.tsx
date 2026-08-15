@@ -763,7 +763,7 @@ export function CfpWorkspace({
         Live state, like open and closed: saving it takes effect at once and publishes no form
         edits. It is a separate card rather than a field of the composer for exactly that reason.
       */}
-      <Card labelledBy="cfp-window" title="Submission window" tight>
+      <Card labelledBy="cfp-window" title="Submission window">
         <p className="cfp-window-rule">
           Both gates have to allow a submission. The schedule cannot open a call you have closed,
           and <strong>Reopen live CFP</strong> cannot open one whose deadline has passed — move or
