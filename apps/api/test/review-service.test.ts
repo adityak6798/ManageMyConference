@@ -849,15 +849,34 @@ describe("what a review action asks to have sent (issues #52, #66)", () => {
   const recorder = () => {
     const assigned: Parameters<ReviewNotificationPort["reviewerAssigned"]>[0][] = [];
     const decided: Parameters<ReviewNotificationPort["decisionRecorded"]>[0][] = [];
+    const reminded: Parameters<ReviewNotificationPort["remindOutstanding"]>[0][] = [];
     return {
       assigned,
       decided,
+      reminded,
       port: {
         async reviewerAssigned(fact) {
           assigned.push(fact);
         },
         async decisionRecorded(fact) {
           decided.push(fact);
+        },
+        /*
+         * The only port method that answers, so the fake has to answer too — and it answers the
+         * *interesting* thing: a second reminder to the same reviewer about the same round is
+         * `already_sent`, which is how the real binding behaves because the delivery's
+         * idempotency key is `(event, reviewer, round)`. A fake that always said `queued` would
+         * let a service bug that reminds somebody twice pass every test here.
+         */
+        async remindOutstanding(fact) {
+          const repeat = reminded.some(
+            (earlier) =>
+              earlier.eventId === fact.eventId &&
+              earlier.reviewerId === fact.reviewerId &&
+              earlier.round === fact.round,
+          );
+          reminded.push(fact);
+          return repeat ? "already_sent" : "queued";
         },
       } satisfies ReviewNotificationPort,
     };

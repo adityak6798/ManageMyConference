@@ -77,7 +77,7 @@ export function defineCommunicationsIntegrationsSchema(references: {
       // in migration 1705, from the CFP lane that produces it (issue #190).
       check(
         "communication_deliveries_trigger_type",
-        sql`${table.triggerType} IN ('speaker.invited', 'reviewer.assigned', 'organizer.digest', 'projection.requested', 'schedule.published', 'speaker.scheduled', 'speaker.task_assigned', 'speaker.task_reminder', 'speaker.calendar_invite', 'decision.recorded', 'proposal.submitted')`,
+        sql`${table.triggerType} IN ('speaker.invited', 'reviewer.assigned', 'reviewer.reminder', 'organizer.digest', 'projection.requested', 'schedule.published', 'speaker.scheduled', 'speaker.task_assigned', 'speaker.task_reminder', 'speaker.calendar_invite', 'decision.recorded', 'proposal.submitted')`,
       ),
       // `event` carries a domain event rather than an outbound call; see migration 1703.
       check(

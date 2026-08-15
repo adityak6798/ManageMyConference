@@ -11,6 +11,7 @@ import type {
   ReviewCompletedEvent,
   ReviewConflict,
 } from "../../domain/review/review";
+import type { ReviewRound, ReviewRoundPoolMode, ReviewRoundState } from "../../domain/review/round";
 import type {
   EvaluationSource,
   ReviewSuggestion,
@@ -42,6 +43,37 @@ export interface D1ReviewDatabasePort {
 }
 
 type PlanRow = { event_id: string; criteria_json: string; updated_at: string };
+type RoundRow = {
+  event_id: string;
+  sequence: number;
+  name: string;
+  opens_at: string | null;
+  closes_at: string | null;
+  state: ReviewRoundState;
+  anonymized: number;
+  criteria_json: string | null;
+  pool_mode: ReviewRoundPoolMode;
+  created_at: string;
+  updated_at: string;
+};
+const ROUND_COLUMNS =
+  "event_id, sequence, name, opens_at, closes_at, state, anonymized, criteria_json, pool_mode, created_at, updated_at";
+const round = (row: RoundRow, reviewerIds: readonly string[]): ReviewRound => ({
+  eventId: row.event_id,
+  sequence: row.sequence,
+  name: row.name,
+  opensAt: row.opens_at,
+  closesAt: row.closes_at,
+  state: row.state,
+  // Stored as 0/1 because SQLite has no boolean; the domain has one, and the conversion happens
+  // exactly here rather than at every reader.
+  anonymized: row.anonymized === 1,
+  criteria: row.criteria_json === null ? null : JSON.parse(row.criteria_json),
+  poolMode: row.pool_mode,
+  reviewerIds,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+});
 type AssignmentRow = {
   id: string;
   event_id: string;
@@ -160,6 +192,27 @@ const evaluation = (row: EvaluationRow): Evaluation => ({
   suggestionId: row.suggestion_id,
 });
 
+/**
+ * The storage refusal behind a rejected assignment insert, or `null` if this is not one.
+ *
+ * Four guards now stand between a request and a `review_assignments` row — the plan must exist
+ * (`0009`), the round must exist, be open, and admit this reviewer (`1312`) — and both insert
+ * paths have to translate all four. Named once so the batched path and the capped path cannot
+ * drift into answering the same refusal differently.
+ */
+const assignmentRefusal = (error: unknown): ReviewStateConflictError | null => {
+  const text = String(error);
+  if (text.includes("REVIEW_PLAN_REQUIRED"))
+    return new ReviewStateConflictError("Review plan is required");
+  if (text.includes("REVIEW_ROUND_REQUIRED"))
+    return new ReviewStateConflictError("That review round does not exist");
+  if (text.includes("REVIEW_ROUND_NOT_OPEN"))
+    return new ReviewStateConflictError("That review round is not open");
+  if (text.includes("REVIEW_ROUND_POOL"))
+    return new ReviewStateConflictError("That reviewer is not in this round's pool");
+  return null;
+};
+
 /** The evaluation projection, named once so the four reads cannot disagree about provenance. */
 const EVALUATION_COLUMNS =
   "assignment_id, reviewer_id, scores_json, notes, state, updated_at, completed_at, source, suggestion_id";
@@ -185,6 +238,253 @@ export class D1ReviewRepository implements ReviewRepository {
   private changed(result: D1Result<unknown>, operation: string): number {
     this.ensure(result, operation);
     return changedRows(result as D1WriteResult, operation);
+  }
+  /**
+   * Every round of this event with its pool.
+   *
+   * Two reads rather than a join with one row per member, because a join would make the caller
+   * regroup and the pool is usually a handful of ids: a round with no members is a real state
+   * (`pool_mode = 'event'`, or a `named` round nobody has been added to yet) and it must not
+   * disappear from the list, which an INNER JOIN would do and a LEFT JOIN would pay for with a
+   * null-bearing row per round anyway.
+   */
+  async listRounds(eventId: string) {
+    const [rounds, members] = await Promise.all([
+      this.database
+        .prepare(`SELECT ${ROUND_COLUMNS} FROM review_rounds WHERE event_id = ? ORDER BY sequence`)
+        .bind(eventId)
+        .all<RoundRow>(),
+      this.database
+        .prepare(
+          "SELECT round_sequence, reviewer_id FROM review_round_members WHERE event_id = ? ORDER BY round_sequence, reviewer_id",
+        )
+        .bind(eventId)
+        .all<{ round_sequence: number; reviewer_id: string }>(),
+    ]);
+    this.ensure(rounds, "list review rounds");
+    this.ensure(members, "list review round members");
+    const pools = new Map<number, string[]>();
+    for (const row of members.results ?? []) {
+      const pool = pools.get(row.round_sequence);
+      if (pool) pool.push(row.reviewer_id);
+      else pools.set(row.round_sequence, [row.reviewer_id]);
+    }
+    return (rounds.results ?? []).map((row) => round(row, pools.get(row.sequence) ?? []));
+  }
+  async findRound(eventId: string, sequence: number) {
+    const [rounds, members] = await Promise.all([
+      this.database
+        .prepare(
+          `SELECT ${ROUND_COLUMNS} FROM review_rounds WHERE event_id = ? AND sequence = ? LIMIT 1`,
+        )
+        .bind(eventId, sequence)
+        .all<RoundRow>(),
+      this.database
+        .prepare(
+          "SELECT reviewer_id FROM review_round_members WHERE event_id = ? AND round_sequence = ? ORDER BY reviewer_id",
+        )
+        .bind(eventId, sequence)
+        .all<{ reviewer_id: string }>(),
+    ]);
+    this.ensure(rounds, "find review round");
+    this.ensure(members, "find review round members");
+    const row = rounds.results?.[0];
+    return row
+      ? round(
+          row,
+          (members.results ?? []).map(({ reviewer_id }) => reviewer_id),
+        )
+      : null;
+  }
+  async createRound(item: ReviewRound) {
+    let results: D1Result<unknown>[];
+    try {
+      results = await this.database.batch([
+        this.database
+          .prepare(
+            `INSERT INTO review_rounds (${ROUND_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .bind(
+            item.eventId,
+            item.sequence,
+            item.name,
+            item.opensAt,
+            item.closesAt,
+            item.state,
+            item.anonymized ? 1 : 0,
+            item.criteria === null ? null : JSON.stringify(item.criteria),
+            item.poolMode,
+            item.createdAt,
+            item.updatedAt,
+          ),
+        ...item.reviewerIds.map((reviewerId) =>
+          this.database
+            .prepare(
+              "INSERT INTO review_round_members (event_id, round_sequence, reviewer_id, added_at) VALUES (?, ?, ?, ?)",
+            )
+            .bind(item.eventId, item.sequence, reviewerId, item.createdAt),
+        ),
+      ]);
+    } catch (error) {
+      // A taken sequence and a taken name are both UNIQUE violations and both are the same
+      // answer to the caller: this round already exists under a name or a number you chose.
+      if (String(error).includes("UNIQUE") || String(error).includes("PRIMARY KEY"))
+        throw new ReviewStateConflictError("A round with that number or name already exists");
+      throw error;
+    }
+    for (const result of results) {
+      // Both shapes. D1 reports a constraint failure by throwing *or* by answering `success:
+      // false` with the message on the result, depending on the driver path — `saveConflict`
+      // below has handled both since it was written, and handling only the throw here turned
+      // `ensureDefaultRound`'s benign first-touch race into a 500 instead of the loser reading
+      // the winner's round.
+      if (!result.success && /UNIQUE|PRIMARY KEY/.test(result.error ?? ""))
+        throw new ReviewStateConflictError("A round with that number or name already exists");
+      this.ensure(result, "create review round");
+    }
+  }
+  /**
+   * Change a round's terms.
+   *
+   * **The scorecard and the anonymization policy are guarded by the statement itself**, not by the
+   * service's prior read. The service checks first and says which rule it is, because a refusal an
+   * organizer cannot act on is not worth much; this is the guard for an assignment created between
+   * that read and this write, and for anything that did not come through the service.
+   *
+   * The predicate permits the write when the two locked columns are *unchanged* — `IS` rather than
+   * `=` so a NULL rubric compares equal to a NULL rubric — or when the round holds no assignment.
+   * That is exactly `review_plan_lock`'s rule, at the round's scope. A guarded UPDATE rather than a
+   * trigger, for the reason `1312` records: a trigger whose body reads `review_assignments` is
+   * evaluated whenever that table is mid-rebuild.
+   */
+  async updateRound(item: Omit<ReviewRound, "reviewerIds" | "createdAt">) {
+    const criteria = item.criteria === null ? null : JSON.stringify(item.criteria);
+    const anonymized = item.anonymized ? 1 : 0;
+    const unlocked =
+      "((criteria_json IS ? AND anonymized IS ?) OR NOT EXISTS (SELECT 1 FROM review_assignments WHERE event_id = review_rounds.event_id AND round = review_rounds.sequence))";
+    let result: D1Result<unknown>;
+    try {
+      result = await this.database
+        .prepare(
+          `UPDATE review_rounds SET name = ?, opens_at = ?, closes_at = ?, state = ?, anonymized = ?, criteria_json = ?, pool_mode = ?, updated_at = ? WHERE event_id = ? AND sequence = ? AND ${unlocked}`,
+        )
+        .bind(
+          item.name,
+          item.opensAt,
+          item.closesAt,
+          item.state,
+          anonymized,
+          criteria,
+          item.poolMode,
+          item.updatedAt,
+          item.eventId,
+          item.sequence,
+          criteria,
+          anonymized,
+        )
+        .run();
+    } catch (error) {
+      if (String(error).includes("REVIEW_ROUND_CLOSED"))
+        throw new ReviewStateConflictError("A closed round's terms cannot be changed");
+      if (String(error).includes("UNIQUE"))
+        throw new ReviewStateConflictError("Another round of this event already has that name");
+      throw error;
+    }
+    if (!result.success && result.error?.includes("REVIEW_ROUND_CLOSED"))
+      throw new ReviewStateConflictError("A closed round's terms cannot be changed");
+    if (!result.success && result.error?.includes("UNIQUE"))
+      throw new ReviewStateConflictError("Another round of this event already has that name");
+    // A missing count is a failure rather than an assumed 1 (#133): reading it as 1 would report
+    // a round whose window never moved as retimed, and the window is what refuses work.
+    if (this.changed(result, "update review round") === 0) {
+      // Nothing matched, and the two reasons are different facts with different remedies. A round
+      // that is still there was refused by the lock; one that is not was never there.
+      const round = await this.findRound(item.eventId, item.sequence);
+      throw new ReviewStateConflictError(
+        round
+          ? "This round already has assignments, so its scorecard and blind-review policy are locked"
+          : "Review round not found",
+      );
+    }
+  }
+  /**
+   * Replace a round's pool.
+   *
+   * Delete-then-insert inside one batch rather than a diff, because the caller states the pool it
+   * wants and a diff would be this adapter re-deriving an intention it was handed. The delete is
+   * narrowed to the reviewers actually leaving, so a reviewer who stays keeps their original
+   * `added_at` — the record of when they joined the round, which a blanket delete would reset to
+   * the moment somebody else was added.
+   *
+   * **Two rules, and both are predicates on every statement in the batch rather than a prior
+   * read.** A reviewer holding work in this round cannot be removed from its pool, and a closed
+   * round's pool cannot change at all. Not a prior read, because an assignment created between the
+   * check and the write would slip through. Not triggers, because a `BEFORE DELETE` on
+   * `review_round_members` whose body reads `review_assignments` is evaluated whenever that table
+   * is mid-rebuild — which would turn a future rebuild of a table this one does not belong to into
+   * a failure naming a third table (`1312` records this).
+   *
+   * **The predicate is on the inserts too, and that is the correction that matters.** It used to
+   * guard only the DELETE, so a request removing somebody who held work *committed the additions*
+   * and then reported failure from a separate read — leaving a pool nobody asked for behind a 400
+   * an organizer reads as "nothing changed". `batch` is a transaction, so conditioning every
+   * statement on the same predicate makes the whole edit land or none of it.
+   */
+  async setRoundMembers(
+    eventId: string,
+    sequence: number,
+    reviewerIds: readonly string[],
+    addedAt: string,
+  ) {
+    const keeping = [...new Set(reviewerIds)];
+    const placeholders = keeping.map(() => "?").join(", ");
+    const leaving = keeping.length ? ` AND reviewer_id NOT IN (${placeholders})` : "";
+    // True when this whole edit is permitted: the round is open, and nobody it would remove holds
+    // an assignment in it. Written as one expression so the DELETE and every INSERT share it.
+    const permitted = `NOT EXISTS (SELECT 1 FROM review_rounds WHERE event_id = ? AND sequence = ? AND state = 'closed') AND NOT EXISTS (SELECT 1 FROM review_round_members member JOIN review_assignments assignment ON assignment.event_id = member.event_id AND assignment.round = member.round_sequence AND assignment.reviewer_id = member.reviewer_id WHERE member.event_id = ? AND member.round_sequence = ?${keeping.length ? ` AND member.reviewer_id NOT IN (${placeholders})` : ""})`;
+    const guard = [eventId, sequence, eventId, sequence, ...keeping];
+    const results = await this.database.batch([
+      this.database
+        .prepare(
+          `DELETE FROM review_round_members WHERE event_id = ? AND round_sequence = ?${leaving} AND ${permitted}`,
+        )
+        .bind(eventId, sequence, ...keeping, ...guard),
+      ...keeping.map((reviewerId) =>
+        this.database
+          .prepare(
+            `INSERT OR IGNORE INTO review_round_members (event_id, round_sequence, reviewer_id, added_at) SELECT ?, ?, ?, ? WHERE ${permitted}`,
+          )
+          .bind(eventId, sequence, reviewerId, addedAt, ...guard),
+      ),
+      // The round's own timestamp moves with its pool, under the same predicate so a refused edit
+      // does not stamp it either. Without this the service returned the write's instant while
+      // storage kept the old one, and the next read moved a client's `updatedAt` *backwards*.
+      this.database
+        .prepare(
+          `UPDATE review_rounds SET updated_at = ? WHERE event_id = ? AND sequence = ? AND ${permitted}`,
+        )
+        .bind(addedAt, eventId, sequence, ...guard),
+    ]);
+    for (const result of results) this.ensure(result, "set review round members");
+    // Read back rather than counted: the count says how many rows moved, and this has to say
+    // whether the edit was permitted at all — which, when it was not, is indistinguishable from
+    // an edit that asked for the pool it already had.
+    const after = await this.database
+      .prepare(
+        "SELECT (SELECT COUNT(*) FROM review_rounds WHERE event_id = ? AND sequence = ? AND state = 'closed') AS closed, (SELECT COUNT(*) FROM review_round_members WHERE event_id = ? AND round_sequence = ?" +
+          (keeping.length ? ` AND reviewer_id NOT IN (${placeholders})` : "") +
+          ") AS stranded",
+      )
+      .bind(eventId, sequence, eventId, sequence, ...keeping)
+      .all<{ closed: number; stranded: number }>();
+    this.ensure(after, "confirm review round members");
+    const state = after.results?.[0];
+    if (state?.closed)
+      throw new ReviewStateConflictError("A closed round's pool cannot be changed");
+    if (state?.stranded)
+      throw new ReviewStateConflictError(
+        "A reviewer who already holds assignments in this round cannot be removed from its pool",
+      );
   }
   async getPlan(eventId: string) {
     const result = await this.database
@@ -240,8 +540,8 @@ export class D1ReviewRepository implements ReviewRepository {
         ),
       );
     } catch (error) {
-      if (String(error).includes("REVIEW_PLAN_REQUIRED"))
-        throw new ReviewStateConflictError("Review plan is required");
+      const refusal = assignmentRefusal(error);
+      if (refusal) throw refusal;
       throw error;
     }
     if (results.some((result) => !result.success))
@@ -297,8 +597,8 @@ export class D1ReviewRepository implements ReviewRepository {
     } catch (error) {
       if (String(error).includes("REVIEW_ASSIGNMENT_CAP"))
         throw new ReviewStateConflictError("Reviewer assignment cap changed; retry distribution");
-      if (String(error).includes("REVIEW_PLAN_REQUIRED"))
-        throw new ReviewStateConflictError("Review plan is required");
+      const refusal = assignmentRefusal(error);
+      if (refusal) throw refusal;
       throw error;
     }
     const persisted = await this.listAssignments(first.eventId);
@@ -475,9 +775,24 @@ export class D1ReviewRepository implements ReviewRepository {
             event.correlationId,
             event.causationId,
           ),
+        /*
+         * The weighted aggregate for this proposal in this round.
+         *
+         * `json_each(COALESCE(r.criteria_json, p.criteria_json))` is the round-scorecard half:
+         * a round with its own rubric is aggregated under that rubric, and a round without one
+         * falls back to the event plan, which is what every round did before `1312`. The LEFT
+         * JOIN is deliberate — a round row is guaranteed by the `review_assignment_requires_round`
+         * trigger, but an INNER JOIN would make this statement silently write no outcome if that
+         * ever stopped being true, and an aggregate that quietly does not update is the worst
+         * failure available here.
+         *
+         * Non-numeric criteria are excluded from the mean and their weights are excluded from the
+         * divisor, so the arithmetic is
+         * `SUM(value × weight) / SUM(weight)` over the numeric criteria alone.
+         */
         this.database
           .prepare(
-            "INSERT INTO review_outcomes (event_id, proposal_id, round, completed_evaluation_count, average_score, updated_at) SELECT ?, ?, target.round, COUNT(DISTINCT e.assignment_id), SUM(COALESCE(CAST(json_extract(score.value, '$.value') AS REAL), CAST(json_extract(score.value, '$.score') AS REAL)) * COALESCE(CAST(json_extract(criterion.value, '$.weight') AS REAL), 1)) / SUM(COALESCE(CAST(json_extract(criterion.value, '$.weight') AS REAL), 1)), ? FROM review_assignments target JOIN review_assignments a ON a.event_id = target.event_id AND a.proposal_id = target.proposal_id AND a.round = target.round JOIN review_evaluations e ON e.assignment_id = a.id AND e.state = 'completed' JOIN json_each(e.scores_json) score JOIN review_plans p ON p.event_id = a.event_id JOIN json_each(p.criteria_json) criterion ON json_extract(criterion.value, '$.id') = json_extract(score.value, '$.criterionId') WHERE target.id = ? AND (COALESCE(json_extract(criterion.value, '$.type'), 'numeric') = 'numeric') GROUP BY target.round ON CONFLICT(event_id, proposal_id, round) DO UPDATE SET completed_evaluation_count = excluded.completed_evaluation_count, average_score = excluded.average_score, updated_at = excluded.updated_at",
+            "INSERT INTO review_outcomes (event_id, proposal_id, round, completed_evaluation_count, average_score, updated_at) SELECT ?, ?, target.round, COUNT(DISTINCT e.assignment_id), SUM(COALESCE(CAST(json_extract(score.value, '$.value') AS REAL), CAST(json_extract(score.value, '$.score') AS REAL)) * COALESCE(CAST(json_extract(criterion.value, '$.weight') AS REAL), 1)) / SUM(COALESCE(CAST(json_extract(criterion.value, '$.weight') AS REAL), 1)), ? FROM review_assignments target JOIN review_assignments a ON a.event_id = target.event_id AND a.proposal_id = target.proposal_id AND a.round = target.round JOIN review_evaluations e ON e.assignment_id = a.id AND e.state = 'completed' JOIN json_each(e.scores_json) score JOIN review_plans p ON p.event_id = a.event_id LEFT JOIN review_rounds r ON r.event_id = a.event_id AND r.sequence = a.round JOIN json_each(COALESCE(r.criteria_json, p.criteria_json)) criterion ON json_extract(criterion.value, '$.id') = json_extract(score.value, '$.criterionId') WHERE target.id = ? AND (COALESCE(json_extract(criterion.value, '$.type'), 'numeric') = 'numeric') GROUP BY target.round ON CONFLICT(event_id, proposal_id, round) DO UPDATE SET completed_evaluation_count = excluded.completed_evaluation_count, average_score = excluded.average_score, updated_at = excluded.updated_at",
           )
           .bind(event.eventId, event.proposalId, event.occurredAt, event.assignmentId),
       ]);

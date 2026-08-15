@@ -11,4 +11,15 @@ DELETE FROM review_evaluations;
 DELETE FROM review_suggestions;
 DELETE FROM review_conflicts;
 DELETE FROM review_assignments;
+-- Before the rounds, because `review_round_members` carries a composite foreign key to
+-- `review_rounds(event_id, sequence)` and a round with membership rows still pointing at it
+-- cannot be dropped. That is the whole reason, and it is worth saying that it is: an earlier
+-- version of this comment also claimed the *assignments* had to go first, refused by a trigger
+-- named `review_round_member_holds_assignments`. No such trigger exists — `1312` says in as many
+-- words that it deliberately installs none on this table, because the pool-removal rule is a
+-- predicate inside `setRoundMembers` and raw seed SQL does not go through it. A comment that
+-- names a guard nobody wrote is worse than no comment: the next person edits around a rule that
+-- is not there.
+DELETE FROM review_round_members;
+DELETE FROM review_rounds;
 DELETE FROM review_plans;

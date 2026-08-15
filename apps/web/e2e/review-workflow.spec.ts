@@ -602,9 +602,16 @@ test("a reviewer scores and declares a conflict, and only the organizer sees the
    * assigning to her is now refused, because it produced work nobody could ever do: the
    * organizer console has no reviewer queue, there is no unassign control, and the click
    * permanently locked the rubric. The demo directory resolves exactly one identity per
-   * persona, so with the signed-in organizer out of the list Ravi Reviewer is this event's
-   * only assignable reviewer and a two-reviewer average is no longer reachable through the
-   * product at all — asserting one here would be asserting a state the product forbids.
+   * persona, so with the signed-in organizer out of the list Ravi Reviewer was this event's
+   * only *signed-in* reviewer.
+   *
+   * **The event now staffs a second reviewer**, Nina Alvarez, seeded so that a round's pool, a
+   * two-reviewer aggregate and a reminder list are demonstrable at all (`#191`). She is offered
+   * here because the first pass admits her; what she cannot do is sign in, because the demo door
+   * resolves one identity per persona and adding a fifth "Continue as…" button is an
+   * identity-domain product decision a review lane should not take. The two-reviewer projection
+   * boundary is asserted at the service and HTTP tiers instead — `review-rounds.test.ts` proves
+   * neither reviewer's queue contains the other's evaluation, draft or completed.
    *
    * What is asserted instead is the rule that replaced it, on both sides of the wire, plus
    * the aggregate arithmetic the old block existed to protect: the control offers exactly
@@ -617,7 +624,12 @@ test("a reviewer scores and declares a conflict, and only the organizer sees the
   await page.getByRole("button", { name: scored, exact: true }).click();
   const panel = page.getByRole("region", { name: scored });
   const assignTo = panel.getByLabel("Assign this abstract to");
-  await expect(assignTo.getByRole("option")).toHaveText(["Choose reviewer", "Ravi Reviewer"]);
+  // The round's pool, in name order, and the signed-in organizer is not in it.
+  await expect(assignTo.getByRole("option")).toHaveText([
+    "Choose reviewer",
+    "Nina Alvarez",
+    "Ravi Reviewer",
+  ]);
 
   const reassigned = page.waitForResponse(
     (response) =>

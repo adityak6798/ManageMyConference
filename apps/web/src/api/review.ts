@@ -6,8 +6,15 @@ import {
   bulkProposalTransitionInputSchema,
   configureProposalStatusesInputSchema,
   configureReviewPlanInputSchema,
+  createReviewRoundInputSchema,
   distributeReviewersInputSchema,
   evaluationResponseSchema,
+  remindReviewersInputSchema,
+  remindReviewersResponseSchema,
+  reviewRoundResponseSchema,
+  reviewRoundsResponseSchema,
+  setReviewRoundPoolInputSchema,
+  updateReviewRoundInputSchema,
   type OrganizerReviewWorkspaceDto,
   organizerReviewWorkspaceSchema,
   proposalDecisionResponseSchema,
@@ -95,6 +102,80 @@ export async function distributeReviewers(
       json(distributeReviewersInputSchema.parse(input)),
     ),
     reviewAssignmentsResponseSchema,
+  );
+}
+/** Every configured round of this event with its reviewer pool. */
+export async function getReviewRounds(eventId: string) {
+  return decode(
+    await fetch(`/api/events/${eventId}/review/round-plans`),
+    reviewRoundsResponseSchema,
+  );
+}
+/**
+ * Create a round.
+ *
+ * The sequence is not passed: the server allocates it, because it is the number every assignment,
+ * outcome and suggestion of the round will carry and two clients picking it independently is how
+ * two rounds end up claiming to be the same one.
+ */
+export async function createReviewRound(
+  eventId: string,
+  input: z.input<typeof createReviewRoundInputSchema>,
+) {
+  return decode(
+    await fetch(
+      `/api/events/${eventId}/review/round-plans`,
+      json(createReviewRoundInputSchema.parse(input)),
+    ),
+    reviewRoundResponseSchema,
+  );
+}
+export async function updateReviewRound(
+  eventId: string,
+  sequence: number,
+  input: z.input<typeof updateReviewRoundInputSchema>,
+) {
+  const response = await fetch(`/api/events/${eventId}/review/round-plans/${sequence}`, {
+    ...json(updateReviewRoundInputSchema.parse(input)),
+    method: "PUT",
+  });
+  return decode(response, reviewRoundResponseSchema);
+}
+/**
+ * Replace a round's reviewer pool.
+ *
+ * The whole list rather than add/remove, because "these are the reviewers of this round" is the
+ * edit an organizer is making and two verbs would put a state nobody chose in between them.
+ * Refused for a reviewer who already holds assignments in the round.
+ */
+export async function setReviewRoundPool(
+  eventId: string,
+  sequence: number,
+  reviewerIds: readonly string[],
+) {
+  const response = await fetch(`/api/events/${eventId}/review/round-plans/${sequence}/pool`, {
+    ...json(setReviewRoundPoolInputSchema.parse({ reviewerIds })),
+    method: "PUT",
+  });
+  return decode(response, reviewRoundResponseSchema);
+}
+/**
+ * Remind selected reviewers about their outstanding evaluations in a round.
+ *
+ * The response says what happened per reviewer — queued, already sent, unaddressable, or nothing
+ * outstanding — because a request for four people where one has no linked address must not be
+ * reported to the organizer as four messages sent.
+ */
+export async function remindReviewers(
+  eventId: string,
+  input: z.input<typeof remindReviewersInputSchema>,
+) {
+  return decode(
+    await fetch(
+      `/api/events/${eventId}/review/reminders`,
+      json(remindReviewersInputSchema.parse(input)),
+    ),
+    remindReviewersResponseSchema,
   );
 }
 export async function advanceReviewRound(

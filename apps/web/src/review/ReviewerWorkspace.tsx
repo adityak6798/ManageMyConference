@@ -93,23 +93,53 @@ export function ReviewerWorkspace({ eventId }: { eventId: string }) {
         <Card
           labelledBy="review-proposal-title"
           title={active.proposal.title}
-          // The server masks the submitter out of the reviewer projection, so this surface
-          // names the policy rather than printing the mask as if it were a person.
+          /*
+           * Which policy this abstract arrives under, said in the words of what the reviewer can
+           * see rather than as a flag.
+           *
+           * The policy is the round's now, not the deployment's: a blind first pass and an open
+           * programme committee are two different rounds of the same event, and the server sends
+           * genuinely different bytes for each. So this reads the round rather than inferring
+           * blindness from a missing field — a proposal whose submitter is absent because the form
+           * collected no address is not a blind review, and the old test conflated the two.
+           *
+           * The open-review branch **names the author**, which is the whole point of the setting.
+           * It previously said "Authors and co-authors are shown" and then showed only the
+           * co-authors: the name was on the wire and rendered nowhere, so an organizer who turned
+           * blind review off got the exposure without the benefit.
+           */
           hint={
-            active.proposal.submitter
-              ? `Submitted by ${active.proposal.submitterName}`
-              : "Blind review — the submitter's name and contact details are hidden from reviewers."
+            active.round && !active.round.anonymized
+              ? `${active.round.name} — open review. Submitted by ${active.proposal.submitterName}.`
+              : `${active.round?.name ? `${active.round.name} — ` : ""}Blind review — the submitter's name and contact details are hidden from reviewers.`
           }
           actions={<Pill tone={queueState(active).tone}>{queueState(active).label}</Pill>}
         >
+          {active.roundClosedReason ? (
+            <Notice tone="warn" role="alert">
+              {active.roundClosedReason}
+            </Notice>
+          ) : null}
           <p className="review-abstract">{active.proposal.abstract}</p>
           <ProposalAnswers answers={active.proposal.answers} />
+          {/* Only an open round carries these; a blind projection has no co-authors to render. */}
+          {(active.proposal.coAuthors ?? []).length ? (
+            <p className="detail-reviewers">
+              <span className="detail-term">Co-authors and presenters</span>
+              {(active.proposal.coAuthors ?? [])
+                .map(({ name, role }) => `${name} — ${role}`)
+                .join(", ")}
+            </p>
+          ) : null}
         </Card>
 
         <EvaluationCard
           key={active.assignment.id}
           eventId={eventId}
           item={active}
+          // A closed round is view-only, and the queue says so before the reviewer types rather
+          // than refusing the save afterwards.
+          readOnlyReason={active.roundClosedReason ?? null}
           suggestionsEnabled={data.suggestionsEnabled ?? false}
           reload={async () => {
             await load();
