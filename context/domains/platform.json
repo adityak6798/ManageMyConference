@@ -118,6 +118,7 @@
     "apps/web/src/PublicReportApp.tsx",
     "apps/web/src/workspaces/reports.tsx",
     "apps/web/src/api/reports.ts",
+    "apps/web/test/public-report.test.tsx",
     "apps/web/test/reports-workspace.test.tsx",
     "apps/web/e2e/zz-closure-surfaces.spec.ts"
   ],

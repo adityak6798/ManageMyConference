@@ -1,3 +1,4 @@
+// @acceptance ACC-OPS
 import { render, screen } from "@testing-library/react";
 import { StrictMode } from "react";
 import { beforeEach, expect, it, vi } from "vitest";

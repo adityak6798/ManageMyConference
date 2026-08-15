@@ -28,7 +28,7 @@
  * @spec PRD-OPS-001 PRD-IAM-002 ARC-DOM-001
  */
 import { type Actor, type Capability, requireEventCapability } from "../identity/actor";
-import { fieldAccessFor } from "../identity/field-access";
+import { fieldAccessFor } from "../identity/public";
 import type { AuditRecorder } from "./audit-service";
 import {
   type CapabilityLink,
