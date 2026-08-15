@@ -169,7 +169,11 @@ test("a brand-new event's inbox says its public page is not live", async ({ page
   await page.goto("/settings?tab=event");
   await fillAdditionalEvent(page, { name });
   await page.getByRole("button", { name: "Create event" }).click();
-  await expect(page.getByRole("combobox", { name: "Event workspace" })).toContainText(name);
+  // Wait for the created event to become the active selection, not merely to appear somewhere
+  // in the option list; navigating while creation is still refreshing would reopen the old event.
+  await expect(
+    page.getByRole("combobox", { name: "Event workspace" }).locator("option:checked"),
+  ).toHaveText(name);
 
   await page.goto("/inbox");
   await expect(page.getByRole("heading", { level: 1, name: "Inbox" })).toBeVisible();
