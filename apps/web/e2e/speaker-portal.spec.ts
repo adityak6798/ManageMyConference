@@ -155,7 +155,7 @@ test("organizer tracks accepted content and speaker completes portal work", asyn
   await restoreOnboardingChecklist(page);
   await page.goto(SESSIONS);
 
-  await expect(page.getByRole("heading", { level: 1, name: "Sessions" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Speakers" })).toBeVisible();
   const sessions = page.getByRole("region", { name: "Accepted sessions" });
   // Each row also carries an "Edit <title>" action cell, so match the title cell exactly.
   await expect(
@@ -355,7 +355,7 @@ test("organizer tracks accepted content and speaker completes portal work", asyn
   await page.getByRole("combobox", { name: "Signed-in role" }).selectOption("organizer");
   await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toBeVisible();
   await page.goto(SESSIONS);
-  await expect(page.getByRole("heading", { level: 1, name: "Sessions" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Speakers" })).toBeVisible();
   const assets = page.getByRole("region", { name: "Speaker assets" });
   // The publish control repeats the filename in its accessible name, so match the cell
   // that names the file, its content type, and the headshot the speaker just chose.
@@ -601,7 +601,7 @@ test("a speaker's links reach the organizer and the published programme", async 
   // The organizer reads the same values, on the surface that maintains the rest of the roster.
   await page.request.post("/api/demo-session", { data: { persona: "organizer" } });
   await page.goto(SESSIONS);
-  await expect(page.getByRole("heading", { level: 1, name: "Sessions" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Speakers" })).toBeVisible();
   await openToolPanels(page);
   // The picker defaults to whoever sorts first, and this fixture accumulates speakers across
   // runs — so the journey names the speaker whose profile it just edited.
@@ -648,7 +648,7 @@ test("an organizer chases outstanding work once per deadline", async ({ page }) 
   await restoreOnboardingChecklist(page);
 
   await page.goto(SESSIONS);
-  await expect(page.getByRole("heading", { level: 1, name: "Sessions" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Speakers" })).toBeVisible();
   await openToolPanels(page);
 
   // The filter is the point: this view is what an organizer opens to find what is missing.
@@ -959,7 +959,7 @@ test("an organizer invites a speaker into the portal, and can invite the same sp
   const jordanBefore = (await rosterEntry(page, JORDAN)).invitationsSent ?? 0;
 
   await page.goto(SESSIONS);
-  await expect(page.getByRole("heading", { level: 1, name: "Sessions" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Speakers" })).toBeVisible();
   // Exact: an accessible name matches by substring, and the operations panel below this one
   // carries a region called "Import speakers".
   const roster = page.getByRole("region", { name: "Speakers", exact: true });
