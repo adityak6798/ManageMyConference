@@ -1,6 +1,6 @@
 # External SessionBoard evaluator
 
-Status: canonical | Owner: quality | Last verified: 2026-08-14
+Status: canonical | Owner: quality | Last verified: 2026-08-15
 
 `npm run eval:sbek` is the one entrypoint for issue #193's external evaluation. It pins the
 SessionBoard Eval Kit to commit `d8fafa41cdc484309e3fda953c5567cc2d462734`, records the target
@@ -39,9 +39,8 @@ The latest completed report available during this lane, started 2026-08-14 18:32
 67.6%. That older workflow did not record its target commit, so it is useful directional evidence
 and is not a release claim for this branch.
 
-The first run of the new wrapper recorded target base
-`6f6b32c4c4eac8467331ee272bc63a93242836f3`, the dirty paths under development, the pinned
-evaluator and the validated 18-scenario plan. It stopped blocked because this environment has no
+The latest wrapper run recorded its clean target commit, the pinned evaluator and the validated
+18-scenario plan. It stopped blocked because this environment has no
 `ANTHROPIC_API_KEY`; consequently **there is no current model-scored number for this branch**.
 Issue #193 remains open. The 65.9% report's non-pass items also predate several landed fixes and
 must not be presented as the result of this tree.
