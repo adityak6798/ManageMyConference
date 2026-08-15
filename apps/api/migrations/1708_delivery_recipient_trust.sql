@@ -18,9 +18,9 @@
 -- ## Why `ADD COLUMN` rather than a rebuild
 --
 -- Nothing is being narrowed: the column is new, `NOT NULL` with a default that is legal for every
--- existing row, and carries a `CHECK` — which SQLite permits on an added column. Migration `1707`
--- rebuilt this table two migrations ago and there is no reason to do it again for an additive
--- column.
+-- existing row, and carries a `CHECK` — which SQLite permits on an added column. Migration `1707`,
+-- immediately before this one, rebuilt this table already, and there is no reason to do it again
+-- for an additive column.
 --
 -- The default is `account`, which is the safe direction for rows that predate this: they are not
 -- counted against the cap. A pre-existing delivery to an address a guest later types is somebody
