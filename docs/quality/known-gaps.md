@@ -678,7 +678,8 @@ feature-by-feature verdict.
   A guest proposal's address is a form answer, and the decision notification is the one message
   the product sends to one. An event may now write at most three such messages to one address —
   so a hundred guest proposals naming one victim cost that person three messages rather than a
-  hundred — and a refused one is reported on the event's timeline rather than swallowed. The
+  hundred, with the ASCII-folding caveat below — and a refused one is reported on the event's
+  timeline rather than swallowed. The
   address is compared as a mailbox rather than as a string: case-folded, with any `+tag` removed,
   because one inbox spelled three ways would otherwise be three separate budgets. **The folding is
   ASCII-only**, deliberately, because it has to be the same folding the stored column is compared

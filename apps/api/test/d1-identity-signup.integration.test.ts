@@ -545,6 +545,13 @@ describe("Google signup against migrated D1", () => {
      * is what makes storage pick one, and its removal survives every other test in this suite.
      *
      * Two open tabs on a sign-in page is the ordinary way to reach this, not a contrived one.
+     *
+     * **What this case can and cannot guarantee.** It kills the removal of that condition today,
+     * and it also covers the loser re-reading before it returns — but the second only because the
+     * loser happens to reach `eventsInOrganization` after the winner's event has committed, which
+     * is an await-ordering property of the runtime rather than something asserted here. If that
+     * ordering ever shifted, the loser would take the provisioning branch instead and this case
+     * would go quiet rather than red. Worth knowing before it is trusted as a permanent guard.
      */
     const migrated = await createMigratedDatabase({
       label: "identity-submitter-promote-race",

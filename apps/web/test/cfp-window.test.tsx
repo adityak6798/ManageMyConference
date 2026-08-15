@@ -392,12 +392,14 @@ describe("a saved window converges on the state the server computed", () => {
      * The third false sentence in the same chain: an unpublished call reaches no applicant, so
      * "Applicants see the deadline on the public form" describes a page nobody can open.
      *
-     * Matched on the **whole announcement**, and scoped to the live region. The first version of
-     * this case matched `/Nothing is published yet/`, which the composer's own empty-state
-     * paragraph already renders before any save — so it passed against a mutated announcement,
-     * and could resolve against either of two matching elements depending on scheduling. A test
-     * that a mutation cannot kill is not coverage, and one that can match two nodes is a flake
-     * waiting for a slow machine.
+     * Matched on the **whole announcement**, which is what makes it unique. The first version of
+     * this case matched `/Nothing is published yet/`, and the composer's own empty-state paragraph
+     * already begins with those words before any save — so it passed against a mutated
+     * announcement, and could resolve against either of two matching elements depending on
+     * scheduling. A test a mutation cannot kill is not coverage, and one that can match two nodes
+     * is a flake waiting for a slow machine. The uniqueness is the regex rather than a scoped
+     * query, so it is stated here: the announcement is the only text beginning "Submission window
+     * saved. Nothing is published yet".
      */
     composer({
       initial: {
