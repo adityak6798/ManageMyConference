@@ -61,7 +61,8 @@ Read [review-loop.md](references/review-loop.md) before starting adversarial rev
   finding the reviewer does not raise again is **not** thereby fixed, so it stays open until a
   disposition closes it, and a finding first raised in a late pass still reaches the comment.
 - Record each pass's duration and finding count. `passStatistics` reports them, and tuning the
-  policy is supposed to rest on that rather than on taste.
+  policy is supposed to rest on that rather than on taste. `publicationProblems` refuses a
+  ledger with an untimed pass; duration is evidence, not optional prose.
 
 ### 4. Publish a draft PR
 
@@ -101,6 +102,9 @@ Read [review-loop.md](references/review-loop.md) before starting adversarial rev
   drift. Before publishing, run `publicationProblems(ledger, head)`: it refuses a ledger whose
   last pass ran against a commit that is no longer the head. A repair after the review moves the
   head, and a comment naming the old one describes a review of code that is no longer there.
+- Use the ledger dispositions `fixed`, `rejected`, `duplicate`, `outdated`, or `deferred` and
+  include evidence for every closed row. The renderer owns the stable `ship-it-findings` marker;
+  do not hand-write a parallel findings table under a different marker.
 - Add or update one PR comment containing the triaged findings table. Include Ralph and automated-review findings, their disposition, and evidence.
 - Before calling the PR review-ready, give every actionable item that will survive merge a durable issue tracker. Link an appropriate open issue and update its scope when needed; create a new issue only when no existing issue cleanly owns the work. Avoid duplicates. Record the owner, deferral rationale or current state, and a concrete closure condition in the issue.
 - Add or update a separate PR comment titled `Remaining work` listing unresolved blockers, deferred items, external verification, ownership, and the linked issue for every actionable follow-on. If nothing remains, say so explicitly.

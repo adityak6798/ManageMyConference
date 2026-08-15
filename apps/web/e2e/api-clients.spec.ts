@@ -1,5 +1,5 @@
 // @acceptance ACC-IDENTITY-EVENTS
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 const ORGANIZATION = "00000000-0000-4000-8000-000000000010";
 const EVENT = "00000000-0000-4000-8000-000000000001";

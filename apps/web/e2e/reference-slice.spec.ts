@@ -1,6 +1,7 @@
 // @acceptance ACC-IDENTITY-EVENTS
-import { expect, test } from "@playwright/test";
+
 import { fillAdditionalEvent } from "./event-creation";
+import { expect, test } from "./fixtures";
 
 test("signs in, switches events and roles, creates, and reloads an event", async ({ page }) => {
   const eventName = `Greenroom Browser Summit ${Date.now()}`;

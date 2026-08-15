@@ -1,6 +1,6 @@
 // @acceptance ACC-DEMO-SMOKE ACC-OPS
 import AxeBuilder from "@axe-core/playwright";
-import { expect, type Locator, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "./fixtures";
 
 const SLUG = "greenroom-demo-summit";
 const PUBLIC_SURFACES = [

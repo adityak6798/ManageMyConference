@@ -1,5 +1,5 @@
 // @acceptance ACC-PUBLIC
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 /*
  * The public site, asserted against composed data only.

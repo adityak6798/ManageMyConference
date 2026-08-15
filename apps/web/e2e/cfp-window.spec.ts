@@ -21,7 +21,7 @@
  * through the control as the last assertion, *and* restored in a `finally` whatever happened. The
  * assertion is the point; the `finally` is the safety net.
  */
-import { type Page, expect, test } from "@playwright/test";
+import { expect, type Page, test } from "./fixtures";
 
 const EVENT_ID = "00000000-0000-4000-8000-000000000001";
 const COMPOSER = `/cfp?event=${EVENT_ID}`;

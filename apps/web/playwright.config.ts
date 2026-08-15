@@ -26,7 +26,9 @@ export default defineConfig({
       // The port is passed as an environment variable rather than a shell prefix so that
       // `reset` and `dev` resolve the *same* instance state directory. A prefix binds only to
       // the command it precedes, which would have reset one database and served another.
-      command: "npm run setup:local && npm run reset && npm run dev --workspace @greenroom/api",
+      // Workerd's operator logs go to an artifact rather than Playwright's captured stdout pipe.
+      // GAP-017 established that a broken capture pipe can kill workerd while it is logging.
+      command: "npm run setup:local && npm run reset && node tools/browser-api-server.mjs",
       cwd: "../..",
       env: { GREENROOM_API_PORT: String(apiPort) },
       url: `http://127.0.0.1:${apiPort}/health`,

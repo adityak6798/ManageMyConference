@@ -1,5 +1,5 @@
 // @acceptance ACC-PUBLIC
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 /*
  * The attendee-facing half of the public surface: the five surfaces an anonymous visitor

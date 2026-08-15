@@ -12,8 +12,9 @@
  * spec — and the criterion worth proving is precisely that an event an organizer created
  * in the product, with no seeded projection behind it, can be given a public page at all.
  */
-import { expect, test } from "@playwright/test";
+
 import { fillAdditionalEvent } from "./event-creation";
+import { expect, test } from "./fixtures";
 
 test.use({ permissions: ["clipboard-read", "clipboard-write"] });
 

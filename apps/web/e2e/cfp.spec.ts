@@ -1,5 +1,5 @@
 // @acceptance ACC-CFP
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 const EVENT_ID = "00000000-0000-4000-8000-000000000001";
 const CFP = `/cfp?event=${EVENT_ID}`;

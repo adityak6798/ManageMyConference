@@ -1,6 +1,6 @@
 // @acceptance ACC-SPEAKER
 import { text } from "node:stream/consumers";
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "./fixtures";
 
 // Both surfaces are event-scoped, so the journey addresses them the way the console
 // links to them: /sessions?event=<uuid> for organizers, /portal?event=<uuid> for speakers.

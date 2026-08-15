@@ -19,6 +19,7 @@ export function findingKey(finding) {
 }
 
 export const SEVERITIES = ["blocker", "major", "minor", "note"];
+export const CLOSED_STATUSES = ["fixed", "rejected", "duplicate", "outdated", "deferred"];
 
 /**
  * Fold a pass's findings into the ledger.
@@ -65,7 +66,8 @@ export function emptyLedger() {
 /** Blockers and majors that are still open. Zero of these is the bar for review-ready. */
 export function unresolved(ledger) {
   return ledger.findings.filter(
-    (finding) => ["blocker", "major"].includes(finding.severity) && finding.status !== "resolved",
+    (finding) =>
+      ["blocker", "major"].includes(finding.severity) && !CLOSED_STATUSES.includes(finding.status),
   );
 }
 
@@ -85,15 +87,21 @@ export function publicationProblems(ledger, head) {
         `${String(head).slice(0, 12)}. A repair after the review needs another pass before the ` +
         "findings comment can claim to describe this head.",
     );
+  for (const pass of ledger.passes)
+    if (typeof pass.durationMinutes !== "number")
+      problems.push(
+        `Review pass ${pass.pass} has no duration. Record elapsed minutes so review cost and ` +
+          "finding yield can be tuned from evidence.",
+      );
   for (const finding of unresolved(ledger))
     problems.push(
       `${finding.severity} still open: ${finding.summary}. A blocker or major closes on ` +
         "evidence from a re-review, never on self-attestation.",
     );
   for (const finding of ledger.findings)
-    if (finding.status === "resolved" && !finding.evidence)
+    if (CLOSED_STATUSES.includes(finding.status) && !finding.evidence)
       problems.push(
-        `'${finding.summary}' is marked resolved with no evidence. Name the test, the commit, ` +
+        `'${finding.summary}' is marked ${finding.status} with no evidence. Name the test, the commit, ` +
           "or the reviewer pass that closed it.",
       );
   return problems;
@@ -107,11 +115,11 @@ export function renderFindings(ledger, head) {
       `${finding.status ?? "open"} | ${finding.evidence ?? "—"} | pass ${finding.firstSeenPass} |`,
   );
   return [
-    `<!-- greenroom:findings -->`,
-    `## Review findings`,
+    `<!-- ship-it-findings -->`,
+    `## Ship It review findings`,
     "",
     `Reviewed head: \`${head}\`. ${ledger.passes.length} pass(es), ` +
-      `${ledger.findings.length} finding(s).`,
+      `${ledger.findings.length} finding(s), ${passStatistics(ledger).totalMinutes} review minute(s).`,
     "",
     "| Severity | Dimension | Finding | Disposition | Evidence | Raised |",
     "|---|---|---|---|---|---|",

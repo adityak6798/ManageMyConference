@@ -24,8 +24,9 @@
  * not grow a line per run. `gate:browser` resets first in any case; this is for the developer
  * re-running the suite in place, which `speaker-portal.spec.ts` goes to real trouble to support.
  */
-import { expect, type Page, test } from "@playwright/test";
+
 import { fillAdditionalEvent } from "./event-creation";
+import { expect, type Page, test } from "./fixtures";
 
 const DEMO_EVENT_ID = "00000000-0000-4000-8000-000000000001";
 

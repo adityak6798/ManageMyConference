@@ -13,8 +13,9 @@
  *
  * This spec mutates nothing. Every route it touches is a read.
  */
-import { expect, type Page, test } from "@playwright/test";
+
 import { fillAdditionalEvent } from "./event-creation";
+import { expect, type Page, test } from "./fixtures";
 
 async function openConsoleAs(page: Page, persona: "organizer" | "reviewer") {
   await page.goto("/");

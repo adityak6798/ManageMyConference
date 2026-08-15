@@ -20,7 +20,7 @@
  * assertions name the seeded fields that must be present rather than the whole set.
  */
 import { cfpResponseSchema, publicEventProjectionSchema } from "@greenroom/contracts";
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 
 /*
  * Public submission is throttled to ten proposals per address per minute per event, and

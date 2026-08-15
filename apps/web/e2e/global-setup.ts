@@ -12,6 +12,9 @@
  *
  * This runs before any spec. A mismatch aborts the run with the foreign path named.
  */
+
+import { rm } from "node:fs/promises";
+import path from "node:path";
 import {
   describeServerIdentityMismatch,
   headCommit,
@@ -21,6 +24,7 @@ import {
 
 export default async function globalSetup(): Promise<void> {
   const environment = resolveWorktreeEnvironment();
+  await rm(path.join(environment.instanceDir, "browser-runtime-failure.txt"), { force: true });
   const expected = { root: environment.root, commit: headCommit(environment.root) };
   const probes = [
     { label: "The API server", url: `http://127.0.0.1:${environment.apiPort}/health` },
