@@ -165,6 +165,7 @@ function harness(over: { rows?: ReportRow[]; unauthorized?: boolean } = {}) {
   const stored = new Map<string, Awaited<ReturnType<ReportingService["save"]>>>();
   const links: (CapabilityLink & { tokenHash: string; passwordHash: string | null })[] = [];
   const runs: { id: string; scheduleId: string; occurrenceKey: string; outcome: string }[] = [];
+  const claims = new Set<string>();
   const schedules: Awaited<ReturnType<ReportingService["createSchedule"]>>[] = [];
   const delivered: { recipients: readonly string[]; url: string }[] = [];
   let nextId = 0;
@@ -197,15 +198,10 @@ function harness(over: { rows?: ReportRow[]; unauthorized?: boolean } = {}) {
     listSchedules: async (reportId) => schedules.filter((s) => s.reportId === reportId),
     removeSchedule: async () => 1,
     listDueSchedules: async () => schedules.map((s) => ({ ...s, eventId: EVENT })),
-    recordRun: async (run, key) => {
-      if (runs.some((r) => r.scheduleId === run.scheduleId && r.occurrenceKey === key))
-        return false;
-      runs.push({
-        id: run.id,
-        scheduleId: run.scheduleId,
-        occurrenceKey: key,
-        outcome: run.outcome,
-      });
+    claimRun: async (run, key) => {
+      const claimKey = `${run.scheduleId}:${key}`;
+      if (claims.has(claimKey)) return false;
+      claims.add(claimKey);
       const index = schedules.findIndex((s) => s.id === run.scheduleId);
       if (index >= 0)
         schedules[index] = {
@@ -214,10 +210,13 @@ function harness(over: { rows?: ReportRow[]; unauthorized?: boolean } = {}) {
         };
       return true;
     },
-    finishRun: async (runId, outcome) => {
-      const held = runs.find((run) => run.id === runId);
-      if (!held) throw new Error("missing claimed run");
-      held.outcome = outcome;
+    recordRun: async (run) => {
+      runs.push({
+        id: run.id,
+        scheduleId: run.scheduleId,
+        occurrenceKey: run.occurrenceKey,
+        outcome: run.outcome,
+      });
     },
     listRuns: async () => [],
   };
@@ -294,7 +293,7 @@ function harness(over: { rows?: ReportRow[]; unauthorized?: boolean } = {}) {
     newId: () => `00000000-0000-4000-8000-0000000000${(nextId++).toString().padStart(2, "0")}`,
     now: () => NOW,
   });
-  return { service, links, runs, delivered, schedules };
+  return { service, links, runs, delivered, schedules, claims };
 }
 
 const savedReport = (service: ReportingService) =>
@@ -514,7 +513,7 @@ describe("scheduled delivery", () => {
   });
 
   it("claims before delivery, so overlapping ticks cannot send the same occurrence twice", async () => {
-    const { service, delivered, runs } = harness();
+    const { service, delivered, runs, claims } = harness();
     const report = await savedReport(service);
     await service.createSchedule(organizer, EVENT, report.id, {
       cadence: "daily",
@@ -546,8 +545,8 @@ describe("scheduled delivery", () => {
     await started;
     await expect(concurrent.tick()).resolves.toEqual({ fired: 0, failed: 0 });
     expect(delivered).toHaveLength(1);
-    expect(runs).toHaveLength(1);
-    expect(runs[0]?.outcome).toBe("failed");
+    expect(claims).toHaveLength(1);
+    expect(runs).toHaveLength(0);
     releaseDelivery?.();
     await expect(first).resolves.toEqual({ fired: 1, failed: 0 });
     expect(runs[0]?.outcome).toBe("delivered");

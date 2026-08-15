@@ -8,7 +8,8 @@
  * **`recordRun` is a claim whose uniqueness is the arbiter.** It happens before delivery, and
  * `UNIQUE(schedule_id, occurrence_key)` is what turns "the same occurrence" into "at most one
  * delivery" across a retried tick or two Workers racing. The schedule's watermark moves in the
- * same batch; `finishRun` replaces the fail-safe failed claim after the external effect returns.
+ * same batch. The immutable final run is appended after the external effect returns; an unmatched
+ * claim is projected as a fail-safe failure if the worker disappears between those writes.
  *
  * @spec PRD-OPS-001 ARC-003
  */
@@ -278,36 +279,38 @@ export class D1ReportRepository implements ReportRepository {
    *
    * `OR IGNORE` plus the unique index is what makes a retried tick converge: the second attempt
    * writes nothing and answers `false`, and the watermark update is guarded on the insert having
-   * happened so it cannot claim an occurrence no run recorded.
+   * happened so it cannot name an occurrence no durable claim recorded.
    */
-  async recordRun(run: ReportRun, lastFiredKey: string): Promise<boolean> {
+  async claimRun(run: ReportRun, lastFiredKey: string): Promise<boolean> {
     const results = await this.database.batch([
       this.database
         .prepare(
-          "INSERT OR IGNORE INTO report_runs (id, schedule_id, occurrence_key, ran_at, outcome, detail) VALUES (?,?,?,?,?,?)",
+          "INSERT OR IGNORE INTO report_run_claims (run_id, schedule_id, occurrence_key, claimed_at) VALUES (?,?,?,?)",
         )
-        .bind(run.id, run.scheduleId, run.occurrenceKey, run.ranAt, run.outcome, run.detail),
+        .bind(run.id, run.scheduleId, run.occurrenceKey, run.ranAt),
       this.database
         .prepare("UPDATE report_schedules SET last_fired_key = ? WHERE id = ? AND changes() > 0")
         .bind(lastFiredKey, run.scheduleId),
     ]);
     const failed = results.find((result) => !result.success);
     if (failed)
-      throw new Error(`D1 failed to record a report run: ${failed.error ?? "unknown error"}`);
+      throw new Error(`D1 failed to claim a report run: ${failed.error ?? "unknown error"}`);
     const [inserted] = results;
-    if (!inserted) throw new Error("D1 returned no result while recording a report run");
-    return changedRows(inserted, "record a report run") > 0;
+    if (!inserted) throw new Error("D1 returned no result while claiming a report run");
+    return changedRows(inserted, "claim a report run") > 0;
   }
 
-  async finishRun(runId: string, outcome: ReportRun["outcome"], detail: string): Promise<void> {
+  async recordRun(run: ReportRun): Promise<void> {
     const result = await this.database
-      .prepare("UPDATE report_runs SET outcome = ?, detail = ? WHERE id = ?")
-      .bind(outcome, detail, runId)
+      .prepare(
+        "INSERT INTO report_runs (id, schedule_id, occurrence_key, ran_at, outcome, detail) VALUES (?,?,?,?,?,?)",
+      )
+      .bind(run.id, run.scheduleId, run.occurrenceKey, run.ranAt, run.outcome, run.detail)
       .run();
     if (!result.success)
-      throw new Error(`D1 failed to finish a report run: ${result.error ?? "unknown error"}`);
-    if (changedRows(result, "finish a report run") !== 1)
-      throw new Error("D1 could not find the report run it claimed");
+      throw new Error(`D1 failed to record a report run: ${result.error ?? "unknown error"}`);
+    if (changedRows(result, "record a report run") !== 1)
+      throw new Error("D1 did not append the report run it claimed");
   }
 
   async listRuns(scheduleId: string, limit: number): Promise<readonly ReportRun[]> {
@@ -320,8 +323,13 @@ export class D1ReportRepository implements ReportRepository {
         outcome: ReportRun["outcome"];
         detail: string;
       }>(
-        "SELECT id, schedule_id, occurrence_key, ran_at, outcome, detail FROM report_runs " +
-          "WHERE schedule_id = ? ORDER BY ran_at DESC, id DESC LIMIT ?",
+        "SELECT id, schedule_id, occurrence_key, ran_at, outcome, detail FROM (" +
+          "SELECT id, schedule_id, occurrence_key, ran_at, outcome, detail FROM report_runs " +
+          "UNION ALL " +
+          "SELECT c.run_id AS id, c.schedule_id, c.occurrence_key, c.claimed_at AS ran_at, " +
+          "'failed' AS outcome, 'Delivery did not complete.' AS detail FROM report_run_claims c " +
+          "LEFT JOIN report_runs r ON r.id = c.run_id WHERE r.id IS NULL" +
+          ") WHERE schedule_id = ? ORDER BY ran_at DESC, id DESC LIMIT ?",
         scheduleId,
         limit,
       )

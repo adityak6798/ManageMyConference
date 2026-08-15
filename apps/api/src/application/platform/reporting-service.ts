@@ -241,10 +241,10 @@ export interface ReportRepository {
   removeSchedule(reportId: string, scheduleId: string): Promise<number>;
   /** Every schedule that is not paused, across every event; the cron tick's only read. */
   listDueSchedules(): Promise<readonly (ReportSchedule & { eventId: string })[]>;
-  /** Claims one occurrence, answering false when it was already recorded. */
-  recordRun(run: ReportRun, lastFiredKey: string): Promise<boolean>;
-  /** Replaces the fail-safe claim with the delivery result after the external effect finishes. */
-  finishRun(runId: string, outcome: ReportRun["outcome"], detail: string): Promise<void>;
+  /** Durably claims one occurrence before delivery, answering false if it was already claimed. */
+  claimRun(run: ReportRun, lastFiredKey: string): Promise<boolean>;
+  /** Appends the delivery result after the external effect finishes. */
+  recordRun(run: ReportRun): Promise<void>;
   listRuns(scheduleId: string, limit: number): Promise<readonly ReportRun[]>;
 }
 
@@ -789,20 +789,17 @@ export class ReportingService {
       const report = await this.dependencies.repository.findById(schedule.reportId);
       if (!report) continue;
       const runId = this.dependencies.newId();
-      const recorded = await this.dependencies.repository.recordRun(
-        {
-          id: runId,
-          scheduleId: schedule.id,
-          occurrenceKey: key,
-          ranAt: now.toISOString(),
-          // Claim before any external effect. If the worker disappears, the durable row remains
-          // a truthful failure and a retry cannot deliver the same occurrence twice.
-          outcome: "failed",
-          detail: "Delivery did not complete.",
-        },
-        key,
-      );
-      if (!recorded) continue;
+      const claim = {
+        id: runId,
+        scheduleId: schedule.id,
+        occurrenceKey: key,
+        ranAt: now.toISOString(),
+        // If the worker disappears, listRuns projects the unmatched durable claim as this
+        // truthful failure, while a retry still cannot deliver the occurrence twice.
+        outcome: "failed" as const,
+        detail: "Delivery did not complete.",
+      };
+      if (!(await this.dependencies.repository.claimRun(claim, key))) continue;
       let outcome: "delivered" | "failed" = "delivered";
       let detail = "";
       let issuedLinkId: string | null = null;
@@ -859,7 +856,11 @@ export class ReportingService {
             }`;
           }
       }
-      await this.dependencies.repository.finishRun(runId, outcome, detail.slice(0, 400));
+      await this.dependencies.repository.recordRun({
+        ...claim,
+        outcome,
+        detail: detail.slice(0, 400),
+      });
       if (outcome === "delivered") fired += 1;
       else failed += 1;
     }

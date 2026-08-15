@@ -212,6 +212,7 @@
 ### `ACC-OPS`
 - `test` / `repository-fact`: [apps/api/test/d1-capability-links.integration.test.ts](../../apps/api/test/d1-capability-links.integration.test.ts)
 - `test` / `repository-fact`: [apps/api/test/d1-platform-repository.integration.test.ts](../../apps/api/test/d1-platform-repository.integration.test.ts)
+- `test` / `repository-fact`: [apps/api/test/d1-reporting.integration.test.ts](../../apps/api/test/d1-reporting.integration.test.ts)
 - `test` / `repository-fact`: [apps/api/test/platform-attribution.test.ts](../../apps/api/test/platform-attribution.test.ts)
 - `test` / `repository-fact`: [apps/api/test/platform-audit.test.ts](../../apps/api/test/platform-audit.test.ts)
 - `test` / `repository-fact`: [apps/api/test/platform-http.test.ts](../../apps/api/test/platform-http.test.ts)

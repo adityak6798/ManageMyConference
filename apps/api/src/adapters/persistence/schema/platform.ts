@@ -274,12 +274,33 @@ export function definePlatformSchema(references: {
     ],
   );
 
+  /** Durable pre-delivery claims; retained so a retry can never re-send an occurrence. */
+  const reportRunClaims = sqliteTable(
+    "report_run_claims",
+    {
+      runId: text("run_id").primaryKey().notNull(),
+      scheduleId: text("schedule_id")
+        .notNull()
+        .references(() => reportSchedules.id, { onDelete: "cascade" }),
+      occurrenceKey: text("occurrence_key").notNull(),
+      claimedAt: text("claimed_at").notNull(),
+    },
+    (table) => [
+      unique("report_run_claims_schedule_id_occurrence_key_unique").on(
+        table.scheduleId,
+        table.occurrenceKey,
+      ),
+      index("report_run_claims_schedule_idx").on(table.scheduleId, table.claimedAt),
+    ],
+  );
+
   return {
     platformInboxDismissals,
     platformAuditRecords,
     capabilityLinks,
     reportDefinitions,
     reportSchedules,
+    reportRunClaims,
     reportRuns,
   };
 }
