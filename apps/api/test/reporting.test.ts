@@ -619,7 +619,9 @@ describe("scheduled delivery", () => {
       timezone: "Europe/London",
       recipients: ["ops@example.test"],
     });
-    schedules[0] = { ...schedules[0]!, scope: {} };
+    const schedule = schedules[0];
+    if (!schedule) throw new Error("Expected the schedule to be stored");
+    schedules[0] = { ...schedule, scope: {} };
 
     await expect(service.tick()).resolves.toEqual({ fired: 0, failed: 1 });
     expect(delivered).toHaveLength(0);

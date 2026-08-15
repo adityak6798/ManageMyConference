@@ -2027,7 +2027,6 @@ export class ContentService {
       )
     )
       return true;
-    const profileWithEventGrant = profile;
     // Ownership is event-scoped: `content:read` is the union across every event the actor can
     // touch, so matching the stored user id alone would keep serving this asset after the
     // speaker's access to its event was removed.
