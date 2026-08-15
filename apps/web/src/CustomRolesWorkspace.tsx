@@ -304,7 +304,7 @@ export function CustomRolesWorkspace({
           </div>
         )}
         {canManage ? (
-          <div className="role-template-grid" aria-label="Role templates">
+          <div className="role-template-grid" role="group" aria-label="Role templates">
             {data.templates.map((template) => (
               <button
                 key={template.key}
