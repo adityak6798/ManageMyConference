@@ -68,7 +68,7 @@ async function findInTriage(page: Page, title: string) {
 
 async function publishSite(page: Page) {
   await page.goto(PUBLISHING);
-  await expect(page.getByRole("heading", { level: 1, name: "Publishing" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Event site" })).toBeVisible();
   await page.getByRole("button", { name: "Publish changes" }).click();
   await expect(page.getByRole("status").filter({ hasText: "Published." })).toBeVisible();
 }

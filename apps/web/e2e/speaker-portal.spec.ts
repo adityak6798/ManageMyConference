@@ -5,7 +5,7 @@ import { expect, type Page, test } from "./fixtures";
 // Both surfaces are event-scoped, so the journey addresses them the way the console
 // links to them: /sessions?event=<uuid> for organizers, /portal?event=<uuid> for speakers.
 const EVENT_ID = "00000000-0000-4000-8000-000000000001";
-const SESSIONS = `/schedule?event=${EVENT_ID}&tab=sessions`;
+const SESSIONS = `/people?event=${EVENT_ID}&tab=speakers`;
 const TRIAGE = `/abstracts?event=${EVENT_ID}`;
 const PORTAL = `/portal?event=${EVENT_ID}`;
 

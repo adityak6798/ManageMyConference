@@ -57,8 +57,8 @@ async function createEvent(page: Page): Promise<string> {
 
 /** The disclosure the checklist lives in, opened the way an organizer opens it. */
 async function openChecklist(page: Page, eventId: string) {
-  await page.goto(`/schedule?event=${eventId}&tab=sessions`);
-  await expect(page.getByRole("heading", { level: 1, name: "Sessions" })).toBeVisible();
+  await page.goto(`/people?event=${eventId}&tab=speakers`);
+  await expect(page.getByRole("heading", { level: 1, name: "Speakers" })).toBeVisible();
   const summary = page.getByRole("heading", { name: "Speaker checklist" });
   await expect(summary).toBeVisible();
   await summary.click();

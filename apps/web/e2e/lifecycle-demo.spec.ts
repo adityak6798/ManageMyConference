@@ -168,9 +168,14 @@ const READY: Readonly<Record<string, (page: Page) => Locator>> = {
   "organizer /agenda": (page) => page.locator(".agenda-count"),
   "organizer /cfp": (page) =>
     page.getByRole("heading", { level: 2, name: "Publication", exact: true }),
+  "organizer /program": (page) =>
+    page.getByRole("heading", { level: 2, name: "Publication", exact: true }),
   // The Card around the pipeline is painted with skeletons inside it, so the card is not the
   // signal — `.pipeline-board` replaces those skeletons and exists only in the loaded branch.
   "organizer /speakers": (page) => page.locator(".pipeline-board"),
+  "organizer /people": (page) => page.locator(".pipeline-board"),
+  "organizer /schedule": (page) =>
+    page.getByRole("heading", { level: 2, name: "Accepted sessions", exact: true }),
   // Same shape, and the empty directory is a loaded directory: both are the branch that replaces
   // the skeletons, and only one of the two is ever on screen.
   "organizer /speaker-directory": (page) =>
@@ -213,6 +218,8 @@ const READY: Readonly<Record<string, (page: Page) => Locator>> = {
   "organizer /communications": (page) =>
     page.locator("p.hint").filter({ hasText: /\d+ deliver(y|ies) loaded/ }),
   "organizer /publishing": (page) =>
+    page.getByRole("heading", { level: 2, name: "Publication", exact: true }),
+  "organizer /publish": (page) =>
     page.getByRole("heading", { level: 2, name: "Publication", exact: true }),
   // Portals have the same two loaded branches as the directory above — a table of portals, or the
   // empty state that replaces it — and a `Loading sites…` card before either.
