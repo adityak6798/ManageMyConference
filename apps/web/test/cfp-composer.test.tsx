@@ -11,7 +11,7 @@
  */
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CfpWorkspace } from "../src/CfpWorkspace";
+import { CfpWorkspace, parseStableChoices } from "../src/CfpWorkspace";
 
 const eventId = "00000000-0000-4000-8000-000000000001";
 
@@ -88,6 +88,19 @@ const question = (label: string) =>
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+});
+
+describe("stable choice parsing", () => {
+  it("keeps only contract-valid id-label pairs and the first occurrence of an id", () => {
+    expect(
+      parseStableChoices(
+        "platform: Platform & Infra, missing label:, no separator, bad id: Bad, platform: Duplicate, talk: Talk: 30 min",
+      ),
+    ).toEqual([
+      { id: "platform", label: "Platform & Infra", active: true },
+      { id: "talk", label: "Talk: 30 min", active: true },
+    ]);
+  });
 });
 
 describe("publishing what is on screen", () => {

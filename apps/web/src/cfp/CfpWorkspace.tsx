@@ -15,7 +15,12 @@
  *    states, in words, which one applicants can see.
  */
 
-import type { CfpField, CfpRoutingRule } from "@greenroom/contracts";
+import {
+  cfpChoiceSchema,
+  type CfpChoice,
+  type CfpField,
+  type CfpRoutingRule,
+} from "@greenroom/contracts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CfpApiError,
@@ -46,6 +51,66 @@ import {
   toZonedInput,
   typeLabel,
 } from "./model";
+
+export function parseStableChoices(value: string): CfpChoice[] {
+  const seen = new Set<string>();
+  return value
+    .split(",")
+    .map((entry) => {
+      const [id, ...label] = entry.split(":");
+      return cfpChoiceSchema.safeParse({
+        id: id?.trim(),
+        label: label.join(":").trim(),
+        active: true,
+      });
+    })
+    .filter((result) => result.success)
+    .map((result) => result.data)
+    .filter(({ id }) => {
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+}
+
+function StableChoicesInput({
+  fieldId,
+  choices,
+  onChange,
+}: {
+  fieldId: string;
+  choices: CfpChoice[];
+  onChange: (choices: CfpChoice[]) => void;
+}) {
+  const canonical = choices.map(({ id, label }) => `${id}: ${label}`).join(", ");
+  const [value, setValue] = useState(canonical);
+  const focused = useRef(false);
+  useEffect(() => {
+    if (!focused.current) setValue(canonical);
+  }, [canonical]);
+  return (
+    <input
+      id={`editor-options-${fieldId}`}
+      value={value}
+      aria-describedby={`editor-options-hint-${fieldId}`}
+      onBlur={() => {
+        focused.current = false;
+        setValue(
+          parseStableChoices(value)
+            .map(({ id, label }) => `${id}: ${label}`)
+            .join(", "),
+        );
+      }}
+      onFocus={() => {
+        focused.current = true;
+      }}
+      onChange={(event) => {
+        setValue(event.target.value);
+        onChange(parseStableChoices(event.target.value));
+      }}
+    />
+  );
+}
 // This state-owning composer intentionally exceeds 400 lines. Its draft ordering, selected field,
 // preview, publication transition, and applicant answers are one lifecycle; the remaining long
 // sections are single-use render branches, which issue #70 explicitly says not to extract merely
@@ -955,45 +1020,33 @@ export function CfpWorkspace({
                                 ? "Stable choices (id: label, comma separated)"
                                 : "Options (comma separated)"}
                             </label>
-                            <input
-                              id={`editor-options-${field.id}`}
-                              value={
-                                field.choices
-                                  ?.map(({ id, label }) => `${id}: ${label}`)
-                                  .join(", ") ?? field.options.join(", ")
-                              }
-                              aria-describedby={`editor-options-hint-${field.id}`}
-                              onChange={(event) =>
-                                updateField(field.id, {
-                                  ...(field.id === "track" || field.id === "format"
-                                    ? {
-                                        options: [],
-                                        choices: event.target.value
-                                          .split(",")
-                                          .map((option) => option.trim())
-                                          .filter(Boolean)
-                                          .map((option) => {
-                                            const [id, ...label] = option.split(":");
-                                            return {
-                                              id: id?.trim() ?? "",
-                                              label: label.join(":").trim(),
-                                              active: true,
-                                            };
-                                          }),
-                                      }
-                                    : {
-                                        options: event.target.value
-                                          .split(",")
-                                          .map((option) => option.trim())
-                                          .filter(Boolean),
-                                        choices: undefined,
-                                      }),
-                                })
-                              }
-                            />
+                            {field.id === "track" || field.id === "format" ? (
+                              <StableChoicesInput
+                                fieldId={field.id}
+                                choices={field.choices ?? []}
+                                onChange={(choices) =>
+                                  updateField(field.id, { options: [], choices })
+                                }
+                              />
+                            ) : (
+                              <input
+                                id={`editor-options-${field.id}`}
+                                value={field.options.join(", ")}
+                                aria-describedby={`editor-options-hint-${field.id}`}
+                                onChange={(event) =>
+                                  updateField(field.id, {
+                                    options: event.target.value
+                                      .split(",")
+                                      .map((option) => option.trim())
+                                      .filter(Boolean),
+                                    choices: undefined,
+                                  })
+                                }
+                              />
+                            )}
                             <p className="hint" id={`editor-options-hint-${field.id}`}>
                               {field.id === "track" || field.id === "format"
-                                ? "IDs stay fixed when labels change; inactive choices remain valid on existing proposals."
+                                ? "Use valid id: label pairs. Malformed and duplicate IDs are ignored; inactive choices remain valid on existing proposals."
                                 : "A select question needs at least one option."}
                             </p>
                           </div>
