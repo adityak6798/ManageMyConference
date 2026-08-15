@@ -618,9 +618,12 @@ function EmbedPanel({ embed, isLive }: { embed: Embed; isLive: boolean }) {
       {feedback.node}
 
       {isLive ? (
-        <div className="publishing-frame">
-          <iframe src={embed.path} title={`${embed.label} embed preview`} loading="lazy" />
-        </div>
+        <details className="publishing-live-preview">
+          <summary>Preview this embed</summary>
+          <div className="publishing-frame">
+            <iframe src={embed.path} title={`${embed.label} embed preview`} loading="lazy" />
+          </div>
+        </details>
       ) : (
         <EmptyState title="No live embed yet" icon={<IconGlobe size={20} />}>
           Publish the event and this frame renders the real embed, exactly as a host page would
@@ -999,7 +1002,7 @@ export function PublishingWorkspace({
       <Card
         labelledBy="publishing-embeds"
         title="Embeds"
-        hint="Chromeless views for another site. They serve the published snapshot, not the draft."
+        hint="Copy a hosted URL or snippet for another site. Preview a frame only when you need it."
       >
         {/*
           One configuration, applied to every snippet below. It is deliberately not stored:

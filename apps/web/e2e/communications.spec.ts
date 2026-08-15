@@ -221,11 +221,11 @@ test("an organizer recovers a delivery the provider refused, by clicking Retry",
 
   const row = await findDeliveryRow(page, recipient);
   await expect(row.locator(".delivery-state.state-terminal")).toBeVisible();
-  await expect(row).toContainText("PROVIDER_REJECTED");
+  await expect(row).toContainText("Provider rejected the delivery");
 
   // Clicked, not merely present. The previous version of this spec asserted the button existed
   // and called that "explicit recovery".
-  await row.getByRole("button", { name: `Retry ${recipient}` }).click();
+  await row.getByRole("button", { name: `Retry delivery to ${recipient}` }).click();
   await expect(page.getByText(`Retry queued for ${recipient}`)).toBeVisible();
   await expect
     .poll(
@@ -241,8 +241,12 @@ test("an organizer recovers a delivery the provider refused, by clicking Retry",
   await page.reload();
   const recoveredRow = await findDeliveryRow(page, recipient);
   await recoveredRow.getByRole("button", { name: `Show attempt history for ${recipient}` }).click();
-  await expect(page.getByText("Attempt 1: terminal_failure — PROVIDER_REJECTED")).toBeVisible();
-  await expect(page.getByText("Attempt 2: terminal_failure — PROVIDER_REJECTED")).toBeVisible();
+  await expect(
+    page.getByText("Attempt 1: Terminal failure — Provider rejected the delivery"),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Attempt 2: Terminal failure — Provider rejected the delivery"),
+  ).toBeVisible();
 });
 
 test("a queued delivery is not recoverable, and the route says so", async ({ page }) => {
@@ -271,7 +275,9 @@ test("a queued delivery is not recoverable, and the route says so", async ({ pag
     .first();
   // The worker still owns it, so the control is absent rather than present and refused on click.
   await expect(
-    row.getByRole("button", { name: `Retry ${queued?.delivery.recipientRef}` }),
+    row.getByRole("button", {
+      name: `Retry delivery to ${queued?.delivery.recipientRef}`,
+    }),
   ).toHaveCount(0);
 
   const refused = await page.request.post(

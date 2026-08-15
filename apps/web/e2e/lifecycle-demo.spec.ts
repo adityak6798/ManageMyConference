@@ -212,7 +212,7 @@ const READY: Readonly<Record<string, (page: Page) => Locator>> = {
    */
   "organizer /integrations/webhooks": (page) =>
     page
-      .getByRole("heading", { name: "Webhook delivery is not configured here" })
+      .getByRole("heading", { name: "Webhooks are unavailable in this deployment" })
       .or(page.getByRole("heading", { name: "No webhooks yet" })),
   // The outbox card is painted before its read answers; only the hint counts what arrived.
   "organizer /communications": (page) =>

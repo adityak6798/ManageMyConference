@@ -73,7 +73,9 @@ it("treats a deployment with no egress as unconfigured rather than as a failure"
   );
   render(<WebhooksWorkspace organizationId={ORGANIZATION} />);
 
-  expect(await screen.findByText("Webhook delivery is not configured here")).toBeInTheDocument();
+  expect(
+    await screen.findByText("Webhooks are unavailable in this deployment"),
+  ).toBeInTheDocument();
   // Every local checkout answers this way, so an alert here would be the console's most-seen red
   // banner and would say nothing an organizer could act on.
   expect(screen.queryByRole("alert")).not.toBeInTheDocument();

@@ -123,7 +123,7 @@ export function WebhooksWorkspace({ organizationId }: { organizationId: string }
     return (
       <Card title="Outbound webhooks">
         <EmptyState
-          title="Webhook delivery is not configured here"
+          title="Webhooks are unavailable in this deployment"
           action={
             // Not decoration. Configuration is an operator action taken elsewhere, and this is
             // how somebody who has just asked for it finds out it landed without reloading the
@@ -142,8 +142,8 @@ export function WebhooksWorkspace({ organizationId }: { organizationId: string }
             </button>
           }
         >
-          This deployment has no webhook egress configured, so subscriptions cannot be created or
-          delivered. An operator enables it; nothing on this screen can.
+          Ask the person who runs this Greenroom deployment to enable webhook delivery. No
+          subscriptions can be created until then.
         </EmptyState>
       </Card>
     );

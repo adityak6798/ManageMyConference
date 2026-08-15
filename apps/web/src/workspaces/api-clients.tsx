@@ -70,13 +70,12 @@ export function ApiClientsWorkspace({
     return (
       <Card title="API clients">
         <Notice tone="warn">
-          API clients can be administered only from a real organizer session. A demo persona is a
-          throwaway identity, and an API credential is hashed and shown once — there would be nobody
-          durable to own it.
+          API clients require a signed-in organizer account. Demo identities are temporary, so they
+          cannot safely own credentials.
         </Notice>
         <p>
-          <a href="/">Sign in with Google</a> as an organizer of this organization to create, rotate
-          and revoke machine credentials.
+          <a href="/">Sign in with Google</a> to create, rotate, or revoke API credentials for this
+          organization.
         </p>
       </Card>
     );

@@ -146,17 +146,24 @@ describe("communications history", () => {
     render(<App />);
     await screen.findByRole("button", { name: "Refresh outbox" });
     expect(await screen.findByText("terminal", { exact: true })).toBeInTheDocument();
+    expect(screen.getByText("Provider rejected the delivery")).toHaveAttribute(
+      "title",
+      "PROVIDER_REJECTED",
+    );
+    expect(screen.getByText("Projection requested")).toBeInTheDocument();
     // Attempt history is collapsed by default; open it before asserting the failure.
     fireEvent.click(screen.getByRole("button", { name: /attempt history for session:42/ }));
     expect(
-      await screen.findByText(/Attempt 1: terminal_failure — PROVIDER_REJECTED/),
+      await screen.findByText(/Attempt 1: Terminal failure — Provider rejected the delivery/),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Retry session:42" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Retry delivery to session:42" })).toBeEnabled();
     fireEvent.change(screen.getByRole("combobox", { name: "Event workspace" }), {
       target: { value: secondEventId },
     });
     expect(screen.queryByText("terminal", { exact: true })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Retry session:42" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Retry delivery to session:42" }),
+    ).not.toBeInTheDocument();
   });
 
   it.each(["success", "failure"] as const)(
@@ -370,7 +377,7 @@ describe("communications history", () => {
     );
     render(<App />);
     await screen.findByRole("button", { name: "Refresh outbox" });
-    fireEvent.click(await screen.findByRole("button", { name: "Retry session:retry" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Retry delivery to session:retry" }));
     fireEvent.change(screen.getByRole("combobox", { name: "Event workspace" }), {
       target: { value: secondEventId },
     });

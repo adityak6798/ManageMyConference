@@ -167,6 +167,7 @@ describe("PublishingWorkspace", () => {
     const frames = [...container.querySelectorAll("iframe")].map((frame) =>
       frame.getAttribute("src"),
     );
+    expect(screen.getAllByText("Preview this embed")).toHaveLength(5);
     // Programme, directory, gallery, and a private-link itinerary all use the same
     // published projection and the same configurable embed contract.
     expect(frames).toEqual([

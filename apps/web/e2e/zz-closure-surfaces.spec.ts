@@ -247,10 +247,10 @@ test("the webhooks console exposes the deployed configuration failure without a 
   await page.goto(`/settings?event=${DEMO_EVENT}&tab=integrations`);
   await expect(page.getByRole("heading", { level: 1, name: "Integrations" })).toBeVisible();
   await expect(
-    page.getByRole("heading", { name: "Webhook delivery is not configured here" }),
+    page.getByRole("heading", { name: "Webhooks are unavailable in this deployment" }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Check again" }).click();
   await expect(
-    page.getByRole("heading", { name: "Webhook delivery is not configured here" }),
+    page.getByRole("heading", { name: "Webhooks are unavailable in this deployment" }),
   ).toBeVisible();
 });
