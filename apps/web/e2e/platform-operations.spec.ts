@@ -247,11 +247,11 @@ test("the activity timeline records a real mutation with the organizer who made 
   await expect(page.getByRole("status")).toContainText("Published version 1");
 
   await page.goto(`/settings?event=${eventId}&tab=activity`);
-  const published = page.getByRole("row", { name: /agenda\.schedule_published/ });
+  const published = page.getByRole("row", { name: /Agenda schedule published/ });
   await expect(published).toBeVisible();
   // The organizer who pressed Publish, named, and marked as a person rather than a program.
   await expect(published).toContainText("Olivia Organizer");
-  await expect(published).toContainText("human");
+  await expect(published).toContainText("Person");
 
   /*
    * The fifth domain. Publishing the *site* is a different act from publishing the schedule, and

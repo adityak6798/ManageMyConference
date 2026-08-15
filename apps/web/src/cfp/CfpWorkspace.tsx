@@ -96,7 +96,7 @@ function ChoiceListEditor({
             <button
               type="button"
               className="ghost small cfp-choice-remove"
-              aria-label={`Remove option ${index + 1}`}
+              aria-label={`Delete choice ${index + 1}`}
               disabled={visible.length === 1}
               onClick={() => {
                 if (stable) {
