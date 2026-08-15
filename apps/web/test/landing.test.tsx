@@ -67,7 +67,7 @@ describe("the landing surfaces", () => {
     );
     expect(screen.getAllByRole("link", { name: "See product proof" })[0]).toHaveAttribute(
       "href",
-      "#signin-panel",
+      "#capabilities",
     );
     // The page describes the two capabilities that are built but unproven as exactly that,
     // rather than counting them among the seven that ship.

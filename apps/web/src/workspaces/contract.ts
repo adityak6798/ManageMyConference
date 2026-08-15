@@ -105,6 +105,8 @@ export interface HubTabModule {
   readonly order: number;
   readonly icon?: ReactNode;
   readonly personas: readonly Persona[];
+  /** Compatibility-only route aliases are resolvable but not advertised as distinct jobs. */
+  readonly hidden?: boolean;
   /** Old console paths that should resolve to this tab after cutover. */
   readonly legacyPaths: readonly string[];
   canAccess?(access: WorkspaceAccess): boolean;

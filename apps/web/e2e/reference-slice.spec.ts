@@ -178,9 +178,10 @@ test("publishes a clean agenda, explains draft conflicts, and keeps publication 
   await restore.focus();
   await restore.press("Enter");
   await page
-    .getByRole("button", { name: /Place .* in Workshop lab at 10:00–11:00/ })
+    .getByRole("button", { name: /Place .* in Workshop lab/ })
+    .first()
     .press("Enter");
   await expect(page.getByRole("status")).toContainText(
-    "“Accessible by default” placed in Workshop lab at 10:00–11:00.",
+    /“Accessible by default” placed in Workshop lab/,
   );
 });

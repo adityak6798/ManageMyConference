@@ -62,7 +62,7 @@ test("creates an event, previews without publishing, publishes, and takes it dow
   await expect(page.getByRole("status")).toContainText("Published version 1");
 
   await page.goto(`/publish?event=${eventId}&tab=event-site`);
-  await expect(page.getByRole("heading", { level: 1, name: "Event site" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Publishing" })).toBeVisible();
 
   /*
    * Each card announces into its own live region, because a confirmation that renders a
@@ -179,7 +179,7 @@ test("creates an event, previews without publishing, publishes, and takes it dow
 
   // ---- and unpublishing takes them away ------------------------------------
   await page.goto(`/publish?event=${eventId}&tab=event-site`);
-  await expect(page.getByRole("heading", { level: 1, name: "Event site" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Publishing" })).toBeVisible();
   await expect(page.locator(".publishing-url a").first()).toHaveAttribute(
     "href",
     `/events/${slug}`,

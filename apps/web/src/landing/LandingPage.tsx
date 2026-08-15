@@ -236,15 +236,9 @@ function LandingSurface({
             <a className="landing-door" {...linkProps("/signin")}>
               {doors?.demoMode ? "Try the demo" : "Get started"}
             </a>
-            {doors?.demoMode ? (
-              <a className="landing-door secondary" href="#signin-panel">
-                See product proof
-              </a>
-            ) : (
-              <a className="landing-door secondary" href="#capabilities">
-                See product proof
-              </a>
-            )}
+            <a className="landing-door secondary" href="#capabilities">
+              See product proof
+            </a>
           </div>
           {doors?.demoMode ? (
             <p className="landing-fineprint">

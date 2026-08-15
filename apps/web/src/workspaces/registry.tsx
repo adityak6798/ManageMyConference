@@ -76,21 +76,41 @@ export const workspaceModules: readonly WorkspaceModule[] = [
 /** Complete organizer information architecture, registered atomically by the cutover issue. */
 export const hubTabModules: readonly HubTabModule[] = [
   programFormsTab,
-  programSubmissionsTab,
-  programReviewTab,
+  {
+    ...programSubmissionsTab,
+    label: "Review",
+    header: programReviewTab.header,
+  },
+  { ...programReviewTab, hidden: true },
   crmHubTab,
   directoryHubTab,
   speakersHubTab,
-  tasksHubTab,
-  filesHubTab,
+  { ...tasksHubTab, hidden: true },
+  { ...filesHubTab, hidden: true },
   scheduleSessionsTab,
   scheduleAgendaTab,
-  composeHubTab,
-  communicationTemplatesHubTab,
-  deliveryHubTab,
-  eventSiteHubTab,
+  {
+    ...composeHubTab,
+    label: "Messages",
+    header: () => ({
+      eyebrow: "Communications",
+      title: "Messages",
+      subtitle: "Compose event messages, manage their templates, and inspect delivery outcomes.",
+    }),
+  },
+  { ...communicationTemplatesHubTab, hidden: true },
+  { ...deliveryHubTab, hidden: true },
+  {
+    ...eventSiteHubTab,
+    label: "Publishing",
+    header: () => ({
+      eyebrow: "Publish",
+      title: "Publishing",
+      subtitle: "Preview and publish the event site, public feeds, and embeddable programme views.",
+    }),
+  },
   portalsHubTab,
-  embedsHubTab,
+  { ...embedsHubTab, hidden: true },
   eventSettingsHubTab,
   teamHubTab,
   rolesHubTab,
@@ -115,8 +135,23 @@ export const hubTabModules: readonly HubTabModule[] = [
 
 export function hubTabsFor(hub: WorkspaceHub, persona: string): HubTabModule[] {
   return hubTabModules
-    .filter((module) => module.hub === hub && module.personas.includes(persona as never))
+    .filter(
+      (module) =>
+        module.hub === hub && !module.hidden && module.personas.includes(persona as never),
+    )
     .sort((left, right) => left.order - right.order);
+}
+
+export function hubTabForSelection(
+  hub: WorkspaceHub,
+  tab: string | null,
+  persona: string,
+): HubTabModule | undefined {
+  if (!tab) return undefined;
+  return hubTabModules.find(
+    (module) =>
+      module.hub === hub && module.tab === tab && module.personas.includes(persona as never),
+  );
 }
 
 export function hubTabForLegacyPath(path: string): HubTabModule | undefined {

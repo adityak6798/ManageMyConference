@@ -59,12 +59,13 @@ import type {
   WorkspaceModule,
   WorkspaceRole,
 } from "./workspaces/contract";
-import { HUB_PATHS, hubTabHref } from "./workspaces/contract";
+import { HUB_PATHS } from "./workspaces/contract";
 import {
   assertNoDuplicateWorkspaces,
   canOpen,
   canOpenTab,
   hubTabForLegacyPath,
+  hubTabForSelection,
   hubTabsFor,
   NAV_GROUP_ORDER,
   workspaceForPath,
@@ -438,9 +439,13 @@ export function App({
   useEffect(() => {
     if (loading || !session) return;
     if (path === ACCEPT_INVITATION_PATH) return;
-    if (allowed.some((route) => route.href === path) || hubTabForLegacyPath(path)) return;
+    if (
+      allowed.some((route) => route.href === path) ||
+      ((activeRole === "organizer" || activeRole === "custom") && hubTabForLegacyPath(path))
+    )
+      return;
     navigate(`${allowed[0]?.href ?? "/"}${query}`, { replace: true });
-  }, [allowed, loading, path, query, session]);
+  }, [activeRole, allowed, loading, path, query, session]);
 
   // A failure raised for one surface, or for one event, must not follow the user to the
   // next one — switching event keeps the same path, so both axes have to clear it.
@@ -812,11 +817,12 @@ export function App({
       onPublicationChange: setPublication,
     };
     const header = tab.header(context);
-    const tabItems = tabs.map((item) => ({
-      id: item.tab,
-      label: item.label,
-      href: `${hubTabHref(item.hub, item.tab)}${selectedEventId ? `&event=${selectedEventId}` : ""}`,
-    }));
+    const tabItems = tabs.map((item) => {
+      const params = new URLSearchParams(locationQuery);
+      params.set("tab", item.tab);
+      if (selectedEventId) params.set("event", selectedEventId);
+      return { id: item.tab, label: item.label, href: `${HUB_PATHS[item.hub]}?${params}` };
+    });
     return (
       <>
         <PageHeader {...header} />
@@ -864,7 +870,8 @@ export function App({
     if (hub) {
       const tabs = hubTabsFor(hub, activeRole === "custom" ? "organizer" : activeRole);
       const requestedTab = locationQuery.get("tab");
-      const activeTab = tabs.find(({ tab }) => tab === requestedTab) ?? tabs[0];
+      const persona = activeRole === "custom" ? "organizer" : activeRole;
+      const activeTab = hubTabForSelection(hub, requestedTab, persona) ?? tabs[0];
       // The shell still owns event creation state; its settings form is rendered below, now as
       // the Event tab. Every other hub tab is a domain contribution.
       if (activeTab && !(hub === "settings" && activeTab.tab === "event"))
@@ -916,11 +923,12 @@ export function App({
             label="Settings sections"
             active="event"
             items={hubTabsFor("settings", activeRole === "custom" ? "organizer" : activeRole).map(
-              (item) => ({
-                id: item.tab,
-                label: item.label,
-                href: `${hubTabHref("settings", item.tab)}${selectedEventId ? `&event=${selectedEventId}` : ""}`,
-              }),
+              (item) => {
+                const params = new URLSearchParams(locationQuery);
+                params.set("tab", item.tab);
+                if (selectedEventId) params.set("event", selectedEventId);
+                return { id: item.tab, label: item.label, href: `${HUB_PATHS.settings}?${params}` };
+              },
             )}
           />
           {activeEventCapabilities.includes("events:settings:update") ? (

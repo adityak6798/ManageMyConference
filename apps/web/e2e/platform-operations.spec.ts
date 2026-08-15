@@ -260,7 +260,7 @@ test("the activity timeline records a real mutation with the organizer who made 
    * observation.
    */
   await page.goto(`/publish?event=${eventId}&tab=event-site`);
-  await expect(page.getByRole("heading", { level: 1, name: "Event site" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Publishing" })).toBeVisible();
   await page.getByRole("button", { name: "Publish", exact: true }).click();
   await expect(page.getByText("Snapshot matches the draft")).toBeVisible();
 

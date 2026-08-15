@@ -563,7 +563,7 @@ describe("Publishing route", () => {
     fireEvent.click(navItem);
 
     expect(
-      await screen.findByRole("heading", { level: 1, name: "Event site" }),
+      await screen.findByRole("heading", { level: 1, name: "Publishing" }),
     ).toBeInTheDocument();
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
     expect(window.location.pathname).toBe("/publish");
