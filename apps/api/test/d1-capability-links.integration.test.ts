@@ -127,6 +127,15 @@ describe("capability links against D1", () => {
     expect(await store.spend("a".repeat(64), "report", null, NOW)).toBeNull();
   });
 
+  it("does not spend a password-protected one-view link until the password matches", async () => {
+    const { store } = await stack();
+    await store.create(linkOf({ viewLimit: 1, hasPassword: true, passwordHash: "p".repeat(64) }));
+    expect(await store.spend("a".repeat(64), "report", null, NOW)).toBeNull();
+    expect(await store.spend("a".repeat(64), "report", "w".repeat(64), NOW)).toBeNull();
+    expect(await store.spend("a".repeat(64), "report", "p".repeat(64), NOW)).not.toBeNull();
+    expect(await store.spend("a".repeat(64), "report", "p".repeat(64), NOW)).toBeNull();
+  });
+
   it("answers unknown, revoked and expired links identically", async () => {
     const { store } = await stack();
     await store.create(

@@ -227,6 +227,7 @@
 - `test` / `repository-fact`: [apps/web/test/platform-audit.test.tsx](../../apps/web/test/platform-audit.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/platform-inbox.test.tsx](../../apps/web/test/platform-inbox.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/platform-search.test.tsx](../../apps/web/test/platform-search.test.tsx)
+- `test` / `repository-fact`: [apps/web/test/public-report.test.tsx](../../apps/web/test/public-report.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/reports-workspace.test.tsx](../../apps/web/test/reports-workspace.test.tsx)
 - `specification` / `normative`: [docs/exec-plans/competition-waves.md](../../docs/exec-plans/competition-waves.md)
 - `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)

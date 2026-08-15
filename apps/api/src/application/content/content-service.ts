@@ -2031,9 +2031,7 @@ export class ContentService {
     // Ownership is event-scoped: `content:read` is the union across every event the actor can
     // touch, so matching the stored user id alone would keep serving this asset after the
     // speaker's access to its event was removed.
-    return profileWithEventGrant
-      ? this.mayStewardProfile(authorized, profileWithEventGrant)
-      : false;
+    return profile ? this.mayStewardProfile(authorized, profile) : false;
   }
 
   async publishAsset(actor: Actor | null, assetId: string) {
