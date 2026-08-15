@@ -53,6 +53,7 @@ export function PublicReportApp() {
     setError(null);
     // StrictMode replays mount effects. Both mounts share one spending request so a finite-view
     // capability is consumed exactly once, while a password submission remains an explicit retry.
+    // ERROR-INTENT: the effect owns completion through the attached success and failure handlers.
     void initialReport(token)
       .then((result) => {
         if (active) setReport(result);
