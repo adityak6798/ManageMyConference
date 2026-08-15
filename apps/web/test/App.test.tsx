@@ -2,9 +2,9 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../src/App";
+import { clearOrganizerOverviewCache } from "../src/api/overview";
 import { bytesToBase64 } from "../src/ContentWorkspace";
 import { instanceLabel } from "../src/InstanceMarker";
-import { clearOrganizerOverviewCache } from "../src/api/overview";
 
 const organizationId = "00000000-0000-4000-8000-000000000010";
 const eventId = "123e4567-e89b-12d3-a456-426614174000";
@@ -234,8 +234,8 @@ describe("App", () => {
 
     expect(await screen.findByRole("heading", { level: 1, name: "Overview" })).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Event workspace" })).toHaveValue(eventId);
-    expect(screen.getByRole("link", { name: /Event settings/ })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Agenda/ })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Schedule" })).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "Signed-in role" })).toHaveValue("organizer");
     expect(screen.getByText("Local instance")).toBeInTheDocument();
     // The console remains the product, not a walkthrough of seeded identities. Only the
@@ -540,7 +540,7 @@ describe("App", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<App />);
 
-    fireEvent.click(await screen.findByRole("link", { name: /Event settings/ }));
+    fireEvent.click(await screen.findByRole("link", { name: "Settings" }));
     fireEvent.change(await screen.findByLabelText("Current event name"), {
       target: { value: updated.name },
     });
@@ -582,7 +582,7 @@ describe("App", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<App />);
 
-    fireEvent.click(await screen.findByRole("link", { name: /Event settings/ }));
+    fireEvent.click(await screen.findByRole("link", { name: "Settings" }));
     await waitFor(() => expect(window.location.search).toBe(`?event=${eventId}`));
     await fillNewEvent();
     fireEvent.click(screen.getByRole("button", { name: "Create event" }));

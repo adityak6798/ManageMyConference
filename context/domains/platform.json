@@ -13,7 +13,7 @@
   ],
   "journeys": [],
   "acceptance": ["ACC-HARNESS", "ACC-DEMO-SMOKE", "ACC-OPS"],
-  "plans": ["PLAN-001", "PLAN-002"],
+  "plans": ["PLAN-001", "PLAN-002", "PLAN-005"],
   "paths": [
     ".agents/extra-skills/bootstrap-harness",
     ".agents/skills/ship-it",

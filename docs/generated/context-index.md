@@ -3,7 +3,7 @@
 
 | Domain | Specs | Journeys | Acceptance | Plans | Index |
 |---|---|---|---|---|---|
-| platform | `ARC-001`, `ARC-DOM-001`, `ENG-CI-001`, `PRD-OPS-001`, `PRD-OPS-002`, `PRD-OPS-003`, `PRD-OPS-004` | — | `ACC-HARNESS`, `ACC-DEMO-SMOKE`, `ACC-OPS` | `PLAN-001`, `PLAN-002` | [docs/architecture/README.md](../architecture/README.md) |
+| platform | `ARC-001`, `ARC-DOM-001`, `ENG-CI-001`, `PRD-OPS-001`, `PRD-OPS-002`, `PRD-OPS-003`, `PRD-OPS-004` | — | `ACC-HARNESS`, `ACC-DEMO-SMOKE`, `ACC-OPS` | `PLAN-001`, `PLAN-002`, `PLAN-005` | [docs/architecture/README.md](../architecture/README.md) |
 | identity-access | `PRD-IAM-001`, `PRD-IAM-002` | `JNY-010` | — | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
 | events | `PRD-EVT-001`, `PRD-EVT-002` | — | `ACC-IDENTITY-EVENTS`, `ACC-EVENT-TEMPLATES` | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
 | cfp | `PRD-CFP-001`, `PRD-CFP-002`, `PRD-CFP-003`, `PRD-CFP-004`, `PRD-ABS-001` | `JNY-001`, `JNY-002` | `ACC-CFP` | `PLAN-002`, `PLAN-004` | [docs/product/specifications.md](../product/specifications.md) |
@@ -454,6 +454,9 @@
 - `specification` / `normative`: [docs/exec-plans/active.md](../../docs/exec-plans/active.md)
 
 ### `PLAN-004`
+- `specification` / `normative`: [docs/exec-plans/active.md](../../docs/exec-plans/active.md)
+
+### `PLAN-005`
 - `specification` / `normative`: [docs/exec-plans/active.md](../../docs/exec-plans/active.md)
 
 ### `PRD-ABS-001`
