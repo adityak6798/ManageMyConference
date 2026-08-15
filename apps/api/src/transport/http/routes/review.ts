@@ -419,6 +419,7 @@ export const reviewRoutes: RouteModule = {
           envelope("VALIDATION_FAILED", "Review round is malformed.", context.get("correlationId")),
           400,
         );
+      requireEventCapability(context.get("actor"), params.data.eventId, "review:manage");
       const parsed = inviteReviewRoundInputSchema.safeParse(await readJson(context.req));
       if (!parsed.success)
         return context.json(

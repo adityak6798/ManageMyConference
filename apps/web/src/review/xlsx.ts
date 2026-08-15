@@ -2,15 +2,25 @@
 import { zipSync } from "fflate";
 
 const xml = (value: string) =>
-  value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .split("")
+  // Array.from walks Unicode code points, so a non-BMP character remains one XML character
+  // instead of being split into two invalid surrogate halves.
+  Array.from(
+    value
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;"),
+  )
     .filter((character) => {
       const code = character.codePointAt(0) ?? 0;
-      return code === 9 || code === 10 || code === 13 || (code >= 32 && code !== 127);
+      return (
+        code === 9 ||
+        code === 10 ||
+        code === 13 ||
+        (code >= 0x20 && code <= 0xd7ff) ||
+        (code >= 0xe000 && code <= 0xfffd) ||
+        (code >= 0x10000 && code <= 0x10ffff)
+      );
     })
     .join("");
 

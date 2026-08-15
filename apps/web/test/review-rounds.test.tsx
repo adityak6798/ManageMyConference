@@ -138,6 +138,34 @@ afterEach(() => {
 });
 
 describe("the round the console is working in", () => {
+  it("recomputes an edited filter definition before saving the rest of the round", async () => {
+    const updatedFilters = [{ field: "track", values: ["Platform", "Practice"] }];
+    const sent = stubApi((url) => {
+      if (url.includes("/review/organizer")) return jsonResponse(workspace());
+      if (url.endsWith("/round-plans/1/recompute"))
+        return jsonResponse({ round: round({ filters: updatedFilters, filterVersion: 2 }) });
+      if (url.endsWith("/round-plans/1"))
+        return jsonResponse({ round: round({ filters: updatedFilters, filterVersion: 2 }) });
+      return undefined;
+    });
+    render(<OrganizerReviewWorkspace eventId={eventId} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Edit First pass" }));
+    fireEvent.change(screen.getByLabelText("Filters"), {
+      target: { value: "track=Platform, Practice" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save round" }));
+
+    await waitFor(() => expect(sent.some(({ url }) => url.endsWith("/round-plans/1"))).toBe(true));
+    const writes = sent.filter(({ url }) => url.includes("/round-plans/1"));
+    expect(writes.map(({ url }) => url)).toEqual([
+      `/api/events/${eventId}/review/round-plans/1/recompute`,
+      `/api/events/${eventId}/review/round-plans/1`,
+    ]);
+    expect(writes[0]?.body).toEqual({ filters: updatedFilters });
+    expect(writes[1]?.body).toMatchObject({ filters: updatedFilters });
+  });
+
   it("assigns and distributes into the chosen round, with the cap the organizer set", async () => {
     const sent = stubApi((url) =>
       url.includes("/review/organizer")

@@ -199,6 +199,16 @@ export function RoundsPanel({
       !(await act(() => setReviewRoundPool(eventId, editing, pool), "Pool saved."))
     )
       return;
+    const filters = filtersOf(terms.filters);
+    const filtersChanged = JSON.stringify(filters) !== JSON.stringify(round.filters);
+    if (
+      filtersChanged &&
+      !(await act(
+        () => recomputeReviewRound(eventId, editing, { filters }),
+        "Filter membership recomputed as a new snapshot version.",
+      ))
+    )
+      return;
     const saved = await act(
       () =>
         updateReviewRound(eventId, editing, {
@@ -213,7 +223,10 @@ export function RoundsPanel({
           // the plan as it stands right now, which is the snapshot semantics the round type
           // documents: the event plan can go on changing without restating a round's rubric.
           criteria: terms.ownScorecard ? (round.criteria ?? data.plan?.criteria ?? null) : null,
-          filters: round.filters,
+          // A changed definition was recomputed immediately above. Sending the same definition
+          // here keeps this terms write coherent with the new snapshot instead of silently
+          // restoring the pre-edit value or tripping the service's recompute-only guard.
+          filters,
           visibleFieldIds: terms.visibleFieldIds
             .split(",")
             .map((value) => value.trim())
