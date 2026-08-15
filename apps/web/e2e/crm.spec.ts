@@ -529,6 +529,10 @@ test("an organizer moves a card on the board by pointer and by keyboard", async 
   // keyboard user whose focus was dropped could move a card exactly once.
   await page.keyboard.press("ArrowRight");
   await expect.poll(() => stageOfProspect(page, mine.id), { timeout: 10_000 }).toBe("engaged");
+  // The API can converge just before the workspace's refetch remounts the card. Wait for that
+  // visible projection too, otherwise the following scroll can race the old node being detached.
+  const engaged = page.locator(".pipeline-column").filter({ hasText: "Engaged" }).first();
+  await expect(engaged.locator(".pipeline-card").filter({ hasText: name })).toBeVisible();
 
   // --- pointer: a real drag between two columns ---
   //
