@@ -86,8 +86,21 @@ export function defineIdentityAccessSchema(references: {
       codeVerifier: text("code_verifier").notNull(),
       nonce: text("nonce").notNull(),
       expiresAt: integer("expires_at").notNull(),
+      /**
+       * Which door this sign-in was started from, and therefore whether a first-time identity is
+       * given a conference workspace. `organizer` is the default and is today's behaviour;
+       * `submitter` withholds provisioning for somebody who arrived from a public call page. See
+       * migration `1005`.
+       */
+      workspaceIntent: text("workspace_intent").notNull().default("organizer"),
     },
-    (table) => [index("identity_oauth_attempts_expiry_idx").on(table.expiresAt)],
+    (table) => [
+      check(
+        "identity_oauth_attempts_workspace_intent",
+        sql`${table.workspaceIntent} IN ('organizer', 'submitter')`,
+      ),
+      index("identity_oauth_attempts_expiry_idx").on(table.expiresAt),
+    ],
   );
 
   /**

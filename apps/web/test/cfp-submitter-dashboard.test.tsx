@@ -101,14 +101,14 @@ function mount(
     }),
   );
   const status = options.status ?? "open";
-  render(
+  const renderView = (fields = options.liveFields) => (
     <PublicCfpView
       eventId={eventId}
       schedule={liveCfp as never}
       liveCfp={
         {
           ...liveCfp,
-          ...(options.liveFields ? { fields: options.liveFields } : {}),
+          ...(fields ? { fields } : {}),
           effectiveStatus: status,
         } as never
       }
@@ -118,13 +118,18 @@ function mount(
       title={liveCfp.title}
       description={liveCfp.description}
       timezone={LA}
-    />,
+    />
   );
+  const view = render(renderView());
   return {
     calls,
     /** Change what the dashboard answers next, so a write's refresh can be observed. */
     setProposals(next: readonly Record<string, unknown>[]) {
       listed = next;
+    },
+    /** Deliver a newly published form to the mounted view, as the visibility refresh does. */
+    rerenderLiveFields(next: readonly Record<string, unknown>[]) {
+      view.rerender(renderView(next));
     },
   };
 }
@@ -761,6 +766,192 @@ describe("the signed-in applicant's proposals", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("changed in another tab");
     // Losing the race must not also lose the words: the refusal is data-loss-free.
     expect(screen.getByLabelText(/Proposal title/)).toHaveValue("My version");
+  });
+
+  it("keeps typing when the proposal already open is re-opened, and says so", async () => {
+    /*
+     * Issue #211: pressing the same row's button reloaded the stored copy over whatever had been
+     * typed and said only "Editing …. Change what you need" — a silent discard on the one surface
+     * whose spec (`PRD-CFP-004`) requires a drop to be stated *before* the save that makes it
+     * permanent. Reverting `openForEditing` to the unconditional `setAnswers` fails both
+     * assertions below.
+     */
+    mount({ proposals: [proposal()] });
+
+    fireEvent.click(await screen.findByRole("button", { name: /Continue Half an idea/ }));
+    fireEvent.change(screen.getByLabelText(/Proposal title/), { target: { value: "My version" } });
+    fireEvent.click(screen.getByRole("button", { name: /Continue Half an idea/ }));
+
+    expect(screen.getByLabelText(/Proposal title/)).toHaveValue("My version");
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Your unsaved changes are still on the form",
+    );
+  });
+
+  it("refuses to switch to another proposal while typing is unsaved, and says why", async () => {
+    /*
+     * The sibling of #211 that the first repair missed, found one click sideways by a review pass:
+     * the same silent discard, reached by pressing a *different* proposal's button. The comment in
+     * `openForEditing` claimed the same-proposal path was "the one path on this surface" — it was
+     * not, and `GAP-025` is in this repository because a lane once repaired three of four siblings.
+     *
+     * Rebinding while keeping the answers would be worse than either option: it sends one
+     * proposal's text under another's id.
+     */
+    const test = mount({
+      proposals: [
+        proposal({ id: "50000000-0000-4000-8000-00000000000a", title: "Alpha" }),
+        proposal({ id: "50000000-0000-4000-8000-00000000000b", title: "Beta" }),
+      ],
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: /Continue Alpha/ }));
+    fireEvent.change(screen.getByLabelText(/Proposal title/), { target: { value: "My version" } });
+    fireEvent.click(screen.getByRole("button", { name: /Continue Beta/ }));
+
+    // The typing is still there, and the form is still bound to Alpha.
+    expect(screen.getByLabelText(/Proposal title/)).toHaveValue("My version");
+    expect(await screen.findByRole("alert")).toHaveTextContent("You have unsaved changes to Alpha");
+    // The way out is named rather than left to be guessed at.
+    expect(screen.getByRole("alert")).toHaveTextContent("Start another proposal");
+    // And nothing was written: a refused switch is not a save.
+    expect(test.calls.filter(({ method }) => method !== "GET")).toHaveLength(0);
+  });
+
+  it("does not invent unsaved changes from answers removed by a refreshed form", async () => {
+    const titleField = liveCfp.fields[0]!;
+    const abstractField = {
+      id: "abstract",
+      type: "long_text" as const,
+      label: "Abstract",
+      guidance: "",
+      required: false,
+      options: [],
+    };
+    const test = mount({
+      liveFields: [titleField, abstractField],
+      proposals: [
+        proposal({
+          id: "50000000-0000-4000-8000-00000000000a",
+          title: "Alpha",
+          answers: { title: "Alpha", abstract: "The old question's answer" },
+        }),
+        proposal({
+          id: "50000000-0000-4000-8000-00000000000b",
+          title: "Beta",
+          answers: { title: "Beta" },
+        }),
+      ],
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: /Continue Alpha/ }));
+    expect(screen.getByLabelText("Abstract")).toHaveValue("The old question's answer");
+
+    // A visibility refresh can remove a question while React retains its old answer in state.
+    // That invisible key is not work the applicant changed and must not block a proposal switch.
+    test.rerenderLiveFields([titleField]);
+    expect(screen.queryByLabelText("Abstract")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Continue Beta/ }));
+
+    expect(screen.getByLabelText(/Proposal title/)).toHaveValue("Beta");
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("refuses to open a stored proposal over a new one that has been typed into", async () => {
+    /*
+     * The third sibling, found by the review pass that followed the one above. `unsaved` was
+     * measured against `editing`, so a form bound to *nothing* — an applicant part-way through a
+     * new proposal, which is the state after every submit and after `Start another proposal` —
+     * measured as having nothing to lose. Opening anything from the list wiped a whole unsent
+     * abstract and announced "Editing …. Change what you need", which is the exact sentence issue
+     * #211 exists to have removed.
+     */
+    const test = mount({ proposals: [proposal({ title: "Alpha" })] });
+
+    // No proposal is open: the form is the empty new-proposal form.
+    await screen.findByRole("button", { name: /Continue Alpha/ });
+    fireEvent.change(screen.getByLabelText(/Proposal title/), {
+      target: { value: "A brand new idea" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Continue Alpha/ }));
+
+    expect(screen.getByLabelText(/Proposal title/)).toHaveValue("A brand new idea");
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "You have unsaved answers on a new proposal",
+    );
+    expect(test.calls.filter(({ method }) => method !== "GET")).toHaveLength(0);
+  });
+
+  it("says what an empty form discarded even when no proposal was open", async () => {
+    // The same statement for the deliberate discard on a form bound to nothing. It cannot claim
+    // the previous proposal is unchanged, because there was no previous proposal — what was on
+    // screen was never stored anywhere.
+    mount({ proposals: [proposal({ title: "Alpha" })] });
+
+    await screen.findByRole("button", { name: /Continue Alpha/ });
+    fireEvent.change(screen.getByLabelText(/Proposal title/), { target: { value: "Unsent" } });
+    fireEvent.click(screen.getByRole("button", { name: "Start another proposal" }));
+
+    expect(screen.getByLabelText(/Proposal title/)).toHaveValue("");
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "were not saved anywhere and are gone",
+    );
+  });
+
+  it("claims no loss when the proposal on the form was never changed", async () => {
+    /*
+     * The other half of the same sentence, and a regression the first version of this repair
+     * introduced: `abandoned` is null both when no proposal is open *and* when an open one is
+     * unmodified, so a discard notice guarded only on that fired for somebody who had just opened
+     * — or just saved — a proposal that is sitting unchanged in the list above. Telling an
+     * applicant their work is gone when it is not is the same defect as losing it silently.
+     */
+    mount({ proposals: [proposal({ title: "Alpha", answers: { title: "Alpha" } })] });
+
+    fireEvent.click(await screen.findByRole("button", { name: /Continue Alpha/ }));
+    expect(screen.getByLabelText(/Proposal title/)).toHaveValue("Alpha");
+    fireEvent.click(screen.getByRole("button", { name: "Start another proposal" }));
+
+    expect(screen.getByLabelText(/Proposal title/)).toHaveValue("");
+    expect(screen.queryByText(/are gone/)).toBeNull();
+    expect(screen.queryByText(/were not saved/)).toBeNull();
+  });
+
+  it("says what it discarded when the applicant chooses an empty form", async () => {
+    // `Start another proposal` is the one control that is *meant* to discard. It still says so,
+    // because the applicant choosing the loss is not a reason to leave them guessing whether the
+    // previous proposal was saved.
+    mount({ proposals: [proposal({ title: "Half an idea" })] });
+
+    fireEvent.click(await screen.findByRole("button", { name: /Continue Half an idea/ }));
+    fireEvent.change(screen.getByLabelText(/Proposal title/), { target: { value: "My version" } });
+    fireEvent.click(screen.getByRole("button", { name: "Start another proposal" }));
+
+    expect(screen.getByLabelText(/Proposal title/)).toHaveValue("");
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Your unsaved changes to Half an idea were not saved",
+    );
+  });
+
+  it("reloads the newer stored copy when the same row is re-opened untouched", async () => {
+    /*
+     * The other half of #211's fix, and the reason it is measured against the *bound* copy: an
+     * applicant who has typed nothing has nothing to keep, so the rebind that lets them escape a
+     * conflict raised by another tab still reloads. Keeping the old text here would strand them
+     * on it.
+     */
+    const test = mount({ proposals: [proposal()] });
+    fireEvent.click(await screen.findByRole("button", { name: /Continue Half an idea/ }));
+
+    test.setProposals([
+      proposal({ title: "Saved elsewhere", answers: { title: "Saved elsewhere" }, revision: 2 }),
+    ]);
+    // A write is what refreshes the list; the failed save leaves `editing` at revision 1.
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    await screen.findByRole("button", { name: /Continue Saved elsewhere/ });
+
+    fireEvent.click(screen.getByRole("button", { name: /Continue Saved elsewhere/ }));
+    expect(screen.getByLabelText(/Proposal title/)).toHaveValue("Saved elsewhere");
   });
 
   it("shows a decision, and stops offering edits once the call has closed", async () => {

@@ -14,6 +14,7 @@ import {
 } from "../src/adapters/providers/configuration";
 import { DeterministicProvider } from "../src/adapters/providers/deterministic-provider";
 import { HttpEmailProvider } from "../src/adapters/providers/email-provider";
+import { UnconfiguredProvider } from "../src/adapters/providers/unconfigured-provider";
 
 const LIVE = {
   COMMUNICATIONS_PROVIDERS: "live",
@@ -127,6 +128,155 @@ describe("provider selection", () => {
       );
     },
   );
+
+  describe("the per-channel split", () => {
+    /** Only the three email bindings, which is the configuration this deployment can actually hold. */
+    const EMAIL_ONLY = {
+      COMMUNICATIONS_PROVIDERS: "live",
+      EMAIL_API_ENDPOINT: LIVE.EMAIL_API_ENDPOINT,
+      EMAIL_API_TOKEN: LIVE.EMAIL_API_TOKEN,
+      EMAIL_SENDER: LIVE.EMAIL_SENDER,
+    };
+
+    it("turns email live without Airtable or Accelevents credentials", () => {
+      /*
+       * The whole reason for the split. `live` used to `demand()` eight bindings at once, so a
+       * deployment with a mail provider and no Airtable account could not send mail at all — it
+       * threw on resolution and every delivery stayed queued for ever.
+       *
+       * `ENVIRONMENT=development` is what this deployment actually sets (`wrangler.toml`), and it
+       * is what entitles the two unconfigured channels to the deterministic fake that keeps the
+       * demo's projections working beside real mail.
+       */
+      const providers = resolveProviders({ ...EMAIL_ONLY, ENVIRONMENT: "development" });
+
+      expect(providers.email).toBeInstanceOf(HttpEmailProvider);
+      expect(providers.airtable).toBeInstanceOf(DeterministicProvider);
+      expect(providers.accelevents).toBeInstanceOf(DeterministicProvider);
+    });
+
+    it.each(["production-eu", "prod-us", "staging", "", undefined])(
+      "refuses an unconfigured channel rather than faking it when ENVIRONMENT is %o",
+      (environment) => {
+        /*
+         * The fail-open a review pass found. Asking "is this production?" gave a deterministic
+         * fake to every spelling that was not one of three exact strings — so
+         * `ENVIRONMENT=production-eu` with `live` answered `fake:` for an unconfigured Airtable
+         * channel *and* wrote projection state recording the push. The console showed green and
+         * nothing had left the machine.
+         *
+         * Under the all-or-nothing switch this replaced, that configuration refused to resolve at
+         * all, so it was the one case the split made worse. The question is now asked the other
+         * way round, and an unrecognized name lands on the refusing provider.
+         */
+        const providers = resolveProviders({
+          ...EMAIL_ONLY,
+          ...(environment === undefined ? {} : { ENVIRONMENT: environment }),
+        });
+
+        expect(providers.email).toBeInstanceOf(HttpEmailProvider);
+        expect(providers.airtable).toBeInstanceOf(UnconfiguredProvider);
+        expect(providers.accelevents).toBeInstanceOf(UnconfiguredProvider);
+      },
+    );
+
+    it.each([
+      ["EMAIL_API_TOKEN", "email"],
+      ["AIRTABLE_TOKEN", "airtable"],
+      ["ACCELEVENTS_TOKEN", "accelevents"],
+    ])("still refuses a channel configured without %s", (name, channel) => {
+      // Per-channel means each channel is all-or-nothing, not that a binding became optional:
+      // three of email's three or none, exactly as `resolveGoogleConfiguration` refuses two
+      // Google bindings of three.
+      const environment = { ...LIVE, [name]: undefined };
+      expect(() => resolveProviders(environment)).toThrow(ProviderConfigurationError);
+      expect(() => resolveProviders(environment)).toThrow(name);
+      expect(() => resolveProviders(environment)).toThrow(channel);
+    });
+
+    it("refuses a plaintext endpoint on the one channel that is configured", () => {
+      // `demandHttpsUrl` is now reached per channel rather than once for all of them, and the
+      // channel that is live must still not carry a bearer token in clear text.
+      expect(() =>
+        resolveProviders({ ...EMAIL_ONLY, EMAIL_API_ENDPOINT: "http://mail.test/send" }),
+      ).toThrow("https:");
+    });
+
+    it("does not demand the inbound bindings when only the outbound channel is configured", () => {
+      /*
+       * `ACCELEVENTS_TOKEN` belongs to two channels, so presence of the token alone must not be
+       * read as "somebody asked for the inbound registration read". Otherwise configuring the
+       * outbound projection would demand an origin and an event reference as well, which is the
+       * coupling this split exists to remove.
+       */
+      expect(() => resolveProviders(LIVE)).not.toThrow();
+      // Named as a development deployment, because the roster it keeps is a fake and an
+      // unnamed environment is refused one — which is the point of the case below this block.
+      expect(resolveRegistrationSource({ ...LIVE, ENVIRONMENT: "development" })).toBeInstanceOf(
+        FixtureAccelEventsRegistrations,
+      );
+    });
+
+    it("refuses every delivery on an unconfigured channel where ENVIRONMENT names production", async () => {
+      /*
+       * The interlock, per channel. `fixture` mode is refused outright on a production
+       * deployment; under `live` the same rule cannot throw at resolution without taking the
+       * *configured* channel down with it, so the unconfigured channel refuses per delivery
+       * instead. Either way "quietly deterministic on a deployment that believes it is live" is
+       * unreachable.
+       */
+      const providers = resolveProviders({ ...EMAIL_ONLY, ENVIRONMENT: "production" });
+
+      expect(providers.email).toBeInstanceOf(HttpEmailProvider);
+      expect(providers.airtable).toBeInstanceOf(UnconfiguredProvider);
+      expect(providers.accelevents).toBeInstanceOf(UnconfiguredProvider);
+      // Never a `fake:` success. The whole contract of that provider is in this assertion.
+      await expect(
+        providers.airtable.deliver({ channel: "airtable", id: "d1" } as never),
+      ).resolves.toEqual({ kind: "terminal", code: "PROVIDER_NOT_CONFIGURED" });
+    });
+
+    it("names what an unconfigured channel needs, and never what it already has", () => {
+      const providers = resolveProviders({ ...EMAIL_ONLY, ENVIRONMENT: "prod" });
+      const airtable = providers.airtable as UnconfiguredProvider;
+
+      expect(airtable.describe()).toContain("AIRTABLE_TOKEN");
+      expect(airtable.describe()).not.toContain(LIVE.EMAIL_API_TOKEN);
+    });
+
+    it("refuses the fixture roster on a production deployment even in live mode", () => {
+      // The inbound read has no configured sibling to protect, so it throws where the drain
+      // refuses per delivery: it runs on a request, and the organizer who pressed Preview is the
+      // right person to be told.
+      expect(() => resolveRegistrationSource({ ...EMAIL_ONLY, ENVIRONMENT: "production" })).toThrow(
+        ProviderConfigurationError,
+      );
+    });
+
+    it.each(["production-eu", "prod-us", "staging", "", undefined])(
+      "refuses the fixture roster under live on ENVIRONMENT=%s, which no production name matches",
+      (value) => {
+        /*
+         * The inbound half of the same fail-open the outbound `it.each` above covers, and the one
+         * that was left behind by the first repair. Under `live` with none of the inbound bindings
+         * set, a deny-list on production names let `production-eu` answer a Preview — and an Apply
+         * — from the in-repository roster, while the organizer's panel reported the mode as
+         * `live`. An unrecognized environment now gets the refusal.
+         */
+        expect(() =>
+          resolveRegistrationSource({ ...EMAIL_ONLY, ENVIRONMENT: value as string }),
+        ).toThrow(ProviderConfigurationError);
+      },
+    );
+
+    it("still keeps the fixture roster where the deployment says it is a development one", () => {
+      // The property the refusal must not cost: this deployment runs the demo's inbound sync
+      // beside real mail, and it says so in one word.
+      expect(
+        resolveRegistrationSource({ ...EMAIL_ONLY, ENVIRONMENT: "development" }),
+      ).toBeInstanceOf(FixtureAccelEventsRegistrations);
+    });
+  });
 
   it("rejects a mode it does not recognize instead of guessing", () => {
     expect(() => resolveProviders({ COMMUNICATIONS_PROVIDERS: "real" })).toThrow(

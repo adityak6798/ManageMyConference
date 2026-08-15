@@ -78,6 +78,7 @@ async function templateAndTrigger(
     triggerType: "speaker.invited",
     channel: "email",
     recipientRef: "speaker:42",
+    recipientTrust: "account" as const,
     payload: { speaker: "Ada" },
     templateKey: "speaker-invite",
     ...overrides,
@@ -97,6 +98,7 @@ describe("communications outbox", () => {
       triggerType: "speaker.invited",
       channel: "email",
       recipientRef: "speaker:42",
+      recipientTrust: "account" as const,
       payload: { speaker: "Someone else" },
       templateKey: "speaker-invite",
     });
@@ -116,6 +118,7 @@ describe("communications outbox", () => {
     );
     const delivery = await templateAndTrigger(test, {
       recipientRef: "ada@example.test",
+      recipientTrust: "account" as const,
       payload: { speaker: "Ada" },
     });
 
@@ -155,6 +158,7 @@ describe("communications outbox", () => {
         triggerType: "speaker.invited",
         channel: "email",
         recipientRef: "speaker:42",
+        recipientTrust: "account" as const,
         payload: {},
         templateKey: "speaker-invite",
       }),
@@ -206,6 +210,7 @@ describe("communications outbox", () => {
       triggerType: "projection.requested",
       channel: "airtable",
       recipientRef: "session:42",
+      recipientTrust: "account" as const,
       payload: { title: "Reliable Systems" },
       projectionVersion: 3,
     });
@@ -226,6 +231,7 @@ describe("communications outbox", () => {
         triggerType: "projection.requested",
         channel: "airtable",
         recipientRef: "session:outside",
+        recipientTrust: "account" as const,
         payload: {},
         projectionVersion: 1,
       }),
@@ -252,6 +258,7 @@ describe("communications outbox", () => {
         triggerType: "projection.requested",
         channel: "airtable",
         recipientRef: "session:crossed",
+        recipientTrust: "account" as const,
         payload: {},
         projectionVersion: 1,
       }),
@@ -264,6 +271,7 @@ describe("communications outbox", () => {
         triggerType: "projection.requested",
         channel: "airtable",
         recipientRef: "session:1",
+        recipientTrust: "account" as const,
         payload: {},
       }),
     ).rejects.toThrow("requires a version");
@@ -334,6 +342,7 @@ describe("communications outbox", () => {
       triggerType: "projection.requested",
       channel: "airtable",
       recipientRef: "session:42",
+      recipientTrust: "account" as const,
       payload: { title: "Old" },
       projectionVersion: 1,
     });
@@ -346,6 +355,7 @@ describe("communications outbox", () => {
       triggerType: "projection.requested",
       channel: "airtable",
       recipientRef: "session:42",
+      recipientTrust: "account" as const,
       payload: { title: "New" },
       projectionVersion: 2,
     });
@@ -381,6 +391,7 @@ describe("communications outbox", () => {
       triggerType: "projection.requested",
       channel: "airtable",
       recipientRef: "session:42",
+      recipientTrust: "account" as const,
       payload: { title: "Old" },
       projectionVersion: 1,
     });
@@ -393,6 +404,7 @@ describe("communications outbox", () => {
         triggerType: "projection.requested",
         channel: "airtable",
         recipientRef: "session:42",
+        recipientTrust: "account" as const,
         payload: { title: "New" },
         projectionVersion: 2,
       });
@@ -466,6 +478,7 @@ describe("communications outbox", () => {
       triggerType: "projection.requested",
       channel: "airtable",
       recipientRef: "session:88",
+      recipientTrust: "account" as const,
       payload: { title: "Deliverable" },
       projectionVersion: 2,
     });
@@ -508,6 +521,7 @@ describe("communications outbox", () => {
         triggerType: "organizer.digest",
         channel: "email",
         recipientRef: `organizer:${index}`,
+        recipientTrust: "account" as const,
         payload: {},
         templateKey: "digest",
       });
@@ -539,6 +553,7 @@ describe("communications outbox", () => {
       templateId: null,
       templateVersion: null,
       recipientRef: "session:storage",
+      recipientTrust: "account" as const,
       payload: {},
       renderedSubject: null,
       renderedBody: null,

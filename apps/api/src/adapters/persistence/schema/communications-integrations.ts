@@ -68,21 +68,34 @@ export function defineCommunicationsIntegrationsSchema(references: {
       // enqueued before migration 1700.
       renderedSubject: text("rendered_subject"),
       renderedBody: text("rendered_body"),
+      /**
+       * How much the recipient address was worth trusting when this was written (migration
+       * `1709`, which is why it is declared last: `ADD COLUMN` appends). `declared` is a form answer nobody verified; it is what the `#132` cap counts,
+       * and scoping the count to it is what stops the product's own follow-up mail to an accepted
+       * guest spending the budget its later decline needs.
+       */
+      recipientTrust: text("recipient_trust").notNull().default("account"),
     },
     (table) => [
       unique().on(table.organizationId, table.idempotencyKey),
       // The union both wave-3 communications branches agreed on, so a rebuild in either does not
       // drop the other's values. Five triggers and the `event` channel have no producer here yet;
       // migration 1750's header says why they are permitted anyway. `proposal.submitted` joined it
-      // in migration 1705, from the CFP lane that produces it (issue #190).
+      // in migration 1705, from the CFP lane that produces it (issue #190), and the two
+      // `reviewer.reminder` in migration 1706, and the two `cfp.*` values in migration 1708 —
+      // the first deliveries on a *scheduled* rather than event-driven trigger (issue #210).
       check(
         "communication_deliveries_trigger_type",
-        sql`${table.triggerType} IN ('speaker.invited', 'reviewer.assigned', 'reviewer.reminder', 'organizer.digest', 'projection.requested', 'schedule.published', 'speaker.scheduled', 'speaker.task_assigned', 'speaker.task_reminder', 'speaker.calendar_invite', 'decision.recorded', 'proposal.submitted')`,
+        sql`${table.triggerType} IN ('speaker.invited', 'reviewer.assigned', 'reviewer.reminder', 'organizer.digest', 'projection.requested', 'schedule.published', 'speaker.scheduled', 'speaker.task_assigned', 'speaker.task_reminder', 'speaker.calendar_invite', 'decision.recorded', 'proposal.submitted', 'cfp.deadline_approaching', 'cfp.call_closed')`,
       ),
       // `event` carries a domain event rather than an outbound call; see migration 1703.
       check(
         "communication_deliveries_channel",
         sql`${table.channel} IN ('email', 'airtable', 'accelevents', 'event')`,
+      ),
+      check(
+        "communication_deliveries_recipient_trust",
+        sql`${table.recipientTrust} IN ('account', 'declared')`,
       ),
       check("communication_deliveries_payload_json", sql`json_valid(${table.payloadJson})`),
       check(
@@ -98,6 +111,12 @@ export function defineCommunicationsIntegrationsSchema(references: {
         table.organizationId,
         table.eventId,
         table.createdAt,
+      ),
+      // What the `#132` cap's count can use before it normalizes the address; migration `1708`.
+      index("communication_deliveries_recipient_cap_idx").on(
+        table.organizationId,
+        table.eventId,
+        table.recipientTrust,
       ),
     ],
   );

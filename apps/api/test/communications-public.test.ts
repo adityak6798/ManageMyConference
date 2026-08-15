@@ -9,11 +9,14 @@ import {
   CommunicationsNotFoundError,
   CommunicationsService,
   type DeliveryRequest,
+  UnverifiedRecipientCapError,
 } from "../src/application/communications/public";
 import type { Actor } from "../src/application/identity/actor";
 
 const organizationId = "00000000-0000-4000-8000-000000000010";
 const eventId = "00000000-0000-4000-8000-000000000001";
+/** A second event in the same organization, for the half of the cap that is per event. */
+const otherEventId = "00000000-0000-4000-8000-000000000002";
 const organizer: Actor = {
   id: "organizer",
   name: "Organizer",
@@ -36,7 +39,8 @@ const harness = (speakers: typeof SPEAKERS = SPEAKERS) => {
     repository,
     eventDirectory: {
       belongsToOrganization: async (candidateEventId, candidateOrganizationId) =>
-        candidateEventId === eventId && candidateOrganizationId === organizationId,
+        (candidateEventId === eventId || candidateEventId === otherEventId) &&
+        candidateOrganizationId === organizationId,
     },
     speakerDirectory: { listSpeakersForEvent: async () => speakers },
     newId: () => `id-${++id}`,
@@ -298,6 +302,146 @@ describe("sending a template to an event's speakers", () => {
     ).rejects.toThrow(CommunicationsNotFoundError);
   });
 
+  describe("the unverified-recipient cap", () => {
+    /*
+     * Issue #132. `POST /api/public/events/:id/submissions` takes no session, so a guest
+     * proposal's address is a form answer anybody can type — including somebody else's. The
+     * decision notification is the one message the product sends to such an address, so a hundred
+     * guest proposals naming one victim turned an organizer's decision run into a hundred
+     * messages to a stranger.
+     */
+    const toGuest = (key: string) =>
+      request({
+        idempotencyKey: key,
+        recipientRef: "victim@example.test",
+        recipientTrust: "declared",
+      });
+
+    it("stops after three messages to one address on one event", async () => {
+      const { service, repository } = harness();
+      await seedTemplate(service);
+
+      for (const key of ["d1", "d2", "d3"]) await service.enqueue(toGuest(key));
+
+      await expect(service.enqueue(toGuest("d4"))).rejects.toThrow(UnverifiedRecipientCapError);
+      expect(await repository.list(organizationId, eventId)).toHaveLength(3);
+    });
+
+    it("counts per event, because agreeing to hear from one conference agrees to nothing else", async () => {
+      const { service, repository } = harness();
+      await seedTemplate(service);
+      for (const key of ["d1", "d2", "d3"]) await service.enqueue(toGuest(key));
+
+      // Same address, different event: the cap is not a global suppression list, and treating it
+      // as one would let one conference silence another's messages to a person.
+      await service.enqueue({
+        ...toGuest("other-event"),
+        eventId: otherEventId,
+      });
+
+      expect(await repository.list(organizationId, otherEventId)).toHaveLength(1);
+    });
+
+    it("does not cap an address the recipient signed in with", async () => {
+      // The default is `account`, and every message in the product except a guest decision uses
+      // it. Capping those would silently stop a speaker's own mail after three messages.
+      const { service, repository } = harness();
+      await seedTemplate(service);
+
+      for (const key of ["a1", "a2", "a3", "a4", "a5"])
+        await service.enqueue(request({ idempotencyKey: key, recipientRef: "ada@example.test" }));
+
+      expect(await repository.list(organizationId, eventId)).toHaveLength(5);
+    });
+
+    it("does not spend the guest's budget on the product's own follow-up mail", async () => {
+      /*
+       * The composition a review pass reproduced, and the reason the count is scoped to
+       * `declared` rather than to the address.
+       *
+       * Accepting a guest proposal writes the decision to the form address — and then acceptance
+       * *itself* generates more mail to the same address: the speaker welcome the conversion
+       * provisions, and the first onboarding task. That is three, which is the cap. The organizer
+       * then reverses the decision, and the decline was refused: the applicant was never told they
+       * had been declined, and nothing about any step was abusive.
+       */
+      const { service, repository } = harness();
+      await seedTemplate(service);
+
+      await service.enqueue(toGuest("decision-accepted"));
+      // The product's own follow-up to the same address, on the account-trust path.
+      for (const key of ["speaker-invite", "task-1"])
+        await service.enqueue(
+          request({ idempotencyKey: key, recipientRef: "victim@example.test" }),
+        );
+
+      // The reversal still goes out: two declared messages have been written, not three.
+      await expect(service.enqueue(toGuest("decision-declined"))).resolves.toMatchObject({
+        created: true,
+      });
+      expect(await repository.list(organizationId, eventId)).toHaveLength(4);
+    });
+
+    it("counts the mailbox rather than the string an attacker chose", async () => {
+      /*
+       * The attacker types the address, so comparing `recipient_ref` byte-for-byte handed them a
+       * fresh budget per spelling: a hundred guest proposals naming `victim+1@…`, `victim+2@…` or
+       * a different capitalisation is a hundred messages to one inbox, which is exactly the bound
+       * the cap claims to impose.
+       *
+       * `recipientCapKey` folds case and strips a `+tag` — for counting only. The delivery still
+       * goes to the exact address that was typed.
+       */
+      const { service, repository } = harness();
+      await seedTemplate(service);
+
+      for (const [key, address] of [
+        ["d1", "victim@example.test"],
+        ["d2", "Victim@Example.test"],
+        ["d3", "victim+conference@example.test"],
+      ] as const)
+        await service.enqueue(
+          request({
+            idempotencyKey: key,
+            recipientRef: address,
+            recipientTrust: "declared",
+          }),
+        );
+
+      await expect(
+        service.enqueue(
+          request({
+            idempotencyKey: "d4",
+            recipientRef: "VICTIM+another@example.test",
+            recipientTrust: "declared",
+          }),
+        ),
+      ).rejects.toThrow(UnverifiedRecipientCapError);
+      expect(await repository.list(organizationId, eventId)).toHaveLength(3);
+      // And the three that were sent kept the address as typed — the normalization is a counting
+      // rule, not a rewrite.
+      expect(
+        (await repository.list(organizationId, eventId)).map(({ recipientRef }) => recipientRef),
+      ).toEqual(["victim@example.test", "Victim@Example.test", "victim+conference@example.test"]);
+    });
+
+    it("lets a retry of a capped-out message converge instead of refusing it", async () => {
+      /*
+       * The ordering bug this guards. The third message is written; its retry carries the same
+       * key, and a cap checked before the key would refuse it — reporting to an organizer that a
+       * decision had not been sent when it had. The key is consulted first for exactly this.
+       */
+      const { service } = harness();
+      await seedTemplate(service);
+      for (const key of ["d1", "d2", "d3"]) await service.enqueue(toGuest(key));
+
+      const retried = await service.enqueue(toGuest("d3"));
+
+      expect(retried.created).toBe(false);
+      expect(retried.state).toBe("queued");
+    });
+  });
+
   it("lists every immutable version so an organizer can read what was sent", async () => {
     const { service } = harness();
     await seedTemplate(service, 1);
@@ -305,6 +449,10 @@ describe("sending a template to an event's speakers", () => {
 
     const templates = await service.templates(organizer, organizationId);
 
-    expect(templates.map(({ version }) => version)).toEqual([2, 1]);
+    // Filtered to the key under test: listing also provisions this organization's lifecycle
+    // defaults (issue #217), each at version 1, and they are not what this asserts.
+    expect(
+      templates.filter(({ key }) => key === "speaker-welcome").map(({ version }) => version),
+    ).toEqual([2, 1]);
   });
 });

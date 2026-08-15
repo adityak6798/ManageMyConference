@@ -242,21 +242,66 @@ describe("the remote demo reset guard, against a real seeded database", () => {
     expect(() => assertOnlySeededData(counts, "0/1/1")).toThrow(/does not match what is there now/);
 
     /*
-     * And the claim the refusal makes is true, which is the only reason it is worth making:
-     * `seed/reset.sql` is a full teardown, so applying it takes all three rows with it. This is
-     * what would have happened silently, with a successful exit and the message
-     * `Remote demo restored`, to the first person who signed up on the deployed demo.
+     * **And applying the seed no longer makes that refusal's claim true, which is the point of
+     * this lane.**
+     *
+     * `seed/reset.sql` used to be a full teardown — an unscoped delete of every row in the three
+     * guarded tables — so overriding the guard silently destroyed this person's workspace and
+     * exited with `Remote demo restored`. Every cleanup is scoped now, and to the right thing
+     * rather than to the narrowest thing: an organization-scoped table names the two seeded
+     * organizations, and an event-scoped one resolves *every* event those organizations own,
+     * including events the demo itself created. So the restore does reach rows the seed did not
+     * insert — inside the demo's own organizations, which is what makes a second reset work at
+     * all — and reaches nothing in anybody else's, which is the property this case asserts.
+     *
+     * The guard is unchanged and still refuses, deliberately: it reads what the database holds,
+     * and a real organization on the demo deployment is still worth stopping for. What has
+     * changed is what proceeding costs.
      */
     await applySeedData(database);
-    // The person is gone, and so is everything that made them an organizer: no user, no provider
-    // link, no event. The organization goes with them — the count below is of organizations the
-    // seed did not create, and it is back to zero.
-    await expect(directory.findByUserId(realUserId)).resolves.toBeNull();
+    // The person is still here, still linked to Google, still holding their own event.
+    await expect(directory.findByUserId(realUserId)).resolves.not.toBeNull();
     await expect(
       directory.findByProviderAccount("google", "104729183746501928374"),
-    ).resolves.toBeNull();
-    await expect(events.organizationOf(realEventId)).resolves.toBeNull();
-    // The fixture is back, unharmed: the teardown is right for the database it is written for.
-    expect(await unseededCounts(database)).toEqual({ organizations: 0, users: 0, events: 0 });
+    ).resolves.not.toBeNull();
+    await expect(events.organizationOf(realEventId)).resolves.not.toBeNull();
+    // So the counts are unchanged rather than back to zero: the reset restored the demo beside
+    // them instead of in place of them.
+    expect(await unseededCounts(database)).toEqual({ organizations: 1, users: 1, events: 1 });
+    // And the demo itself is back, which is the other half of "restored": the seeded organizer
+    // resolves again, with the membership and the event role the fixture gives them.
+    const seededOrganizer = await directory.findByUserId("seed-organizer");
+    expect(seededOrganizer?.organizations).toEqual([
+      { id: "00000000-0000-4000-8000-000000000010" },
+    ]);
+    expect(seededOrganizer?.eventAccess.map(({ eventId }) => eventId)).toContain(
+      "00000000-0000-4000-8000-000000000001",
+    );
+  });
+
+  it("restores the demo twice in a row with a real conference in the same database", async () => {
+    /*
+     * Idempotence is what a restore is *for*, and the scoping pass is exactly where it could have
+     * been lost: a cleanup that misses a row leaves the second run failing on a primary key or a
+     * foreign key, and the demo then cannot be restored at all. Run twice, with somebody else's
+     * workspace present the whole time.
+     */
+    const migrated = await createMigratedDatabase({ label: "demo-reset-twice", seed: true });
+    runtime = migrated.runtime;
+    const database = migrated.database;
+    const { signup } = signupStack(database);
+    const signedUp = await signup.signInWithGoogle({
+      subject: "104729183746501928374",
+      email: "nadia@example.test",
+      emailVerified: true,
+      name: "Nadia Newcomer",
+    });
+
+    await applySeedData(database);
+    await applySeedData(database);
+
+    const { directory } = signupStack(database);
+    await expect(directory.findByUserId(signedUp.actor.id)).resolves.not.toBeNull();
+    expect(await unseededCounts(database)).toEqual({ organizations: 1, users: 1, events: 1 });
   });
 });

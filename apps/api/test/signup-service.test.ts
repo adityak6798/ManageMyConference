@@ -127,7 +127,7 @@ class FakeDirectory implements SignupDirectory {
     provider: "google";
     subject: string;
     linkedAt: number;
-    organizationId: string;
+    organizationId: string | null;
   }): Promise<void> {
     this.calls.push("createSelfServeIdentity");
     // The two uniqueness constraints the real table carries, because they are what decides a
@@ -140,10 +140,33 @@ class FakeDirectory implements SignupDirectory {
       throw new Error("D1 failed to provision identity: UNIQUE constraint failed");
     // One batch in D1, so one indivisible step here: an account that exists without its address
     // or its membership is a state the adapter cannot produce.
-    this.users.set(input.userId, { name: input.name, persona: "organizer" });
+    //
+    // A null organization is the submitter door: three rows, no membership, and the `public`
+    // persona the adapter writes for exactly that case.
+    this.users.set(input.userId, {
+      name: input.name,
+      persona: input.organizationId === null ? "public" : "organizer",
+    });
     this.emails.set(input.email.trim().toLowerCase(), input.userId);
     this.providerAccounts.set(`${input.provider}:${input.subject}`, input.userId);
-    this.memberships.set(input.userId, [input.organizationId]);
+    if (input.organizationId !== null) this.memberships.set(input.userId, [input.organizationId]);
+  }
+
+  /**
+   * The conditional insert, faithful to *why* it is conditional.
+   *
+   * D1 runs `INSERT … WHERE NOT EXISTS (SELECT 1 FROM organization_memberships WHERE user_id = ?)`
+   * and reports the row count. A fake that wrote unconditionally would reproduce the defect it
+   * exists to prevent — two concurrent sign-ins each keeping their own organization — silently,
+   * which is exactly what the previous `INSERT OR IGNORE` version did.
+   */
+  async joinOrganization(organizationId: string, userId: string): Promise<boolean> {
+    this.calls.push("joinOrganization");
+    if ((this.memberships.get(userId) ?? []).length > 0) return false;
+    this.memberships.set(userId, [organizationId]);
+    const user = this.users.get(userId);
+    if (user) this.users.set(userId, { ...user, persona: "organizer" });
+    return true;
   }
 
   /** The same derivation `D1IdentityDirectory.resolve` performs, from the same two tables. */
@@ -390,6 +413,164 @@ describe("SignupService", () => {
     expect(workspace.events).toEqual([]);
   });
 
+  describe("a sign-in started from a public call page", () => {
+    /*
+     * Outcome 3 provisioned an organization and a "Your first event" for every unrecognized
+     * Google account — including a CFP submitter who pressed "Continue with Google" on a public
+     * call page because they wanted to keep track of a talk proposal. They came for a proposal
+     * and were handed a conference workspace named after themselves. Recorded as a residual of
+     * `GAP-027` by issue #190 and owned by nobody until this lane.
+     */
+    it("creates an identity and no conference at all", async () => {
+      const { directory, workspace, service } = build();
+
+      const outcome = await service.signInWithGoogle(identity(), "submitter");
+
+      // The account is real and complete: it can hold proposals, be written to, and sign in again.
+      expect(outcome.provisioned).toBe(true);
+      expect(outcome.actor.id).toBe("user-1");
+      expect(directory.emails.get("nadia@example.test")).toBe("user-1");
+      expect(directory.users.get("user-1")?.persona).toBe("public");
+      // And nothing was provisioned around it. Both halves matter: an organization with no event
+      // is the orphan a data-aware demo reset refuses on, so "no event" alone is not the claim.
+      expect(workspace.organizations).toEqual([]);
+      expect(workspace.events).toEqual([]);
+      expect(outcome.actor.organizations).toEqual([]);
+      expect(outcome.actor.capabilities.size).toBe(0);
+    });
+
+    it("does not provision on a later sign-in through the same door", async () => {
+      // The decision is about the door, not a one-time flag: returning to the call page must not
+      // start handing out workspaces on the second visit.
+      const { workspace, service } = build();
+      await service.signInWithGoogle(identity(), "submitter");
+
+      const again = await service.signInWithGoogle(identity(), "submitter");
+
+      expect(again.provisioned).toBe(false);
+      expect(workspace.organizations).toEqual([]);
+      expect(workspace.events).toEqual([]);
+    });
+
+    it("gives the same person a workspace when they later sign in through the organizer door", async () => {
+      /*
+       * The other half, and the reason withholding is safe. An account with no organization used
+       * to be a dead end — `completeWorkspace` returned early on it — so a submitter who later
+       * decided to run a conference had no way to get one. Signing in at `/signin` is them asking.
+       */
+      const { directory, workspace, service } = build();
+      await service.signInWithGoogle(identity(), "submitter");
+
+      const promoted = await service.signInWithGoogle(identity());
+
+      expect(workspace.organizations).toEqual([
+        { id: "organization-1", name: organizationNameFor("Nadia Newcomer") },
+      ]);
+      expect(workspace.events).toEqual([
+        {
+          id: "event-1",
+          organizationId: "organization-1",
+          name: FIRST_EVENT_NAME,
+          timezone: DEFAULT_TIMEZONE,
+        },
+      ]);
+      expect(promoted.actor.organizations).toEqual([{ id: "organization-1" }]);
+      expect(promoted.actor.eventAccess).toEqual([
+        {
+          eventId: "event-1",
+          role: "organizer",
+          capabilities: new Set(roleCapabilities.organizer),
+        },
+      ]);
+      // The console picks its surfaces from the persona when an account holds no event role, so
+      // the persona moves with the membership rather than leaving them labelled `public`.
+      expect(directory.users.get(promoted.actor.id)?.persona).toBe("organizer");
+
+      // And once: a third sign-in finds the event role and leaves everything alone.
+      await service.signInWithGoogle(identity());
+      expect(workspace.organizations).toHaveLength(1);
+      expect(workspace.events).toHaveLength(1);
+    });
+
+    it("gives that person one workspace when two tabs ask at the same moment", async () => {
+      /*
+       * The race this branch has no *natural* arbiter for, and the reason the membership insert is
+       * conditional. Two open tabs are ordinary here — this file's header says so — and each racer
+       * mints its own organization before reaching the membership, so the conflict `INSERT OR
+       * IGNORE` would absorb never happens: both rows are distinct, both land, and the person is
+       * left holding two conferences named after themselves with two "Your first event"s. Nothing
+       * in this repository deletes either.
+       *
+       * With the condition, storage picks one; the loser discards what it made and adopts the
+       * winner's workspace.
+       */
+      const { directory, workspace, service } = build();
+      await service.signInWithGoogle(identity(), "submitter");
+
+      const [first, second] = await Promise.all([
+        service.signInWithGoogle(identity()),
+        service.signInWithGoogle(identity()),
+      ]);
+
+      expect(workspace.organizations).toHaveLength(1);
+      expect(workspace.events).toHaveLength(1);
+      // The loser's organization was created and then removed, rather than left unreferenced —
+      // an orphan is the row `GAP-019`'s data-aware restore refuses on for ever.
+      expect(workspace.discarded).toHaveLength(1);
+      // Both callers are signed in, and to the same workspace.
+      expect(first.actor.organizations).toEqual(second.actor.organizations);
+      expect(directory.memberships.get(first.actor.id)).toHaveLength(1);
+    });
+
+    it("still leaves a linked speaker holding an event role alone", async () => {
+      /*
+       * The guard that stops "complete the workspace" meaning "give everyone an event" is the
+       * *role*, not the absent organization — the submitter door creates accounts holding neither,
+       * and one of those signing in at the front door is asking. This is the other side of that
+       * line, kept as its own case because the version of it that lived in the resume test was
+       * edited when the rule changed, which is how a case stops being covered.
+       */
+      const { directory, workspace, service } = build();
+      directory.seed({
+        id: "seed-speaker",
+        name: "Sam Speaker",
+        persona: "speaker",
+        email: "speaker@greenroom.test",
+        roles: [{ eventId: "event-someone-elses", role: "speaker" }],
+      });
+      directory.providerAccounts.set("google:speaker-subject", "seed-speaker");
+
+      const speaker = await service.signInWithGoogle(
+        identity({ subject: "speaker-subject", email: "speaker@greenroom.test" }),
+      );
+
+      expect(speaker.actor.organizations).toEqual([]);
+      expect(workspace.organizations).toEqual([]);
+      expect(workspace.events).toEqual([]);
+    });
+
+    it("discards the organization when the membership write fails, rather than orphaning it", async () => {
+      /*
+       * The ordering rule this file's header states, applied to the new path: an organization is
+       * written before the row that references it, so a failure in between must remove it. An
+       * unreferenced organization is invisible to the product and is exactly what `GAP-019`'s
+       * data-aware reset refuses on for ever.
+       */
+      const { directory, workspace, service } = build();
+      await service.signInWithGoogle(identity(), "submitter");
+      directory.joinOrganization = async () => {
+        throw new Error("D1 failed to record organization membership");
+      };
+
+      await expect(service.signInWithGoogle(identity())).rejects.toThrow(
+        "D1 failed to record organization membership",
+      );
+      expect(workspace.organizations).toEqual([]);
+      expect(workspace.discarded).toEqual(["organization-1"]);
+      expect(workspace.events).toEqual([]);
+    });
+  });
+
   it("resumes a signup that stopped after the organization, and only that one", async () => {
     const { directory, workspace, service } = build();
     // The state a failure between the identity batch and the first event leaves behind.
@@ -428,20 +609,32 @@ describe("SignupService", () => {
     );
     expect(workspace.events).toHaveLength(1);
 
-    // A linked speaker has no organization, so the resume condition can never fire for them —
-    // this is the guard that stops "complete the workspace" meaning "give everyone an event".
+    /*
+     * A linked speaker holds an event role, and that is the guard that stops "complete the
+     * workspace" meaning "give everyone an event". It is the *role* that excludes them, not the
+     * absent organization: the submitter door now creates accounts that hold neither, and one of
+     * those signing in through the organizer door is asking for a workspace rather than being
+     * given one it never wanted.
+     */
     directory.seed({
       id: "seed-speaker",
       name: "Sam Speaker",
       persona: "speaker",
       email: "speaker@greenroom.test",
-      roles: [],
+      roles: [{ eventId: "event-someone-elses", role: "speaker" }],
     });
     directory.providerAccounts.set("google:speaker-subject", "seed-speaker");
     const speaker = await service.signInWithGoogle(
       identity({ subject: "speaker-subject", email: "speaker@greenroom.test" }),
     );
-    expect(speaker.actor.eventAccess).toEqual([]);
+    expect(speaker.actor.organizations).toEqual([]);
+    expect(speaker.actor.eventAccess).toEqual([
+      {
+        eventId: "event-someone-elses",
+        role: "speaker",
+        capabilities: new Set(roleCapabilities.speaker),
+      },
+    ]);
     expect(workspace.events).toHaveLength(1);
   });
 

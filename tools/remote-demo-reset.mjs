@@ -10,12 +10,20 @@
  * statement about *configuration*, and each of them can be true of a database holding real
  * accounts.
  *
- * `assertOnlySeededData` reads the **data**, because `seed/reset.sql` is a full teardown: it
- * `DELETE`s every row of `users`, `organizations` and `events` — not the seeded ones, all of
- * them — before inserting the fixture back. That is exactly right for a database holding nothing
- * but seed data and catastrophic for one holding an organization somebody signed up for, since
- * there is no backup and no export. So the reset asks the database what it contains first, and
- * refuses if it finds anything the seed does not name.
+ * `assertOnlySeededData` reads the **data**. It was written when `seed/reset.sql` was a full
+ * teardown — an unscoped `DELETE` of every row in the three guarded tables — which was exactly
+ * right for a database holding nothing but seed data and catastrophic for one holding an organization
+ * somebody signed up for, since there is no backup and no export. So the reset asks the database
+ * what it contains first, and refuses if it finds anything the seed does not name.
+ *
+ * **The seed is no longer a full teardown, and this guard is deliberately unchanged.** Every
+ * cleanup in it now names the ids it deletes, so a restore rebuilds the demo beside
+ * a real conference instead of in place of it — `apps/api/test/demo-reset-guard.integration
+ * .test.ts` runs one against a live signup and asserts the signup survives. What that changes is
+ * the *cost* of proceeding, not whether a real organization on this deployment is worth stopping
+ * for, and a guard relaxed on the strength of SQL somebody could edit tomorrow is not a guard. So
+ * the refusal stands, and the override below is still how an operator gets past it — it now
+ * overstates what it destroys, which is a residual recorded in `GAP-019` rather than fixed here.
  *
  * **It fails closed.** An unreachable database, a query that errors, output that does not parse,
  * a column missing from the answer: each of those is a refusal, never a proceed. A guard that
@@ -322,7 +330,7 @@ export function assertOnlySeededData(counts, override) {
       (counts.organizations > 0
         ? `${countOf(counts.organizations, "organizations")} means ${counts.organizations === 1 ? "a workspace somebody" : "workspaces people"} signed up for and made things in.\n`
         : "") +
-      "`seed/reset.sql` DELETEs every row of organizations, users and events before reinserting the fixture, so proceeding destroys them permanently: there is no backup and no export, and nothing re-creates them.\n" +
+      "`seed/reset.sql` now scopes every cleanup to the ids the seed inserts, so a workspace somebody signed up for survives the restore itself. This guard is about the rest of it: the restore rewrites every row whose id the fixture uses, and overwrites the demo speaker portrait in the bucket. Proceeding is still not undoable — there is no backup and no export.\n" +
       (override === undefined
         ? `If that is genuinely what you intend, re-run with --destroy-real-data ${token} alongside --confirm ${DEMO_TARGET.worker}. The counts are part of the flag on purpose: they change as the data does, so this cannot be pasted from an earlier run.`
         : `--destroy-real-data ${override} does not match what is there now (${token}), so nothing was deleted. Re-read the counts above before repeating it.`),

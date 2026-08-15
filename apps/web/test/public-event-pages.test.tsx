@@ -729,6 +729,55 @@ describe("what the public surface says about the call for proposals", () => {
     expect(container.textContent).toContain("Submissions closed.");
   });
 
+  it("re-reads the call when the tab comes back, so a passed deadline stops offering a form", async () => {
+    /*
+     * Issue #222. The window is enforced at the application boundary and always was; what was
+     * stale was this page. `effectiveStatus` changes with **no republish** — that is what a
+     * scheduled window is — so a page that read it once at mount kept offering a form the server
+     * would refuse, and said "Open for submissions" underneath it, until somebody reloaded by
+     * hand. The evaluator found precisely that.
+     *
+     * Nothing here recomputes the window in the browser: the page asks again and renders the
+     * answer. That is why the same test covers both directions below.
+     */
+    /*
+     * The publication flag stays `open` throughout and only the window moves, which is what a
+     * deadline passing actually looks like: nobody republished, so the snapshot still calls the
+     * call open and `effectiveStatus` is the only thing that knows better.
+     */
+    let effective: "open" | "closed" = "open";
+    const withWindow = () => ({
+      cfp: {
+        ...liveForm("open").cfp,
+        closesAt: "2026-08-13T23:59:00.000Z",
+        effectiveStatus: effective,
+      },
+    });
+    serve(() => Promise.resolve(new Response(JSON.stringify(withWindow()), { status: 200 })));
+    const { container } = mountAt(`/events/${SLUG}`);
+    await screen.findByRole("heading", { level: 1, name: "Greenroom Demo Summit" });
+    fireEvent.click(await screen.findByRole("link", { name: "Submit a proposal" }));
+    await screen.findByRole("heading", { level: 1, name: "Share what you learned" });
+    expect(await screen.findByRole("button", { name: "Submit proposal" })).toBeVisible();
+
+    // An organizer moves the deadline into the past in another tab; this one returns to the front.
+    effective = "closed";
+    fireEvent(document, new Event("visibilitychange"));
+
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Submit proposal" })).toBeNull(),
+    );
+    expect(container.textContent).toContain("Submissions closed.");
+    expect(container.textContent).not.toContain("Open for submissions.");
+
+    // And back again, which a fix that only ever closes would fail.
+    effective = "open";
+    fireEvent(document, new Event("visibilitychange"));
+
+    expect(await screen.findByRole("button", { name: "Submit proposal" })).toBeVisible();
+    expect(container.textContent).not.toContain("Submissions closed.");
+  });
+
   it("states the deadline on a call whose live form no longer matches the publication", async () => {
     /*
      * The regression the version gate caused, and the reason the schedule is a separate prop.

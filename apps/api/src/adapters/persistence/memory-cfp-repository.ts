@@ -95,6 +95,61 @@ export class MemoryCfpRepository implements CfpRepository {
         ),
     );
   }
+  /**
+   * The same two rules the D1 statement applies: published, closing in the window, drafts only.
+   *
+   * The deadline comes from `windowOf` rather than from the stored form, for the reason the class
+   * comment gives: the window is live state on the row, and a fake that read a copy off the
+   * snapshot would answer "when does this close" differently from the adapter the product runs on
+   * — which is exactly the bug this whole feature is about.
+   *
+   * "Published" is **the snapshot's own status**, matching the adapter's
+   * `json_extract(published_json, '$.status') = 'open'`, and not `publishedAt`. Two defects are
+   * folded into that one expression. Every draft save clears `publishedAt`, so a filter on it goes
+   * blind on any call whose form has been edited since publication — and because this fake read
+   * the same wrong field, no unit test could see it. And a call the organizer closed by hand still
+   * has a snapshot, so filtering on the snapshot's *existence* reminded its draft holders to press
+   * a Submit the submission guard refuses.
+   */
+  listDeadlineNotices(window: { from: string; to: string }, limit: number) {
+    const closing = [...this.forms.values()]
+      .map((form) => ({ ...form, ...this.windowOf(form.eventId) }))
+      .filter(
+        (form) =>
+          // The published snapshot's own status, matching the D1 statement's
+          // `json_extract(published_json, '$.status') = 'open'`: a call closed by hand is not one
+          // whose draft holders should be told to press Submit.
+          this.published.get(form.eventId)?.status === "open" &&
+          form.closesAt !== null &&
+          form.closesAt >= window.from &&
+          form.closesAt < window.to,
+      )
+      .sort(
+        (left, right) =>
+          (left.closesAt ?? "").localeCompare(right.closesAt ?? "") ||
+          left.eventId.localeCompare(right.eventId),
+      )
+      .slice(0, limit);
+    return Promise.resolve(
+      closing.map((form) => {
+        const drafts = new Map<string, number>();
+        for (const proposal of this.submissions.values())
+          if (
+            proposal.eventId === form.eventId &&
+            proposal.lifecycle === "draft" &&
+            proposal.submitterUserId
+          )
+            drafts.set(proposal.submitterUserId, (drafts.get(proposal.submitterUserId) ?? 0) + 1);
+        return {
+          eventId: form.eventId,
+          closesAt: form.closesAt as string,
+          draftHolders: [...drafts]
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([userId, draftCount]) => ({ userId, draftCount })),
+        };
+      }),
+    );
+  }
   createSubmission(proposal: ProposalSubmission) {
     const key = `${proposal.eventId}:${proposal.idempotencyKey}`;
     const prior = this.submissions.get(key);

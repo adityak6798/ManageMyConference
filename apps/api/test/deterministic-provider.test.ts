@@ -18,6 +18,7 @@ const delivery = (recipientRef: string): Delivery => ({
   templateId: "template-1",
   templateVersion: 1,
   recipientRef,
+  recipientTrust: "account" as const,
   payload: {},
   renderedSubject: "Subject",
   renderedBody: "Body",

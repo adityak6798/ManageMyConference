@@ -104,8 +104,10 @@
         "apps/web/test/cfp-composer.test.tsx",
         "apps/web/test/cfp-window.test.tsx",
         "apps/web/test/cfp-submitter-dashboard.test.tsx",
+        "apps/api/test/cfp-deadline-notices.test.ts",
         "apps/web/e2e/00-seed-state.spec.ts",
         "apps/web/e2e/cfp.spec.ts",
+        "apps/web/e2e/cfp-window.spec.ts",
         "apps/web/e2e/cfp-submitter.spec.ts",
         "apps/web/e2e/lifecycle.spec.ts"
       ]
@@ -187,7 +189,8 @@
         "apps/web/e2e/lifecycle.spec.ts",
         "apps/api/test/site-service.test.ts",
         "apps/api/test/d1-site-repository.integration.test.ts",
-        "apps/api/test/embed-lifecycle.test.ts"
+        "apps/api/test/embed-lifecycle.test.ts",
+        "apps/web/e2e/cfp-window.spec.ts"
       ]
     },
     "ACC-INTEGRATION": {
@@ -205,7 +208,9 @@
         "apps/api/test/d1-webhooks.integration.test.ts",
         "apps/api/test/webhook-security.test.ts",
         "apps/web/test/accelevents-sync-panel.test.tsx",
-        "apps/web/test/webhooks-workspace.test.tsx"
+        "apps/web/test/webhooks-workspace.test.tsx",
+        "apps/api/test/provider-configuration.test.ts",
+        "apps/api/test/default-templates.integration.test.ts"
       ]
     },
     "ACC-EVENT-TEMPLATES": {

@@ -48,7 +48,20 @@ export type TriggerType =
    * address was an unverified field on an anonymous form (`#132`). The anonymous door still sends
    * nothing.
    */
-  | "proposal.submitted";
+  | "proposal.submitted"
+  /**
+   * A submitter holding an **unsubmitted draft** told that the call is about to close (issue
+   * #210).
+   *
+   * The first `trigger_type` on a *scheduled* rather than event-driven trigger, which is why it
+   * is a value of its own rather than a reuse of `proposal.submitted`: `trigger_type` is what the
+   * delivery history, the webhook fan-out and the schedule-mail consumer read to decide what a
+   * row *is*, and a reminder is not a confirmation. Its occurrence is the deadline instant, so
+   * moving a deadline is a new fact rather than a repeat of an old one.
+   */
+  | "cfp.deadline_approaching"
+  /** An organizer told that their own call for proposals has closed (issue #210). */
+  | "cfp.call_closed";
 
 /**
  * Which channels each trigger may legitimately use.
@@ -75,6 +88,8 @@ export const TRIGGER_CHANNELS = {
   "speaker.calendar_invite": ["email"],
   "decision.recorded": ["email"],
   "proposal.submitted": ["email"],
+  "cfp.deadline_approaching": ["email"],
+  "cfp.call_closed": ["email"],
   "projection.requested": ["airtable", "accelevents"],
   "schedule.published": ["event"],
 } as const satisfies Record<TriggerType, readonly DeliveryChannel[]>;
@@ -108,7 +123,18 @@ export const REQUESTABLE_TRIGGERS = (Object.keys(TRIGGER_CHANNELS) as TriggerTyp
      * exclusion at the HTTP boundary; this keeps the derived set from disagreeing with it, which
      * it silently did until a review pass compared the two.
      */
-    trigger !== "proposal.submitted",
+    trigger !== "proposal.submitted" &&
+    /*
+     * The two deadline messages are excluded on the same grounds, and it is worth being explicit
+     * about which grounds. Neither is authored by an organizer: the scheduler decides who is
+     * reminded, from the drafts an event holds and the roles on it, and both recipients are
+     * resolved through identity from an account id. A request naming `cfp.deadline_approaching`
+     * with an arbitrary `recipientRef` would be an organizer-authored mail to any address of
+     * their choosing wearing the label of a message the product sends on its own — which is the
+     * primitive `#132` is about, arriving by the back door.
+     */
+    trigger !== "cfp.deadline_approaching" &&
+    trigger !== "cfp.call_closed",
 );
 
 /**
@@ -123,8 +149,11 @@ export const REQUESTABLE_TRIGGERS = (Object.keys(TRIGGER_CHANNELS) as TriggerTyp
  * than which address: **an account-bound subject is written to at its account, or not at all.**
  * The form address is reached only when there is no account — a guest submission, which is a
  * supported way to apply (`PRD-CFP-002`) and where telling nobody is the only alternative. That
- * remaining guest path is the residue of issue #132, which stays open: closing it needs a
- * per-(event, recipient) cap or a double opt-in, a product decision with storage behind it.
+ * remaining guest path is the residue of issue #132, which stays open — and the cap this lane
+ * shipped is why it is *bounded* rather than closed. A per-`(event, mailbox)` cap on messages the
+ * caller marks `declared` limits how much one attacker can amplify; it is not a verification, and
+ * `#132`'s outcome is an address somebody has proven or confirmed. `GAP-027` holds the reasoning,
+ * including why a double opt-in does not close it either while the guest door must keep working.
  *
  * An account that holds **no** address therefore yields `null` rather than falling through. That
  * was a fallback once, and it was wrong: an owned proposal's form answer is still an address
@@ -191,6 +220,66 @@ export const lifecycleRecipient = (subject: {
   return subject.account.asked ? subject.account.email || null : null;
 };
 
+/**
+ * The address two unverified recipients count as *the same mailbox* for the cap (issue #132).
+ *
+ * The cap is meant to bound one attacker filling one person's inbox, and an attacker chooses the
+ * string. Comparing raw `recipient_ref` gives them a hundred separate budgets for the price of a
+ * hundred keystrokes: `Victim@x`, `vIctim@x`, `victim+1@x` … all reach one mailbox and all counted
+ * separately, so the stated bound — a hundred proposals cost three messages — was simply false.
+ *
+ * Two normalizations, and each is chosen rather than inherited:
+ *
+ * - **Case.** Addresses are case-insensitive in every deployment anybody runs, and this repository
+ *   already lower-cases on the identity and CRM paths.
+ * - **The `+tag` sub-address.** Every provider that implements it delivers to the base mailbox, so
+ *   for *counting* they are one person. This deliberately conflates addresses that a provider
+ *   without sub-addressing would treat as distinct, and the direction of that error is the safe
+ *   one: it makes the cap bind sooner, never later. The alternative — honouring the tag — hands
+ *   the attacker an unbounded keyspace, which is the whole exposure.
+ *
+ * **Used only for counting, never for addressing.** The delivery still goes to the exact string
+ * the caller supplied; nothing here rewrites a recipient. A non-address reference — `session:99`,
+ * a projection's resource ref — has no `@` and is returned lower-cased and otherwise untouched,
+ * which is correct because those are never `declared` in the first place.
+ *
+ * **Every operation here is what SQLite does, exactly**, because the count is a `WHERE` over
+ * stored rows: this function produces the value that is compared, and the same rule expressed in
+ * SQL produces the values it is compared *against*. The two agreeing on the inputs somebody
+ * thought of is not enough — where they disagree the cap silently never binds, which is the
+ * failure mode of a security control that reports success.
+ *
+ * So three operations, each deliberately the SQLite one rather than the JavaScript one:
+ *
+ * - **Case folding is ASCII-only**, like `lower()`. `String.prototype.toLowerCase` is
+ *   Unicode-aware, so it folds `Ä` to `ä` where SQLite leaves it alone — and `Ä@x` stored then
+ *   matched nothing at all. The regex that validates a submitted address admits those characters,
+ *   so this is reachable. Folding less is the better of two bad answers rather than a good one:
+ *   before this, a non-ASCII address matched nothing and the cap **never bound** for it; now the
+ *   spellings of one mailbox that differ only in non-ASCII case are separate budgets, and on an
+ *   internationalized domain that is at least `2^n` of them for `n` such letters — more where a
+ *   letter has three forms that fold together, as Greek sigma does. The cap binds
+ *   later, rather than not at all. Recorded as a residual of `#132` in `GAP-027`, because a cap
+ *   whose bound depends on the victim's alphabet is not the bound the specification states.
+ * - **Trimming strips spaces only**, like `trim()`. JavaScript's strips every Unicode space.
+ * - **The `@` is the first one**, like `instr`, rather than the last. Asking the two sides
+ *   different questions made `a+b@x@y` normalize two ways.
+ * - **A leading `+` is not a tag.** An empty local part is a different address, and
+ *   `substr(x, 1, 0)` in SQL is `''`, so the guard is "after the first character" on both sides.
+ *   `+a@x` passes the submitted-address validator, so this one is reachable too.
+ */
+export const recipientCapKey = (recipientRef: string): string => {
+  // Deliberately not `.trim().toLowerCase()`: see above. SQLite's `trim` removes spaces, and its
+  // `lower` folds A–Z. Anything wider makes this disagree with the query that uses it.
+  const address = recipientRef
+    .replace(/^ +| +$/g, "")
+    .replace(/[A-Z]/g, (letter) => letter.toLowerCase());
+  const at = address.indexOf("@");
+  if (at <= 0) return address;
+  const plus = address.indexOf("+");
+  return plus > 0 && plus < at ? address.slice(0, plus) + address.slice(at) : address;
+};
+
 export interface MessageTemplate {
   readonly id: string;
   readonly organizationId: string;
@@ -212,6 +301,15 @@ export interface Delivery {
   readonly templateId: string | null;
   readonly templateVersion: number | null;
   readonly recipientRef: string;
+  /**
+   * How much `recipientRef` was worth trusting when this delivery was written (issue #132).
+   *
+   * `account` — an address somebody proved control of by signing in. `declared` — a form answer
+   * nobody verified, which is what a guest CFP proposal supplies. Stored rather than re-derived
+   * because the cap counts rows written in the past, and the caller that knew is long gone by
+   * then. See migration `1708`.
+   */
+  readonly recipientTrust: "account" | "declared";
   readonly payload: Readonly<Record<string, unknown>>;
   /**
    * The message as sent, rendered from `templateVersion` against `payload` at enqueue and never

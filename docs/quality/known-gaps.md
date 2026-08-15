@@ -147,7 +147,19 @@ feature-by-feature verdict.
   unproven: **no mail client has ever rendered one of these invitations**, because the fixture
   provider sends no mail, so the evidence covers the invitation being built correctly and reaching
   the provider and stops there. Provider selection is credential-gated with live adapters behind it
-  (`fixture` remains the default and no live adapter has met a real API).
+  (`fixture` remains the default and no live adapter has met a real API). **The switch is now
+  per channel** (2026-08-14): `live` used to demand all eight bindings at once, so a deployment
+  with a mail provider and no Airtable account could not turn email on at all. Each channel is
+  decided on its own bindings and is still all-or-nothing, and a channel nobody configured is
+  the deterministic fake only where `ENVIRONMENT` names a development deployment; anywhere else,
+  including a name nobody anticipated, it refuses every delivery rather than reporting a `fake:`
+  reference. That direction is deliberate — a production deny-list failed open on `production-eu`
+  and wrote projection state claiming a push that never happened. That removes the reason this
+  deployment could not send; it does not make a send observed. **The `calendar` field is the
+  least portable part and is now stated as a residual**: an invitation reaches a calendar as a
+  `text/calendar; method=REQUEST` alternative part, providers express that differently or not at
+  all, and whoever configures `EMAIL_API_ENDPOINT` has to check their contract for it before
+  relying on `speaker-calendar-invite`.
 
   Issue #189 adds two things to this picture and one limit worth naming. The composer now sends to
   a **chosen subset** of the roster with a per-recipient preview the server resolves through the
@@ -320,12 +332,21 @@ feature-by-feature verdict.
   when the API stops answering — and the wrangler crash itself is reported upstream with the log
   from `apps/api/.wrangler/wrangler.log` and the `kj` message above.
 - `GAP-019` **Closed 2026-08-13. The demo reset now reads the data before it writes.**
-  `apps/api/seed/reset.sql` is still a full teardown — it `DELETE`s *every* row of `users`,
+  `apps/api/seed/reset.sql` was a full teardown — an unscoped delete of *every* row of `users`,
   `organizations` and `events`, not the seeded ones, all of them, before inserting the fixture
-  back — and `tools/remote-demo-reset.mjs` still runs that file against the **deployed** database.
+  back — and `tools/remote-demo-reset.mjs` runs that file against the **deployed** database.
   That is exactly right for a database holding nothing but seed data, and it is what
   `npm run reset:demo` is for. What was missing was any way for the command to know that this
   database is that database.
+
+  **Updated 2026-08-14: the file is no longer a full teardown.** Every cleanup in it now names the
+  ids the seed inserts, so a restore rebuilds the demo *beside* a real conference instead of in
+  place of it, and `tools/compose-seed.mjs` refuses a bare `DELETE` in any fragment so the
+  property cannot be lost by a later edit. The guard below is deliberately unchanged: it reads
+  what the database holds, and a real organization on the demo deployment is still worth stopping
+  for. What changed is the cost of proceeding — which leaves one thing overstated, recorded here
+  rather than quietly fixed: `--destroy-real-data` still says it destroys those rows, and the SQL
+  behind it no longer can.
 
   It now asks. Before the first destructive statement, and after `d1 migrations apply` so the
   tables exist on a database that has never been migrated, the command counts every
@@ -647,37 +668,24 @@ feature-by-feature verdict.
   wrapping-key entry above is also `GAP-025`, and it is the one that survives. The collision is
   recorded here rather than silently resolved by the deletion.
 
-  Owner: content. Governing ID: `PRD-SPK-001`, `PRD-SPK-002`, `PRD-CNT-001`.
-
   Owner: content. Governing ID: `PRD-SPK-001`, `PRD-SPK-002`, `PRD-CNT-001`. Closure: all four read
   the count; the import's behaviour on a vanished row is decided and stated where the import is
   documented; and a test per writer drives a row deleted between the read and the write.
 
 
-- `GAP-027` **The submission window has no operator surface for a call that closes while nobody is watching, and the account door is narrower than the product implies.** Issue #190 made the CFP lifecycle account-bound: a scheduled window, owned proposals, drafts, revisions, a submitter dashboard, a confirmation whose recipient comes from the session, and a decision message addressed to the owning account rather than to a form answer. Six limits survive it, and they are stated together because they share a cause — the surrounding deployment rather than the domain. One further limit belongs to `#132` rather than here: a *guest* proposal has no account, so its decision is still addressed to an unverified form answer.
+- `GAP-027` **The submission window has no operator surface for a call that closes while nobody is watching, and the account door is narrower than the product implies.** Issue #190 made the CFP lifecycle account-bound: a scheduled window, owned proposals, drafts, revisions, a submitter dashboard, a confirmation whose recipient comes from the session, and a decision message addressed to the owning account rather than to a form answer. Six limits survived it. **Three closed on 2026-08-14** — the deadline is announced (`#210`), every organization holds the lifecycle templates (`#217`), and the applicant's typing survives a re-open (`#211`) — while a fourth closed only in half: a public-call sign-in no longer provisions a conference, and the narrow door itself remains, which is why that limit is still stated below rather than struck out. Each is left written down rather than deleted, because a residual that vanishes is indistinguishable from one nobody looked at. What remains is stated below, and it shares a cause: the surrounding deployment rather than the domain. `#132`'s guest decision is now bounded here too rather than only referred to.
 
-  **Nothing announces the deadline before it passes** (issue #210). The window is enforced at the application boundary and displayed on both surfaces, but no reminder reaches anybody: an organizer who set a deadline and forgot it discovers the call closed from a quiet inbox, and a submitter with an unsubmitted draft is never told it is about to become unsubmittable. Both would be `proposal.submitted`-shaped deliveries with a scheduled trigger, which is a communications-owned decision (which trigger, whose cadence, and whether a draft holder has consented to be reminded) rather than a CFP one.
+  **Closed 2026-08-14: the deadline is announced.** Issue #210 shipped two scheduled messages on two new trigger values (`cfp.deadline_approaching`, `cfp.call_closed`, migration `1707`): a submitter holding an unsubmitted draft is written to once inside the two days before the deadline, and an organizer once after it. Both are idempotent per `(event, recipient, deadline instant)`, so a cron that ticks every minute sends one message and moving a deadline is a new fact rather than a repeat. The consent decision — why a draft holder is not asked first — is written into `PRD-CFP-003` rather than only into code.
 
-  **A submitter can only sign in through a door this deployment offers, and it offers one.** `DEMO_MODE=true` turns emailed-code sign-in off and no Google client is configured (`GAP-019`, `GAP-020`), so the only identities that exist here are the four seeded personas — which is what the public call's sign-in card offers, and why the browser journey signs in as `Sam Speaker`. A real submitter creating a *new* account is the Identity lane's outcome-3 path (`SignupService.signInWithGoogle`), which today provisions an organization and a "Your first event" alongside the person's proposals. Nothing in this lane makes that worse and nothing in it fixes it.
+  **A submitter can only sign in through a door this deployment offers, and it offers one.** `DEMO_MODE=true` turns emailed-code sign-in off and no Google client is configured (`GAP-019`, `GAP-020`), so the only identities that exist here are the four seeded personas — which is what the public call's sign-in card offers, and why the browser journey signs in as `Sam Speaker`. A real submitter creating a *new* account used to be handed an organization and a "Your first event" alongside their proposals; **that is fixed** — the public call page's sign-in link declares its context on the attempt row, and a first sign-in started there provisions an identity and nothing else (`PRD-IAM-001`). The narrow door itself remains: this deployment offers personas and Google, and emailed-code sign-in stays off while `DEMO_MODE` is set.
 
-  **No lifecycle message reaches any organization but the seeded one** (issue #217). Every
-  template — this issue's confirmation and the eight that predate it — exists only in
-  `seed/reset.sql` for organization `00000000-0000-4000-8000-000000000010`, so on any other
-  organization `prepare` refuses and `notifyLifecycle` swallows it. Invisible today because
-  `GAP-019` leaves one organization here and no provider is configured; not invisible the moment
-  either changes. Found by Copilot review on the #190 PR, filed rather than repaired there because
-  it is one provisioning decision across four domains.
+  **Closed 2026-08-14: every organization holds the lifecycle templates.** Issue #217. The catalogue is provisioned as rows the organization owns — backfilled by migration `1707` for every organization that already existed, and materialized on first resolution and on the organizer's first template list for every organization created after it. An organization that publishes its own wording keeps it, because provisioning only ever writes version 1 of a key with no rows at all. A missing template is now also reported on the event's own timeline rather than only in a Worker log, because `notifyLifecycle`'s catch — written for a transient storage failure — was hiding a permanent one that looked identical to success.
 
   **The confirmation reaches no mailbox, and some accounts get none at all.** `COMMUNICATIONS_PROVIDERS` is unset, so `DeterministicProvider` marks every delivery sent. The confirmation's recipient and rendered body are asserted against delivery history, which is the strongest claim available without a provider, and it is not the claim "a submitter received an email". Separately, an account with no row in `identity_emails` is recorded as `lifecycle.notification.unaddressable` and receives nothing — reachable today with the seeded `Pat Attendee`, who has no address, which is why the dashboard rather than the message is the guarantee `PRD-CFP-004` makes. And "linked" is not "verified": `identity_emails` carries no verification column, so the strength of the address is whatever the sign-in door established, which on this deployment is a persona button.
 
   **An anonymous caller can squat one account's proposal key.** A proposal an account owns is stored under `proposal:<userId>:<clientKey>`, which makes a collision between two accounts impossible; the anonymous path keeps the bare key it has always used, because narrowing `submitProposalInputSchema` to forbid the separator would be a breaking input change under [api-compatibility](../interfaces/api-compatibility.md). So an anonymous submission *could* spell a prefixed key and take it, costing that account a refused create — not a disclosure, since the convergence read is owner-scoped either way — and requiring the caller to guess both a user id and the client's UUID. Recorded rather than closed because the fix is a contract change with a 180-day deprecation, for a residual nobody can reach by accident.
 
-  **One smaller residual on the applicant's own screen, found by the fifteenth review pass and left deliberately.** Pressing `Continue` on the proposal already being edited reloads
-  its stored answers over anything typed and unsaved, saying only "Editing …" — silent loss of the
-  applicant's work on a surface whose spec is otherwise emphatic that drops are announced. Nothing
-  wrong is persisted and the loss is visible on screen; it is recorded rather than repaired because
-  the five repair commits before it each introduced the defect the next review pass found, and it
-  is not worth that risk on this branch. Tracked by issue #211. Owner: cfp.
+  **Closed 2026-08-14: the applicant's typing survives a re-open.** Issue #211. Pressing the button on the proposal already in the form now keeps what has been typed and says so; the rebind that lets somebody escape a conflict raised in another tab still happens, and an applicant who has typed nothing takes the reload path exactly as before.
 
   **A second one was recorded here and then withdrawn**, which is worth leaving written down. The
   claim was that `CfpWorkspace` seeds its window inputs in a passive effect and so an organizer
@@ -689,11 +697,34 @@ feature-by-feature verdict.
   indistinguishable from one nobody looked at, and because the commit that recorded it existed to
   deflate over-claims and introduced one.
 
+  **The guest decision still reaches an address nobody proved, now bounded** (issue `#132`).
+  A guest proposal's address is a form answer, and the decision notification is the one message
+  the product sends to one. An event may now write three such messages to one address —
+  so a hundred guest proposals naming one victim cost that person three messages rather than a
+  hundred, with the ASCII-folding caveat below — and a refused one is reported on the event's
+  timeline rather than swallowed. The
+  address is compared as a mailbox rather than as a string: case-folded, with any `+tag` removed,
+  because one inbox spelled three ways would otherwise be three separate budgets. **The folding is
+  ASCII-only**, deliberately, because it has to be the same folding the stored column is compared
+  under and SQLite's `lower()` is ASCII-only; the residual is that spellings of one mailbox
+  differing in non-ASCII case are separate budgets, so on an internationalized domain the bound is
+  looser than three by a factor the victim's alphabet decides. Folding *differently* on the two
+  sides was the state before it, and there the cap never bound for such an address at all. **The
+  count is also read before the write rather than atomically with it**, which the service says in
+  as many words: enqueues landing together can both pass at cap-1, so the overshoot is bounded by
+  request concurrency rather than by the number three. D1 offers no compare-and-set for this shape,
+  and a bound on amplification is what the cap is for. Only a delivery
+  the caller marked `declared` is counted (`communication_deliveries.recipient_trust`, migration
+  `1708`), so a speaker's messages to the same address cannot exhaust a guest's budget or be
+  exhausted by it. That is
+  a bound on amplification and **not** a verification, which is why `#132` stays open: closing it
+  needs an address the applicant has confirmed, and a confirmation mail on a public form is
+  itself the send primitive the cap exists to bound. `DEBT-012` and `DEBT-013` stand unchanged.
+
   Owner: cfp, with the first limit shared with communications-integrations. Governing ID:
-  `PRD-CFP-003`, `PRD-CFP-004`, `PRD-COM-001`, `ACC-CFP`. Closure: a scheduled deadline reminder
-  whose trigger and consent rule are decided by communications; a real sign-in door on a deployment
-  where a submitter's first sign-in provisions nothing but their own identity; and one confirmation
-  observed arriving in a real inbox from a staged provider.
+  `PRD-CFP-003`, `PRD-CFP-004`, `PRD-COM-001`, `ACC-CFP`. Closure: a confirmed guest address, or
+  a decision the product stops sending to an unconfirmed one; and one confirmation observed
+  arriving in a real inbox from a staged provider.
 
 - `GAP-028` **Issue #189's private-set hardening is not implemented — none of the six capabilities
   it names.** What shipped from that issue is the half an organizer uses daily: re-upload

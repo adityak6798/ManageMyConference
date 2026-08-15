@@ -42,6 +42,7 @@
     "apps/web/test/cfp-window.test.tsx",
     "apps/web/test/cfp-submitter-dashboard.test.tsx",
     "apps/web/e2e/cfp-submitter.spec.ts",
+    "apps/web/e2e/cfp-window.spec.ts",
     "apps/api/test/cfp-draft-isolation.test.ts"
   ]
 }

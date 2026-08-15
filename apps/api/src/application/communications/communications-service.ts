@@ -17,10 +17,13 @@ import {
   TemplateValueError,
   renderTemplate,
 } from "../../domain/communications/template";
+import { DEFAULT_TEMPLATES } from "../../domain/communications/default-templates";
 import {
   CommunicationsConflictError,
   CommunicationsInputError,
   CommunicationsNotFoundError,
+  MessageTemplateMissingError,
+  UnverifiedRecipientCapError,
 } from "./errors";
 import {
   type CommunicationsRepository,
@@ -131,10 +134,44 @@ export const MAX_BROADCAST_RECIPIENTS = 500;
  */
 export const TEMPLATE_ALLOCATION_ATTEMPTS = 5;
 
+/**
+ * How many messages one event may send to an address nobody has proved they control (issue #132).
+ *
+ * Three, and the number is chosen rather than defaulted. A guest applicant's whole legitimate
+ * traffic on the **declared** path is a decision and its reversals: accept, then a decline if the
+ * organizer changes their mind, then a reinstatement. Three covers that with nothing to spare, and
+ * it is small enough that a hundred guest proposals naming one victim cost that victim three
+ * messages rather than a hundred.
+ *
+ * **Two things the count deliberately does, because the first version of it did neither and both
+ * were defects a review pass reproduced:**
+ *
+ * - It counts **only `declared` deliveries**. Counting every message to the address instead spent
+ *   the budget on the product's own follow-up: accepting a guest proposal writes the decision, then
+ *   the speaker welcome the acceptance provisions, then the first onboarding task — three, to the
+ *   same address, none of them abusive — and the organizer's later decline was refused. The
+ *   applicant was never told. `recipient_trust` (migration `1708`) is what makes the scope
+ *   possible.
+ * - It counts by **mailbox rather than by string**, through `recipientCapKey`. The attacker types
+ *   the address, so `Victim@x`, `vIctim@x` and `victim+1@x` were three separate budgets and the
+ *   bound above was simply untrue.
+ *
+ * It is a bound on *amplification*, not a verification. An unverified address still receives up
+ * to three messages, and the only thing that would change is a confirmed address — see
+ * `DEBT-012` and the residual recorded in `GAP-027`.
+ *
+ * The read is not atomic with the write that follows, and no compare-and-swap is available here:
+ * two enqueues landing together can both pass at cap-1. The overshoot is bounded by request
+ * concurrency rather than unbounded, which is the honest way to state "three".
+ */
+export const UNVERIFIED_RECIPIENT_CAP = 3;
+
 export {
   CommunicationsConflictError,
   CommunicationsInputError,
   CommunicationsNotFoundError,
+  MessageTemplateMissingError,
+  UnverifiedRecipientCapError,
 } from "./errors";
 
 const decodeCursor = (cursor: string) => {
@@ -229,17 +266,72 @@ export class CommunicationsService implements CommunicationsEnqueue {
   }
 
   /**
+   * Give an organization the lifecycle templates it has never had. Idempotent, and safe to race.
+   *
+   * The repair for issue #217: every lifecycle trigger resolves a template scoped to the
+   * organization, and no migration ever wrote one for any organization but the seeded demo — so
+   * every self-serve signup's messages resolved nothing, were swallowed by `notifyLifecycle` as
+   * designed, and never existed. See `domain/communications/default-templates.ts` for why the fix
+   * is a copy the organization owns rather than a system-wide fallback row.
+   *
+   * **Only ever writes version 1 of a key with no rows at all.** An organization that has
+   * published its own version of a template keeps it: this reads what is there first and adds only
+   * the keys missing from that list, so a customized message is never overwritten and a template
+   * somebody deliberately rewrote is never reverted by a later call.
+   *
+   * **Losing a race is success, not failure.** Two lifecycle actions on a fresh organization can
+   * both find the key missing; the unique index on `(organization_id, template_key, version)`
+   * arbitrates and the loser absorbs its own refusal, because the row it wanted now exists and
+   * that is the whole point of the call. Every other storage failure propagates.
+   *
+   * Deliberately **not** authorized: it is called from the resolution path of a lifecycle message
+   * that has no request actor, and it can only write rows this catalogue defines into the
+   * organization the delivery already named. `templates` below authorizes before reaching it.
+   */
+  async provisionDefaultTemplates(organizationId: string): Promise<void> {
+    const existing = await this.dependencies.repository.listTemplates(organizationId);
+    const held = new Set(existing.map((template) => template.key));
+    const now = this.dependencies.now().toISOString();
+    for (const template of DEFAULT_TEMPLATES) {
+      if (held.has(template.key)) continue;
+      try {
+        await this.dependencies.repository.createTemplate({
+          ...template,
+          organizationId,
+          version: 1,
+          id: this.dependencies.newId(),
+          createdAt: now,
+        });
+      } catch (error) {
+        // ERROR-INTENT: a taken version means a concurrent caller provisioned the same default a
+        // moment ago, which is the outcome this call wanted. Absorbed here; everything else
+        // propagates.
+        if (!(error instanceof TemplateVersionTakenError)) throw error;
+      }
+    }
+  }
+
+  /**
    * Every version of every template in the organization, by key, newest version first.
    *
    * Versions are immutable, so "editing" a template is publishing a new version and the old one
    * stays readable — a delivery sent last week names the version it used, and this is where an
    * organizer goes to read what that version actually said.
+   *
+   * **Provisions the defaults before listing, which is a write on a read and is meant.** This is
+   * the surface an organizer opens to edit their organization's messages, and before issue #217
+   * it answered a self-serve organization with an empty list — a page saying, in effect, that the
+   * product sends nothing and there is nothing to change. Provisioning is idempotent, does nothing
+   * at all on the second call, and is authorized by the `communications:manage` check above.
+   * `SignupService.completeWorkspace` is the same shape — a read of somebody's identity that
+   * finishes provisioning an earlier attempt left half-done.
    */
   async templates(
     actor: Actor | null,
     organizationId: string,
   ): Promise<readonly MessageTemplate[]> {
     this.organization(actor, organizationId);
+    await this.provisionDefaultTemplates(organizationId);
     return this.dependencies.repository.listTemplates(organizationId);
   }
 
@@ -331,12 +423,17 @@ export class CommunicationsService implements CommunicationsEnqueue {
   ) {
     const authorized = this.organization(actor, input.organizationId);
     await this.event(authorized, input.eventId, input.organizationId);
-    const template = await this.dependencies.repository.findTemplate(
+    const template = await this.resolveTemplate(
       input.organizationId,
       input.templateKey,
       input.templateVersion,
     );
-    if (!template) throw new CommunicationsNotFoundError("Template version not found");
+    if (!template)
+      throw new MessageTemplateMissingError(
+        input.organizationId,
+        input.templateKey,
+        input.templateVersion,
+      );
     if (template.channel !== "email")
       throw new CommunicationsInputError("Only email templates can be sent to speakers");
 
@@ -523,6 +620,14 @@ export class CommunicationsService implements CommunicationsEnqueue {
     };
   }
 
+  /** See `CommunicationsEnqueue.alreadyEnqueued`. */
+  async alreadyEnqueued(organizationId: string, idempotencyKey: string): Promise<boolean> {
+    return (
+      (await this.dependencies.repository.findByIdempotencyKey(organizationId, idempotencyKey)) !==
+      null
+    );
+  }
+
   async enqueueCalendarInvite(
     request: CalendarInviteEnqueueRequest,
   ): Promise<CalendarInviteEnqueueResult> {
@@ -622,6 +727,30 @@ export class CommunicationsService implements CommunicationsEnqueue {
     return existing ?? this.prepare(request);
   }
 
+  /**
+   * The template a delivery will carry, provisioning this organization's defaults on a miss.
+   *
+   * The second read is what makes issue #217 impossible to reach through this path rather than
+   * merely unlikely: an organization created after migration `1707` ran, or one whose creation
+   * raced the migration, resolves its first lifecycle message by materializing the catalogue and
+   * then finding the row. It costs one extra read only on the miss — after that the key exists
+   * and the first `findTemplate` answers.
+   *
+   * A **pinned version** is never provisioned for. Asking for version 4 of a template whose
+   * organization holds three is a caller mistake, and writing version 1 in response would answer a
+   * different question than the one asked.
+   */
+  private async resolveTemplate(
+    organizationId: string,
+    key: string,
+    version: number | undefined,
+  ): Promise<MessageTemplate | null> {
+    const found = await this.dependencies.repository.findTemplate(organizationId, key, version);
+    if (found || version !== undefined) return found;
+    await this.provisionDefaultTemplates(organizationId);
+    return this.dependencies.repository.findTemplate(organizationId, key);
+  }
+
   private async prepare(
     input: DeliveryRequest,
     options: { scopeChecked?: boolean; template?: MessageTemplate } = {},
@@ -640,14 +769,14 @@ export class CommunicationsService implements CommunicationsEnqueue {
     const template =
       options.template ??
       (input.templateKey
-        ? await this.dependencies.repository.findTemplate(
-            input.organizationId,
-            input.templateKey,
-            input.templateVersion,
-          )
+        ? await this.resolveTemplate(input.organizationId, input.templateKey, input.templateVersion)
         : null);
     if (input.templateKey && !template)
-      throw new CommunicationsNotFoundError("Template version not found");
+      throw new MessageTemplateMissingError(
+        input.organizationId,
+        input.templateKey,
+        input.templateVersion,
+      );
     // One rule, read off the trigger/channel table, replacing four conditionals that between
     // them encoded the same mapping and could not express a channel that is neither email nor a
     // projection.
@@ -661,6 +790,33 @@ export class CommunicationsService implements CommunicationsEnqueue {
       throw new CommunicationsInputError("Template channel does not match delivery channel");
     if (isProjectionChannel(input.channel) && input.projectionVersion === undefined)
       throw new CommunicationsInputError("Projection delivery requires a version");
+    /*
+     * The unverified-recipient cap (issue #132), and the ordering is the whole of its correctness.
+     *
+     * It is checked **after** the coherence rules and **only** for a `declared` recipient, and the
+     * count is asked for last so an ordinary account message costs no extra read at all.
+     *
+     * The idempotency key is consulted first, and that is not an optimisation: a retry of a
+     * decision that already has a delivery must converge on it rather than be refused. Without
+     * that line, the third message to an address would send, and its retry — the same key, the
+     * same message — would fail the cap and be reported to an organizer as an unsent decision that
+     * had in fact gone out.
+     */
+    if (input.recipientTrust === "declared") {
+      const existing = await this.dependencies.repository.findByIdempotencyKey(
+        input.organizationId,
+        input.idempotencyKey,
+      );
+      if (!existing) {
+        const already = await this.dependencies.repository.countDeliveriesTo(
+          input.organizationId,
+          input.eventId,
+          input.recipientRef,
+        );
+        if (already >= UNVERIFIED_RECIPIENT_CAP)
+          throw new UnverifiedRecipientCapError(input.eventId, UNVERIFIED_RECIPIENT_CAP);
+      }
+    }
     // Render once, here, so the delivery carries the message rather than the instructions for
     // reconstructing it. A projection has no template and therefore no message.
     let rendered: { subject: string | null; body: string } | null = null;
@@ -687,6 +843,9 @@ export class CommunicationsService implements CommunicationsEnqueue {
       templateId: template?.id ?? null,
       templateVersion: template?.version ?? null,
       recipientRef: input.recipientRef,
+      // Stored, not re-derived: the cap counts rows written in the past, and the caller that
+      // knew how much the address was worth trusting is long gone by then.
+      recipientTrust: input.recipientTrust ?? "account",
       payload: input.payload,
       renderedSubject: rendered?.subject ?? null,
       renderedBody: rendered?.body ?? null,
