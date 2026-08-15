@@ -49,7 +49,9 @@
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--s-3);
+  margin: 0;
   padding: var(--s-4);
+  border: 0;
 }
 
 .role-template-card {

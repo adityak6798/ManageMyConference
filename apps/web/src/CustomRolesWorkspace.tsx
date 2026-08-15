@@ -304,7 +304,8 @@ export function CustomRolesWorkspace({
           </div>
         )}
         {canManage ? (
-          <div className="role-template-grid" role="group" aria-label="Role templates">
+          <fieldset className="role-template-grid">
+            <legend className="visually-hidden">Role templates</legend>
             {data.templates.map((template) => (
               <button
                 key={template.key}
@@ -317,7 +318,7 @@ export function CustomRolesWorkspace({
                 <span>Use as a starting point</span>
               </button>
             ))}
-          </div>
+          </fieldset>
         ) : null}
       </Card>
 
