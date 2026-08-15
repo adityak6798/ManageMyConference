@@ -7,7 +7,7 @@ import { AgendaWorkspace } from "../agenda/AgendaWorkspace";
 import { GeneratedDrafts } from "../agenda/GeneratedDrafts";
 import { IconCalendar } from "../ui/icons";
 import { Notice } from "../ui/primitives";
-import type { WorkspaceModule } from "./contract";
+import { hubTabHref, type HubTabModule, type WorkspaceModule } from "./contract";
 
 export const agendaWorkspace: WorkspaceModule = {
   domain: "agenda",
@@ -47,3 +47,23 @@ export const agendaWorkspace: WorkspaceModule = {
     </>
   ),
 };
+
+export const scheduleAgendaTab: HubTabModule = {
+  domain: "agenda",
+  hub: "schedule",
+  tab: "agenda",
+  label: "Agenda",
+  order: 20,
+  icon: <IconCalendar size={16} />,
+  personas: ["organizer"],
+  legacyPaths: ["/agenda"],
+  canAccess: ({ capabilities }) => capabilities.includes("agenda:manage"),
+  header: () => ({
+    eyebrow: "Schedule",
+    title: "Agenda",
+    subtitle: "Place sessions, resolve conflicts, compare views, and publish the schedule.",
+  }),
+  render: agendaWorkspace.render,
+};
+
+export const scheduleAgendaHref = hubTabHref("schedule", scheduleAgendaTab.tab);

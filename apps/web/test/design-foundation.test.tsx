@@ -13,6 +13,15 @@ import {
   Skeleton,
 } from "../src/ui/primitives";
 import { HUB_PATHS, hubTabHref } from "../src/workspaces/contract";
+import { programFormsHref, programFormsTab } from "../src/workspaces/cfp";
+import { scheduleSessionsHref, scheduleSessionsTab } from "../src/workspaces/content";
+import { scheduleAgendaHref, scheduleAgendaTab } from "../src/workspaces/agenda";
+import {
+  programReviewHref,
+  programReviewTab,
+  programSubmissionsHref,
+  programSubmissionsTab,
+} from "../src/workspaces/review";
 
 afterEach(() => {
   cleanup();
@@ -24,6 +33,31 @@ describe("design foundation", () => {
   it("builds stable, encoded hub links", () => {
     expect(HUB_PATHS.program).toBe("/program");
     expect(hubTabHref("program", "submission review")).toBe("/program?tab=submission+review");
+  });
+
+  it("accepts the domain-owned Program and Schedule integration exports", () => {
+    expect([programFormsTab, programSubmissionsTab, programReviewTab]).toMatchObject([
+      { hub: "program", tab: "forms", legacyPaths: ["/cfp"] },
+      { hub: "program", tab: "submissions", legacyPaths: ["/abstracts"] },
+      { hub: "program", tab: "review", legacyPaths: [] },
+    ]);
+    expect([scheduleSessionsTab, scheduleAgendaTab]).toMatchObject([
+      { hub: "schedule", tab: "sessions", legacyPaths: ["/sessions"] },
+      { hub: "schedule", tab: "agenda", legacyPaths: ["/agenda"] },
+    ]);
+    expect([
+      programFormsHref,
+      programSubmissionsHref,
+      programReviewHref,
+      scheduleSessionsHref,
+      scheduleAgendaHref,
+    ]).toEqual([
+      "/program?tab=forms",
+      "/program?tab=submissions",
+      "/program?tab=review",
+      "/schedule?tab=sessions",
+      "/schedule?tab=agenda",
+    ]);
   });
 
   it("renders shareable hub tabs with one current destination", () => {

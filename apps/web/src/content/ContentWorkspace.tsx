@@ -86,7 +86,8 @@ export function ContentWorkspace({
   eventId,
   role,
   canAdministerShares = role === "organizer",
-}: Props) {
+  sessionsOnly = false,
+}: Props & { sessionsOnly?: boolean }) {
   const [busy, setBusy] = useState(false);
   const describeLoadFailure = useCallback(
     (reason: unknown) =>
@@ -141,6 +142,7 @@ export function ContentWorkspace({
         busy={busy}
         run={run}
         canAdministerShares={canAdministerShares}
+        sessionsOnly={sessionsOnly}
       />
     );
 

@@ -100,6 +100,10 @@ test("organizer composes, sees draft diverge from the live form, publishes, and 
 
   // ---- compose a new question ------------------------------------------------
   await page.getByRole("button", { name: "Add question" }).click();
+  await page
+    .getByRole("dialog", { name: "Add a question" })
+    .getByRole("button", { name: /Single select/ })
+    .click();
   const added = page.locator(".cfp-question").last();
   await added.getByLabel("Field type").selectOption("select");
   await added.getByLabel("Question label").fill("Experience level");

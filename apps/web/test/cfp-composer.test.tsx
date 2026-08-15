@@ -203,6 +203,25 @@ describe("building the question list", () => {
   const twoQuestions = () =>
     form({ fields: [field(), field({ id: "abstract", label: "Session abstract" })] });
 
+  it("adds only contract-backed types from a searchable keyboard dialog", async () => {
+    stubApi((url) => (url.startsWith("/api/events/") ? jsonResponse({ cfp: form() }) : undefined));
+    render(<CfpWorkspace eventId={eventId} organizer timezone={TIMEZONE} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Add question" }));
+    const dialog = screen.getByRole("dialog", { name: "Add a question" });
+    expect(within(dialog).getByRole("button", { name: /Short text/ })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: /Long text/ })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: /Email/ })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: /Single select/ })).toBeInTheDocument();
+    fireEvent.change(within(dialog).getByRole("searchbox", { name: "Search question types" }), {
+      target: { value: "single" },
+    });
+    expect(within(dialog).queryByRole("button", { name: /Short text/ })).toBeNull();
+    fireEvent.click(within(dialog).getByRole("button", { name: /Single select/ }));
+    expect(screen.queryByRole("dialog", { name: "Add a question" })).toBeNull();
+    expect(screen.getByDisplayValue("New question")).toBeInTheDocument();
+  });
+
   it("posts the order the organizer arranged, not the order the server sent", async () => {
     const calls = stubApi((url, init) => {
       if (url.startsWith("/api/events/") && init?.method === "PUT")

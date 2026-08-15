@@ -61,12 +61,15 @@ export function OrganizerView({
   busy,
   run,
   canAdministerShares,
+  sessionsOnly = false,
 }: {
   eventId: string;
   workspace: Workspace;
   busy: boolean;
   run: Run;
   canAdministerShares: boolean;
+  /** Schedule-hub presentation: accepted-session work without speaker-owned operations. */
+  sessionsOnly?: boolean;
 }) {
   const sessionFeedback = useActionFeedback();
   const assetFeedback = useActionFeedback();
@@ -251,7 +254,7 @@ export function OrganizerView({
   ];
 
   return (
-    <div className="content-workspace">
+    <div className={sessionsOnly ? "content-workspace sessions-only" : "content-workspace"}>
       {/* Order is the point of this layout (#144): an organizer opens this page to see accepted
           content and who owes work, so the stat tiles, the sessions table and the speaker roster
           come first. Authoring, imports and history follow as disclosures below the dashboard —

@@ -69,10 +69,15 @@ export function OrganizerReviewWorkspace({
   eventId: string;
   currentActor?: { id: string; name: string };
 }) {
-  const [tab, setTab] = useState("all");
-  const [search, setSearch] = useState("");
+  const persistQueueState = window.location.pathname === "/program";
+  const initialQuery = useMemo(
+    () => new URLSearchParams(persistQueueState ? window.location.search : ""),
+    [persistQueueState],
+  );
+  const [tab, setTab] = useState(() => initialQuery.get("status") ?? "all");
+  const [search, setSearch] = useState(() => initialQuery.get("q") ?? "");
   /** Reserved CFP track value; the submitted snapshot is stable while this selection is used. */
-  const [track, setTrack] = useState("all");
+  const [track, setTrack] = useState(() => initialQuery.get("track") ?? "all");
   /**
    * How the table is ordered. Three states rather than two.
    *
@@ -81,9 +86,12 @@ export function OrganizerReviewWorkspace({
    * directions" is one of this area's acceptance criteria precisely because an organizer looking
    * for what to decline needs the other end of the list.
    */
-  const [sort, setSort] = useState<"submitted" | "score-desc" | "score-asc">("submitted");
-  const [selected, setSelected] = useState<string[]>([]);
-  const [openId, setOpenId] = useState<string | null>(null);
+  const requestedSort = initialQuery.get("sort");
+  const [sort, setSort] = useState<"submitted" | "score-desc" | "score-asc">(
+    requestedSort === "score-desc" || requestedSort === "score-asc" ? requestedSort : "submitted",
+  );
+  const [selected, setSelected] = useState<string[]>(() => initialQuery.getAll("selected"));
+  const [openId, setOpenId] = useState<string | null>(() => initialQuery.get("proposal"));
   const [busy, setBusy] = useState(false);
   /** Which round assignment, distribution and the results column are working in. */
   const [round, setRound] = useState<number | null>(null);
@@ -105,6 +113,25 @@ export function OrganizerReviewWorkspace({
   const decisionFeedback = useActionFeedback();
   const detailRef = useRef<HTMLDivElement>(null);
   const decisionDialog = useRef<HTMLDialogElement>(null);
+
+  /* Filters, selection and detail are organizer work-in-progress. Keep them in the address so a
+     refresh, copied link, or move between eventual hub tabs does not silently reset the queue. */
+  useEffect(() => {
+    if (!persistQueueState) return;
+    const query = new URLSearchParams(window.location.search);
+    const keep = (key: string, value: string, fallback: string) =>
+      value === fallback ? query.delete(key) : query.set(key, value);
+    keep("status", tab, "all");
+    keep("q", search, "");
+    keep("track", track, "all");
+    keep("sort", sort, "submitted");
+    query.delete("selected");
+    for (const id of selected) query.append("selected", id);
+    if (openId) query.set("proposal", openId);
+    else query.delete("proposal");
+    const next = `${window.location.pathname}${query.size ? `?${query.toString()}` : ""}`;
+    window.history.replaceState(null, "", next);
+  }, [openId, persistQueueState, search, selected, sort, tab, track]);
 
   /**
    * Closing is refused while a decision is in flight, for the same reason Confirm is: unmounting

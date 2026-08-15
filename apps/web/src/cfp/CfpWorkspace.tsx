@@ -33,7 +33,7 @@ import {
 } from "../api/cfp";
 import "../styles/cfp.css";
 import { IconCheck, IconForm, IconGlobe, IconLink, IconPlus, IconWarning } from "../ui/icons";
-import { Card, EmptyState, Notice, Pill, Tabs, useActionFeedback } from "../ui/primitives";
+import { Card, Drawer, EmptyState, Notice, Pill, Tabs, useActionFeedback } from "../ui/primitives";
 import { ApplicantCfpForm } from "./ApplicantCfpForm";
 import { PublicFormPreview } from "./controls";
 import {
@@ -132,6 +132,8 @@ export function CfpWorkspace({
   const [fields, setFields] = useState<CfpField[]>(starter);
   const [title, setTitle] = useState(DEFAULT_TITLE);
   const [description, setDescription] = useState("");
+  const [addingQuestion, setAddingQuestion] = useState(false);
+  const [questionTypeSearch, setQuestionTypeSearch] = useState("");
   const [routing, setRouting] = useState<CfpRoutingRule[]>([]);
   const [routingStatuses, setRoutingStatuses] = useState<readonly { key: string; label: string }[]>(
     [],
@@ -909,23 +911,7 @@ export function CfpWorkspace({
             title="Questions"
             hint="Applicants answer these in order."
             actions={
-              <button
-                type="button"
-                className="secondary"
-                onClick={() =>
-                  setFields([
-                    ...fields,
-                    {
-                      id: `field-${crypto.randomUUID()}`,
-                      type: "long_text",
-                      label: "New question",
-                      guidance: "",
-                      required: false,
-                      options: [],
-                    },
-                  ])
-                }
-              >
+              <button type="button" className="secondary" onClick={() => setAddingQuestion(true)}>
                 <IconPlus size={15} />
                 Add question
               </button>
@@ -1211,6 +1197,65 @@ export function CfpWorkspace({
               </ol>
             )}
           </Card>
+
+          <Drawer
+            open={addingQuestion}
+            title="Add a question"
+            description="Choose one of the field types supported by the published form contract."
+            onClose={() => {
+              setAddingQuestion(false);
+              setQuestionTypeSearch("");
+            }}
+          >
+            <div className="field">
+              <label htmlFor="question-type-search">Search question types</label>
+              <input
+                id="question-type-search"
+                type="search"
+                value={questionTypeSearch}
+                onChange={(event) => setQuestionTypeSearch(event.target.value)}
+              />
+            </div>
+            <ul className="cfp-field-type-list">
+              {FIELD_TYPES.filter(({ label }) =>
+                label.toLowerCase().includes(questionTypeSearch.trim().toLowerCase()),
+              ).map(({ value, label }) => (
+                <li key={value}>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => {
+                      setFields([
+                        ...fields,
+                        {
+                          id: `field-${crypto.randomUUID()}`,
+                          type: value,
+                          label: "New question",
+                          guidance: "",
+                          required: false,
+                          options: value === "select" ? ["Option 1"] : [],
+                        },
+                      ]);
+                      setAddingQuestion(false);
+                      setQuestionTypeSearch("");
+                    }}
+                  >
+                    <strong>{label}</strong>
+                    <span>
+                      {value === "select"
+                        ? "Offer one choice from a list."
+                        : `Collect ${label.toLowerCase()}.`}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {FIELD_TYPES.every(
+              ({ label }) => !label.toLowerCase().includes(questionTypeSearch.trim().toLowerCase()),
+            ) ? (
+              <EmptyState title="No supported type matches">Try a broader search.</EmptyState>
+            ) : null}
+          </Drawer>
 
           <Card
             labelledBy="cfp-routing"

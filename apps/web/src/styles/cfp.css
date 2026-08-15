@@ -71,6 +71,26 @@
   max-width: var(--measure);
 }
 
+.cfp-field-type-list {
+  list-style: none;
+  margin: var(--s-4) 0 0;
+  padding: 0;
+  display: grid;
+  gap: var(--s-2);
+}
+.cfp-field-type-list button {
+  width: 100%;
+  min-height: 3.5rem;
+  display: grid;
+  justify-items: start;
+  gap: var(--s-1);
+  text-align: left;
+}
+.cfp-field-type-list span {
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
 /* ============================ two panes ============================ */
 
 .cfp-composer {

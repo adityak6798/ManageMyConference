@@ -401,6 +401,19 @@
   min-width: 0;
 }
 
+/* The Schedule hub owns accepted-session presentation, not speaker profiles, tasks, files, or
+   outreach. The underlying projection and mutation lifecycle stay shared; this mode only narrows
+   the organizer surface exported for final hub composition. */
+.content-workspace.sessions-only > .grid-auto > :not(:first-child),
+.content-workspace.sessions-only > .split > :not(:first-child),
+.content-workspace.sessions-only > .split > .content-stack > :not(:first-child),
+.content-workspace.sessions-only > .tool-stack {
+  display: none;
+}
+.content-workspace.sessions-only > .split {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .tool-panel {
   border: 1px solid var(--line);
   border-radius: var(--r-lg);

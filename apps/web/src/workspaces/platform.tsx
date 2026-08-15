@@ -6,10 +6,32 @@
  * server, under each owning domain's own rule. @spec PRD-OPS-001
  */
 import { AuditWorkspace } from "../platform/AuditWorkspace";
+import { OverviewPage } from "../OverviewPage";
 import { InboxWorkspace } from "../platform/InboxWorkspace";
 import { SearchWorkspace } from "../platform/SearchWorkspace";
-import { IconClock, IconInbox, IconSearch } from "../ui/icons";
+import { IconClock, IconDashboard, IconInbox, IconSearch } from "../ui/icons";
 import type { WorkspaceModule } from "./contract";
+
+/** Organizer home contribution exported for the final #237 cutover, not registered here. */
+export const organizerOverviewWorkspace: WorkspaceModule = {
+  domain: "platform",
+  path: "/",
+  label: "Overview",
+  group: "home",
+  order: 0,
+  icon: <IconDashboard size={16} />,
+  personas: ["organizer"],
+  canAccess: ({ capabilities }) => capabilities.includes("events:read"),
+  header: () => ({ title: "Overview" }),
+  render: ({ event, query, onPublicationChange }) => (
+    <OverviewPage
+      key={event.id}
+      event={event}
+      query={query}
+      onPublicationChange={onPublicationChange}
+    />
+  ),
+};
 
 export const searchWorkspace: WorkspaceModule = {
   domain: "platform",
