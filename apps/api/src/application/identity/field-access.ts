@@ -166,6 +166,11 @@ export class FieldAccess {
     return this.policies.size > 0;
   }
 
+  /** Immutable delegated-authority snapshot using the same composed decision as live reads. */
+  snapshot(): readonly (readonly [string, FieldPolicy])[] {
+    return [...this.policies.entries()].map(([key, policy]) => [key, policy] as const);
+  }
+
   /**
    * The policy in force, with the subject-wide default applied and required fields clamped.
    *

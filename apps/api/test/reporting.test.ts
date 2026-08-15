@@ -415,6 +415,38 @@ describe("share links", () => {
     });
   });
 
+  it("freezes the same least-restrictive field decision used by live projections", async () => {
+    const { service, links } = harness();
+    const report = await savedReport(service);
+    const multiGrant = {
+      ...scoped,
+      eventAccess: [
+        {
+          eventId: EVENT,
+          role: "custom" as const,
+          capabilities: new Set(["events:read"] as const),
+          fieldPolicies: new Map([["speaker:email", "hide" as const]]),
+        },
+        {
+          eventId: EVENT,
+          role: "custom" as const,
+          capabilities: new Set(["events:read"] as const),
+          fieldPolicies: new Map([["speaker:email", "lock" as const]]),
+        },
+      ],
+    };
+    await service.createShare(multiGrant, EVENT, report.id, { lifetimeHours: 24 });
+    expect(links.at(-1)?.scope.fieldPolicies).toEqual([["speaker:email", "lock"]]);
+
+    await service.createShare(
+      { ...multiGrant, eventAccess: [...multiGrant.eventAccess, organizer.eventAccess[0]!] },
+      EVENT,
+      report.id,
+      { lifetimeHours: 24 },
+    );
+    expect(links.at(-1)?.scope.fieldPolicies).toEqual([]);
+  });
+
   it("refuses a caller without reports:pii asking for an unmasked link", async () => {
     const { service } = harness();
     const report = await savedReport(service);
@@ -576,5 +608,22 @@ describe("scheduled delivery", () => {
     expect(outcome).toEqual({ fired: 0, failed: 1 });
     expect(runs[0]?.outcome).toBe("failed");
     expect(links.at(-1)?.revokedAt).toBe(NOW.toISOString());
+  });
+
+  it("records a migrated empty-scope schedule as failed without sending a dead link", async () => {
+    const { service, runs, links, delivered, schedules } = harness();
+    const report = await savedReport(service);
+    await service.createSchedule(organizer, EVENT, report.id, {
+      cadence: "daily",
+      minuteOfDay: 9 * 60,
+      timezone: "Europe/London",
+      recipients: ["ops@example.test"],
+    });
+    schedules[0] = { ...schedules[0]!, scope: {} };
+
+    await expect(service.tick()).resolves.toEqual({ fired: 0, failed: 1 });
+    expect(delivered).toHaveLength(0);
+    expect(links).toHaveLength(0);
+    expect(runs[0]?.outcome).toBe("failed");
   });
 });

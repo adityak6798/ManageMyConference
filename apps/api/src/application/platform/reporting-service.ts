@@ -28,6 +28,7 @@
  * @spec PRD-OPS-001 PRD-IAM-002 ARC-DOM-001
  */
 import { type Actor, type Capability, requireEventCapability } from "../identity/actor";
+import { fieldAccessFor } from "../identity/field-access";
 import type { AuditRecorder } from "./audit-service";
 import {
   type CapabilityLink,
@@ -144,15 +145,11 @@ function delegatedScope(actor: Actor, eventId: string, allowPii: boolean) {
   return {
     allowPii,
     capabilities: [...new Set(grants.flatMap(({ capabilities }) => [...capabilities]))],
-    fieldPolicies: [
-      ...new Map(
-        grants.flatMap(({ fieldPolicies }) => [...(fieldPolicies?.entries() ?? [])]),
-      ).entries(),
-    ],
+    fieldPolicies: fieldAccessFor(actor, eventId).snapshot(),
   };
 }
 
-function delegatedActor(link: CapabilityLink): Actor | null {
+const delegatedCapabilities = (scope: Readonly<Record<string, unknown>>): Capability[] => {
   const known = new Set<Capability>([
     "events:read",
     "events:create",
@@ -168,11 +165,15 @@ function delegatedActor(link: CapabilityLink): Actor | null {
     "identity:manage",
     "reports:pii",
   ]);
-  const capabilities = Array.isArray(link.scope.capabilities)
-    ? link.scope.capabilities.filter(
+  return Array.isArray(scope.capabilities)
+    ? scope.capabilities.filter(
         (value): value is Capability => typeof value === "string" && known.has(value as Capability),
       )
     : [];
+};
+
+function delegatedActor(link: CapabilityLink): Actor | null {
+  const capabilities = delegatedCapabilities(link.scope);
   if (capabilities.length === 0) return null;
   const policies = Array.isArray(link.scope.fieldPolicies)
     ? link.scope.fieldPolicies.filter(
@@ -807,6 +808,10 @@ export class ReportingService {
       let detail = "";
       let issuedLinkId: string | null = null;
       try {
+        if (delegatedCapabilities(schedule.scope).length === 0)
+          throw new Error(
+            "This schedule predates delegated report authority; recreate it before delivery.",
+          );
         const { token } = await this.dependencies.mintToken();
         const expiresAt = new Date(
           now.getTime() + schedule.linkLifetimeHours * 3_600_000,

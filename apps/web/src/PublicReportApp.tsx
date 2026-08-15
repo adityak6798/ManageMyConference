@@ -4,6 +4,15 @@ import { type PublicReportResponse, ReportApiError, resolvePublicReport } from "
 import "./styles.css";
 import { Card, Notice, PageHeader } from "./ui/primitives";
 
+const initialRequests = new Map<string, Promise<PublicReportResponse>>();
+const initialReport = (token: string) => {
+  const existing = initialRequests.get(token);
+  if (existing) return existing;
+  const request = resolvePublicReport(token);
+  initialRequests.set(token, request);
+  return request;
+};
+
 const tokenFromPath = () => {
   const match = window.location.pathname.match(/^\/reports\/([^/]+)\/?$/);
   if (!match?.[1]) return "";
@@ -39,8 +48,29 @@ export function PublicReportApp() {
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: resolving spends a view; password keystrokes must not spend more.
   useEffect(() => {
-    // ERROR-INTENT: the initial capability resolution renders both success and refusal here.
-    void load();
+    let active = true;
+    setLoading(true);
+    setError(null);
+    // StrictMode replays mount effects. Both mounts share one spending request so a finite-view
+    // capability is consumed exactly once, while a password submission remains an explicit retry.
+    void initialReport(token)
+      .then((result) => {
+        if (active) setReport(result);
+      })
+      .catch((reason: unknown) => {
+        if (active)
+          setError(
+            reason instanceof ReportApiError
+              ? reason.message
+              : "That report link is not available.",
+          );
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
   return (
