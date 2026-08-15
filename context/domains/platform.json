@@ -116,7 +116,7 @@
     "apps/web/src/workspaces/reports.tsx",
     "apps/web/src/api/reports.ts",
     "apps/web/test/reports-workspace.test.tsx",
-    "apps/web/e2e/closure-surfaces.spec.ts"
+    "apps/web/e2e/zz-closure-surfaces.spec.ts"
   ],
   "symbols": {
     "createHttpApp": "apps/api/src/transport/http/app.ts",

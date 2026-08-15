@@ -204,7 +204,8 @@ Where a row carries a gap, the gap is part of the record: it names what is not t
 ## Closure and external-evidence addendum — 2026-08-14
 
 This append-only correction supersedes the older addendum's statement that the programme, portal
-and reporting work has no browser journey. `apps/web/e2e/closure-surfaces.spec.ts` now verifies the
+and reporting work has no browser journey. `apps/web/e2e/zz-closure-surfaces.spec.ts` now verifies
+the
 wire-level absence of hidden speaker email and session abstract fields, a locked bio's structured
 403 refusal, usable custom-role content, CSV/XLSX/JSON bytes, an anonymous report link through
 revocation, portal publication/registration/consent/unpublication, and persisted JSON embed issue,

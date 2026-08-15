@@ -64,7 +64,7 @@ speaker CRM in particular is product work the brief does not name. The mapping i
 The lifecycle chain is the integration acceptance target, and it is now executable:
 [`apps/web/e2e/lifecycle.spec.ts`](../../apps/web/e2e/lifecycle.spec.ts) carries one newly filed
 proposal from the public form to the published site and back. `ACC-DEMO-SMOKE` separately verifies
-that every journey surface is discoverable. `closure-surfaces.spec.ts` drives the newer role,
+that every journey surface is discoverable. `zz-closure-surfaces.spec.ts` drives the newer role,
 report, portal, embed, and webhook-console surfaces rather than only discovering them. Neither
 replaces the remaining acceptance criteria of issue #10, which include hosted CI. The reproducible
 external SessionBoard evaluator is pinned and described in the

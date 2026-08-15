@@ -14,7 +14,7 @@ accessibility/performance smoke, and scheduled quality gate.
 Issue #10's first acceptance criterion is met and measured:
 [`apps/web/e2e/lifecycle.spec.ts`](../../apps/web/e2e/lifecycle.spec.ts) carries one newly submitted
 proposal across review, acceptance, speaker provisioning, scheduling, and public publication in a
-single run and hands the fixture back. `apps/web/e2e/closure-surfaces.spec.ts` adds the adjacent
+single run and hands the fixture back. `apps/web/e2e/zz-closure-surfaces.spec.ts` adds the adjacent
 closure journeys: custom-role field projection and locked writes, report exports/share/scheduled
 execution, public portal registration, persisted embeds, and the webhooks console's real
 unconfigured state. What remains before this plan can close:

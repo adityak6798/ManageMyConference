@@ -1,4 +1,6 @@
 // @acceptance ACC-OPS ACC-SPEAKER
+// This suite is deliberately last: its real scheduled tick and durable embed are irreversible on
+// Playwright's shared fixture, so earlier journeys must observe the reset state they own.
 /** Browser evidence for GAP-031's highest-risk surfaces. @spec PRD-IAM-002 PRD-OPS-004 */
 import { readFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";

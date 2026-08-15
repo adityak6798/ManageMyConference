@@ -828,7 +828,7 @@ feature-by-feature verdict.
   of each measured surface before measuring, so the floor is a property of the check rather than of
   the seed — or each surface gets a component-level test that asserts the constraint directly.
 - `GAP-031` **Browser journeys now cover every named surface; a staged scheduled-report send is
-  still absent.** `closure-surfaces.spec.ts` drives a custom event role and asserts both the
+  still absent.** `zz-closure-surfaces.spec.ts` drives a custom event role and asserts both the
   serialized absence of hidden email/abstract fields and the 403 field error on a locked bio;
   exports and reads CSV, XLSX and JSON; opens and revokes an anonymous report capability URL;
   creates, publishes, registers against and withdraws an organization portal; and issues, reads
