@@ -271,6 +271,7 @@
 - `test` / `repository-fact`: [apps/web/test/review-decisions.test.tsx](../../apps/web/test/review-decisions.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/review-rounds.test.tsx](../../apps/web/test/review-rounds.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/review-suggestions.test.tsx](../../apps/web/test/review-suggestions.test.tsx)
+- `test` / `repository-fact`: [apps/web/test/review-xlsx.test.ts](../../apps/web/test/review-xlsx.test.ts)
 - `specification` / `normative`: [docs/engineering/testing-strategy.md](../../docs/engineering/testing-strategy.md)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)
 - `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)

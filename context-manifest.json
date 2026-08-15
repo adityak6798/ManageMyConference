@@ -732,6 +732,7 @@
         "apps/web/src/review/ReviewerProgressPanel.tsx",
         "apps/web/src/review/xlsx.ts",
         "apps/web/test/review-rounds.test.tsx",
+        "apps/web/test/review-xlsx.test.ts",
         "apps/web/e2e/review-rounds.spec.ts"
       ]
     },
