@@ -141,7 +141,7 @@ export function HubTabs({
   // selected destination in view without moving the whole page vertically.
   useEffect(() => {
     activeRef.current?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
-  }, [active]);
+  });
 
   return (
     <nav className="hub-tabs" aria-label={label}>
