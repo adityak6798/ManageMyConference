@@ -34,6 +34,7 @@ import {
 import type { AssignableOwner, IdentityDirectory } from "../identity/identity-directory";
 import { fieldAccessAcross, type HideableContactField, type Redacted } from "../identity/public";
 import type { CrmRepository, ProspectFilters } from "./crm-repository";
+import type { CrmCampaign } from "./crm-repository";
 import {
   ContactEmailTakenError,
   ContactImportInvalidError,
@@ -156,7 +157,11 @@ export interface UpdateContactCommand {
   tags?: readonly string[] | undefined;
   fields?: readonly { key: string; value: string }[] | undefined;
   activity?:
-    | { kind: "note" | "email" | "call" | "meeting"; summary: string; private: boolean }
+    | {
+        kind: "note" | "email" | "call" | "meeting";
+        summary: string;
+        private: boolean;
+      }
     | undefined;
 }
 export interface DirectoryQuery extends DirectoryFilters {
@@ -168,6 +173,7 @@ export interface OutreachCommand {
   templateVersion?: number | undefined;
   contactIds?: readonly string[] | undefined;
   segmentId?: string | undefined;
+  campaignId?: string | undefined;
 }
 export interface OutreachRecipient {
   readonly contactId: string;
@@ -179,7 +185,9 @@ export interface OutreachRecipient {
 }
 export interface ImportPreview {
   readonly filename: string;
-  readonly rows: readonly (ParsedContactRow & { action: "create" | "update" | "skip" })[];
+  readonly rows: readonly (ParsedContactRow & {
+    action: "create" | "update" | "skip";
+  })[];
   readonly notices: readonly string[];
   readonly summary: { create: number; update: number; skip: number };
 }
@@ -340,6 +348,55 @@ export class CrmService {
       occurredAt: now,
     });
     return prospect;
+  }
+
+  /** Put an unauthenticated, year-round speaker interest into the event's entry stage. */
+  async submitInterest(
+    eventId: string,
+    input: { name: string; email: string },
+  ): Promise<{ confirmationId: string; submittedAt: string }> {
+    const existing = await this.dependencies.repository.findByPrimaryEmail(eventId, input.email);
+    if (existing) return { confirmationId: existing.id, submittedAt: existing.createdAt };
+    const [owner] = await this.dependencies.identities.listAssignableOwnersForEvent(eventId);
+    if (!owner)
+      throw new ProspectOwnerNotEligibleError({
+        eventId: ["This event cannot receive interest yet."],
+      });
+    const entry = await this.entryStage(eventId);
+    const submittedAt = this.dependencies.now().toISOString();
+    const prospect: Prospect = {
+      id: this.dependencies.newId(),
+      eventId,
+      name: input.name,
+      stage: entry.key,
+      ownerId: owner.id,
+      nextAction: "Review speaker interest",
+      nextActionAt: null,
+      contacts: [
+        {
+          id: this.dependencies.newId(),
+          name: input.name,
+          email: input.email.trim().toLowerCase(),
+          isPrimary: true,
+        },
+      ],
+      activities: [],
+      speakerId: null,
+      convertedAt: null,
+      createdAt: submittedAt,
+      updatedAt: submittedAt,
+    };
+    await this.dependencies.repository.create(prospect, {
+      id: this.dependencies.newId(),
+      eventId,
+      prospectId: prospect.id,
+      fromStage: null,
+      toStage: entry.key,
+      actorId: owner.id,
+      source: "interest",
+      occurredAt: submittedAt,
+    });
+    return { confirmationId: prospect.id, submittedAt };
   }
 
   async update(
@@ -815,7 +872,9 @@ export class CrmService {
     parsed: readonly ParsedContactRow[],
   ): Promise<ImportPreview["rows"]> {
     const seen = new Map<string, number>();
-    const rows: (ParsedContactRow & { action: "create" | "update" | "skip" })[] = [];
+    const rows: (ParsedContactRow & {
+      action: "create" | "update" | "skip";
+    })[] = [];
     // One bulk resolve for the whole file rather than a query per row: a 500-row import was 500
     // serial round trips before it wrote anything.
     const existingByEmail = await this.dependencies.repository.findContactsByEmails(
@@ -1025,7 +1084,11 @@ export class CrmService {
       // The address a merged record was found under stays searchable, and so does any address
       // it had itself absorbed earlier.
       for (const inherited of duplicate.aliases)
-        aliases.push({ ...inherited, id: this.dependencies.newId(), mergedAt: now });
+        aliases.push({
+          ...inherited,
+          id: this.dependencies.newId(),
+          mergedAt: now,
+        });
     }
     return this.dependencies.repository.mergeContacts({
       organizationId,
@@ -1061,7 +1124,9 @@ export class CrmService {
     const authorized = await this.requireOrganization(actor, organizationId);
     const existing = await this.dependencies.repository.listSegments(organizationId);
     if (existing.some(({ name }) => name.toLowerCase() === input.name.toLowerCase()))
-      throw new SegmentNameTakenError({ name: ["A segment already uses this name."] });
+      throw new SegmentNameTakenError({
+        name: ["A segment already uses this name."],
+      });
     const segment: ContactSegment = {
       id: this.dependencies.newId(),
       organizationId,
@@ -1083,11 +1148,19 @@ export class CrmService {
     command: OutreachCommand,
   ): Promise<readonly OrganizationContact[]> {
     if (command.segmentId) {
-      const filters = await this.resolveFilters(organizationId, { segmentId: command.segmentId });
+      const filters = await this.resolveFilters(organizationId, {
+        segmentId: command.segmentId,
+      });
       const matched = await this.dependencies.repository.listContacts(organizationId, filters);
       if (matched.length === 0)
         throw new OutreachRecipientsEmptyError("This segment matches no contacts");
-      return matched;
+      const suppressed = await this.dependencies.repository.suppressedContactIds(
+        matched.map(({ id }) => id),
+      );
+      const recipients = matched.filter(({ id }) => !suppressed.has(id));
+      if (recipients.length === 0)
+        throw new OutreachRecipientsEmptyError("Every matching contact is suppressed");
+      return recipients;
     }
     const wanted = [...new Set(command.contactIds ?? [])];
     const contacts: OrganizationContact[] = [];
@@ -1097,9 +1170,13 @@ export class CrmService {
       // list whenever the merge is what put it there — so it is dropped rather than refused.
       if (contact && !contact.mergedIntoId) contacts.push(contact);
     }
-    if (contacts.length === 0)
+    const suppressed = await this.dependencies.repository.suppressedContactIds(
+      contacts.map(({ id }) => id),
+    );
+    const recipients = contacts.filter(({ id }) => !suppressed.has(id));
+    if (recipients.length === 0)
       throw new OutreachRecipientsEmptyError("No contact in this organization matched");
-    return contacts;
+    return recipients;
   }
 
   /**
@@ -1118,7 +1195,10 @@ export class CrmService {
     const authorized = await this.requireOrganization(actor, organizationId);
     this.authorize(authorized, command.eventId);
     await this.requireOrganizationEvent(organizationId, command.eventId);
-    return { authorized, contacts: await this.recipients(organizationId, command) };
+    return {
+      authorized,
+      contacts: await this.recipients(organizationId, command),
+    };
   }
 
   private message(organizationId: string, command: OutreachCommand, contact: OrganizationContact) {
@@ -1132,7 +1212,7 @@ export class CrmService {
        * send that should happen, and only a repeat of the identical one is the duplicate this
        * is guarding against.
        */
-      idempotencyKey: `crm-outreach:${command.eventId}:${contact.id}:${command.templateKey}:v${
+      idempotencyKey: `crm-outreach:${command.campaignId ? `${command.campaignId}:` : ""}${command.eventId}:${contact.id}:${command.templateKey}:v${
         command.templateVersion ?? "latest"
       }`,
       templateKey: command.templateKey,
@@ -1154,7 +1234,11 @@ export class CrmService {
     actor: Actor | null,
     organizationId: string,
     command: OutreachCommand,
-  ): Promise<{ eventId: string; templateKey: string; recipients: readonly OutreachRecipient[] }> {
+  ): Promise<{
+    eventId: string;
+    templateKey: string;
+    recipients: readonly OutreachRecipient[];
+  }> {
     const { contacts } = await this.resolveOutreach(actor, organizationId, command);
     const [first] = contacts;
     // Resolved by the dispatcher rather than assumed, now that communications publishes a call
@@ -1165,7 +1249,11 @@ export class CrmService {
     return {
       eventId: command.eventId,
       templateKey: command.templateKey,
-      recipients: contacts.map(({ id, name, email }) => ({ contactId: id, name, email })),
+      recipients: contacts.map(({ id, name, email }) => ({
+        contactId: id,
+        name,
+        email,
+      })),
     };
   }
 
@@ -1173,7 +1261,11 @@ export class CrmService {
     actor: Actor | null,
     organizationId: string,
     command: OutreachCommand,
-  ): Promise<{ eventId: string; templateKey: string; sent: readonly OutreachRecipient[] }> {
+  ): Promise<{
+    eventId: string;
+    templateKey: string;
+    sent: readonly OutreachRecipient[];
+  }> {
     const { authorized, contacts } = await this.resolveOutreach(actor, organizationId, command);
     const now = this.dependencies.now().toISOString();
     const sent: OutreachRecipient[] = [];
@@ -1218,14 +1310,232 @@ export class CrmService {
     return { eventId: command.eventId, templateKey: command.templateKey, sent };
   }
 
+  async listCampaigns(actor: Actor | null, organizationId: string) {
+    await this.requireOrganization(actor, organizationId);
+    return this.dependencies.repository.listCampaigns(organizationId);
+  }
+
+  async createCampaign(
+    actor: Actor | null,
+    organizationId: string,
+    input: OutreachCommand & { name: string; scheduledAt?: string | undefined },
+  ): Promise<CrmCampaign> {
+    const { authorized, contacts } = await this.resolveOutreach(actor, organizationId, input);
+    const now = this.dependencies.now().toISOString();
+    const id = this.dependencies.newId();
+    const first = contacts[0];
+    if (!first) throw new ContactNotFoundError("Campaign audience is empty");
+    // Resolve and render once at authoring time. A scheduled campaign must not become an
+    // indefinitely failing job merely because its template key or version never existed.
+    await this.dependencies.outreach.prepare(
+      this.message(organizationId, { ...input, campaignId: id }, first),
+    );
+    const campaign: CrmCampaign = {
+      id,
+      organizationId,
+      eventId: input.eventId,
+      name: input.name,
+      templateKey: input.templateKey,
+      templateVersion: input.templateVersion ?? null,
+      // Campaign membership is a snapshot. Editing a saved segment tomorrow must not silently
+      // rewrite who an already-approved campaign will contact.
+      contactIds: contacts.map(({ id: contactId }) => contactId),
+      segmentId: null,
+      state: input.scheduledAt ? "scheduled" : "draft",
+      scheduledAt: input.scheduledAt ?? null,
+      createdBy: authorized.id,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await this.dependencies.repository.saveCampaign(campaign);
+    return campaign;
+  }
+
+  private campaignCommand(campaign: CrmCampaign): OutreachCommand {
+    return {
+      eventId: campaign.eventId,
+      templateKey: campaign.templateKey,
+      ...(campaign.templateVersion === null ? {} : { templateVersion: campaign.templateVersion }),
+      ...(campaign.segmentId === null
+        ? { contactIds: campaign.contactIds }
+        : { segmentId: campaign.segmentId }),
+      campaignId: campaign.id,
+    };
+  }
+
+  private async executeCampaign(campaign: CrmCampaign): Promise<CrmCampaign> {
+    if (campaign.state === "completed" || campaign.state === "cancelled") return campaign;
+    const now = this.dependencies.now().toISOString();
+    const running = { ...campaign, state: "running" as const, updatedAt: now };
+    await this.dependencies.repository.saveCampaign(running);
+    try {
+      const command = this.campaignCommand(campaign);
+      const contacts = await this.recipients(campaign.organizationId, command);
+      for (const contact of contacts) {
+        const { deliveryId, created } = await this.dependencies.outreach.send(
+          this.message(campaign.organizationId, command, contact),
+        );
+        if (!created) continue;
+        await this.dependencies.repository.recordContactActivities(campaign.organizationId, [
+          {
+            contactId: contact.id,
+            activity: {
+              id: this.dependencies.newId(),
+              kind: "outreach",
+              summary: `Campaign "${campaign.name}" sent (delivery ${deliveryId})`,
+              private: false,
+              occurredAt: now,
+              actorId: campaign.createdBy,
+            },
+          },
+        ]);
+      }
+    } catch (error) {
+      // The occurrence remains due and may be replayed; per-contact delivery keys converge.
+      await this.dependencies.repository.saveCampaign({
+        ...campaign,
+        state: campaign.scheduledAt ? "scheduled" : "draft",
+        updatedAt: this.dependencies.now().toISOString(),
+      });
+      throw error;
+    }
+    const completed = {
+      ...campaign,
+      state: "completed" as const,
+      updatedAt: this.dependencies.now().toISOString(),
+    };
+    await this.dependencies.repository.saveCampaign(completed);
+    return completed;
+  }
+
+  async launchCampaign(actor: Actor | null, organizationId: string, campaignId: string) {
+    await this.requireOrganization(actor, organizationId);
+    const campaign = await this.dependencies.repository.findCampaign(organizationId, campaignId);
+    if (!campaign) throw new ContactNotFoundError("Campaign not found");
+    this.authorize(actor, campaign.eventId);
+    return this.executeCampaign(campaign);
+  }
+
+  async cancelCampaign(actor: Actor | null, organizationId: string, campaignId: string) {
+    await this.requireOrganization(actor, organizationId);
+    const campaign = await this.dependencies.repository.findCampaign(organizationId, campaignId);
+    if (!campaign) throw new ContactNotFoundError("Campaign not found");
+    this.authorize(actor, campaign.eventId);
+    if (campaign.state === "completed") return campaign;
+    const cancelled = {
+      ...campaign,
+      state: "cancelled" as const,
+      updatedAt: this.dependencies.now().toISOString(),
+    };
+    await this.dependencies.repository.saveCampaign(cancelled);
+    return cancelled;
+  }
+
+  /** Scheduled tick: creation already captured authority and immutable audience/message inputs. */
+  async runDueCampaigns() {
+    const due = await this.dependencies.repository.listDueCampaigns(
+      this.dependencies.now().toISOString(),
+    );
+    const completed: CrmCampaign[] = [];
+    const failed: { campaignId: string; reason: string }[] = [];
+    for (const campaign of due) {
+      try {
+        completed.push(await this.executeCampaign(campaign));
+      } catch (error) {
+        // ERROR-INTENT: the failure is returned to the scheduled boundary, which logs it, while
+        // later due campaigns continue and this one remains scheduled for an idempotent replay.
+        failed.push({
+          campaignId: campaign.id,
+          reason: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    return { completed, failed };
+  }
+
+  async recordEngagement(
+    actor: Actor | null,
+    organizationId: string,
+    input: {
+      eventId: string;
+      campaignId?: string | undefined;
+      contactId: string;
+      kind: "delivered" | "opened" | "clicked" | "replied" | "bounced" | "unsubscribed";
+      providerRef: string;
+      occurredAt: string;
+      metadata: Readonly<Record<string, string>>;
+    },
+  ) {
+    const authorized = await this.requireOrganization(actor, organizationId);
+    this.authorize(authorized, input.eventId);
+    await this.requireOrganizationEvent(organizationId, input.eventId);
+    const contact = await this.dependencies.repository.findContact(organizationId, input.contactId);
+    if (!contact) throw new ContactNotFoundError("Contact not found");
+    if (input.campaignId) {
+      const campaign = await this.dependencies.repository.findCampaign(
+        organizationId,
+        input.campaignId,
+      );
+      if (!campaign || campaign.eventId !== input.eventId)
+        throw new ContactNotFoundError("Campaign not found");
+    }
+    const engagement = {
+      id: this.dependencies.newId(),
+      organizationId,
+      eventId: input.eventId,
+      campaignId: input.campaignId ?? null,
+      contactId: input.contactId,
+      kind: input.kind,
+      providerRef: input.providerRef,
+      occurredAt: input.occurredAt,
+      metadata: input.metadata,
+    };
+    const created = await this.dependencies.repository.saveEngagement(engagement);
+    if (!created) return { engagement, created: false };
+    const summary = `${input.kind[0]?.toUpperCase()}${input.kind.slice(1)} outreach${input.campaignId ? ` from campaign ${input.campaignId}` : ""}`;
+    await Promise.all([
+      this.dependencies.repository.recordContactActivities(organizationId, [
+        {
+          contactId: input.contactId,
+          activity: {
+            id: this.dependencies.newId(),
+            kind: "email",
+            summary,
+            private: false,
+            occurredAt: input.occurredAt,
+            actorId: authorized.id,
+          },
+        },
+      ]),
+      this.dependencies.repository.recordProspectEngagement(
+        organizationId,
+        input.contactId,
+        input.eventId,
+        {
+          id: this.dependencies.newId(),
+          kind: "engagement",
+          summary,
+          private: false,
+          occurredAt: input.occurredAt,
+          actorId: authorized.id,
+        },
+      ),
+    ]);
+    return { engagement, created: true };
+  }
+
   /* Organization-level analytics, counted over stored rows. */
 
   async dashboard(actor: Actor | null, organizationId: string) {
-    await this.requireOrganization(actor, organizationId);
-    const [contacts, segments] = await Promise.all([
+    const scope = await this.requireOrganizationScope(actor, organizationId);
+    const [contacts, segments, transitionsByEvent] = await Promise.all([
       this.dependencies.repository.listContacts(organizationId, {}),
       this.dependencies.repository.listSegments(organizationId),
+      Promise.all(
+        scope.eventIds.map((eventId) => this.dependencies.repository.listTransitions(eventId)),
+      ),
     ]);
+    const transitions = transitionsByEvent.flat();
     const stages = new Map<string, Set<string>>();
     const companies = new Map<string, number>();
     for (const contact of contacts) {
@@ -1233,6 +1543,27 @@ export class CrmService {
         stages.set(link.stage, (stages.get(link.stage) ?? new Set()).add(contact.id));
       if (contact.company)
         companies.set(contact.company, (companies.get(contact.company) ?? 0) + 1);
+    }
+    const funnel = new Map<
+      string,
+      { fromStage: string | null; toStage: string; prospects: Set<string> }
+    >();
+    const firstByProspect = new Map<string, number>();
+    const convertedDurations: number[] = [];
+    for (const transition of transitions) {
+      const key = JSON.stringify([transition.fromStage, transition.toStage]);
+      const entry = funnel.get(key) ?? {
+        fromStage: transition.fromStage,
+        toStage: transition.toStage,
+        prospects: new Set<string>(),
+      };
+      entry.prospects.add(transition.prospectId);
+      funnel.set(key, entry);
+      const at = Date.parse(transition.occurredAt);
+      const first = firstByProspect.get(transition.prospectId);
+      if (first === undefined || at < first) firstByProspect.set(transition.prospectId, at);
+      if (transition.toStage === CONVERTED_STAGE_KEY && first !== undefined && at >= first)
+        convertedDurations.push((at - first) / 86_400_000);
     }
     return {
       contacts: contacts.length,
@@ -1253,6 +1584,22 @@ export class CrmService {
             right.contacts - left.contacts || left.company.localeCompare(right.company),
         )
         .slice(0, 5),
+      pipelineTransitions: transitions.length,
+      averageDaysToConversion:
+        convertedDurations.length > 0
+          ? convertedDurations.reduce((sum, value) => sum + value, 0) / convertedDurations.length
+          : null,
+      transitionFunnel: [...funnel.values()]
+        .map(({ fromStage, toStage, prospects }) => ({
+          fromStage,
+          toStage,
+          prospects: prospects.size,
+        }))
+        .sort(
+          (left, right) =>
+            (left.fromStage ?? "").localeCompare(right.fromStage ?? "") ||
+            left.toStage.localeCompare(right.toStage),
+        ),
     };
   }
 

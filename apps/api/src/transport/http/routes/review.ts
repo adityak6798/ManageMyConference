@@ -18,6 +18,8 @@ import {
   type ProposalAcceptanceDto,
   proposalStatusSchema,
   recordProposalDecisionInputSchema,
+  recomputeReviewRoundInputSchema,
+  inviteReviewRoundInputSchema,
   remindReviewersInputSchema,
   respondToSuggestionInputSchema,
   reviewAssignmentParamsSchema,
@@ -71,6 +73,8 @@ const routes = [
   "POST /api/events/:eventId/review/round-plans",
   "PUT /api/events/:eventId/review/round-plans/:sequence",
   "PUT /api/events/:eventId/review/round-plans/:sequence/pool",
+  "POST /api/events/:eventId/review/round-plans/:sequence/recompute",
+  "POST /api/events/:eventId/review/round-plans/:sequence/invitations",
   "POST /api/events/:eventId/review/reminders",
   "DELETE /api/events/:eventId/review/assignments/:assignmentId",
   "POST /api/events/:eventId/review/transitions",
@@ -376,6 +380,62 @@ export const reviewRoutes: RouteModule = {
           params.data.eventId,
           params.data.sequence,
           parsed.data.reviewerIds,
+        ),
+      });
+    });
+    app.post("/api/events/:eventId/review/round-plans/:sequence/recompute", async (context) => {
+      const params = reviewRoundParamsSchema.safeParse(context.req.param());
+      if (!params.success)
+        return context.json(
+          envelope("VALIDATION_FAILED", "Round path is malformed.", context.get("correlationId")),
+          400,
+        );
+      requireEventCapability(context.get("actor"), params.data.eventId, "review:manage");
+      const parsed = recomputeReviewRoundInputSchema.safeParse(await readJson(context.req));
+      if (!parsed.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "The review filters are invalid.",
+            context.get("correlationId"),
+            validationFields(parsed.error.issues),
+          ),
+          400,
+        );
+      if (!reviewService) throw new Error("Review service is not configured");
+      return context.json({
+        round: await reviewService.recomputeRound(
+          context.get("actor"),
+          params.data.eventId,
+          params.data.sequence,
+          parsed.data.filters,
+        ),
+      });
+    });
+    app.post("/api/events/:eventId/review/round-plans/:sequence/invitations", async (context) => {
+      const params = reviewRoundParamsSchema.safeParse(context.req.param());
+      if (!params.success)
+        return context.json(
+          envelope("VALIDATION_FAILED", "Review round is malformed.", context.get("correlationId")),
+          400,
+        );
+      const parsed = inviteReviewRoundInputSchema.safeParse(await readJson(context.req));
+      if (!parsed.success)
+        return context.json(
+          envelope(
+            "VALIDATION_FAILED",
+            "Invitation mode is invalid.",
+            context.get("correlationId"),
+          ),
+          400,
+        );
+      if (!reviewService) throw new Error("Review service is not configured");
+      return context.json({
+        invitations: await reviewService.inviteRoundReviewers(
+          context.get("actor"),
+          params.data.eventId,
+          params.data.sequence,
+          parsed.data.mode,
         ),
       });
     });

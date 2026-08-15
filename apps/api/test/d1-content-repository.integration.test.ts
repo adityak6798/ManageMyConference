@@ -658,19 +658,20 @@ describe("D1ContentRepository revisions", () => {
     const { repository, revisions } = await fixture("content-revision-atomicity");
     const before = await repository.findProfile(profileId);
 
-    // Driven at the repository because the HTTP contract makes this state unreachable through
-    // the service — which is the point: the constraint is the last line, and this proves the
-    // revision does not survive the write it describes being rolled back.
+    // An owned-photo trigger is the storage last line. A workflow key is no longer suitable for
+    // this test because `1411` deliberately made that vocabulary data rather than a CHECK.
     await expect(
       repository.reviseProfile(
         profileId,
         draft("a0000000-0000-4000-8000-000000000001"),
         (current) => ({
           ...current,
-          workflowStatus: "not-a-status" as SpeakerProfile["workflowStatus"],
+          photoAssetId: "ffffffff-ffff-4fff-8fff-ffffffffffff",
         }),
       ),
-    ).rejects.toThrow(/CHECK constraint failed|D1 content revision failed/);
+    ).rejects.toThrow(
+      /profile photo asset does not exist|saved headshot is no longer available|D1 content revision failed/,
+    );
 
     expect(await revisions()).toEqual([]);
     expect(await repository.findProfile(profileId)).toEqual(before);

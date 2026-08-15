@@ -5,7 +5,9 @@ import {
   type Decision,
   type DecisionOutcome,
   listTitles,
+  OUTCOME_ACTION,
   OUTCOME_LABEL,
+  OUTCOME_NOUN,
   type Proposal,
 } from "./shared";
 export type DecisionState = "open" | "retry" | "done";
@@ -88,7 +90,7 @@ export function DecisionForm({
           </>
         ) : (
           <>
-            {outcome === "accepted" ? "Accept" : "Decline"} <strong>{subject}</strong>?
+            {OUTCOME_ACTION[outcome]} <strong>{subject}</strong>?
           </>
         )}
       </p>
@@ -120,8 +122,8 @@ export function DecisionForm({
                 ? `Creates a session from this abstract and links ${single.submitter.name} (${single.submitter.email}) as its speaker.`
                 : `Creates a session from each of these ${proposals.length} abstracts and links its own submitter as the speaker.`
             : single
-              ? `Records the outcome against ${single.submitterName} and moves the abstract to Declined. Nothing is sent to the submitter.`
-              : `Records the outcome against each submitter and moves ${proposals.length} abstracts to Declined. Nothing is sent to the submitters.`}
+              ? `Records ${OUTCOME_LABEL[outcome].toLowerCase()} against ${single.submitterName} and sends the configured decision message.`
+              : `Records ${OUTCOME_LABEL[outcome].toLowerCase()} for ${proposals.length} abstracts and sends each configured decision message.`}
         </p>
       )}
       {/*
@@ -194,7 +196,7 @@ export function DecisionForm({
               ? "Retry session creation"
               : outcome === "accepted"
                 ? "Confirm acceptance"
-                : "Confirm decline"}
+                : `Confirm ${OUTCOME_NOUN[outcome]}`}
           </button>
         )}
         {/* Promoted to the primary action once it is the only one left, but never renamed:

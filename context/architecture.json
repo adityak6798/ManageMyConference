@@ -245,7 +245,7 @@
         "fflate"
       ],
       "transport": ["@greenroom/contracts", "hono", "hono/cookie", "hono/cors", "hono/etag"],
-      "ui": ["@greenroom/contracts", "react", "react-dom", "react-dom/client", "zod"],
+      "ui": ["@greenroom/contracts", "fflate", "react", "react-dom", "react-dom/client", "zod"],
       "contracts": ["zod"],
       "egress": [
         "@cloudflare/containers",

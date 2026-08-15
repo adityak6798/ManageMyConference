@@ -3,6 +3,10 @@ import {
   acceptContentInputSchema,
   type ContentWorkspaceDto,
   contentWorkspaceSchema,
+  contentShareListResponseSchema,
+  contentShareSchema,
+  contentRemixResponseSchema,
+  configureContentWorkflowStatusesInputSchema,
   inviteSpeakersInputSchema,
   inviteSpeakersResponseSchema,
   remindSpeakerTasksInputSchema,
@@ -11,6 +15,7 @@ import {
   type SpeakerInvitationOutcomeDto,
   type SpeakerReminderOutcomeDto,
   speakerCalendarInviteResultSchema,
+  speakerCollaboratorsResponseSchema,
   speakerChecklistAssignmentResponseSchema,
   speakerCsvImportResultSchema,
   type SpeakerTaskTemplateDto,
@@ -20,8 +25,9 @@ import {
   type UpdateSpeakerProfileInput,
   updateContentSessionInputSchema,
   updateSpeakerProfileInputSchema,
+  type updateSpeakerWorkflowInputSchema,
 } from "@greenroom/contracts";
-import { ZodError, type z } from "zod";
+import { ZodError, z } from "zod";
 import { decodeResponse, apiFetch as fetch } from "./config";
 
 export class ContentApiError extends Error {
@@ -292,11 +298,7 @@ export async function importSpeakerCsv(
 }
 export async function updateSpeakerWorkflow(
   profileId: string,
-  input: {
-    workflowStatus: "invited" | "onboarding" | "ready" | "blocked";
-    logistics: Record<string, string>;
-    customFields: Record<string, string>;
-  },
+  input: z.input<typeof updateSpeakerWorkflowInputSchema>,
   fetcher: typeof fetch = fetch,
 ) {
   const response = await fetcher(`/api/speaker-profiles/${profileId}/workflow`, {
@@ -305,6 +307,71 @@ export async function updateSpeakerWorkflow(
     body: JSON.stringify(input),
   });
   if (!response.ok) await decode(response, contentWorkspaceSchema);
+}
+export async function configureContentWorkflowStatuses(
+  eventId: string,
+  input: z.input<typeof configureContentWorkflowStatusesInputSchema>,
+  fetcher: typeof fetch = fetch,
+) {
+  const validated = configureContentWorkflowStatusesInputSchema.parse(input);
+  const response = await fetcher(`/api/events/${eventId}/content/workflow-statuses`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(validated),
+  });
+  if (!response.ok) await decode(response, contentWorkspaceSchema);
+}
+export async function listProfileShares(profileId: string, fetcher: typeof fetch = fetch) {
+  const response = await fetcher(`/api/speaker-profiles/${profileId}/shares`);
+  return (await decode(response, contentShareListResponseSchema)).shares;
+}
+
+export async function createProfileShare(
+  profileId: string,
+  input: { lifetimeHours: number; viewLimit?: number; password?: string },
+  fetcher: typeof fetch = fetch,
+) {
+  const response = await fetcher(`/api/speaker-profiles/${profileId}/shares`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  return decode(response, z.object({ share: contentShareSchema, url: z.string().url() }));
+}
+
+export async function revokeProfileShare(
+  profileId: string,
+  shareId: string,
+  fetcher: typeof fetch = fetch,
+) {
+  const response = await fetcher(`/api/speaker-profiles/${profileId}/shares/${shareId}`, {
+    method: "DELETE",
+  });
+  return decode(response, z.object({ revoked: z.boolean() }));
+}
+export async function draftProfileRemix(
+  profileId: string,
+  instruction: string,
+  fetcher: typeof fetch = fetch,
+) {
+  const response = await fetcher(`/api/speaker-profiles/${profileId}/remix`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ instruction }),
+  });
+  return (await decode(response, contentRemixResponseSchema)).draft;
+}
+export async function setProfileCollaborators(
+  profileId: string,
+  collaborators: readonly { userId: string; access: "view" | "edit" }[],
+  fetcher: typeof fetch = fetch,
+) {
+  const response = await fetcher(`/api/speaker-profiles/${profileId}/collaborators`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ collaborators }),
+  });
+  return (await decode(response, speakerCollaboratorsResponseSchema)).collaborators;
 }
 /**
  * Assign one dated task to several speakers at once.

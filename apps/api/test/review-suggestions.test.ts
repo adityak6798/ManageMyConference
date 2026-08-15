@@ -140,6 +140,22 @@ describe("AI-assisted review suggestions", () => {
     expect(item?.suggestions).toHaveLength(1);
   });
 
+  it("reports only aggregate AI draft usage to organizers", async () => {
+    const { service } = build();
+    const { organizer, reviewer, assignment } = await assigned(service);
+    const suggestion = await service.requestSuggestion(reviewer, eventId, assignment.id);
+    const offered = await service.organizerWorkspace(organizer, eventId);
+    expect(offered.aiReport).toEqual([
+      { round: 1, model: "fixture-suggester-v1", state: "offered", count: 1 },
+    ]);
+    expect(JSON.stringify(offered)).not.toContain(suggestion.summary);
+
+    await service.respondToSuggestion(reviewer, eventId, assignment.id, suggestion.id, "rejected");
+    expect((await service.organizerWorkspace(organizer, eventId)).aiReport).toEqual([
+      { round: 1, model: "fixture-suggester-v1", state: "rejected", count: 1 },
+    ]);
+  });
+
   it("never sends the submitter's identity across the port", async () => {
     // Blind review has to survive a live model, not only a rendered page. The request type has no
     // field for a submitter, so this asserts the fixture saw no trace of one anywhere in it.

@@ -22,6 +22,8 @@ export interface ReviewRepository {
    * everybody because it forgot to ask.
    */
   listRounds(eventId: string): Promise<readonly ReviewRound[]>;
+  /** Open rounds carrying a complete weekly reminder schedule, across events, for the tick. */
+  listScheduledRounds(): Promise<readonly ReviewRound[]>;
   findRound(eventId: string, sequence: number): Promise<ReviewRound | null>;
   /**
    * Create a round and its pool together.
@@ -40,6 +42,8 @@ export interface ReviewRepository {
    * a closed round's scorecard, window, anonymization and pool mode are frozen (`1312`).
    */
   updateRound(round: Omit<ReviewRound, "reviewerIds" | "createdAt">): Promise<void>;
+  /** Atomically allocate the next invite-all occurrence for one round. */
+  claimRoundInvitationOccurrence(eventId: string, sequence: number): Promise<number>;
   /**
    * Replace a round's pool.
    *
@@ -89,6 +93,13 @@ export interface ReviewRepository {
   saveDecision(decision: Omit<ProposalDecision, "revision">): Promise<number>;
   findDecision(eventId: string, proposalId: string): Promise<ProposalDecision | null>;
   listDecisions(eventId: string): Promise<readonly ProposalDecision[]>;
+  listDecisionHistory(eventId: string): Promise<readonly ProposalDecision[]>;
+  /** Aggregate only: organizers never receive reviewer-private suggestion text or scores. */
+  suggestionReport(
+    eventId: string,
+  ): Promise<
+    readonly { round: number; model: string; state: ReviewSuggestion["state"]; count: number }[]
+  >;
 
   /**
    * Store a freshly drafted suggestion in the `offered` state.

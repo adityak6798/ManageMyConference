@@ -61,6 +61,7 @@
     "apps/api/test/d1-review-round-backfill.integration.test.ts",
     "apps/web/src/review/RoundsPanel.tsx",
     "apps/web/src/review/ReviewerProgressPanel.tsx",
+    "apps/web/src/review/xlsx.ts",
     "apps/web/test/review-rounds.test.tsx",
     "apps/web/e2e/review-rounds.spec.ts"
   ],

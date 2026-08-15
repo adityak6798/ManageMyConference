@@ -105,6 +105,18 @@ export const DEFAULT_TEMPLATES: readonly DefaultTemplate[] = [
     body: 'Hello {{submitterName}}, thank you for submitting "{{proposalTitle}}". We had more strong proposals than slots this year and will not be able to programme it. We hope you will submit again.',
   },
   {
+    key: "decision-waitlisted",
+    channel: "email",
+    subject: "An update about your proposal",
+    body: "Hello {{submitterName}}, “{{proposalTitle}}” is on the programme waitlist. We will contact you when a place becomes available.",
+  },
+  {
+    key: "decision-revision-requested",
+    channel: "email",
+    subject: "A revision was requested for your proposal",
+    body: "Hello {{submitterName}}, the programme team has requested a revision to “{{proposalTitle}}”. Sign in to review the decision note and update your proposal.",
+  },
+  {
     key: "speaker-calendar-invite",
     channel: "email",
     subject: "Your session at {{eventName}}",

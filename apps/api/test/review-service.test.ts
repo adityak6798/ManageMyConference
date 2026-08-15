@@ -386,7 +386,13 @@ describe("review workflow", () => {
     const advertised = (await service.organizerWorkspace(organizer, eventId)).statuses.map(
       ({ key }) => key,
     );
-    expect(advertised).toEqual(["submitted", "accepted", "declined"]);
+    expect(advertised).toEqual([
+      "submitted",
+      "accepted",
+      "waitlisted",
+      "revision_requested",
+      "declined",
+    ]);
     // Storage is the single source of truth: reading the workspace stored what it advertised.
     expect((await proposals.listStatuses(eventId)).map(({ key }) => key)).toEqual(advertised);
     // Every status the workspace offers is reachable — but not all of them by the same route.
@@ -396,7 +402,7 @@ describe("review workflow", () => {
       await expect(
         service.bulkTransition(organizer, eventId, [proposalId], toStatus),
       ).resolves.toMatchObject([{ status: toStatus }]);
-    for (const outcome of ["accepted", "declined"] as const)
+    for (const outcome of ["accepted", "waitlisted", "revision_requested", "declined"] as const)
       await expect(
         service.decide(organizer, eventId, [proposalId], outcome),
       ).resolves.toMatchObject({ proposals: [{ status: outcome }] });
@@ -421,6 +427,8 @@ describe("review workflow", () => {
       "submitted",
       "under_review",
       "accepted",
+      "waitlisted",
+      "revision_requested",
       "declined",
     ]);
     expect((await proposals.listStatuses(eventId)).map(({ key }) => key)).toEqual(
@@ -435,7 +443,9 @@ describe("review workflow", () => {
     expect(relabelled).toEqual([
       { key: "accepted", label: "In the programme", sortOrder: 0 },
       { key: "submitted", label: "Submitted", sortOrder: 1 },
-      { key: "declined", label: "Declined", sortOrder: 91 },
+      { key: "waitlisted", label: "Waitlist", sortOrder: 91 },
+      { key: "revision_requested", label: "Request revision", sortOrder: 92 },
+      { key: "declined", label: "Declined", sortOrder: 93 },
     ]);
     // A non-reserved status still in use may not be dropped — that guard is untouched.
     await service.configureStatuses(organizer, eventId, [

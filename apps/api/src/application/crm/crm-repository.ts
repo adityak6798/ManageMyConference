@@ -33,6 +33,32 @@ export interface StageMigration {
 export interface ProspectMove extends StageMigration {
   readonly toStage: string;
 }
+export interface CrmCampaign {
+  id: string;
+  organizationId: string;
+  eventId: string;
+  name: string;
+  templateKey: string;
+  templateVersion: number | null;
+  contactIds: readonly string[];
+  segmentId: string | null;
+  state: "draft" | "scheduled" | "running" | "completed" | "cancelled";
+  scheduledAt: string | null;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+export interface CrmEngagement {
+  id: string;
+  organizationId: string;
+  eventId: string;
+  campaignId: string | null;
+  contactId: string;
+  kind: "delivered" | "opened" | "clicked" | "replied" | "bounced" | "unsubscribed";
+  providerRef: string;
+  occurredAt: string;
+  metadata: Readonly<Record<string, string>>;
+}
 
 /**
  * One store for the domain, not two.
@@ -43,6 +69,18 @@ export interface ProspectMove extends StageMigration {
  * because they describe two different nouns; the implementation is one adapter.
  */
 export interface CrmRepository extends CrmDirectoryRepository {
+  listCampaigns(organizationId: string): Promise<readonly CrmCampaign[]>;
+  listDueCampaigns(now: string): Promise<readonly CrmCampaign[]>;
+  findCampaign(organizationId: string, campaignId: string): Promise<CrmCampaign | null>;
+  saveCampaign(campaign: CrmCampaign): Promise<void>;
+  saveEngagement(engagement: CrmEngagement): Promise<boolean>;
+  suppressedContactIds(contactIds: readonly string[]): Promise<ReadonlySet<string>>;
+  recordProspectEngagement(
+    organizationId: string,
+    contactId: string,
+    eventId: string,
+    activity: ProspectActivity,
+  ): Promise<void>;
   list(eventId: string, filters: ProspectFilters): Promise<readonly Prospect[]>;
   findById(eventId: string, prospectId: string): Promise<Prospect | null>;
   /** Resolve an existing event prospect using conversion's normalized-address identity. */

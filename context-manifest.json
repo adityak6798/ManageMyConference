@@ -287,6 +287,7 @@
       ],
       "ui": [
         "@greenroom/contracts",
+        "fflate",
         "react",
         "react-dom",
         "react-dom/client",
@@ -729,6 +730,7 @@
         "apps/api/test/d1-review-round-backfill.integration.test.ts",
         "apps/web/src/review/RoundsPanel.tsx",
         "apps/web/src/review/ReviewerProgressPanel.tsx",
+        "apps/web/src/review/xlsx.ts",
         "apps/web/test/review-rounds.test.tsx",
         "apps/web/e2e/review-rounds.spec.ts"
       ]
@@ -761,6 +763,7 @@
         "apps/api/src/adapters/content/sanitize-resource-html.ts",
         "apps/api/src/adapters/content/parse-speaker-csv.ts",
         "apps/api/src/adapters/content/create-deliverables-zip.ts",
+        "apps/api/src/adapters/content/deterministic-content-remix.ts",
         "apps/api/migrations/0016_crm_speaker_conversion.sql",
         "apps/api/test/d1-speaker-conversion.integration.test.ts",
         "apps/api/src/adapters/persistence/d1-content-repository.ts",

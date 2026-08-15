@@ -1293,6 +1293,76 @@ describe("ACC-CRM organization directory", () => {
     ]);
   });
 
+  it("runs a scheduled campaign once and suppresses a contact after unsubscribe ingestion", async () => {
+    const { service, send } = setup();
+    const contact = await contactOf(service, { name: "Ada Rivera", email: "ada@example.test" });
+    await service.pushContactToEvent(
+      organizer,
+      organizationId,
+      contact.id,
+      { eventId, ownerId: organizer.id, convert: false },
+      "campaign-correlation",
+    );
+    const campaign = await service.createCampaign(organizer, organizationId, {
+      eventId,
+      name: "August invitation",
+      templateKey: "speaker-invite",
+      contactIds: [contact.id],
+      scheduledAt: "2026-08-10T11:00:00.000Z",
+    });
+    expect(campaign.state).toBe("scheduled");
+    expect((await service.runDueCampaigns()).completed[0]?.state).toBe("completed");
+    expect(await service.runDueCampaigns()).toEqual({ completed: [], failed: [] });
+    expect(send).toHaveBeenCalledTimes(1);
+
+    const recorded = await service.recordEngagement(organizer, organizationId, {
+      eventId,
+      campaignId: campaign.id,
+      contactId: contact.id,
+      kind: "unsubscribed",
+      providerRef: "provider-event-1",
+      occurredAt: "2026-08-10T12:05:00.000Z",
+      metadata: {},
+    });
+    expect(recorded.created).toBe(true);
+    expect(
+      (
+        await service.recordEngagement(organizer, organizationId, {
+          eventId,
+          campaignId: campaign.id,
+          contactId: contact.id,
+          kind: "unsubscribed",
+          providerRef: "provider-event-1",
+          occurredAt: "2026-08-10T12:05:00.000Z",
+          metadata: {},
+        })
+      ).created,
+    ).toBe(false);
+    await expect(
+      service.sendOutreach(organizer, organizationId, {
+        eventId,
+        templateKey: "speaker-invite",
+        contactIds: [contact.id],
+      }),
+    ).rejects.toThrow(/matched|suppressed/);
+    const prospect = (await service.list(organizer, eventId, {}))[0];
+    expect(prospect?.activities.some(({ kind }) => kind === "engagement")).toBe(true);
+  });
+
+  it("deduplicates year-round interest by normalized address", async () => {
+    const { service } = setup();
+    const first = await service.submitInterest(eventId, {
+      name: "New Speaker",
+      email: "New.Speaker@example.test",
+    });
+    const repeated = await service.submitInterest(eventId, {
+      name: "New Speaker Again",
+      email: "new.speaker@example.test",
+    });
+    expect(repeated.confirmationId).toBe(first.confirmationId);
+    expect(await service.list(organizer, eventId, {})).toHaveLength(1);
+  });
+
   it("refuses a second live contact on one address and points at the merge instead", async () => {
     const { service } = setup();
     await contactOf(service, { name: "Ada Rivera", email: "ada@example.test" });

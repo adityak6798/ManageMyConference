@@ -1,4 +1,5 @@
 import { createDeliverablesZip } from "./adapters/content/create-deliverables-zip";
+import { DeterministicContentRemix } from "./adapters/content/deterministic-content-remix";
 import { D1SpeakerConversion } from "./adapters/content/d1-speaker-conversion";
 import { parseSpeakerCsv } from "./adapters/content/parse-speaker-csv";
 import { renderReportCsv, renderReportXlsx } from "./adapters/platform/render-report-export";
@@ -405,6 +406,116 @@ export async function announceCfpDeadlines(environment: Environment) {
       console.warn(JSON.stringify({ level: "warn", message: "cfp.deadline.failed", ...fields }));
     },
   });
+}
+
+/** Queue each configured review round's weekly outstanding-work reminder. */
+export async function remindDueReviews(environment: Environment) {
+  const { events, service } = scheduledCommunications(environment);
+  const directory = new D1IdentityDirectory(environment.DB);
+  const review = new ReviewService({
+    repository: new D1ReviewRepository(environment.DB),
+    proposals: new D1SubmittedProposalAdapter(environment.DB),
+    identities: directory,
+    events,
+    weeklyNotifications: {
+      async weeklyRemindOutstanding(fact) {
+        try {
+          const [organizationId, reviewer] = await Promise.all([
+            events.organizationOf(fact.eventId),
+            directory.findRecipient(fact.reviewerId),
+          ]);
+          if (!organizationId || !reviewer?.email) return "unaddressable";
+          const enqueued = await service.enqueue({
+            organizationId,
+            eventId: fact.eventId,
+            idempotencyKey: `reviewer-weekly-reminder:${fact.eventId}:${fact.reviewerId}:r${fact.round}:${fact.occurrence}`,
+            triggerType: "reviewer.weekly_reminder",
+            channel: "email",
+            recipientRef: reviewer.email,
+            payload: {
+              reviewerName: reviewer.name,
+              round: fact.round,
+              roundName: fact.roundName,
+              outstanding: fact.outstanding,
+            },
+            templateKey: "reviewer-reminder",
+          });
+          return enqueued.created ? "queued" : "already_sent";
+        } catch (error) {
+          // ERROR-INTENT: one bad recipient is reported and skipped so every other round and the
+          // outbox drain still run during this tick.
+          // biome-ignore lint/suspicious/noConsole: Workers emit structured JSON here.
+          console.warn(
+            JSON.stringify({
+              level: "warn",
+              message: "review.weekly_reminder.failed",
+              eventId: fact.eventId,
+              reviewerId: fact.reviewerId,
+              round: fact.round,
+              error: error instanceof Error ? error.message : String(error),
+            }),
+          );
+          return "unaddressable";
+        }
+      },
+    },
+    newId: () => crypto.randomUUID(),
+    now: () => new Date(),
+  });
+  try {
+    return await review.runWeeklyReminders();
+  } catch (error) {
+    // ERROR-INTENT: a failed scheduled-round read is visible but cannot stall queued mail.
+    // biome-ignore lint/suspicious/noConsole: Workers emit structured JSON here.
+    console.warn(
+      JSON.stringify({
+        level: "warn",
+        message: "review.weekly_reminder.scan_failed",
+        error: error instanceof Error ? error.message : String(error),
+      }),
+    );
+    return [];
+  }
+}
+
+/** Launch CRM campaigns whose immutable, authorized schedule is due. */
+export async function runDueCrmCampaigns(environment: Environment) {
+  const { events, service } = scheduledCommunications(environment);
+  const crm = new CrmService({
+    repository: new D1CrmRepository(environment.DB),
+    speakerConversion: {
+      async createOrLink() {
+        throw new Error("Scheduled CRM campaigns do not perform speaker conversion");
+      },
+    },
+    identities: new D1IdentityDirectory(environment.DB),
+    events,
+    outreach: {
+      async prepare(message) {
+        await service.prepareEnqueue({
+          ...message,
+          triggerType: "speaker.invited",
+          channel: "email",
+        });
+      },
+      async send(message) {
+        const delivery = await service.enqueue({
+          ...message,
+          triggerType: "speaker.invited",
+          channel: "email",
+        });
+        return { deliveryId: delivery.id, created: delivery.created };
+      },
+    },
+    newId: () => crypto.randomUUID(),
+    now: () => new Date(),
+  });
+  const result = await crm.runDueCampaigns();
+  for (const failure of result.failed) {
+    // biome-ignore lint/suspicious/noConsole: Workers emit structured JSON at this telemetry boundary.
+    console.warn(JSON.stringify({ level: "warn", message: "crm.campaign.failed", ...failure }));
+  }
+  return result;
 }
 
 export async function drainOutbox(environment: Environment, limit = 100): Promise<number> {
@@ -1375,6 +1486,45 @@ export default {
       }
     };
     const reviewNotifications: ReviewNotificationPort = {
+      async inviteReviewer(fact) {
+        const reviewer = await recipientFor(fact.reviewerId, {
+          eventId: fact.eventId,
+          reviewerId: fact.reviewerId,
+        });
+        if (!reviewer.asked || !reviewer.email) return "unaddressable";
+        try {
+          const organizationId = await organizationOf(fact.eventId);
+          if (!organizationId) return "unaddressable";
+          const enqueued = await communications.enqueue({
+            organizationId,
+            eventId: fact.eventId,
+            idempotencyKey: `reviewer-invited:${fact.eventId}:${fact.reviewerId}:r${fact.round}:o${fact.occurrence}`,
+            triggerType: "reviewer.invited",
+            channel: "email",
+            recipientRef: reviewer.email,
+            payload: {
+              reviewerName: reviewer.name ?? "reviewer",
+              round: fact.round,
+              roundName: fact.roundName,
+              assignmentCount: fact.assignmentCount,
+            },
+            templateKey: "reviewer-assignment",
+          });
+          return enqueued.created ? "queued" : "already_sent";
+        } catch (error) {
+          // ERROR-INTENT: the per-recipient result exposes the failure and lets other invitations
+          // proceed; the organizer can repair this reviewer without repeating successful sends.
+          logger.error(
+            {
+              eventId: fact.eventId,
+              reviewerId: fact.reviewerId,
+              error: error instanceof Error ? error.message : String(error),
+            },
+            "review.invitation.failed",
+          );
+          return "unaddressable";
+        }
+      },
       async reviewerAssigned(fact) {
         // Recorded before the message is resolved, deliberately: a reviewer with no linked
         // address is unreachable but the assignment still happened, and a timeline that only
@@ -1590,7 +1740,14 @@ export default {
            */
           recipientTrust: fact.submitterUserId ? "account" : "declared",
           payload: { submitterName: fact.submitterName, proposalTitle: fact.proposalTitle },
-          templateKey: fact.outcome === "accepted" ? "decision-accepted" : "decision-declined",
+          templateKey:
+            fact.outcome === "accepted"
+              ? "decision-accepted"
+              : fact.outcome === "waitlisted"
+                ? "decision-waitlisted"
+                : fact.outcome === "revision_requested"
+                  ? "decision-revision-requested"
+                  : "decision-declined",
         }));
       },
     };
@@ -1705,6 +1862,14 @@ export default {
     // interface, never by reading `cfp_submissions` (`ARC-FLOW-001`).
     const content = new ContentService({
       repository: contentRepository,
+      remix: new DeterministicContentRemix(),
+      shares: {
+        links: new D1CapabilityLinkStore(environment.DB),
+        organizationOf: (eventId) => service.organizationOf(eventId),
+        mintToken: mintCapabilityToken,
+        hash: hashCapabilityToken,
+        baseUrl: `${environment.PUBLIC_BASE_URL?.replace(/\/+$/, "") ?? ""}/api/public/content-shares`,
+      },
       // Turns the actor id on a revision into the name Edit history prints (#154). Identity's
       // public application interface, never a join against `users` from content's repository.
       identities: identityDirectory,
@@ -2319,7 +2484,12 @@ export default {
     // Both reminder passes run before the drain and are awaited, so a message decided this minute
     // goes out this minute. Neither can stall it: both report rather than throw, including when
     // their own read fails.
-    await Promise.all([remindDueSpeakerTasks(environment), announceCfpDeadlines(environment)]);
+    await Promise.all([
+      remindDueSpeakerTasks(environment),
+      announceCfpDeadlines(environment),
+      remindDueReviews(environment),
+      runDueCrmCampaigns(environment),
+    ]);
     await Promise.all([
       drainOutbox(environment),
       pruneItineraries(environment),

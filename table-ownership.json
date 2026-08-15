@@ -41,6 +41,7 @@
     "crm_contact_imports": "crm",
     "crm_pipeline_stages": "crm",
     "crm_prospect_transitions": "crm",
+    "crm_prospect_transitions_next": "crm",
     "crm_prospects_next": "crm",
     "crm_contacts_next": "crm",
     "crm_activities_next": "crm",
@@ -74,6 +75,7 @@
     "review_outcomes_next": "review",
     "review_events": "review",
     "review_decisions": "review",
+    "review_decisions_next": "review",
     "agenda_drafts": "agenda",
     "agenda_publications": "agenda",
     "agenda_session_schedules": "agenda",
@@ -111,6 +113,12 @@
     "agenda_generation_criteria": "agenda",
     "agenda_speaker_availability": "agenda",
     "review_rounds": "review",
-    "review_round_members": "review"
+    "review_round_members": "review",
+    "review_decision_history": "review",
+    "content_workflow_statuses": "content",
+    "speaker_profile_collaborators": "content",
+    "crm_campaigns": "crm",
+    "crm_engagements": "crm",
+    "crm_contact_suppressions": "crm"
   }
 }

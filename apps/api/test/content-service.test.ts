@@ -23,7 +23,7 @@ import {
 } from "../src/application/content/content-service";
 import { FixtureSchedulableContentQuery } from "../src/application/content/public";
 import type { SpeakerConversionPort } from "../src/application/content/speaker-conversion";
-import { CapabilityDeniedError } from "../src/application/identity/actor";
+import { type Actor, CapabilityDeniedError } from "../src/application/identity/actor";
 import { resolveSeededDemoActor } from "../src/application/identity/demo-session";
 import {
   type AcceptedProposal,
@@ -105,7 +105,13 @@ function setup(
   const repository = new MemoryContentRepository(
     options.seedSpeaker === false
       ? undefined
-      : { sessions: [], speakers: [samProfile], tasks: [], assets: [], messages: [] },
+      : {
+          sessions: [],
+          speakers: [samProfile],
+          tasks: [],
+          assets: [],
+          messages: [],
+        },
   );
   const storage = new DeterministicAssetStorage();
   let id = 0;
@@ -130,12 +136,17 @@ function setup(
         options.proposals ??
         new FakeAcceptedProposals([
           acceptedProposal(),
-          acceptedProposal({ proposalId: "proposal-2", title: "Second session" }),
+          acceptedProposal({
+            proposalId: "proposal-2",
+            title: "Second session",
+          }),
         ]),
       agenda,
       speakerConversion: (options.speakerConversion?.(repository, newId) ??
         new MemorySpeakerConversion(repository, newId)) as SpeakerConversionPort,
-      eventPublication: { isEventPublished: async (id) => publishedEvents.has(id) },
+      eventPublication: {
+        isEventPublished: async (id) => publishedEvents.has(id),
+      },
       newId,
       now: () => new Date("2026-08-10T12:00:00.000Z"),
     }),
@@ -159,7 +170,12 @@ function agendaService(repository: MemoryAgendaRepository) {
 
 /** One published agenda placing each named session in its own room and slot. */
 function publishedAgenda(
-  entries: readonly { sessionId: string; startsAt: string; endsAt: string; location: string }[],
+  entries: readonly {
+    sessionId: string;
+    startsAt: string;
+    endsAt: string;
+    location: string;
+  }[],
   version = 1,
 ): PublishedSchedule {
   return {
@@ -169,7 +185,10 @@ function publishedAgenda(
     publishedBy: "seed-organizer",
     agenda: {
       eventId,
-      rooms: entries.map((entry, index) => ({ id: `room-${index}`, name: entry.location })),
+      rooms: entries.map((entry, index) => ({
+        id: `room-${index}`,
+        name: entry.location,
+      })),
       tracks: [{ id: "track-1", name: "Platform", color: "#6257d9" }],
       slots: entries.map((entry, index) => ({
         id: `slot-${index}`,
@@ -556,7 +575,12 @@ describe("ContentService", () => {
     const strangerSpeaker = { ...speaker, id: "another-speaker" };
     const outsideOrganizer = {
       ...organizer,
-      organizations: [{ id: "00000000-0000-4000-8000-000000000099", name: "Another organization" }],
+      organizations: [
+        {
+          id: "00000000-0000-4000-8000-000000000099",
+          name: "Another organization",
+        },
+      ],
       organizationAccess: [
         {
           id: "00000000-0000-4000-8000-000000000099",
@@ -681,7 +705,10 @@ describe("ContentService", () => {
         organization: "Northwind",
         bio: "Builds calm, accessible systems.",
       }),
-    ).resolves.toMatchObject({ version: 2, bio: "Builds calm, accessible systems." });
+    ).resolves.toMatchObject({
+      version: 2,
+      bio: "Builds calm, accessible systems.",
+    });
     expect(profileUpdated).toHaveBeenLastCalledWith({
       actorId: speaker.id,
       actorName: speaker.name,
@@ -690,6 +717,49 @@ describe("ContentService", () => {
       profileId: samProfile.id,
       version: 2,
     });
+  });
+
+  it("limits profile collaborators to the profiles and access level explicitly granted", async () => {
+    const { service } = setup();
+    const organizer = await resolveSeededDemoActor("organizer");
+    const collaborator: Actor = {
+      ...(await resolveSeededDemoActor("speaker")),
+      id: "agency-collaborator",
+      name: "Agency Collaborator",
+      capabilities: new Set(),
+      eventAccess: [],
+    };
+    await service.setProfileCollaborators(organizer, samProfile.id, [
+      { userId: collaborator.id, access: "view" },
+    ]);
+
+    await expect(service.workspace(collaborator, eventId)).resolves.toMatchObject({
+      speakers: [{ id: samProfile.id }],
+    });
+    await expect(
+      service.updateProfile(collaborator, samProfile.id, {
+        expectedVersion: 0,
+        name: "Agency edit",
+        pronouns: "",
+        jobTitle: "",
+        organization: "",
+        bio: "",
+      }),
+    ).rejects.toBeInstanceOf(CapabilityDeniedError);
+
+    await service.setProfileCollaborators(organizer, samProfile.id, [
+      { userId: collaborator.id, access: "edit" },
+    ]);
+    await expect(
+      service.updateProfile(collaborator, samProfile.id, {
+        expectedVersion: 0,
+        name: "Agency edit",
+        pronouns: "",
+        jobTitle: "",
+        organization: "",
+        bio: "",
+      }),
+    ).resolves.toMatchObject({ name: "Agency edit", version: 1 });
   });
 
   it("retires a replaced or removed headshot from public visibility", async () => {
@@ -873,7 +943,10 @@ describe("ContentService", () => {
         tracks: ["Studio"],
         publicationState: "ready",
       }),
-    ).resolves.toMatchObject({ title: "Updated session", publicationState: "ready" });
+    ).resolves.toMatchObject({
+      title: "Updated session",
+      publicationState: "ready",
+    });
     await expect(
       service.updateSession(speaker, session?.id ?? "", {
         title: "Forbidden",
@@ -906,7 +979,10 @@ describe("ContentService", () => {
       title: "Upload final slides",
       dueAt: "2026-09-01T23:59:00.000Z",
     });
-    await service.recordMessage(organizer, { profileId, subject: "Preparation reminder sent" });
+    await service.recordMessage(organizer, {
+      profileId,
+      subject: "Preparation reminder sent",
+    });
     const workspace = await service.workspace(organizer, eventId);
     expect(workspace.tasks.map(({ title }) => title)).toContain("Upload final slides");
     expect(workspace.messages.map(({ subject }) => subject)).toContain("Preparation reminder sent");
@@ -1039,14 +1115,28 @@ describe("ContentService", () => {
     expect(
       await calendarService(
         [session()],
-        [{ sessionId: "session-1", startsAt: "not-a-date", endsAt: "", location: "" }],
+        [
+          {
+            sessionId: "session-1",
+            startsAt: "not-a-date",
+            endsAt: "",
+            location: "",
+          },
+        ],
       ).calendar(speaker, eventId),
     ).toBeNull();
     // A zone-less local time cannot be expressed as a UTC DATE-TIME either.
     expect(
       await calendarService(
         [session()],
-        [{ sessionId: "session-1", startsAt: "2026-09-15T17:00:00", endsAt: "", location: "" }],
+        [
+          {
+            sessionId: "session-1",
+            startsAt: "2026-09-15T17:00:00",
+            endsAt: "",
+            location: "",
+          },
+        ],
       ).calendar(speaker, eventId),
     ).toBeNull();
   });
@@ -1156,7 +1246,9 @@ describe("ContentService", () => {
       sessions: [],
       placements: [],
     };
-    const { service, repository, agendaRepository } = setup({ drafts: [draft] });
+    const { service, repository, agendaRepository } = setup({
+      drafts: [draft],
+    });
     const organizer = await resolveSeededDemoActor("organizer");
     const accepted = await service.accept(organizer, command, correlationId);
     const sessionId = accepted.sessions[0]?.id ?? "";
@@ -1210,7 +1302,10 @@ describe("what a lifecycle action asks to have sent (issue #66)", () => {
 
   it("reports the accepted speaker with the address they can actually be reached at", async () => {
     const notifications = recorder();
-    const { service } = setup({ seedSpeaker: false, speakerNotifications: notifications.port });
+    const { service } = setup({
+      seedSpeaker: false,
+      speakerNotifications: notifications.port,
+    });
     const organizer = await resolveSeededDemoActor("organizer");
 
     await service.accept(organizer, command, correlationId);
@@ -1275,7 +1370,10 @@ describe("what a lifecycle action asks to have sent (issue #66)", () => {
 
   it("reports each onboarding task acceptance created, so the checklist is not silent", async () => {
     const notifications = recorder();
-    const { service } = setup({ seedSpeaker: false, speakerNotifications: notifications.port });
+    const { service } = setup({
+      seedSpeaker: false,
+      speakerNotifications: notifications.port,
+    });
     const organizer = await resolveSeededDemoActor("organizer");
 
     await service.accept(organizer, command, correlationId);
@@ -1290,7 +1388,10 @@ describe("what a lifecycle action asks to have sent (issue #66)", () => {
 
   it("says nothing the second time the same proposal is accepted", async () => {
     const notifications = recorder();
-    const { service } = setup({ seedSpeaker: false, speakerNotifications: notifications.port });
+    const { service } = setup({
+      seedSpeaker: false,
+      speakerNotifications: notifications.port,
+    });
     const organizer = await resolveSeededDemoActor("organizer");
 
     await service.accept(organizer, command, correlationId);
@@ -1357,7 +1458,10 @@ describe("speaker checklist authoring", () => {
     const { service } = setup();
     const organizer = await resolveSeededDemoActor("organizer");
 
-    const created = await service.createTaskTemplate(organizer, { eventId, ...line });
+    const created = await service.createTaskTemplate(organizer, {
+      eventId,
+      ...line,
+    });
     expect(await service.taskTemplates(organizer, eventId)).toMatchObject([{ title: line.title }]);
 
     /*
@@ -1395,7 +1499,10 @@ describe("speaker checklist authoring", () => {
       service.createTaskTemplate(organizer, { eventId, ...line }),
     ).rejects.toBeInstanceOf(SpeakerChecklistTitleTakenError);
     await expect(
-      service.updateTaskTemplate(organizer, second.id, { ...line, sortOrder: 1 }),
+      service.updateTaskTemplate(organizer, second.id, {
+        ...line,
+        sortOrder: 1,
+      }),
     ).rejects.toBeInstanceOf(SpeakerChecklistTitleTakenError);
     expect(await service.taskTemplates(organizer, eventId)).toHaveLength(2);
   });
@@ -1416,7 +1523,12 @@ describe("speaker checklist authoring", () => {
         async speakerAccepted(fact) {
           // Recorded rather than ignored: this test asserts what was told *and* what was not, so
           // an acceptance leaking into this path has to be visible rather than swallowed.
-          told.push({ ...fact, taskId: "unexpected-acceptance", taskTitle: "", dueAt: "" });
+          told.push({
+            ...fact,
+            taskId: "unexpected-acceptance",
+            taskTitle: "",
+            dueAt: "",
+          });
         },
         async taskAssigned(fact) {
           told.push(fact);
@@ -1425,24 +1537,41 @@ describe("speaker checklist authoring", () => {
     });
     const organizer = await resolveSeededDemoActor("organizer");
     await service.createTaskTemplate(organizer, { eventId, ...line });
-    await service.assignTaskChecklist(organizer, { eventId, profileIds: [samProfile.id] });
+    await service.assignTaskChecklist(organizer, {
+      eventId,
+      profileIds: [samProfile.id],
+    });
 
     expect(told).toMatchObject([
-      { eventId, profileId: samProfile.id, speakerName: "Sam Speaker", taskTitle: line.title },
+      {
+        eventId,
+        profileId: samProfile.id,
+        speakerName: "Sam Speaker",
+        taskTitle: line.title,
+      },
     ]);
 
     // Idempotent, and so is the telling: a second run assigns nothing and announces nothing,
     // which is what makes "run it again when somebody joins" safe rather than a way to nag.
-    await service.assignTaskChecklist(organizer, { eventId, profileIds: [samProfile.id] });
+    await service.assignTaskChecklist(organizer, {
+      eventId,
+      profileIds: [samProfile.id],
+    });
     expect(told).toHaveLength(1);
   });
 
   it("keeps the declaration date through an edit", async () => {
     const { service } = setup();
     const organizer = await resolveSeededDemoActor("organizer");
-    const created = await service.createTaskTemplate(organizer, { eventId, ...line });
+    const created = await service.createTaskTemplate(organizer, {
+      eventId,
+      ...line,
+    });
 
-    await service.updateTaskTemplate(organizer, created.id, { ...line, description: "800px." });
+    await service.updateTaskTemplate(organizer, created.id, {
+      ...line,
+      description: "800px.",
+    });
 
     // A line was declared when it was declared; rewording it is not a new declaration.
     expect((await service.taskTemplates(organizer, eventId))[0]?.createdAt).toBe(created.createdAt);
@@ -1451,8 +1580,14 @@ describe("speaker checklist authoring", () => {
   it("leaves work already assigned from a line alone when the line goes", async () => {
     const { service } = setup();
     const organizer = await resolveSeededDemoActor("organizer");
-    const created = await service.createTaskTemplate(organizer, { eventId, ...line });
-    await service.assignTaskChecklist(organizer, { eventId, profileIds: [samProfile.id] });
+    const created = await service.createTaskTemplate(organizer, {
+      eventId,
+      ...line,
+    });
+    await service.assignTaskChecklist(organizer, {
+      eventId,
+      profileIds: [samProfile.id],
+    });
 
     await service.deleteTaskTemplate(organizer, created.id);
 
@@ -1468,11 +1603,18 @@ describe("speaker checklist authoring", () => {
   it("refuses a line to an actor who does not administer its event, as one that does not exist", async () => {
     const { service } = setup();
     const organizer = await resolveSeededDemoActor("organizer");
-    const created = await service.createTaskTemplate(organizer, { eventId, ...line });
+    const created = await service.createTaskTemplate(organizer, {
+      eventId,
+      ...line,
+    });
     const speaker = await resolveSeededDemoActor("speaker");
 
     await expect(
-      service.createTaskTemplate(speaker, { eventId, ...line, title: "Something else" }),
+      service.createTaskTemplate(speaker, {
+        eventId,
+        ...line,
+        title: "Something else",
+      }),
     ).rejects.toBeInstanceOf(CapabilityDeniedError);
     await expect(service.updateTaskTemplate(speaker, created.id, line)).rejects.toBeInstanceOf(
       CapabilityDeniedError,
@@ -1506,13 +1648,19 @@ describe("speaker checklist authoring", () => {
   it("refuses an edit to a line, a resource or a task that has gone since it was read", async () => {
     const { repository, service } = setup();
     const organizer = await resolveSeededDemoActor("organizer");
-    const created = await service.createTaskTemplate(organizer, { eventId, ...line });
+    const created = await service.createTaskTemplate(organizer, {
+      eventId,
+      ...line,
+    });
 
     // The row goes out from under its caller between the read and the write.
     await repository.deleteTaskTemplate(created.id);
 
     await expect(
-      service.updateTaskTemplate(organizer, created.id, { ...line, description: "Changed" }),
+      service.updateTaskTemplate(organizer, created.id, {
+        ...line,
+        description: "Changed",
+      }),
     ).rejects.toBeInstanceOf(CapabilityDeniedError);
 
     /*
@@ -1594,7 +1742,12 @@ describe("speaker checklist authoring", () => {
     };
     const refusals = await Promise.all(
       [elsewhere.id, unknown].flatMap((id) => [
-        refusalOf(service.updateTaskTemplate(organizer, id, { ...line, title: "Renamed" })),
+        refusalOf(
+          service.updateTaskTemplate(organizer, id, {
+            ...line,
+            title: "Renamed",
+          }),
+        ),
         refusalOf(service.deleteTaskTemplate(organizer, id)),
       ]),
     );
@@ -1625,7 +1778,10 @@ describe("speaker checklist authoring", () => {
   it("answers a vanished line as gone rather than as a duplicate title", async () => {
     const { repository, service } = setup();
     const organizer = await resolveSeededDemoActor("organizer");
-    const survivor = await service.createTaskTemplate(organizer, { eventId, ...line });
+    const survivor = await service.createTaskTemplate(organizer, {
+      eventId,
+      ...line,
+    });
     const doomed = await service.createTaskTemplate(organizer, {
       eventId,
       ...line,
@@ -1639,7 +1795,10 @@ describe("speaker checklist authoring", () => {
     );
     // And through the service, where the read refuses before the write is reached at all.
     await expect(
-      service.updateTaskTemplate(organizer, doomed.id, { ...line, title: survivor.title }),
+      service.updateTaskTemplate(organizer, doomed.id, {
+        ...line,
+        title: survivor.title,
+      }),
     ).rejects.toBeInstanceOf(CapabilityDeniedError);
   });
 });

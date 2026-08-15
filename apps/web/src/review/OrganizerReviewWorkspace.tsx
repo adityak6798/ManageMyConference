@@ -25,12 +25,14 @@ import {
   listTitles,
   message,
   OUTCOME_LABEL,
+  OUTCOME_ACTION,
   type Proposal,
   ProposalActions,
   ProposalAnswers,
   ROUND_STATE,
   statusTone,
 } from "./shared";
+import { renderReviewXlsx } from "./xlsx";
 
 /** The audit grows without bound; triage only needs the tail of it on screen. */
 const RECENT_CHANGES = 12;
@@ -69,6 +71,8 @@ export function OrganizerReviewWorkspace({
 }) {
   const [tab, setTab] = useState("all");
   const [search, setSearch] = useState("");
+  /** Reserved CFP track value; the submitted snapshot is stable while this selection is used. */
+  const [track, setTrack] = useState("all");
   /**
    * How the table is ordered. Three states rather than two.
    *
@@ -84,8 +88,11 @@ export function OrganizerReviewWorkspace({
   /** Which round assignment, distribution and the results column are working in. */
   const [round, setRound] = useState<number | null>(null);
   const [cap, setCap] = useState(DEFAULT_CAP);
-  /** What the last CSV export produced, so finishing it is observable rather than assumed. */
-  const [exported, setExported] = useState<{ rows: number; name: string } | null>(null);
+  /** What the last export produced, so finishing it is observable rather than assumed. */
+  const [exported, setExported] = useState<{
+    rows: number;
+    name: string;
+  } | null>(null);
   // Which abstracts have their accept/decline confirmation open, and what it would record. A
   // selection decided from the bulk bar is the same dialog over more than one row.
   const [pending, setPending] = useState<{
@@ -139,6 +146,7 @@ export function OrganizerReviewWorkspace({
     const needle = search.trim().toLowerCase();
     const filtered = data.proposals.filter((proposal) => {
       if (tab !== "all" && proposal.status !== tab) return false;
+      if (track !== "all" && proposal.track !== track) return false;
       if (!needle) return true;
       return [
         proposal.title,
@@ -170,7 +178,7 @@ export function OrganizerReviewWorkspace({
         return leftScore === rightScore ? 0 : leftScore === null ? 1 : -1;
       return sort === "score-desc" ? rightScore - leftScore : leftScore - rightScore;
     });
-  }, [data, search, sort, tab]);
+  }, [data, search, sort, tab, track]);
 
   useEffect(() => {
     if (openId) detailRef.current?.focus();
@@ -267,10 +275,10 @@ export function OrganizerReviewWorkspace({
         only
           ? outcome === "accepted"
             ? `“${only.title}” is accepted. It is now a session in Sessions & speakers with ${only.submitter?.name ?? only.submitterName} linked as its speaker.`
-            : `“${only.title}” is declined. The outcome is recorded against this abstract.`
+            : `“${only.title}” is ${OUTCOME_LABEL[outcome].toLowerCase()}. The outcome is recorded against this abstract.`
           : outcome === "accepted"
             ? `${proposals.length} abstracts are accepted. Each is now a session in Sessions & speakers with its own submitter linked as its speaker.`
-            : `${proposals.length} abstracts are declined. The outcome is recorded against each of them.`,
+            : `${proposals.length} abstracts are ${OUTCOME_LABEL[outcome].toLowerCase()}. The outcome is recorded against each of them.`,
       );
     } catch (reason) {
       setDecisionErrors(fieldErrorsOf(reason));
@@ -320,6 +328,9 @@ export function OrganizerReviewWorkspace({
     })),
   ];
   const activeTab = tabs.some(({ id }) => id === tab) ? tab : "all";
+  const tracks = [...new Set(data.proposals.flatMap((proposal) => proposal.track ?? []))].sort(
+    (left, right) => left.localeCompare(right),
+  );
   const open = data.proposals.find(({ id }) => id === openId) ?? null;
   const decisions = data.decisions ?? [];
   const decisionFor = (proposalId: string) =>
@@ -427,7 +438,12 @@ export function OrganizerReviewWorkspace({
     }
     // ERROR-INTENT: React event handlers cannot await; act announces every outcome.
     void act(
-      () => assignReviewer(eventId, { proposalIds, reviewerId, round: activeRound.sequence }),
+      () =>
+        assignReviewer(eventId, {
+          proposalIds,
+          reviewerId,
+          round: activeRound.sequence,
+        }),
       `${name} is now reviewing ${proposalIds.length} abstract${proposalIds.length === 1 ? "" : "s"} in ${activeRound.name}.`,
     );
   };
@@ -512,7 +528,7 @@ export function OrganizerReviewWorkspace({
    * handles silently is indistinguishable from a button that did nothing, which is the state this
    * screen was in.
    */
-  const exportCsv = () => {
+  const exportResults = (format: "csv" | "xlsx") => {
     const quote = (value: unknown) => {
       const raw = String(value ?? "");
       const safe = /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw;
@@ -532,6 +548,7 @@ export function OrganizerReviewWorkspace({
       "Proposal",
       "Submitter",
       "Co-authors",
+      "Track",
       "Status",
       "Decision",
       "Round",
@@ -542,29 +559,26 @@ export function OrganizerReviewWorkspace({
       "Reviewer comment",
       ...criteria.map(({ name }) => name),
     ];
-    const lines = [header.map(quote).join(",")];
+    const exportRows: unknown[][] = [header];
     for (const proposal of data.proposals) {
       const assigned = assignmentsFor(proposal.id);
       const decided = decisionFor(proposal.id);
       if (!assigned.length)
-        lines.push(
-          [
-            proposal.title,
-            proposal.submitterName,
-            authorship(proposal),
-            proposal.status,
-            decided ? OUTCOME_LABEL[decided.outcome] : "",
-            "",
-            "",
-            "",
-            "unassigned",
-            "",
-            "",
-            ...criteria.map(() => ""),
-          ]
-            .map(quote)
-            .join(","),
-        );
+        exportRows.push([
+          proposal.title,
+          proposal.submitterName,
+          authorship(proposal),
+          proposal.track ?? "",
+          proposal.status,
+          decided ? OUTCOME_LABEL[decided.outcome] : "",
+          "",
+          "",
+          "",
+          "unassigned",
+          "",
+          "",
+          ...criteria.map(() => ""),
+        ]);
       for (const assignment of assigned) {
         /*
          * Completed only, at the lookup rather than at one column.
@@ -581,42 +595,60 @@ export function OrganizerReviewWorkspace({
           (item) => item.proposalId === proposal.id && item.round === assignment.round,
         );
         const inRound = rounds.find(({ sequence }) => sequence === assignment.round);
-        lines.push(
-          [
-            proposal.title,
-            proposal.submitterName,
-            authorship(proposal),
-            proposal.status,
-            decided ? OUTCOME_LABEL[decided.outcome] : "",
-            assignment.round,
-            inRound?.name ?? "",
-            reviewerName(assignment.reviewerId),
-            // Three states, not two: the server sends completed evaluations and the *ids* of the
-            // started ones, so a reviewer halfway through still reads as `draft` here without
-            // their half-formed scores travelling with it.
-            evaluation?.state ??
-              ((data.draftAssignmentIds ?? []).includes(assignment.id) ? "draft" : "outstanding"),
-            outcome?.averageScore ?? "",
-            evaluation?.notes ?? "",
-            ...criteria.map((criterion) =>
-              (() => {
-                const score = evaluation?.scores.find((item) => item.criterionId === criterion.id);
-                return score?.value ?? score?.score ?? "";
-              })(),
-            ),
-          ]
-            .map(quote)
-            .join(","),
-        );
+        exportRows.push([
+          proposal.title,
+          proposal.submitterName,
+          authorship(proposal),
+          proposal.track ?? "",
+          proposal.status,
+          decided ? OUTCOME_LABEL[decided.outcome] : "",
+          assignment.round,
+          inRound?.name ?? "",
+          reviewerName(assignment.reviewerId),
+          // Three states, not two: the server sends completed evaluations and the *ids* of the
+          // started ones, so a reviewer halfway through still reads as `draft` here without
+          // their half-formed scores travelling with it.
+          evaluation?.state ??
+            ((data.draftAssignmentIds ?? []).includes(assignment.id) ? "draft" : "outstanding"),
+          outcome?.averageScore ?? "",
+          evaluation?.notes ?? "",
+          ...criteria.map((criterion) =>
+            (() => {
+              const score = evaluation?.scores.find((item) => item.criterionId === criterion.id);
+              return score?.value ?? score?.score ?? "";
+            })(),
+          ),
+        ]);
       }
     }
-    const name = `review-results-${eventId}.csv`;
+    const name = `review-results-${eventId}.${format}`;
+    const body =
+      format === "xlsx"
+        ? renderReviewXlsx(exportRows)
+        : exportRows.map((row) => row.map(quote).join(",")).join("\r\n");
+    // `fflate` types its backing store as `ArrayBufferLike`; Blob deliberately accepts an owned
+    // ArrayBuffer, so copy the small workbook into one rather than casting away SharedArrayBuffer.
+    const blobBody =
+      typeof body === "string"
+        ? body
+        : (() => {
+            const owned = new ArrayBuffer(body.byteLength);
+            new Uint8Array(owned).set(body);
+            return owned;
+          })();
     const link = document.createElement("a");
-    link.href = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/csv" }));
+    link.href = URL.createObjectURL(
+      new Blob([blobBody], {
+        type:
+          format === "xlsx"
+            ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            : "text/csv;charset=utf-8",
+      }),
+    );
     link.download = name;
     link.click();
     URL.revokeObjectURL(link.href);
-    setExported({ rows: lines.length - 1, name });
+    setExported({ rows: exportRows.length - 1, name });
   };
   /**
    * Undo one assignment.
@@ -822,6 +854,22 @@ export function OrganizerReviewWorkspace({
                 onChange={(event) => setSearch(event.target.value)}
               />
             </div>
+            <div className="field triage-track">
+              <label htmlFor="triage-track">Track</label>
+              <select
+                id="triage-track"
+                value={track}
+                onChange={(event) => setTrack(event.target.value)}
+              >
+                <option value="all">All tracks</option>
+                {tracks.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+              <p className="hint">Select all below applies only to this track.</p>
+            </div>
             <p className="triage-count">
               Showing {rows.length} of {data.proposals.length}
             </p>
@@ -864,8 +912,11 @@ export function OrganizerReviewWorkspace({
                 <option value="score-asc">Lowest aggregate first</option>
               </select>
             </div>
-            <button type="button" className="secondary small" onClick={exportCsv}>
+            <button type="button" className="secondary small" onClick={() => exportResults("csv")}>
               Export CSV
+            </button>
+            <button type="button" className="secondary small" onClick={() => exportResults("xlsx")}>
+              Export XLSX
             </button>
             <button
               type="button"
@@ -930,8 +981,8 @@ export function OrganizerReviewWorkspace({
           {/* A download the browser handles silently is indistinguishable from a dead button. */}
           {exported ? (
             <p className="hint" role="status">
-              Exported {exported.rows} result row{exported.rows === 1 ? "" : "s"} to {exported.name}
-              .
+              Exported {exported.rows} result row
+              {exported.rows === 1 ? "" : "s"} to {exported.name}.
             </p>
           ) : null}
 
@@ -987,6 +1038,24 @@ export function OrganizerReviewWorkspace({
                     onClick={() => openDecisionFor(selected, "accepted")}
                   >
                     Accept selection
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary"
+                    aria-haspopup="dialog"
+                    disabled={busy}
+                    onClick={() => openDecisionFor(selected, "waitlisted")}
+                  >
+                    Waitlist selection
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary"
+                    aria-haspopup="dialog"
+                    disabled={busy}
+                    onClick={() => openDecisionFor(selected, "revision_requested")}
+                  >
+                    Request revisions
                   </button>
                   <button
                     type="button"
@@ -1114,7 +1183,7 @@ export function OrganizerReviewWorkspace({
                            * is not withdrawn by it.
                            */}
                           <span className="decision-buttons">
-                            {(["accepted", "declined"] as const)
+                            {(["accepted", "waitlisted", "revision_requested", "declined"] as const)
                               .filter((choice) => decided?.outcome !== choice)
                               .map((choice) => (
                                 <button
@@ -1126,12 +1195,8 @@ export function OrganizerReviewWorkspace({
                                   onClick={() => openDecisionFor([proposal.id], choice)}
                                 >
                                   {decided
-                                    ? choice === "accepted"
-                                      ? "Accept instead"
-                                      : "Decline instead"
-                                    : choice === "accepted"
-                                      ? "Accept"
-                                      : "Decline"}
+                                    ? `${OUTCOME_ACTION[choice]} instead`
+                                    : OUTCOME_ACTION[choice]}
                                   <span className="visually-hidden"> {proposal.title}</span>
                                 </button>
                               ))}
@@ -1323,6 +1388,40 @@ export function OrganizerReviewWorkspace({
       <div className="review-block">
         <ReviewerProgressPanel eventId={eventId} data={data} reviewerName={reviewerName} />
       </div>
+
+      {data.aiReport?.length ? (
+        <div className="review-block">
+          <Card
+            labelledBy="ai-evaluator-report"
+            title="AI evaluator report"
+            hint="Aggregate draft usage only; suggestion text and scores remain private to each reviewer."
+            tight
+          >
+            <div className="table-wrap">
+              <table className="data">
+                <thead>
+                  <tr>
+                    <th scope="col">Round</th>
+                    <th scope="col">Model</th>
+                    <th scope="col">State</th>
+                    <th scope="col">Drafts</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.aiReport.map((row) => (
+                    <tr key={`${row.round}:${row.model}:${row.state}`}>
+                      <td>{row.round}</td>
+                      <td>{row.model}</td>
+                      <td>{row.state}</td>
+                      <td>{row.count}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </div>
+      ) : null}
 
       <div className="review-block">
         <Card
