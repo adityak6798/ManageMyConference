@@ -113,7 +113,10 @@ test("the inbox states what is waiting on the seeded event, and a dismissal roun
 }) => {
   await openConsoleAs(page, "organizer");
 
-  await page.goto("/inbox");
+  await page
+    .getByRole("navigation", { name: "Workspace navigation" })
+    .getByRole("link", { name: "Inbox", exact: true })
+    .click();
   await expect(page.getByRole("heading", { level: 1, name: "Inbox" })).toBeVisible();
 
   /*
@@ -175,7 +178,10 @@ test("a brand-new event's inbox says its public page is not live", async ({ page
     page.getByRole("combobox", { name: "Event workspace" }).locator("option:checked"),
   ).toHaveText(name);
 
-  await page.goto("/inbox");
+  await page
+    .getByRole("navigation", { name: "Workspace navigation" })
+    .getByRole("link", { name: "Inbox", exact: true })
+    .click();
   await expect(page.getByRole("heading", { level: 1, name: "Inbox" })).toBeVisible();
 
   const publication = page.getByRole("region", { name: "Publication" });
