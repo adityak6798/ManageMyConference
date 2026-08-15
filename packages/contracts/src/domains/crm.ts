@@ -267,17 +267,24 @@ export const organizationContactSchema = z.object({
   id: z.string().uuid(),
   organizationId: z.string().uuid(),
   name: z.string(),
-  email: z.string(),
-  company: z.string().nullable(),
-  title: z.string().nullable(),
-  notes: z.string().nullable(),
+  /*
+   * Governed by per-field access (`PRD-IAM-002`). Optional because a custom role may Hide it,
+   * and a hidden field is *absent* rather than null: `null` means no company was recorded, and
+   * absent means this reader does not see the one that was. Collapsing the two would tell a
+   * sponsor liaison that every contact works nowhere. `name` stays required — a record with no
+   * identifying field is unjoinable.
+   */
+  email: z.string().optional(),
+  company: z.string().nullable().optional(),
+  title: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
   source: contactSourceSchema,
   mergedIntoId: z.string().uuid().nullable(),
-  tags: z.array(z.string()),
-  fields: z.array(contactCustomFieldSchema),
+  tags: z.array(z.string()).optional(),
+  fields: z.array(contactCustomFieldSchema).optional(),
   aliases: z.array(contactAliasSchema),
   events: z.array(contactEventLinkSchema),
-  activities: z.array(contactActivitySchema),
+  activities: z.array(contactActivitySchema).optional(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });

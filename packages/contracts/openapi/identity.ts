@@ -16,7 +16,19 @@ import {
   createApiClientSchema,
   createInvitationResponseSchema,
   createInvitationSchema,
+  customRoleAssignmentInputSchema,
+  customRoleDeleteQuerySchema,
+  customRoleDraftSchema,
+  customRoleEventParamsSchema,
+  customRoleHolderParamsSchema,
+  customRoleParamsSchema,
+  customRolePreviewResponseSchema,
+  customRoleResponseSchema,
+  customRolesResponseSchema,
+  customRoleUpdateSchema,
   demoSessionInputSchema,
+  eventFieldLocksInputSchema,
+  eventFieldLocksResponseSchema,
   demoSessionResponseSchema,
   eventRoleSchema,
   eventTokenRequestSchema,
@@ -338,6 +350,161 @@ export const identityPaths: OpenApiFragment = {
         401: errorResponse,
         403: errorResponse,
         409: errorResponse,
+        500: errorResponse,
+      },
+    });
+    /*
+     * Custom event roles (issue #196). Addressed under the organization that owns the event,
+     * because the address is where the authorization happens.
+     */
+    registry.registerPath({
+      method: "get",
+      path: "/api/organizations/{organizationId}/events/{eventId}/custom-roles",
+      security: [{ sessionCookie: [] }],
+      description:
+        "Every custom role on this event, who holds each one, the safe templates a new role " +
+        "may be composed from, and the field catalogue a policy may name. Open to any " +
+        "organization administrator, including a demo persona: reading is not a write.",
+      request: { params: customRoleEventParamsSchema },
+      responses: {
+        200: { description: "Custom roles", content: json(customRolesResponseSchema) },
+        401: errorResponse,
+        403: errorResponse,
+        404: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "post",
+      path: "/api/organizations/{organizationId}/events/{eventId}/custom-roles",
+      security: [{ sessionCookie: [] }],
+      description:
+        "Compose a role from a safe template. Every capability is re-checked against the " +
+        "grantable allowlist regardless of the template, and `identity:manage` is never in it.",
+      request: {
+        params: customRoleEventParamsSchema,
+        body: { required: true, content: json(customRoleDraftSchema) },
+      },
+      responses: {
+        201: { description: "Role created", content: json(customRoleResponseSchema) },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        404: errorResponse,
+        409: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "put",
+      path: "/api/organizations/{organizationId}/events/{eventId}/custom-roles/{roleId}",
+      security: [{ sessionCookie: [] }],
+      description:
+        "Rewrite a role at an expected revision. A stale edit is refused with 409 rather than " +
+        "interleaved into a policy set neither editor chose. The change takes effect on every " +
+        "holder's next authorized read, with no session recreation.",
+      request: {
+        params: customRoleParamsSchema,
+        body: { required: true, content: json(customRoleUpdateSchema) },
+      },
+      responses: {
+        200: { description: "Role updated", content: json(customRoleResponseSchema) },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        404: errorResponse,
+        409: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "delete",
+      path: "/api/organizations/{organizationId}/events/{eventId}/custom-roles/{roleId}",
+      security: [{ sessionCookie: [] }],
+      description:
+        "Delete a role at an expected revision, passed as a query parameter because a DELETE " +
+        "body is inconsistently forwarded. Every grant of the role goes with it, so nobody is " +
+        "left holding a role that no longer says what it permits.",
+      request: { params: customRoleParamsSchema, query: customRoleDeleteQuerySchema },
+      responses: {
+        204: { description: "Role deleted" },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        404: errorResponse,
+        409: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "get",
+      path: "/api/organizations/{organizationId}/events/{eventId}/custom-roles/{roleId}/preview",
+      security: [{ sessionCookie: [] }],
+      description:
+        "What this role would be able to do and see. Derived from the stored role and never " +
+        "from a session, so it inspects rather than impersonates and mutates nothing.",
+      request: { params: customRoleParamsSchema },
+      responses: {
+        200: { description: "Role preview", content: json(customRolePreviewResponseSchema) },
+        401: errorResponse,
+        403: errorResponse,
+        404: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "put",
+      path: "/api/organizations/{organizationId}/events/{eventId}/custom-roles/{roleId}/holders/{userId}",
+      security: [{ sessionCookie: [] }],
+      description:
+        "Grant the role to a member of the organization. A person holds at most one custom " +
+        "role on an event, so this moves somebody between roles rather than adding a second.",
+      request: {
+        params: customRoleHolderParamsSchema,
+        body: { required: false, content: json(customRoleAssignmentInputSchema) },
+      },
+      responses: {
+        204: { description: "Role granted" },
+        401: errorResponse,
+        403: errorResponse,
+        404: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "delete",
+      path: "/api/organizations/{organizationId}/events/{eventId}/custom-roles/{roleId}/holders/{userId}",
+      security: [{ sessionCookie: [] }],
+      description: "Take the role away. Effective on the holder's next request.",
+      request: { params: customRoleHolderParamsSchema },
+      responses: {
+        200: { description: "Role revoked", content: json(membershipChangeResponseSchema) },
+        401: errorResponse,
+        403: errorResponse,
+        404: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "put",
+      path: "/api/organizations/{organizationId}/events/{eventId}/field-locks",
+      security: [{ sessionCookie: [] }],
+      description:
+        "Replace what this event has closed on its own portal. Not the same thing as a custom " +
+        "role's field policy: a role policy governs a staffed role, and a lock governs the person " +
+        "whose record it is — a speaker holds no custom role, and freezing the biography once the " +
+        "programme is printed is a property of the event. Whole-set replacement, so the stored " +
+        "locks are exactly what the organizer confirmed.",
+      request: {
+        params: customRoleEventParamsSchema,
+        body: { required: true, content: json(eventFieldLocksInputSchema) },
+      },
+      responses: {
+        200: { description: "Field locks replaced", content: json(eventFieldLocksResponseSchema) },
+        400: errorResponse,
+        401: errorResponse,
+        403: errorResponse,
+        404: errorResponse,
         500: errorResponse,
       },
     });

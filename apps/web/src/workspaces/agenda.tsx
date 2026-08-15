@@ -4,6 +4,7 @@
  * Owned by the `agenda` domain. @spec PRD-AGD-001
  */
 import { AgendaWorkspace } from "../agenda/AgendaWorkspace";
+import { GeneratedDrafts } from "../agenda/GeneratedDrafts";
 import { IconCalendar } from "../ui/icons";
 import { Notice } from "../ui/primitives";
 import type { WorkspaceModule } from "./contract";
@@ -22,15 +23,27 @@ export const agendaWorkspace: WorkspaceModule = {
     title: "Agenda",
     subtitle: "Place sessions across rooms and time slots, then publish the schedule.",
   }),
-  render: ({ event, agendaLoadFailure, reportAgendaLoadFailure }) => (
+  render: ({ event, agendaLoadFailure, reportAgendaLoadFailure, capabilities }) => (
     <>
       {/* The board reports a failure to load, and only that: it has no grid to put one in
           until a draft arrives. It is rendered here, above the space the board would have
           filled, rather than at the foot of the page. */}
       {agendaLoadFailure ? <Notice tone="error">{agendaLoadFailure}</Notice> : null}
       {/* The whole event, not only its id: the board renders every time on its grid in the
-          event's own timezone. */}
-      <AgendaWorkspace key={event.id} event={event} onError={reportAgendaLoadFailure} />
+          event's own timezone. The generated-arrangements panel renders inside it, below the
+          board, so that the two share one live region. */}
+      <AgendaWorkspace
+        key={event.id}
+        event={event}
+        onError={reportAgendaLoadFailure}
+        belowBoard={(announce) => (
+          <GeneratedDrafts
+            eventId={event.id}
+            canManage={capabilities.includes("agenda:manage")}
+            announce={announce}
+          />
+        )}
+      />
     </>
   ),
 };

@@ -24,6 +24,12 @@ import {
 const rebuildCoverage = {
   "0002_identity_event_foundation.sql": "foundational rename drops its private old table",
   "1004_api_clients.sql": "populated identity audit replay below",
+  // Both rebuild a closed CHECK list: `1005` admits a `custom` event role and three audit
+  // actions, `1006` admits the `reports:pii` capability on two scope tables. Each preserves
+  // every existing row by `INSERT … SELECT` and is replayed against the seeded database by
+  // `d1-custom-roles.integration.test.ts`, which reads the audit rows the seed already wrote.
+  "1005_custom_event_roles.sql": "seeded replay in the custom-roles D1 integration suite",
+  "1006_reports_pii_capability.sql": "seeded replay in the custom-roles D1 integration suite",
   "1300_review_rounds.sql": "unsafe deployed history corrected forward by 1301",
   "1301_review_rounds_safe_rebuild.sql": "seeded replay in the review D1 integration suite",
   "1502_crm_prospect_stage_rebuild.sql": "seeded replay in the CRM D1 integration suite",

@@ -43,6 +43,8 @@ const roleCapabilities: Record<EventAccess["role"], readonly Capability[]> = {
   reviewer: ["events:read", "review:evaluate"],
   speaker: ["events:read", "content:read"],
   public: [],
+  /** A custom role earns nothing by its kind; its capabilities are rows against the role. */
+  custom: [],
 };
 
 interface StoredUser {

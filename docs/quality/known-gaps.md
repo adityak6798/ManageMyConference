@@ -254,6 +254,19 @@ feature-by-feature verdict.
   than the four earlier sightings supported, and one that raises this from an annoyance to
   something that blocks the branch-protection work `GAP-003` describes.
 
+  A sixth sighting, and the first **local** one since the fix above: 2026-08-14, issue #196's
+  branch. The same bare `✘ [ERROR]` with no message, 23 specs into an otherwise ordinary run —
+  every request after it `socket hang up` and then `ECONNREFUSED 127.0.0.1:20388`, 47 of 73 tests
+  failed, and the suite took 19.8 minutes instead of its usual two because most of the failures
+  were 30-second timeouts. It is recorded because it satisfies the discriminator the fifth sighting
+  just introduced, from the other side: the *same commit* had failed 14 specs for real reasons in
+  the run before, and passed 72 in the run after, with nothing changed between them. Two disjoint
+  outcomes for one tree.
+
+  One detail the earlier sightings do not carry: the port was this checkout's own derived one, so
+  `GAP-004`'s per-worktree isolation had done its job and the runtime died anyway. It is a runtime
+  fault rather than a contention one, which narrows where a fix would have to go.
+
   **One cause of this is now found and fixed: the D1 harness was exhausting the machine's
   ephemeral ports.** Every call on a D1 database is an HTTP request to the workerd process over
   its own TCP connection, and `apps/api/test/support/seeded-d1.ts` ran every migration statement
@@ -735,6 +748,23 @@ feature-by-feature verdict.
   `ready`/`blocked` in `packages/contracts/src/domains/content.ts`, in contrast with the CRM's
   stages, which issue #197 has just turned into data.
 
+  **Two of the six now have a primitive waiting, and neither capability is thereby implemented.**
+  Issue #196 needed the same two shapes and built them as conventions rather than as one feature's
+  private machinery, so this lane adds a resolver instead of a second convention
+  ([`ADR-006`](../decisions/adr-006-field-access-and-capability-links.md), `DEBT-014`):
+
+  - *Share links* — `capability_links` is the one anonymous-share table. A token stored only as a
+    hash, addressing `(resource_kind, resource_ref)` with no foreign key, with an optional
+    password, an expiry capped at 30 days, an optional view limit, and revocation.
+    **`speaker-profile` and `speaker-asset` are already declared kinds and are resolved by
+    nothing**, deliberately: what is missing is a resolver and a surface, not a token model.
+  - *Locked portal fields* — `event_field_locks` is the per-event write surface this entry says is
+    "fixed in code". It is merged onto every non-organizer grant at the stricter of the two and
+    enforced by `assertEditable` in `updateMyProfile`, so a speaker portal is already governed by
+    it; what content owns is deciding which of its own fields an organizer may freeze.
+
+  The other four are untouched by that work.
+
   Impact: a reader of the issue finds six named capabilities with nothing behind them, and the
   `ACC-SPEAKER` row must not be read as covering any of them — it says so. Owner: content.
   Governing ID: `PRD-SPK-001`, `PRD-SPK-002`, `PRD-CNT-001`, `ACC-SPEAKER`. Closure: each
@@ -787,3 +817,27 @@ feature-by-feature verdict.
   `ACC-DEMO-SMOKE`. Closure: the audit renders a deliberately long unbreakable string into one row
   of each measured surface before measuring, so the floor is a property of the check rather than of
   the seed — or each surface gets a component-level test that asserts the constraint directly.
+- `GAP-031` **The programme, portal and reporting surfaces this branch adds have no browser
+  journey, and scheduled report delivery has never sent anything.** Issues #192 and #196 shipped
+  custom event roles with per-field access, organization portals, the report builder with its
+  exports and share links, persisted embeds, agenda draft generation, and the webhooks console
+  that seven built routes never had. Each is covered by unit, service and D1 integration tests,
+  and each is visited by the `lifecycle-demo` axe and 390px sweeps — which enumerate the sidebar
+  and therefore pick up a new workspace automatically. **What none of them has is a Playwright
+  spec that drives it as a journey**: nothing composes a portal and registers against it, nothing
+  builds a report and opens its share link, nothing accepts a generated arrangement onto the
+  board. Those are the paths that have historically broken without a test noticing.
+
+  **Scheduled report delivery is wired into the one-minute tick and has never reached a mailbox.**
+  It sends through the same provider-neutral binding pair the emailed sign-in code uses,
+  `AUTH_EMAIL_ENDPOINT`/`AUTH_EMAIL_TOKEN`, which are unset on a demo deployment — so `deliver`
+  throws and the run is recorded as `failed`, deliberately, because an unconfigured deployment
+  must not look like a working one. The provider round trip is unexercised outside its own test. It is also
+  deliberately **not** in the communications outbox: queueing there needs a new
+  `communication_deliveries.trigger_type`, a pinned `CHECK` and therefore a table rebuild in
+  another lane's migration block, so these sends do not appear in the communications history or
+  share its retry ladder. `DEBT-014` records the same trade from the capability-link side.
+
+  Owner: publishing, platform, identity-access. Governing ID: `PRD-PUB-002`, `PRD-OPS-004`,
+  `PRD-IAM-002`, `ACC-PUBLIC`, `ACC-OPS`. Closure: a browser spec per surface that carries one
+  artifact end to end, and one scheduled report observed arriving from a staged provider.

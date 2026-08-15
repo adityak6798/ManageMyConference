@@ -174,12 +174,21 @@ export const capabilitySchema = z.enum([
   "review:manage",
   "review:evaluate",
   "identity:manage",
+  /*
+   * Reading a report's personal columns unmasked (issue #196).
+   *
+   * It belongs in this enum for a reason worth stating: the organizer role grants it, so it
+   * appears in `/api/session` for every organizer — and a capability the *server* issues and the
+   * *browser's* schema does not know is a session the console cannot decode at all. That is not a
+   * degraded report screen; it is a console that will not load.
+   */
+  "reports:pii",
 ]);
 
 /** Organization-scoped machine credentials. Plaintext credentials exist only in create/rotate. */
 export const createApiClientSchema = z.object({
   name: z.string().trim().min(1).max(120),
-  scopes: z.array(capabilitySchema).min(1).max(12),
+  scopes: z.array(capabilitySchema).min(1).max(16),
   eventIds: z.array(z.string().uuid()).min(1).max(100),
   expiresAt: z.string().datetime().optional(),
 });
@@ -211,10 +220,135 @@ export const rotateApiClientResponseSchema = z.object({
   previousCredentialExpiresAt: z.string().datetime(),
 });
 
+/*
+ * ---- custom event roles and per-field access (issue #196) -------------------
+ *
+ * A role composed by an organization admin, and the View/Lock/Hide policy it carries. The
+ * vocabulary is duplicated from `application/identity/field-access.ts` on purpose: this package
+ * is the wire contract and may not import the API, so the two lists are kept identical by
+ * `custom-roles-http.test.ts`, which asserts that the service's catalogue round-trips through
+ * these schemas.
+ */
+export const fieldSubjectSchema = z.enum(["session", "speaker", "contact"]);
+export const fieldPolicySchema = z.enum(["view", "lock", "hide"]);
+export const customRoleTemplateKeySchema = z.enum(["av", "programme-assistant", "sponsor-liaison"]);
+/** `*` is the subject-wide default, which is what keeps a policy correct when a field is added. */
+export const fieldPolicyEntrySchema = z.object({
+  subject: fieldSubjectSchema,
+  field: z.string().min(1).max(40),
+  policy: fieldPolicySchema,
+});
+export const customRoleSchema = z.object({
+  id: z.string().uuid(),
+  eventId: z.string().uuid(),
+  organizationId: z.string().uuid(),
+  name: z.string().min(1).max(80),
+  description: z.string().max(400),
+  template: customRoleTemplateKeySchema,
+  capabilities: z.array(capabilitySchema),
+  fieldPolicies: z.array(fieldPolicyEntrySchema),
+  createdBy: z.string(),
+  createdAt: z.number().int(),
+  updatedAt: z.number().int(),
+  revision: z.number().int().min(1),
+});
+export const customRoleDraftSchema = z.object({
+  name: z.string().min(1).max(80),
+  description: z.string().max(400).optional(),
+  template: customRoleTemplateKeySchema,
+  capabilities: z.array(capabilitySchema).min(1).max(16),
+  fieldPolicies: z.array(fieldPolicyEntrySchema).max(60),
+});
+export const customRoleUpdateSchema = customRoleDraftSchema.extend({
+  /** Optimistic concurrency: a stale edit is refused rather than interleaved. */
+  expectedRevision: z.number().int().min(1),
+});
+export const customRoleAssignmentInputSchema = z.object({ userId: z.string().min(1) });
+export const customRoleEventParamsSchema = z.object({
+  organizationId: z.string().uuid(),
+  eventId: z.string().uuid(),
+});
+export const customRoleParamsSchema = customRoleEventParamsSchema.extend({
+  roleId: z.string().uuid(),
+});
+export const customRoleHolderParamsSchema = customRoleParamsSchema.extend({
+  userId: z.string().min(1),
+});
+export const customRoleDeleteQuerySchema = z.object({
+  expectedRevision: z.coerce.number().int().min(1),
+});
+/**
+ * What an organizer has closed on this event's own portal (issue #196; the primitive issue #189's
+ * `GAP-028` residual consumes).
+ *
+ * Deliberately the same vocabulary as a role's field policy, and deliberately a different thing:
+ * a role policy governs a staffed role, and a lock governs the person whose record it is. A
+ * speaker holds no custom role, and freezing the biography once the programme is printed is a
+ * property of the event rather than of anybody's staffing.
+ */
+export const eventFieldLocksInputSchema = z.object({
+  locks: z.array(fieldPolicyEntrySchema).max(40),
+});
+export const eventFieldLocksResponseSchema = z.object({
+  locks: z.array(fieldPolicyEntrySchema),
+});
+
+export const customRolesResponseSchema = z.object({
+  roles: z.array(customRoleSchema),
+  /** Beside the roles, because an organizer should not have to know which mechanism answered. */
+  fieldLocks: z.array(fieldPolicyEntrySchema),
+  assignments: z.array(
+    z.object({ roleId: z.string().uuid(), userId: z.string(), userName: z.string() }),
+  ),
+  templates: z.array(
+    z.object({
+      key: customRoleTemplateKeySchema,
+      label: z.string(),
+      description: z.string(),
+      capabilities: z.array(capabilitySchema),
+      fieldPolicies: z.array(fieldPolicyEntrySchema),
+    }),
+  ),
+  /** What a policy editor may offer, so the console cannot present a field the service refuses. */
+  catalogue: z.array(
+    z.object({
+      subject: fieldSubjectSchema,
+      fields: z.array(z.object({ field: z.string(), required: z.boolean() })),
+    }),
+  ),
+  grantableCapabilities: z.array(capabilitySchema),
+});
+export const customRoleResponseSchema = z.object({ role: customRoleSchema });
+/**
+ * What a role *would* see. Derived from the stored role and never from a session, so it cannot
+ * report the administrator's own access — preview inspects, it does not impersonate.
+ */
+export const customRolePreviewResponseSchema = z.object({
+  role: customRoleSchema,
+  capabilities: z.array(capabilitySchema),
+  fields: z.array(fieldPolicyEntrySchema),
+});
+export type CustomRoleDto = z.infer<typeof customRoleSchema>;
+export type CustomRolesDto = z.infer<typeof customRolesResponseSchema>;
+export type CustomRolePreviewDto = z.infer<typeof customRolePreviewResponseSchema>;
+export type FieldPolicyEntryDto = z.infer<typeof fieldPolicyEntrySchema>;
+
 export const sessionEventAccessSchema = z.object({
   eventId: z.string().uuid(),
-  role: demoPersonaSchema,
+  /**
+   * `custom` is a fifth grant kind rather than a fifth persona: it names a role composed for one
+   * event, and what it permits is on the grant rather than in the name.
+   */
+  role: z.enum(["organizer", "reviewer", "speaker", "public", "custom"]),
   capabilities: z.array(capabilitySchema),
+  /** Present only on a `custom` grant, so a console can say which role a refusal came from. */
+  customRole: z.object({ id: z.string().uuid(), name: z.string() }).optional(),
+  /**
+   * The per-field decision this grant carries, so the console can hide a control the API will
+   * refuse. It is a *mirror* of the server's decision and never the enforcement: a field the
+   * client hides and the API returns is not hidden, which is why every projection redacts.
+   */
+  fieldPolicies: z.array(fieldPolicyEntrySchema).optional(),
 });
 export const sessionResponseSchema = z.object({
   actor: z.object({ id: z.string(), name: z.string(), persona: demoPersonaSchema }),

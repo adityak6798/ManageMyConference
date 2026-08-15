@@ -10,7 +10,7 @@
  * @spec ARC-001 ARC-DOM-001
  */
 import type { Hono } from "hono";
-import type { AgendaService } from "../../../application/agenda/public";
+import type { AgendaGenerationService, AgendaService } from "../../../application/agenda/public";
 import type { CfpService } from "../../../application/cfp/public";
 import type {
   AccelEventsSyncService,
@@ -22,10 +22,19 @@ import type { SpeakerCalendarInviteService } from "../../../application/content/
 import type { CrmService } from "../../../application/crm/public";
 import type { EventService } from "../../../application/events/event-service";
 import type { EventTemplateService } from "../../../application/events/public";
+import type { CustomRoleService } from "../../../application/identity/public";
 import type { MembershipService } from "../../../application/identity/membership";
 import type { ApiClientService } from "../../../application/identity/public";
-import type { PlatformOperationsService } from "../../../application/platform/public";
-import type { ItineraryService, PublicationService } from "../../../application/publishing/public";
+import type {
+  PlatformOperationsService,
+  ReportingService,
+} from "../../../application/platform/public";
+import type {
+  EmbedService,
+  ItineraryService,
+  PublicationService,
+  SiteService,
+} from "../../../application/publishing/public";
 import type { ReviewService } from "../../../application/review/review-service";
 import type {
   BuildIdentity,
@@ -80,17 +89,55 @@ export interface HttpDependencies {
    * persona.
    */
   membership?: MembershipService | undefined;
+  /**
+   * Custom event roles and their per-field View/Lock/Hide policies (issue #196).
+   *
+   * Separate from `membership` because it administers a different thing — what a role *is*,
+   * rather than who holds one — and because a deployment can perfectly well offer membership
+   * administration without it, in which case those routes 404 rather than 500.
+   */
+  customRoles?: CustomRoleService | undefined;
   /** Organization-scoped machine-credential administration. */
   apiClients?: ApiClientService | undefined;
   agenda?: AgendaService | undefined;
+  /**
+   * Generated agenda drafts and the criteria that shape them (issue #192).
+   *
+   * Separate from `agenda` because it owns candidates rather than the board: everything here
+   * proposes, and only `accept` writes — through the board's own compare-and-set.
+   */
+  agendaGeneration?: AgendaGenerationService | undefined;
   communications?: CommunicationsService | undefined;
   webhooks?: WebhookService | undefined;
   /** The inbound Accelevents registration sync, and the last-run state its surface reads. */
   accelEventsSync?: AccelEventsSyncService | undefined;
   publishing?: PublicationService | undefined;
   itineraries?: ItineraryService | undefined;
+  /**
+   * Organization-owned portals composing several programs (issue #196).
+   *
+   * Separate from `publishing` because a Site is not a public-event projection and shares none of
+   * its machinery: it composes pointers to programs other domains own, resolved at read time.
+   */
+  sites?: SiteService | undefined;
+  /**
+   * Named, revocable embeds (issue #192).
+   *
+   * Separate from `publishing` because it owns durable definitions rather than the projection:
+   * the projection answers what the public programme is, and this answers who was handed a
+   * standing address onto it and whether that address still works.
+   */
+  embeds?: EmbedService | undefined;
   eventTemplates?: EventTemplateService | undefined;
   platformOps?: PlatformOperationsService | undefined;
+  /**
+   * Saved reports, their share links and their schedules (issue #196).
+   *
+   * Separate from `platformOps` because it owns durable state — definitions, shares, schedules,
+   * runs — while the operations service derives everything it answers on each request. A
+   * deployment composed without it answers 404 on the reporting routes rather than 500.
+   */
+  reporting?: ReportingService | undefined;
   build?: BuildIdentity | undefined;
 }
 

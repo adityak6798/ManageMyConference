@@ -117,10 +117,110 @@ export function defineAgendaSchema(references: {
     ],
   );
 
+  /*
+   * ---- generated drafts (issue #192's residual generation epic) ------------
+   *
+   * A candidate arrangement, never the board. `board_revision` is what makes a comparison
+   * honest: a draft generated against a board two edits ago is a diff against something that no
+   * longer exists, and saying so is the point. See `1603_agenda_generation.sql`.
+   */
+  // @spec PRD-AGD-001
+  const agendaGeneratedDrafts = sqliteTable(
+    "agenda_generated_drafts",
+    {
+      id: text("id").primaryKey().notNull(),
+      eventId: text("event_id")
+        .notNull()
+        .references(() => references.eventsId, { onDelete: "cascade" }),
+      name: text("name").notNull(),
+      boardRevision: integer("board_revision").notNull(),
+      /** Copied at generation time: the library is editable, and a draft must not re-explain. */
+      criteriaJson: text("criteria_json").notNull(),
+      placementsJson: text("placements_json").notNull(),
+      unplacedJson: text("unplaced_json").notNull().default("[]"),
+      generatedBy: text("generated_by")
+        .notNull()
+        .references(() => references.usersId),
+      generatedAt: text("generated_at").notNull(),
+      status: text("status").notNull().default("proposed"),
+      acceptedAt: text("accepted_at"),
+    },
+    (table) => [
+      check("agenda_generated_drafts_criteria_json", sql`json_valid(${table.criteriaJson})`),
+      check("agenda_generated_drafts_placements_json", sql`json_valid(${table.placementsJson})`),
+      check("agenda_generated_drafts_unplaced_json", sql`json_valid(${table.unplacedJson})`),
+      check(
+        "agenda_generated_drafts_status",
+        sql`${table.status} IN ('proposed', 'accepted', 'discarded')`,
+      ),
+      check("agenda_generated_drafts_name_length", sql`length(${table.name}) BETWEEN 1 AND 120`),
+      check(
+        "agenda_generated_drafts_accepted_at",
+        sql`(${table.status} = 'accepted') = (${table.acceptedAt} IS NOT NULL)`,
+      ),
+      index("agenda_generated_drafts_event_idx").on(table.eventId, table.generatedAt),
+    ],
+  );
+
+  /** The criteria library, in priority order. `position` is the priority; earlier is stronger. */
+  const agendaGenerationCriteria = sqliteTable(
+    "agenda_generation_criteria",
+    {
+      eventId: text("event_id")
+        .notNull()
+        .references(() => references.eventsId, { onDelete: "cascade" }),
+      criterion: text("criterion").notNull(),
+      position: integer("position").notNull(),
+      enabled: integer("enabled").notNull().default(1),
+    },
+    (table) => [
+      primaryKey({ columns: [table.eventId, table.criterion] }),
+      check(
+        "agenda_generation_criteria_criterion",
+        sql`${table.criterion} IN ('avoid-speaker-clash', 'respect-speaker-availability', 'keep-track-together', 'spread-tracks-across-rooms', 'prefer-earlier-slots', 'balance-room-load')`,
+      ),
+      check("agenda_generation_criteria_position", sql`${table.position} >= 0`),
+      check("agenda_generation_criteria_enabled", sql`${table.enabled} IN (0, 1)`),
+      index("agenda_generation_criteria_order_idx").on(table.eventId, table.position),
+    ],
+  );
+
+  /**
+   * When a speaker cannot be scheduled — a window rather than a flag.
+   *
+   * `speaker_id` names an identity this domain does not own and carries no foreign key, the same
+   * choice `agenda_session_schedules` makes about session ids.
+   */
+  const agendaSpeakerAvailability = sqliteTable(
+    "agenda_speaker_availability",
+    {
+      eventId: text("event_id")
+        .notNull()
+        .references(() => references.eventsId, { onDelete: "cascade" }),
+      speakerId: text("speaker_id").notNull(),
+      startsAt: text("starts_at").notNull(),
+      endsAt: text("ends_at").notNull(),
+      kind: text("kind").notNull(),
+      note: text("note").notNull().default(""),
+    },
+    (table) => [
+      primaryKey({
+        columns: [table.eventId, table.speakerId, table.startsAt, table.endsAt, table.kind],
+      }),
+      check("agenda_speaker_availability_kind", sql`${table.kind} IN ('available', 'unavailable')`),
+      check("agenda_speaker_availability_window", sql`${table.endsAt} > ${table.startsAt}`),
+      check("agenda_speaker_availability_note_length", sql`length(${table.note}) <= 200`),
+      index("agenda_speaker_availability_event_idx").on(table.eventId, table.speakerId),
+    ],
+  );
+
   return {
     agendaDrafts,
     agendaPublications,
     agendaSessionSchedules,
     agendaScheduleMaterializations,
+    agendaGeneratedDrafts,
+    agendaGenerationCriteria,
+    agendaSpeakerAvailability,
   };
 }

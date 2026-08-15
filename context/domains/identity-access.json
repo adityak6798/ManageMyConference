@@ -60,6 +60,17 @@
     "apps/web/e2e/api-clients.spec.ts",
     "apps/api/src/adapters/persistence/identity-fixture-statements.mjs",
     "apps/api/src/transport/http/oauth-attempt-cookie.ts",
-    "apps/api/test/oauth-attempt-cookie.test.ts"
+    "apps/api/test/oauth-attempt-cookie.test.ts",
+    "apps/api/migrations/1005_custom_event_roles.sql",
+    "apps/api/src/adapters/persistence/d1-custom-roles.ts",
+    "apps/api/test/field-access.test.ts",
+    "apps/api/test/custom-roles.test.ts",
+    "apps/api/test/d1-custom-roles.integration.test.ts",
+    "apps/web/src/CustomRolesWorkspace.tsx",
+    "apps/web/src/workspaces/custom-roles.tsx",
+    "apps/web/src/api/custom-roles.ts",
+    "apps/web/test/portal-field-locks.test.tsx",
+    "apps/api/migrations/1006_reports_pii_capability.sql",
+    "apps/api/migrations/1007_event_field_locks.sql"
   ]
 }

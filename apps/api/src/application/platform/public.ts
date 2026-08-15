@@ -61,6 +61,69 @@ export {
   SEARCH_SECTION_KEYS,
   SearchQueryTooShortError,
 } from "./search-service";
+/**
+ * The capability-URL convention (issue #196), which every anonymous share link in this product
+ * addresses a resource through — and which issue #189's `GAP-028` residual is meant to consume
+ * rather than reinvent. `DEBT-012` states what a capability URL costs; this is what pays it.
+ */
+export type {
+  CapabilityLink,
+  CapabilityLinkKind,
+  CapabilityLinkStore,
+} from "./capability-link";
+export {
+  CAPABILITY_LINK_KINDS,
+  CapabilityLinkUnavailableError,
+  hashCapabilityToken,
+  MAX_CAPABILITY_LINK_HOURS,
+  mintCapabilityToken,
+  spendCapabilityLink,
+} from "./capability-link";
+/**
+ * Reporting (issue #196): the catalogue a report may be written against, the pure engine that
+ * answers one, and the service that saves, shares and schedules them.
+ */
+export type {
+  ReportDataset,
+  ReportDatasetKey,
+  ReportField,
+  ReportFilter,
+  ReportQuery,
+  ReportResult,
+  ReportRow,
+} from "./report-catalogue";
+export {
+  MAX_REPORT_SCAN,
+  maskValue,
+  REPORT_CATALOGUE,
+  REPORT_DATASETS,
+  REPORT_OPERATORS,
+  ReportQueryInvalidError,
+  ReportTooExpensiveError,
+  runQuery,
+  validateQuery,
+} from "./report-catalogue";
+export { readReportRows } from "./report-rows";
+export type {
+  ReportDefinition,
+  ReportDeliveryPort,
+  ReportingDependencies,
+  ReportRepository,
+  ReportRun,
+  ReportSchedule,
+  ReportShare,
+} from "./reporting-service";
+export {
+  isKnownTimezone,
+  occurrenceKey,
+  ReportConflictError,
+  ReportingService,
+  ReportInvalidError,
+  ReportNameTakenError,
+  ReportNotFoundError,
+  ReportPiiDeniedError,
+  ReportShareUnavailableError,
+} from "./reporting-service";
 export { PlatformSourceUnavailableError } from "./section";
 export type {
   AgendaSource,

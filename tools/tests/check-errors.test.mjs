@@ -101,3 +101,22 @@ test("a bare announce only counts when it is destructured from useActionFeedback
     [],
   );
 });
+
+test("an announcer received as a prop counts, and only by its declared signature", () => {
+  // A panel that shares its page's one live region is handed the announcer instead of creating a
+  // second one. It reports failures exactly as the owner of the region does, so refusing it would
+  // push a correct component towards an ERROR-INTENT comment that says something untrue.
+  const prop =
+    'function Panel({ announce }: { announce: (tone: "success" | "error", t: string) => void }) {\n';
+  assert.deepEqual(
+    inspectText(`${prop}try { work(); } catch (error) { announce("error", "Failed."); }\n}`),
+    [],
+  );
+  // The signature is what counts, not the name: a prop merely *called* announce still fails.
+  assert.notEqual(
+    inspectText(
+      'function Panel({ announce }: { announce: (message: string) => void }) {\ntry { work(); } catch (error) { announce("error", "Failed."); }\n}',
+    ),
+    [],
+  );
+});

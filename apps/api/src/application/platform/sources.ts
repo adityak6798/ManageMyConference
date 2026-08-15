@@ -20,6 +20,17 @@ export interface EventOrganizationSource {
   organizationOf(eventId: string): Promise<string | null>;
 }
 
+/**
+ * Content's board as platform reads it.
+ *
+ * Most fields are optional, and that is the per-field access policy reaching this port rather
+ * than an accident of shape (issue #196). The content workspace redacts what the reader's custom
+ * role hides, so an operator searching under a role that cannot see speaker addresses receives
+ * sessions and speakers with those keys **absent** — and search must therefore be written to
+ * handle their absence, which is exactly what it means for search to consume the same policy
+ * decision as the screen instead of bypassing it. `id`, `title` and `name` stay required because
+ * a policy may not hide the field that identifies a record.
+ */
 export interface ContentSource {
   workspace(
     actor: Actor | null,
@@ -28,16 +39,24 @@ export interface ContentSource {
     readonly sessions: readonly {
       readonly id: string;
       readonly title: string;
-      readonly abstract: string;
-      readonly format: string;
-      readonly tracks: readonly string[];
+      readonly abstract?: string | undefined;
+      readonly format?: string | undefined;
+      readonly tracks?: readonly string[] | undefined;
+      /**
+       * Read by reporting rather than by search, and declared because a port states the narrowest
+       * shape its holder actually reads — so widening that dependency is a visible edit here.
+       */
+      readonly publicationState?: string | undefined;
+      readonly speakerProfileIds: readonly string[];
     }[];
     readonly speakers: readonly {
       readonly id: string;
       readonly name: string;
-      readonly email: string;
-      readonly bio: string;
-      readonly organization: string;
+      readonly email?: string | undefined;
+      readonly bio?: string | undefined;
+      readonly organization?: string | undefined;
+      /** Reporting's "onboarding status" column. Optional for the same reason the rest are. */
+      readonly workflowStatus?: string | undefined;
     }[];
     readonly tasks: readonly {
       readonly id: string;
@@ -194,7 +213,13 @@ export interface CrmSource {
     readonly contacts: readonly {
       readonly id: string;
       readonly name: string;
-      readonly company: string | null;
+      /**
+       * Optional for the same reason `ContentSource`'s fields are: a custom role may hide it, and
+       * the directory answers with the key absent. `undefined` and `null` are different facts
+       * here — no company recorded, versus a company this reader does not see — and search has
+       * to keep them apart rather than printing a blank for both.
+       */
+      readonly company?: string | null | undefined;
     }[];
   }>;
 }

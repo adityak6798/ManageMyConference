@@ -91,7 +91,22 @@
     "apps/api/test/platform-attribution.test.ts",
     "apps/api/test/demo-reset-guard.integration.test.ts",
     "tools/remote-demo-reset.d.mts",
-    "tools/tests/setup-local.test.mjs"
+    "tools/tests/setup-local.test.mjs",
+    "apps/api/migrations/1902_reporting.sql",
+    "apps/api/src/application/platform/capability-link.ts",
+    "apps/api/src/application/platform/report-catalogue.ts",
+    "apps/api/src/application/platform/report-rows.ts",
+    "apps/api/src/application/platform/reporting-service.ts",
+    "apps/api/src/adapters/persistence/d1-capability-links.ts",
+    "apps/api/src/adapters/persistence/d1-report-repository.ts",
+    "apps/api/src/adapters/platform/render-report-export.ts",
+    "apps/api/src/adapters/platform/report-link-delivery.ts",
+    "apps/api/test/reporting.test.ts",
+    "apps/api/test/d1-capability-links.integration.test.ts",
+    "apps/web/src/ReportsWorkspace.tsx",
+    "apps/web/src/workspaces/reports.tsx",
+    "apps/web/src/api/reports.ts",
+    "apps/web/test/reports-workspace.test.tsx"
   ],
   "symbols": {
     "createHttpApp": "apps/api/src/transport/http/app.ts",

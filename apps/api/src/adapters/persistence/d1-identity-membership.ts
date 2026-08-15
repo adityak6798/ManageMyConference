@@ -462,6 +462,45 @@ export class D1MembershipRepository implements MembershipRepository {
     return (found.results?.length ?? 0) > 0;
   }
 
+  /**
+   * The administrators this organization would have left once `removing` had been applied.
+   *
+   * Both halves of what makes somebody an administrator are in the SQL: a membership row, and an
+   * `organizer` role on one of the organization's events. `requireOrganizationAdministration`
+   * needs both, so counting only one would let the guard pass on a set of people who cannot
+   * actually administer anything.
+   *
+   * The exclusion is expressed as the row that is about to disappear rather than as the person,
+   * which is the whole reason this is a count-after rather than a count-excluding: revoking one
+   * organizer role from somebody who organizes a second event in the same organization removes no
+   * administrator, and refusing it would be a guard firing on a safe change.
+   */
+  async countAdministratorsAfter(
+    organizationId: string,
+    eventIds: readonly string[],
+    removing: { userId: string; eventId: string | null },
+  ): Promise<number> {
+    if (eventIds.length === 0) return 0;
+    const found = await this.database
+      .prepare(
+        "SELECT COUNT(DISTINCT r.user_id) AS total FROM event_roles r " +
+          "JOIN organization_memberships m ON m.user_id = r.user_id AND m.organization_id = ? " +
+          "WHERE r.role = 'organizer' AND r.event_id IN (SELECT value FROM json_each(?)) " +
+          "AND NOT (r.user_id = ? AND (? IS NULL OR r.event_id = ?))",
+      )
+      .bind(
+        organizationId,
+        JSON.stringify([...eventIds]),
+        removing.userId,
+        removing.eventId,
+        removing.eventId,
+      )
+      .all<{ total: number }>();
+    if (!found.success)
+      throw new Error(`D1 failed to count administrators: ${found.error ?? "unknown error"}`);
+    return found.results?.[0]?.total ?? 0;
+  }
+
   private assertBatch(
     results: Array<D1WriteResult & { results?: unknown[] }>,
     operation: string,

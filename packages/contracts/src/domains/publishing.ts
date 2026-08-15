@@ -201,3 +201,265 @@ export const publicationPreviewResponseSchema = z.object({
     provenance: publicationProvenanceSchema.nullable().optional(),
   }),
 });
+
+/*
+ * ---- Sites and portals (issue #196) ----------------------------------------
+ *
+ * A Site is one organization's branded portal over several programs. It is deliberately *not* a
+ * second public-event projection: it composes pointers to programs other domains own, resolved at
+ * read time, and it is addressed under its own public prefix so its slugs cannot collide with an
+ * event's.
+ *
+ * @spec PRD-PUB-002
+ */
+export const siteThemeSchema = z.enum(["light", "dark", "auto"]);
+export const siteProgramKindSchema = z.enum(["event-cfp", "interest-form", "speaker-portal"]);
+export const siteFieldKindSchema = z.enum(["text", "longtext", "select", "checkbox"]);
+export const sitePrimaryColorSchema = z.string().regex(/^#[0-9a-fA-F]{6}$/);
+export const siteSlugParamsSchema = z.object({ slug: routeSlugSchema.max(120) });
+export const sitePageParamsSchema = siteSlugParamsSchema.extend({
+  pageSlug: routeSlugSchema.max(120),
+});
+export const siteOrganizationParamsSchema = z.object({ organizationId: z.string().uuid() });
+export const siteParamsSchema = siteOrganizationParamsSchema.extend({
+  siteId: z.string().uuid(),
+});
+export const siteProgramInputSchema = z.object({
+  kind: siteProgramKindSchema,
+  /** Another domain's identifier. Opaque to publishing, which is why it is not a uuid() here. */
+  ref: z.string().min(1).max(120),
+  label: z.string().max(120).optional(),
+});
+export const sitePageInputSchema = z.object({
+  slug: z.string().min(1).max(120),
+  title: z.string().min(1).max(160),
+  /** Sanitized server-side before it is stored; what a client sends is never what is served. */
+  bodyHtml: z.string().max(40_000),
+  visibility: z.enum(["visible", "hidden"]).optional(),
+});
+export const siteRegistrationFieldInputSchema = z.object({
+  key: z.string().regex(/^[a-z0-9_-]{1,60}$/),
+  label: z.string().min(1).max(120),
+  kind: siteFieldKindSchema,
+  required: z.boolean().optional(),
+  options: z.array(z.string().min(1).max(120)).max(20).optional(),
+});
+export const siteDraftSchema = z.object({
+  slug: z.string().min(1).max(120),
+  name: z.string().min(1).max(120),
+  tagline: z.string().max(200).optional(),
+  landingHeading: z.string().max(160).optional(),
+  landingBody: z.string().max(2000).optional(),
+  loginHeading: z.string().max(160).optional(),
+  loginBody: z.string().max(2000).optional(),
+  theme: siteThemeSchema.optional(),
+  primaryColor: sitePrimaryColorSchema.optional(),
+  programs: z.array(siteProgramInputSchema).max(30).optional(),
+  pages: z.array(sitePageInputSchema).max(20).optional(),
+  registrationFields: z.array(siteRegistrationFieldInputSchema).max(12).optional(),
+});
+export const siteUpdateSchema = siteDraftSchema.extend({
+  expectedRevision: z.number().int().min(1),
+});
+export const siteRevisionInputSchema = z.object({ expectedRevision: z.number().int().min(1) });
+export const sitePrivacyNoticeInputSchema = z.object({ bodyHtml: z.string().min(1).max(40_000) });
+export const sitePrivacyNoticeSchema = z.object({
+  version: z.number().int().min(1),
+  bodyHtml: z.string(),
+  effectiveAt: z.string().datetime(),
+});
+export const siteRegistrationFieldSchema = siteRegistrationFieldInputSchema.extend({
+  required: z.boolean(),
+  options: z.array(z.string()),
+  position: z.number().int().nonnegative(),
+});
+export const siteSchema = z.object({
+  id: z.string().uuid(),
+  organizationId: z.string().uuid(),
+  slug: routeSlugSchema.max(120),
+  name: z.string(),
+  tagline: z.string(),
+  landingHeading: z.string(),
+  landingBody: z.string(),
+  loginHeading: z.string(),
+  loginBody: z.string(),
+  theme: siteThemeSchema,
+  primaryColor: sitePrimaryColorSchema,
+  state: z.enum(["draft", "published", "unpublished"]),
+  publishedAt: z.string().datetime().nullable(),
+  revision: z.number().int().min(1),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  programs: z.array(
+    siteProgramInputSchema.extend({
+      label: z.string(),
+      position: z.number().int().nonnegative(),
+    }),
+  ),
+  pages: z.array(
+    sitePageInputSchema.extend({
+      id: z.string().uuid(),
+      visibility: z.enum(["visible", "hidden"]),
+      position: z.number().int().nonnegative(),
+    }),
+  ),
+  registrationFields: z.array(siteRegistrationFieldSchema),
+  privacyNotice: sitePrivacyNoticeSchema.nullable(),
+});
+export const sitesResponseSchema = z.object({ sites: z.array(siteSchema) });
+export const siteResponseSchema = z.object({ site: siteSchema });
+/**
+ * The organizer's view. `unresolvedPrograms` is named rather than left to be inferred from an
+ * absence: a program whose source has gone keeps its place in the order, and a portal that
+ * quietly shortened itself would say nothing about why.
+ */
+export const siteDetailResponseSchema = z.object({
+  site: siteSchema,
+  unresolvedPrograms: z.array(z.object({ kind: siteProgramKindSchema, ref: z.string() })),
+  publications: z.array(
+    z.object({ version: z.number().int().min(1), publishedAt: z.string().datetime() }),
+  ),
+});
+export const sitePrivacyNoticeResponseSchema = z.object({
+  version: z.number().int().min(1),
+  effectiveAt: z.string().datetime(),
+});
+export const siteConsentsResponseSchema = z.object({
+  consents: z.array(
+    z.object({
+      id: z.string().uuid(),
+      noticeVersion: z.number().int().min(1),
+      /** The registrant's address. Organizer-only, and never on a public route. */
+      actorRef: z.string(),
+      acceptedAt: z.string().datetime(),
+    }),
+  ),
+});
+/** What a visitor is served. Nothing here is draft copy, and nothing is another domain's data. */
+export const publicSiteSchema = z.object({
+  slug: routeSlugSchema.max(120),
+  name: z.string(),
+  tagline: z.string(),
+  landing: z.object({ heading: z.string(), body: z.string() }),
+  login: z.object({ heading: z.string(), body: z.string() }),
+  theme: siteThemeSchema,
+  primaryColor: sitePrimaryColorSchema,
+  programs: z.array(
+    z.object({
+      kind: siteProgramKindSchema,
+      ref: z.string(),
+      label: z.string(),
+      href: z.string(),
+      title: z.string().optional(),
+      state: z.string().optional(),
+    }),
+  ),
+  pages: z.array(z.object({ slug: routeSlugSchema.max(120), title: z.string() })),
+  privacyNotice: sitePrivacyNoticeSchema.nullable(),
+  registrationFields: z.array(siteRegistrationFieldSchema),
+  publishedAt: z.string().datetime(),
+});
+export const publicSiteResponseSchema = z.object({ site: publicSiteSchema });
+export const publicSitePageResponseSchema = z.object({
+  site: z.object({ slug: routeSlugSchema.max(120), name: z.string() }),
+  page: z.object({
+    id: z.string().uuid(),
+    slug: routeSlugSchema.max(120),
+    title: z.string(),
+    bodyHtml: z.string(),
+    position: z.number().int().nonnegative(),
+    visibility: z.enum(["visible", "hidden"]),
+  }),
+});
+/**
+ * A registration. `accepted` is the consent itself, and the notice *version* is deliberately not
+ * a field: a client that could supply it could claim consent to a version the visitor never saw,
+ * so the server stamps the version in force at that instant.
+ */
+export const siteRegistrationInputSchema = z.object({
+  name: z.string().min(1).max(160),
+  email: z.string().email().max(254),
+  accepted: z.boolean(),
+  answers: z.record(z.string().max(2000)).optional(),
+});
+export const siteRegistrationResponseSchema = z.object({
+  registered: z.literal(true),
+  noticeVersion: z.number().int().min(1),
+  acceptedAt: z.string().datetime(),
+});
+export type SiteDto = z.infer<typeof siteSchema>;
+export type PublicSiteDto = z.infer<typeof publicSiteSchema>;
+export type SiteDetailDto = z.infer<typeof siteDetailResponseSchema>;
+
+/*
+ * ---- named, revocable embeds (issue #192's residual lifecycle epic) ---------
+ *
+ * PR #214 shipped the embed views; what was missing was that an embed had no identity — it could
+ * not be revisited, changed, or withdrawn, so a URL pasted into somebody else's site answered for
+ * ever. `output` is immutable after creation because a host page parsing JSON does not survive
+ * being handed HTML; changing it is `duplicate`, which mints a new address.
+ *
+ * @spec PRD-PUB-001
+ */
+export const embedViewSchema = z.enum(["schedule", "speakers", "gallery", "itinerary"]);
+export const embedOutputSchema = z.enum(["styled-html", "basic-html", "json", "xml", "ical"]);
+export const embedFieldSchema = z.enum(["time", "room", "track", "format", "abstract", "speakers"]);
+export const embedFiltersSchema = z.object({
+  track: z.string().max(120).optional(),
+  format: z.string().max(120).optional(),
+  /** A calendar date; the embed shows only sessions starting on it. */
+  day: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
+});
+export const embedDraftSchema = z.object({
+  name: z.string().min(1).max(120),
+  view: embedViewSchema,
+  output: embedOutputSchema,
+  accent: z
+    .string()
+    .regex(/^#[0-9a-fA-F]{6}$/)
+    .optional(),
+  theme: z.enum(["light", "dark", "auto"]).optional(),
+  filters: embedFiltersSchema.optional(),
+  /** Empty selects every field, which is what a snippet issued before selection existed asks for. */
+  fields: z.array(embedFieldSchema).max(6).optional(),
+});
+export const embedUpdateSchema = embedDraftSchema.extend({
+  expectedRevision: z.number().int().min(1),
+});
+export const embedDuplicateSchema = z.object({
+  name: z.string().min(1).max(120),
+  /** The one way to change an output type: the old address keeps working until it is revoked. */
+  output: embedOutputSchema.optional(),
+});
+export const embedSchema = z.object({
+  id: z.string().uuid(),
+  eventId: z.string().uuid(),
+  name: z.string(),
+  view: embedViewSchema,
+  output: embedOutputSchema,
+  accent: z.string(),
+  theme: z.enum(["light", "dark", "auto"]),
+  filters: embedFiltersSchema,
+  fields: z.array(embedFieldSchema),
+  createdBy: z.string(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  revision: z.number().int().min(1),
+  /** Set means withdrawn: the address answers as an unknown one from that moment. */
+  revokedAt: z.string().datetime().nullable(),
+});
+export const embedsResponseSchema = z.object({ embeds: z.array(embedSchema) });
+export const embedResponseSchema = z.object({ embed: embedSchema });
+/** The URL is returned once, because only the token's digest is stored. */
+export const embedCreatedResponseSchema = z.object({ embed: embedSchema, url: z.string() });
+export const embedParamsSchema = z.object({
+  eventId: z.string().uuid(),
+  embedId: z.string().uuid(),
+});
+export const embedTokenParamsSchema = z.object({
+  token: z.string().regex(/^[A-Za-z0-9_-]{16,128}$/),
+});
+export type EmbedDto = z.infer<typeof embedSchema>;

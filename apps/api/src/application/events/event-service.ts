@@ -269,9 +269,16 @@ export class EventService {
    * a speaker reads better naming their conference than not, and a consumer that had to fetch
    * the whole event through `get` would need an actor it does not have.
    *
+   * A portal's program list is the second caller (issue #196), and it needs the same defence
+   * stated once: a Site lists the programs an organizer *attached to it*, the attaching was
+   * authorized, and a visitor reading that list needs a name rather than a uuid. What this
+   * confers is a name for an event whose id the caller already holds — exactly what the public
+   * event hub gives away to anybody at all — so it adds no reach, and withholding it would only
+   * mean a portal that prints identifiers.
+   *
    * Null when no such event exists. A caller must treat that as "no name" rather than as an
    * empty string — a message saying "You are speaking at " is worse than one that does not
-   * mention the event.
+   * mention the event, and a portal is better off leaving the entry out.
    */
   async nameOf(eventId: string): Promise<string | null> {
     const event = await this.dependencies.repository.findById(eventId, {

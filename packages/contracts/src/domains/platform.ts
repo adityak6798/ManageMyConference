@@ -292,6 +292,228 @@ export const auditResponseSchema = z.object({
 export type AuditRecordDto = z.infer<typeof auditRecordSchema>;
 export type AuditResponseDto = z.infer<typeof auditResponseSchema>;
 
+/*
+ * ---- reporting (issue #196) -------------------------------------------------
+ *
+ * A report is a question asked of an allowlisted dataset, never a stored answer and never a query
+ * language. Every part of a query is re-validated against the catalogue server-side, which is what
+ * makes a natural-language draft exactly as safe as a hand-built one.
+ *
+ * @spec PRD-OPS-004
+ */
+export const reportDatasetSchema = z.enum([
+  "sessions",
+  "speakers",
+  "submissions",
+  "reviews",
+  "deliverables",
+  "contacts",
+  "agenda",
+  "communications",
+]);
+export const reportOperatorSchema = z.enum([
+  "equals",
+  "not-equals",
+  "contains",
+  "starts-with",
+  "greater-than",
+  "less-than",
+  "is-empty",
+  "is-not-empty",
+]);
+export const reportFilterSchema = z.object({
+  field: z.string().min(1).max(60),
+  operator: reportOperatorSchema,
+  value: z.string().max(200).optional(),
+});
+export const reportSortSchema = z.object({
+  field: z.string().min(1).max(60),
+  direction: z.enum(["asc", "desc"]),
+});
+export const reportFieldSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  type: z.enum(["text", "number", "date"]),
+  /** Masked unless the caller holds `reports:pii` and asked for it. */
+  pii: z.boolean().optional(),
+});
+export const reportCatalogueResponseSchema = z.object({
+  datasets: z.array(
+    z.object({
+      key: reportDatasetSchema,
+      label: z.string(),
+      source: z.string(),
+      fields: z.array(reportFieldSchema),
+    }),
+  ),
+  operators: z.array(reportOperatorSchema),
+});
+export const reportQuerySchema = z.object({
+  dataset: reportDatasetSchema,
+  fields: z.array(z.string()),
+  filters: z.array(reportFilterSchema),
+  groupBy: z.string().optional(),
+  sort: reportSortSchema.optional(),
+  limit: z.number().int().min(1).max(500),
+  offset: z.number().int().min(0),
+});
+export const reportDefinitionSchema = z.object({
+  id: z.string().uuid(),
+  eventId: z.string().uuid(),
+  organizationId: z.string(),
+  name: z.string(),
+  description: z.string(),
+  dataset: reportDatasetSchema,
+  query: reportQuerySchema,
+  createdBy: z.string(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  revision: z.number().int().min(1),
+});
+export const reportSaveInputSchema = z.object({
+  name: z.string().min(1).max(120),
+  description: z.string().max(400).optional(),
+  dataset: reportDatasetSchema,
+  fields: z.array(z.string().min(1).max(60)).max(30).optional(),
+  filters: z.array(reportFilterSchema).max(12).optional(),
+  groupBy: z.string().min(1).max(60).optional(),
+  sort: reportSortSchema.optional(),
+  limit: z.number().int().min(1).max(500).optional(),
+  reportId: z.string().uuid().optional(),
+  expectedRevision: z.number().int().min(1).optional(),
+});
+export const reportRunInputSchema = z.object({
+  reportId: z.string().uuid().optional(),
+  dataset: reportDatasetSchema.optional(),
+  fields: z.array(z.string().min(1).max(60)).max(30).optional(),
+  filters: z.array(reportFilterSchema).max(12).optional(),
+  groupBy: z.string().min(1).max(60).optional(),
+  sort: reportSortSchema.optional(),
+  limit: z.number().int().min(1).max(500).optional(),
+  offset: z.number().int().min(0).optional(),
+  /** Refused with 403 unless the caller holds `reports:pii`; audited when it is honoured. */
+  includePii: z.boolean().optional(),
+});
+export const reportResultSchema = z.object({
+  dataset: reportDatasetSchema,
+  fields: z.array(reportFieldSchema),
+  rows: z.array(z.record(z.union([z.string(), z.number(), z.null()]))),
+  totalRows: z.number().int().nonnegative(),
+  groups: z.array(z.object({ value: z.string(), count: z.number().int().nonnegative() })),
+  /** What the run cost and what it withheld. The issue asks for execution metadata by name. */
+  meta: z.object({
+    scannedRows: z.number().int().nonnegative(),
+    limit: z.number().int().min(1),
+    offset: z.number().int().nonnegative(),
+    maskedFields: z.array(z.string()),
+  }),
+});
+/**
+ * A run degrades per dataset exactly as a search section does: a reviewer asking the CRM dataset
+ * is told "not yours", which is the authorization model working rather than a fault.
+ */
+export const reportRunResponseSchema = z.discriminatedUnion("state", [
+  z.object({
+    state: z.literal("ok"),
+    report: reportDefinitionSchema.nullable(),
+    result: reportResultSchema,
+  }),
+  z.object({ state: z.literal("unauthorized"), report: reportDefinitionSchema.nullable() }),
+  z.object({ state: z.literal("failed"), error: apiErrorEnvelopeSchema.shape.error }),
+]);
+export const reportsResponseSchema = z.object({ reports: z.array(reportDefinitionSchema) });
+export const reportResponseSchema = z.object({ report: reportDefinitionSchema });
+export const reportShareSchema = z.object({
+  id: z.string().uuid(),
+  reportId: z.string().uuid(),
+  createdBy: z.string(),
+  createdAt: z.string().datetime(),
+  expiresAt: z.string().datetime(),
+  viewLimit: z.number().int().min(1).nullable(),
+  views: z.number().int().nonnegative(),
+  allowPii: z.boolean(),
+  revokedAt: z.string().datetime().nullable(),
+  hasPassword: z.boolean(),
+});
+export const reportShareInputSchema = z.object({
+  lifetimeHours: z.number().int().min(1).max(720),
+  viewLimit: z.number().int().min(1).max(1000).optional(),
+  password: z.string().min(8).max(200).optional(),
+  allowPii: z.boolean().optional(),
+});
+/** The URL is returned once: only the token's digest is stored, as with every capability URL here. */
+export const reportShareCreatedResponseSchema = z.object({
+  share: reportShareSchema,
+  url: z.string(),
+});
+export const reportSharesResponseSchema = z.object({ shares: z.array(reportShareSchema) });
+export const reportShareResolveInputSchema = z.object({ password: z.string().max(200).optional() });
+export const reportShareResolvedResponseSchema = z.object({
+  report: z.object({ name: z.string(), description: z.string(), dataset: reportDatasetSchema }),
+  result: reportResultSchema,
+});
+export const reportScheduleSchema = z.object({
+  id: z.string().uuid(),
+  reportId: z.string().uuid(),
+  cadence: z.enum(["daily", "weekly", "monthly"]),
+  minuteOfDay: z.number().int().min(0).max(1439),
+  dayOfWeek: z.number().int().min(0).max(6).nullable(),
+  dayOfMonth: z.number().int().min(1).max(28).nullable(),
+  timezone: z.string(),
+  recipients: z.array(z.string()),
+  linkLifetimeHours: z.number().int().min(1).max(720),
+  createdBy: z.string(),
+  createdAt: z.string().datetime(),
+  pausedAt: z.string().datetime().nullable(),
+  lastFiredKey: z.string().nullable(),
+});
+export const reportScheduleInputSchema = z.object({
+  cadence: z.enum(["daily", "weekly", "monthly"]),
+  minuteOfDay: z.number().int().min(0).max(1439),
+  dayOfWeek: z.number().int().min(0).max(6).optional(),
+  /** Capped at 28 so a monthly schedule fires in February. */
+  dayOfMonth: z.number().int().min(1).max(28).optional(),
+  timezone: z.string().min(1).max(64),
+  recipients: z.array(z.string().email().max(254)).min(1).max(20),
+  linkLifetimeHours: z.number().int().min(1).max(720).optional(),
+});
+export const reportRunRecordSchema = z.object({
+  id: z.string().uuid(),
+  scheduleId: z.string().uuid(),
+  occurrenceKey: z.string(),
+  ranAt: z.string().datetime(),
+  outcome: z.enum(["delivered", "failed"]),
+  detail: z.string(),
+});
+export const reportSchedulesResponseSchema = z.object({
+  schedules: z.array(
+    z.object({ schedule: reportScheduleSchema, runs: z.array(reportRunRecordSchema) }),
+  ),
+});
+export const reportParamsSchema = z.object({
+  eventId: z.string().uuid(),
+  reportId: z.string().uuid(),
+});
+export const reportShareParamsSchema = reportParamsSchema.extend({
+  shareId: z.string().uuid(),
+});
+export const reportScheduleParamsSchema = reportParamsSchema.extend({
+  scheduleId: z.string().uuid(),
+});
+export const reportShareTokenParamsSchema = z.object({
+  token: z.string().regex(/^[A-Za-z0-9_-]{16,128}$/),
+});
+export const reportRevisionQuerySchema = z.object({
+  expectedRevision: z.coerce.number().int().min(1),
+});
+export const reportDuplicateInputSchema = z.object({ name: z.string().min(1).max(120) });
+export type ReportCatalogueDto = z.infer<typeof reportCatalogueResponseSchema>;
+export type ReportDefinitionDto = z.infer<typeof reportDefinitionSchema>;
+export type ReportResultDto = z.infer<typeof reportResultSchema>;
+export type ReportRunResponseDto = z.infer<typeof reportRunResponseSchema>;
+export type ReportShareDto = z.infer<typeof reportShareSchema>;
+export type ReportScheduleDto = z.infer<typeof reportScheduleSchema>;
+
 export type SearchResultKind = z.infer<typeof searchResultKindSchema>;
 export type SearchResultDto = z.infer<typeof searchResultSchema>;
 export type SearchSectionDto = z.infer<typeof searchSectionSchema>;

@@ -21,14 +21,13 @@
  *
  * @spec PRD-IAM-001 PRD-IAM-002 ARC-AUTH-001
  */
-import {
-  type Actor,
-  AuthenticationRequiredError,
-  CapabilityDeniedError,
-  requireCapability,
-} from "./actor";
+import { type Actor, AuthenticationRequiredError } from "./actor";
 import type { AuditAction, AuditContext } from "./audit";
 import { isDemoPersonaId } from "./demo-session";
+import {
+  LastAdministratorError,
+  requireOrganizationAdministration,
+} from "./organization-administration";
 
 /** A role somebody can be invited into. `public` is not invitable: everybody already has it. */
 export type InvitableRole = "organizer" | "reviewer" | "speaker";
@@ -160,6 +159,25 @@ export interface MembershipRepository {
   ): Promise<void>;
   /** Is this user a member of this organization? Used to scope event-role administration. */
   isMember(organizationId: string, userId: string): Promise<boolean>;
+  /**
+   * How many administrators this organization would have left once `removing` had been applied.
+   *
+   * An administrator is a member of the organization who also holds an `organizer` role on one of
+   * its events — both halves, because `requireOrganizationAdministration` needs both. The
+   * question is asked as "who would be left" rather than "who is there now", because the two
+   * differ in exactly the case that matters: revoking one organizer role from somebody who
+   * organizes a second event in the same organization removes no administrator at all, and a
+   * count that merely excluded the person would refuse a safe change.
+   *
+   * `removing.eventId` is null for a whole-membership removal, which takes every role with it.
+   * `eventIds` is supplied by the events domain for the same reason `listMembers` takes it:
+   * `events` is that domain's table and identity-access reads none of it.
+   */
+  countAdministratorsAfter(
+    organizationId: string,
+    eventIds: readonly string[],
+    removing: { userId: string; eventId: string | null },
+  ): Promise<number>;
 }
 
 export interface MembershipDependencies {
@@ -187,36 +205,43 @@ export class MembershipService {
   /**
    * Who may administer this organization's membership.
    *
-   * The same three conditions the CRM directory uses for organization-addressed routes, and each
-   * rules out a different escalation:
-   *
-   * 1. `identity:manage` at all — a reviewer or speaker never holds it, so being staffed on an
-   *    event grants no administrative reach.
-   * 2. Membership of *this* organization — an organizer elsewhere holds a perfectly good
-   *    actor-wide capability and it must not reach this organization.
-   * 3. That the capability was earned inside this organization. Conditions 1 and 2 can be met by
-   *    two different organizations at once: somebody who organizes an event in A and merely
-   *    belongs to B would otherwise administer B on the strength of a grant A gave them.
-   *
-   * There is deliberately no global administrator. What this bounds is the *organization*: an
-   * organizer of one of its events can administer the whole of it, including staffing themselves
-   * on an event they hold no grant on. That is intended — the organization is the tenant boundary
-   * and its organizers are its administrators — and it is worth saying rather than leaving to be
-   * discovered, because it is wider than `requireEventCapability` would be.
+   * The rule itself lives in `organization-administration.ts`, shared with custom-role
+   * administration (issue #196) — it is the same three conditions over the same grants, and two
+   * copies is how one surface ends up permitting what the other refuses.
    */
   private async requireOrganization(actor: Actor | null, organizationId: string): Promise<Actor> {
-    const authorized = requireCapability(actor, "identity:manage");
-    if (!authorized.organizations.some(({ id }) => id === organizationId))
-      throw new CapabilityDeniedError("Organization access denied");
-    const candidateEventIds = authorized.eventAccess
-      .filter(({ capabilities }) => capabilities.has("identity:manage"))
-      .map(({ eventId }) => eventId);
-    if (
-      (await this.dependencies.events.listEventIdsInOrganization(organizationId, candidateEventIds))
-        .length > 0
-    )
-      return authorized;
-    throw new CapabilityDeniedError("Actor lacks identity:manage inside this organization");
+    return requireOrganizationAdministration(actor, organizationId, this.dependencies.events);
+  }
+
+  /**
+   * Refuse a removal that would leave nobody able to administer this organization.
+   *
+   * The organization's administrators are exactly its members holding an `organizer` event role
+   * on one of its events — that is what earns `identity:manage`, and
+   * `requireOrganizationAdministration`'s third condition is what makes the set organization-wide
+   * rather than per-event. Take the last one away and every administrative route in this service
+   * answers 403 for everybody, permanently: nothing in this product can grant the first organizer
+   * back, because granting requires the capability that just disappeared.
+   *
+   * This is issue #196's "prevent removal of the last effective administrator", and it was
+   * missing before custom roles existed — `revokeEventRole` and `removeMember` would both do it
+   * without complaint. The documented recovery path is the refusal's own message: staff a second
+   * administrator, then remove the first.
+   *
+   * Counted at the moment of the write rather than derived from the acting actor, because the
+   * administrator being removed is very often the caller themselves.
+   */
+  private async refuseLastAdministrator(
+    organizationId: string,
+    removing: { userId: string; eventId: string | null },
+  ): Promise<void> {
+    const eventIds = await this.dependencies.events.listEventIdsForOrganization(organizationId);
+    const remaining = await this.dependencies.repository.countAdministratorsAfter(
+      organizationId,
+      eventIds,
+      removing,
+    );
+    if (remaining === 0) throw new LastAdministratorError();
   }
 
   /**
@@ -389,6 +414,9 @@ export class MembershipService {
     const authorized = await this.requireOrganization(actor, organizationId);
     await this.requireRealSession(authorized, organizationId, "membership.removed", context);
     await this.refuseDemoSubject(userId, organizationId, "membership.removed", context);
+    // Removing a member takes every event role they hold with it, so this is the widest way to
+    // reach the unadministrable state and the first place to refuse it.
+    await this.refuseLastAdministrator(organizationId, { userId, eventId: null });
     return this.dependencies.repository.removeMember(
       organizationId,
       userId,
@@ -448,6 +476,10 @@ export class MembershipService {
     await this.requireRealSession(authorized, organizationId, "event_role.revoked", context);
     await this.requireOrganizationEvent(organizationId, eventId);
     await this.refuseDemoSubject(userId, organizationId, "event_role.revoked", context, eventId);
+    // Only the organizer role earns `identity:manage`; revoking a reviewer or speaker role
+    // cannot make an organization unadministrable, and refusing it would be noise.
+    if (role === "organizer")
+      await this.refuseLastAdministrator(organizationId, { userId, eventId });
     return this.dependencies.repository.revokeEventRole(
       eventId,
       userId,

@@ -25,7 +25,12 @@ type Workspace = ContentWorkspaceDto;
 type ContentSession = Workspace["sessions"][number];
 type SpeakerProfile = Workspace["speakers"][number];
 type SpeakerAsset = Workspace["assets"][number];
-type PublicationState = ContentSession["publicationState"];
+/**
+ * `NonNullable` because a custom role may hide `publicationState` (`PRD-IAM-002`), so the DTO
+ * field is optional. The three states themselves are unchanged; what is optional is whether this
+ * reader was sent one at all, which the render sites handle where they read it.
+ */
+type PublicationState = NonNullable<ContentSession["publicationState"]>;
 
 /**
  * Only an image can be a headshot, which is the same rule the server enforces. Checking it
@@ -172,16 +177,40 @@ type SessionDraft = {
   publicationState: PublicationState;
 };
 
+/**
+ * The editable copy of a session.
+ *
+ * A field this reader's role hides arrives absent, and the draft falls back to an empty value so
+ * the form has something to bind to. That is safe *only* because the editor disables an input
+ * the role cannot change and the API refuses the field regardless
+ * (`ContentService.updateSession` calls `assertEditable`): the client's fallback is presentation,
+ * never permission.
+ */
 function sessionDraft(session: ContentSession): SessionDraft {
   return {
     title: session.title,
-    abstract: session.abstract,
-    format: session.format,
-    tags: session.tags.join(", "),
-    tracks: session.tracks.join(", "),
+    abstract: session.abstract ?? "",
+    format: session.format ?? "",
+    tags: (session.tags ?? []).join(", "),
+    tracks: (session.tracks ?? []).join(", "),
     speakerProfileIds: session.speakerProfileIds,
-    publicationState: session.publicationState,
+    publicationState: session.publicationState ?? "draft",
   };
+}
+
+/**
+ * What a field the reader's role hides looks like on screen.
+ *
+ * Named rather than blank, because a blank cell says "this speaker has no organization" while
+ * this says "your role does not see this" — and only one of those is true. The projection has
+ * already withheld the value, so there is nothing here to reveal: this renders an absence.
+ */
+export function HiddenField() {
+  return (
+    <span className="hint" title="Hidden by your role">
+      Hidden
+    </span>
+  );
 }
 
 function commaList(value: string) {

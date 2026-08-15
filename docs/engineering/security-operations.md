@@ -1,6 +1,6 @@
 # Security operations
 
-Status: canonical | Owner: security | Last verified: 2026-08-13
+Status: canonical | Owner: security | Last verified: 2026-08-14
 
 What an operator does about credentials, and what happens to the people signed in while they do
 it. Everything here is procedure for a live deployment; the design behind it is
@@ -17,6 +17,14 @@ it. Everything here is procedure for a live deployment; the design behind it is
 | `AUTH_EMAIL_ENDPOINT`, `AUTH_EMAIL_TOKEN` | var, secret | config, `secret put` | the Worker refuses to boot outside demo mode |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_REDIRECT_URI` | vars | `apps/api/wrangler.toml` | Google sign-in answers 404 and `/api/auth/config` reports `google: false` |
 | `GOOGLE_CLIENT_SECRET` | secret | `npx wrangler secret put` | with the other two set, the Worker refuses to boot |
+
+One binding pair carries two kinds of message. `AUTH_EMAIL_ENDPOINT`/`AUTH_EMAIL_TOKEN` sends the
+emailed sign-in code and, since issue #196, a scheduled report's expiring link — one provider
+credential, two audiences, so revoking it stops sign-in as well as reporting. Absent, the tick
+records the report run as `failed` rather than as sent, deliberately, because an unconfigured
+deployment must not look like a working one. The report send carries a link and an expiry and
+never any rows, which is why it is acceptable on a mail path at all — see
+[`ADR-006`](../decisions/adr-006-field-access-and-capability-links.md).
 
 The Google bindings are **all three or none**: `resolveGoogleConfiguration` refuses a partial
 configuration by name at boot, because a deployment that offers a sign-in button it cannot complete

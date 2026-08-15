@@ -180,6 +180,17 @@ const READY: Readonly<Record<string, (page: Page) => Locator>> = {
   "organizer /members": (page) =>
     page.getByRole("heading", { level: 2, name: "Recent identity activity", exact: true }),
   /*
+   * Roles paint a `Loading roles…` card until the read answers, and both branches that replace it
+   * are loaded branches: an event with composed roles shows the table, one without shows the empty
+   * state. Waiting for either is waiting for the read; waiting for the card's own title would not
+   * be, because the title is on screen in the loading branch too.
+   */
+  "organizer /roles": (page) =>
+    page
+      .locator("table.data")
+      .first()
+      .or(page.getByRole("heading", { name: "No custom roles yet" })),
+  /*
    * The demo organizer is a throwaway persona, and this workspace refuses those before it fetches
    * anything (#206) — so its list never loads here and there is no loaded list to wait for. The
    * refusal *is* what this audit measures, and naming it is the honest entry; a real-session
@@ -187,11 +198,29 @@ const READY: Readonly<Record<string, (page: Page) => Locator>> = {
    */
   "organizer /integrations/api-clients": (page) =>
     page.getByRole("link", { name: "Sign in with Google" }),
+  /*
+   * Webhooks answer `503 WEBHOOK_UNAVAILABLE` wherever the deployment carries no egress
+   * configuration, which is every local checkout — so what loads here is the "not configured"
+   * state, and that state *is* what this audit measures. Named rather than counted as covered, the
+   * same way the api-clients refusal above is. A configured deployment shows the subscription
+   * table instead, and no suite in this repository audits that.
+   */
+  "organizer /integrations/webhooks": (page) =>
+    page
+      .getByRole("heading", { name: "Webhook delivery is not configured here" })
+      .or(page.getByRole("heading", { name: "No webhooks yet" })),
   // The outbox card is painted before its read answers; only the hint counts what arrived.
   "organizer /communications": (page) =>
     page.locator("p.hint").filter({ hasText: /\d+ deliver(y|ies) loaded/ }),
   "organizer /publishing": (page) =>
     page.getByRole("heading", { level: 2, name: "Publication", exact: true }),
+  // Portals have the same two loaded branches as the directory above — a table of portals, or the
+  // empty state that replaces it — and a `Loading sites…` card before either.
+  "organizer /sites": (page) =>
+    page
+      .locator("table.data")
+      .first()
+      .or(page.getByRole("heading", { name: "No portals yet" })),
   "organizer /event-templates": (page) =>
     page.getByRole("heading", { level: 2, name: "Templates", exact: true }),
   /*
@@ -205,6 +234,18 @@ const READY: Readonly<Record<string, (page: Page) => Locator>> = {
     page
       .locator("p.palette-announce")
       .filter({ hasText: /\d+ items? (is|are) waiting on this event\./ }),
+  /*
+   * Reports render the builder only once the catalogue answers, and the Columns checkboxes *are*
+   * the catalogue — one per field of the selected dataset — so this waits for the content rather
+   * than for the form around it.
+   *
+   * Deliberately not the dataset `<option>`s, which was the first attempt and failed twice over:
+   * an option inside a closed `<select>` is never visible to a visibility assertion, and
+   * `getByRole("combobox")` finds the shell's own event switcher in the banner long before it
+   * finds anything this workspace rendered.
+   */
+  "organizer /reports": (page) =>
+    page.getByRole("group", { name: "Columns" }).getByRole("checkbox").first(),
   /*
    * `/audit` is the surface the old wait was named for and did not cover: it renders no skeleton
    * and no loading gate, so the toolbar, the caption and an empty `<tbody>` are on screen from the

@@ -7,6 +7,7 @@ import {
   sqliteTable,
   text,
   type AnySQLiteColumn,
+  uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
 export function defineIdentityAccessSchema(references: {
@@ -170,7 +171,7 @@ export function defineIdentityAccessSchema(references: {
     (table) => [
       check(
         "identity_audit_events_action",
-        sql`${table.action} IN ('session.issued', 'session.signed_out', 'session.revoked_all', 'membership.invited', 'membership.invitation_revoked', 'membership.accepted', 'membership.removed', 'membership.role_changed', 'event_role.granted', 'event_role.revoked', 'api_client.created', 'api_client.rotated', 'api_client.revoked')`,
+        sql`${table.action} IN ('session.issued', 'session.signed_out', 'session.revoked_all', 'membership.invited', 'membership.invitation_revoked', 'membership.accepted', 'membership.removed', 'membership.role_changed', 'event_role.granted', 'event_role.revoked', 'api_client.created', 'api_client.rotated', 'api_client.revoked', 'custom_role.created', 'custom_role.updated', 'custom_role.deleted')`,
       ),
       check("identity_audit_events_outcome", sql`${table.outcome} IN ('succeeded', 'refused')`),
       check("identity_audit_events_source", sql`${table.source} IN ('human', 'api', 'system')`),
@@ -219,6 +220,146 @@ export function defineIdentityAccessSchema(references: {
     ],
   );
 
+  /**
+   * A role an organization admin composed, and the per-field access it carries (issue #196).
+   *
+   * Event-scoped, because that is where every other grant in this product lives: a role spanning
+   * events would be a second authorization model beside `requireEventCapability`.
+   */
+  // @spec PRD-IAM-002
+  const eventCustomRoles = sqliteTable(
+    "event_custom_roles",
+    {
+      id: text("id").primaryKey().notNull(),
+      eventId: text("event_id")
+        .notNull()
+        .references(() => references.eventsId, { onDelete: "cascade" }),
+      organizationId: text("organization_id")
+        .notNull()
+        .references(() => references.organizationsId, { onDelete: "cascade" }),
+      name: text("name").notNull(),
+      description: text("description").notNull().default(""),
+      template: text("template").notNull(),
+      createdBy: text("created_by")
+        .notNull()
+        .references(() => users.id),
+      createdAt: integer("created_at").notNull(),
+      updatedAt: integer("updated_at").notNull(),
+      revision: integer("revision").notNull().default(1),
+    },
+    (table) => [
+      check(
+        "event_custom_roles_template",
+        sql`${table.template} IN ('av', 'programme-assistant', 'sponsor-liaison')`,
+      ),
+      check("event_custom_roles_name_length", sql`length(${table.name}) BETWEEN 1 AND 80`),
+      check("event_custom_roles_description_length", sql`length(${table.description}) <= 400`),
+      check("event_custom_roles_revision", sql`${table.revision} >= 1`),
+      uniqueIndex("event_custom_roles_event_name_idx").on(table.eventId, sql`lower(${table.name})`),
+      index("event_custom_roles_organization_idx").on(table.organizationId, table.eventId),
+    ],
+  );
+
+  /** `identity:manage` is deliberately absent — see `1005_custom_event_roles.sql`. */
+  const eventCustomRoleCapabilities = sqliteTable(
+    "event_custom_role_capabilities",
+    {
+      roleId: text("role_id")
+        .notNull()
+        .references(() => eventCustomRoles.id, { onDelete: "cascade" }),
+      capability: text("capability").notNull(),
+    },
+    (table) => [
+      primaryKey({ columns: [table.roleId, table.capability] }),
+      check(
+        "event_custom_role_capabilities_capability",
+        sql`${table.capability} IN ('events:read', 'events:settings:read', 'communications:manage', 'agenda:manage', 'crm:manage', 'content:read', 'content:manage', 'review:manage', 'review:evaluate', 'reports:pii')`,
+      ),
+    ],
+  );
+
+  /** `field = '*'` is the subject-wide default. `GOVERNED_FIELDS` is the same allowlist. */
+  const eventCustomRoleFieldPolicies = sqliteTable(
+    "event_custom_role_field_policies",
+    {
+      roleId: text("role_id")
+        .notNull()
+        .references(() => eventCustomRoles.id, { onDelete: "cascade" }),
+      subject: text("subject").notNull(),
+      field: text("field").notNull(),
+      policy: text("policy").notNull(),
+    },
+    (table) => [
+      primaryKey({ columns: [table.roleId, table.subject, table.field] }),
+      check(
+        "event_custom_role_field_policies_subject",
+        sql`${table.subject} IN ('session', 'speaker', 'contact')`,
+      ),
+      check(
+        "event_custom_role_field_policies_policy",
+        sql`${table.policy} IN ('view', 'lock', 'hide')`,
+      ),
+      check(
+        "event_custom_role_field_policies_field",
+        sql`(${table.subject} = 'session' AND ${table.field} IN ('*', 'title', 'abstract', 'format', 'tags', 'tracks', 'publicationState')) OR (${table.subject} = 'speaker' AND ${table.field} IN ('*', 'name', 'email', 'bio', 'pronouns', 'organization', 'photoAssetId', 'workflowStatus', 'logistics', 'customFields')) OR (${table.subject} = 'contact' AND ${table.field} IN ('*', 'name', 'email', 'company', 'title', 'notes', 'tags', 'fields', 'activities'))`,
+      ),
+      check(
+        "event_custom_role_field_policies_required",
+        sql`NOT (${table.policy} = 'hide' AND ((${table.subject} = 'session' AND ${table.field} = 'title') OR (${table.subject} = 'speaker' AND ${table.field} = 'name') OR (${table.subject} = 'contact' AND ${table.field} = 'name')))`,
+      ),
+    ],
+  );
+
+  /**
+   * What an organizer has closed on this event's own portal (issue #196; the primitive `GAP-028`
+   * needs).
+   *
+   * Not the custom-role policy table, and the difference is the whole point: that one answers
+   * "what may this staffed role see", this one answers "what may the person whose record it is
+   * change". A speaker editing their own profile holds no custom role, and freezing the biography
+   * after the programme is printed is a property of the event. Same vocabulary, so
+   * `fieldAccessFor` composes both without a second rule. See `1007_event_field_locks.sql`.
+   */
+  // @spec PRD-IAM-002
+  const eventFieldLocks = sqliteTable(
+    "event_field_locks",
+    {
+      eventId: text("event_id")
+        .notNull()
+        .references(() => references.eventsId, { onDelete: "cascade" }),
+      subject: text("subject").notNull(),
+      field: text("field").notNull(),
+      policy: text("policy").notNull(),
+      updatedBy: text("updated_by")
+        .notNull()
+        .references(() => users.id),
+      updatedAt: integer("updated_at").notNull(),
+    },
+    (table) => [
+      primaryKey({ columns: [table.eventId, table.subject, table.field] }),
+      check(
+        "event_field_locks_subject",
+        sql`${table.subject} IN ('session', 'speaker', 'contact')`,
+      ),
+      check("event_field_locks_policy", sql`${table.policy} IN ('view', 'lock', 'hide')`),
+      check(
+        "event_field_locks_field",
+        sql`(${table.subject} = 'session' AND ${table.field} IN ('*', 'title', 'abstract', 'format', 'tags', 'tracks', 'publicationState')) OR (${table.subject} = 'speaker' AND ${table.field} IN ('*', 'name', 'email', 'bio', 'pronouns', 'organization', 'photoAssetId', 'workflowStatus', 'logistics', 'customFields')) OR (${table.subject} = 'contact' AND ${table.field} IN ('*', 'name', 'email', 'company', 'title', 'notes', 'tags', 'fields', 'activities'))`,
+      ),
+      check(
+        "event_field_locks_required",
+        sql`NOT (${table.policy} = 'hide' AND ((${table.subject} = 'session' AND ${table.field} = 'title') OR (${table.subject} = 'speaker' AND ${table.field} = 'name') OR (${table.subject} = 'contact' AND ${table.field} = 'name')))`,
+      ),
+      index("event_field_locks_event_idx").on(table.eventId, table.subject),
+    ],
+  );
+
+  /**
+   * The primary key states a product rule: **a person holds at most one custom role on an
+   * event.** Two would make the field decision a negotiation between two policy sets, and every
+   * rule for resolving that disagreement is one somebody must be told before they can predict
+   * what an exported row contains.
+   */
   const eventRoles = sqliteTable(
     "event_roles",
     {
@@ -229,14 +370,22 @@ export function defineIdentityAccessSchema(references: {
         .notNull()
         .references(() => users.id),
       role: text("role").notNull(),
+      customRoleId: text("custom_role_id").references(() => eventCustomRoles.id, {
+        onDelete: "cascade",
+      }),
     },
     (table) => [
       primaryKey({ columns: [table.eventId, table.userId, table.role] }),
       check(
         "event_roles_role",
-        sql`${table.role} IN ('organizer', 'reviewer', 'speaker', 'public')`,
+        sql`${table.role} IN ('organizer', 'reviewer', 'speaker', 'public', 'custom')`,
+      ),
+      check(
+        "event_roles_custom_role",
+        sql`(${table.role} = 'custom') = (${table.customRoleId} IS NOT NULL)`,
       ),
       index("event_roles_user_id_idx").on(table.userId),
+      index("event_roles_custom_role_idx").on(table.customRoleId),
     ],
   );
 
@@ -281,7 +430,7 @@ export function defineIdentityAccessSchema(references: {
       primaryKey({ columns: [table.clientId, table.capability] }),
       check(
         "api_client_scopes_capability",
-        sql`${table.capability} IN ('events:read', 'events:create', 'events:settings:read', 'events:settings:update', 'communications:manage', 'agenda:manage', 'crm:manage', 'content:read', 'content:manage', 'review:manage', 'review:evaluate', 'identity:manage')`,
+        sql`${table.capability} IN ('events:read', 'events:create', 'events:settings:read', 'events:settings:update', 'communications:manage', 'agenda:manage', 'crm:manage', 'content:read', 'content:manage', 'review:manage', 'review:evaluate', 'identity:manage', 'reports:pii')`,
       ),
     ],
   );
@@ -312,6 +461,10 @@ export function defineIdentityAccessSchema(references: {
     identityAuditEvents,
     identityInvitations,
     organizationMemberships,
+    eventCustomRoles,
+    eventCustomRoleCapabilities,
+    eventCustomRoleFieldPolicies,
+    eventFieldLocks,
     eventRoles,
     apiClients,
     apiClientScopes,

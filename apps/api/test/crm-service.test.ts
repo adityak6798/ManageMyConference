@@ -2,6 +2,7 @@
 import { contactListResponseSchema, importPreviewResponseSchema } from "@greenroom/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { MemoryCrmRepository } from "../src/adapters/persistence/memory-crm-repository";
+import type { OrganizationContact } from "../src/domain/crm/contact";
 import { CrmService } from "../src/application/crm/crm-service";
 import {
   PipelineStageInUseError,
@@ -566,7 +567,9 @@ describe("ACC-CRM organization directory", () => {
     expect(again.prospect.id).toBe(first.prospect.id);
     expect(createOrLink).toHaveBeenCalledTimes(1);
     expect(again.contact.events).toHaveLength(1);
-    expect(again.contact.activities.filter(({ kind }) => kind === "conversion")).toHaveLength(1);
+    expect(
+      (again.contact.activities ?? []).filter(({ kind }) => kind === "conversion"),
+    ).toHaveLength(1);
   });
 
   it("adopts an event prospect with the same normalized address instead of duplicating it", async () => {
@@ -614,7 +617,9 @@ describe("ACC-CRM organization directory", () => {
     );
     await expect(
       repository.linkContactToExistingProspect({
-        contact: pushed.contact,
+        // An organizer is under no field policy, so this projection is complete; the type
+        // admits an absence because the same read serves a role that has one.
+        contact: pushed.contact as OrganizationContact,
         prospect: pushed.prospect,
         activity: {
           id: "71000000-0000-4000-8000-000000000099",
@@ -771,7 +776,7 @@ describe("ACC-CRM organization directory", () => {
     await service.importContacts(organizer, organizationId, { filename: "speakers.csv", csv });
     const after = await service.getContact(organizer, organizationId, typed.id);
     expect(after.notes).toBe("Prefers a morning slot");
-    expect(after.activities.map(({ kind }) => kind)).toContain("import");
+    expect((after.activities ?? []).map(({ kind }) => kind)).toContain("import");
     // Re-importing the same file updates rather than duplicating.
     expect((await service.listContacts(organizer, organizationId)).contacts).toHaveLength(2);
   });
@@ -1035,7 +1040,7 @@ describe("ACC-CRM organization directory", () => {
     });
     expect(result.sent[0]).toMatchObject({ deliveryId: "delivery-1", created: false });
     const after = await service.getContact(organizer, organizationId, contact.id);
-    expect(after.activities.filter(({ kind }) => kind === "outreach")).toHaveLength(0);
+    expect((after.activities ?? []).filter(({ kind }) => kind === "outreach")).toHaveLength(0);
   });
 
   it("keeps the record of every message it managed to send before one failed", async () => {
@@ -1057,9 +1062,9 @@ describe("ACC-CRM organization directory", () => {
     ).rejects.toThrow(/provider refused/);
     // The first message really was queued; a batched write would have recorded neither.
     const recorded = await service.getContact(organizer, organizationId, first.id);
-    expect(recorded.activities.filter(({ kind }) => kind === "outreach")).toHaveLength(1);
+    expect((recorded.activities ?? []).filter(({ kind }) => kind === "outreach")).toHaveLength(1);
     const missed = await service.getContact(organizer, organizationId, second.id);
-    expect(missed.activities.filter(({ kind }) => kind === "outreach")).toHaveLength(0);
+    expect((missed.activities ?? []).filter(({ kind }) => kind === "outreach")).toHaveLength(0);
   });
 
   it("names both limits when a row breaks both", async () => {
@@ -1225,7 +1230,7 @@ describe("ACC-CRM organization directory", () => {
     // The renderer refuses a placeholder nothing fills, so the greeting name travels with it.
     expect(send.mock.calls[0]?.[0].payload).toMatchObject({ speakerName: "Ada Rivera" });
     const after = await service.getContact(organizer, organizationId, contact.id);
-    expect(after.activities.filter(({ kind }) => kind === "outreach")).toHaveLength(1);
+    expect((after.activities ?? []).filter(({ kind }) => kind === "outreach")).toHaveLength(1);
   });
 
   it("refuses outreach that would reach nobody, or that names another organization's event", async () => {

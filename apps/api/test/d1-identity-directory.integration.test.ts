@@ -2,6 +2,7 @@
 import { readFile } from "node:fs/promises";
 import type { Miniflare } from "miniflare";
 import { afterEach, describe, expect, it } from "vitest";
+import { capabilitySchema, sessionResponseSchema } from "@greenroom/contracts";
 import { createMigratedDatabase } from "./support/seeded-d1";
 import { D1IdentityDirectory } from "../src/adapters/persistence/d1-identity-directory";
 import type { IdentityDatabasePort } from "../src/adapters/persistence/d1-identity-directory";
@@ -15,6 +16,45 @@ const statements = (sql: string) =>
 describe("D1IdentityDirectory", () => {
   let runtime: Miniflare | undefined;
   afterEach(async () => runtime?.dispose());
+
+  /*
+   * Every capability the server can put in a session has to be one the browser's schema knows.
+   *
+   * This is not a style rule. `/api/session` is decoded against `sessionResponseSchema` before the
+   * console renders anything, so **one unknown capability does not degrade a screen — it stops the
+   * console loading at all**, and the person sees the signed-out surface with a generic error.
+   * That is exactly what shipping `reports:pii` in the organizer grant and not in the contract's
+   * enum did: 56 of 73 browser journeys failed at "Continue as organizer", and no unit test
+   * noticed, because the in-memory demo actor is a *second* capability map that did not have it.
+   *
+   * So this asserts the real one, resolved out of migrated D1, against the schema the browser uses.
+   */
+  it("issues no capability the browser's contract cannot read", async () => {
+    const migrated = await createMigratedDatabase({ label: "identity-capabilities", seed: true });
+    runtime = migrated.runtime;
+    const directory = new D1IdentityDirectory(migrated.database as IdentityDatabasePort);
+
+    for (const persona of ["organizer", "reviewer", "speaker"] as const) {
+      const actor = await directory.findByPersona(persona);
+      if (!actor) throw new Error(`the seed has no ${persona}`);
+      for (const capability of actor.capabilities)
+        expect(() => capabilitySchema.parse(capability)).not.toThrow();
+      // The whole payload, because the enum is only one of the ways a session can fail to decode.
+      expect(() =>
+        sessionResponseSchema.parse({
+          actor: { id: actor.id, name: actor.name, persona: actor.persona },
+          organizations: actor.organizations,
+          eventAccess: actor.eventAccess.map((access) => ({
+            eventId: access.eventId,
+            role: access.role,
+            capabilities: [...access.capabilities],
+          })),
+          capabilities: [...actor.capabilities],
+          authentication: "demo",
+        }),
+      ).not.toThrow();
+    }
+  });
 
   it("uses migrated memberships and roles as the authorization source", async () => {
     const migrated = await createMigratedDatabase({ label: "identity", seed: true });
@@ -43,6 +83,9 @@ describe("D1IdentityDirectory", () => {
         "content:manage",
         "review:manage",
         "identity:manage",
+        // Reading unmasked personal data in a report. Organizers hold it; every narrower built-in
+        // role does not, and a custom role gets it only when an administrator grants it (#196).
+        "reports:pii",
         "review:evaluate",
       ]),
     });
@@ -65,6 +108,7 @@ describe("D1IdentityDirectory", () => {
         "content:manage",
         "review:manage",
         "identity:manage",
+        "reports:pii",
         "review:evaluate",
       ]),
     });

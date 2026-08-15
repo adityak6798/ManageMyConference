@@ -90,13 +90,26 @@ export const UNMODELLED_OBJECTS = [
   // they are the whole reason the table is evidence rather than a log somebody can rewrite.
   "trigger:platform_audit_records_no_update",
   "trigger:platform_audit_records_no_delete",
-  "trigger:speaker_profile_photo_requires_owned_asset",
-  "trigger:speaker_asset_delete_rejects_profile_photo",
-  // Prevent a stage-list replacement from deleting a column that acquired a card after the
-  // service read it. The explicit migrate-and-delete command empties the stage first (#226).
-  "trigger:crm_pipeline_stage_no_stranded_prospects",
-  "trigger:crm_prospect_stage_requires_pipeline_stage",
-  "trigger:crm_prospect_insert_requires_pipeline_stage",
+  // Sites and portals (issue #196, migration 1804). A privacy-notice version and a consent
+  // record are both immutable, and the point of each is what it makes the other mean: a consent
+  // names a version, so a version whose text could move afterwards would make every consent a
+  // claim about text nobody can produce. The publish history is append-only for the same reason
+  // the audit timeline is, and it carries no foreign key so the delete guard cannot be reached
+  // by a cascade.
+  "trigger:site_privacy_notices_immutable",
+  "trigger:site_consents_immutable",
+  "trigger:site_publications_no_update",
+  "trigger:site_publications_no_delete",
+  // A scheduled report's run log is append-only for the same reason the audit timeline is: it is
+  // the row an operator reads when somebody says the report never arrived, and a log a later
+  // write can correct is not evidence of anything (issue #196, migration 1902).
+  "trigger:report_runs_no_update",
+  // An embed's output type and its address are what a host page depends on: a page parsing JSON
+  // does not survive being handed HTML, and rotating an address breaks every installation
+  // silently. Both are refused at the table so a future writer that skipped the service still
+  // cannot move them (issue #192, migration 1805).
+  "trigger:publication_embeds_output_is_immutable",
+  "trigger:publication_embeds_token_is_immutable",
   // The pair that makes drift in `agenda_session_schedules` detectable rather than silent. They
   // belong to the database rather than to the application on purpose: a writer of
   // `agenda_publications` that knows nothing about the derived table — the old Worker during a
@@ -104,6 +117,12 @@ export const UNMODELLED_OBJECTS = [
   // unmaintained write can be noticed at all (issue #169).
   "trigger:agenda_publication_insert_advances_watermark",
   "trigger:agenda_publication_delete_invalidates_watermark",
+  // Guards introduced by the migrations inherited from main; Drizzle cannot represent triggers.
+  "trigger:crm_pipeline_stage_no_stranded_prospects",
+  "trigger:crm_prospect_insert_requires_pipeline_stage",
+  "trigger:crm_prospect_stage_requires_pipeline_stage",
+  "trigger:speaker_asset_delete_rejects_profile_photo",
+  "trigger:speaker_profile_photo_requires_owned_asset",
 ];
 
 const dialect = new SQLiteSyncDialect();

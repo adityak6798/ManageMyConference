@@ -39,7 +39,7 @@ Three terms are used precisely:
 
 ## What was measured
 
-Everything below was run on 2026-08-11, in this order, against the commit this document names.
+Everything below was run on 2026-08-14, in this order, against the commit this document names.
 Each run wrote a record under `.evidence/`, and `gate:evidence` refuses these rows if a record is
 missing, failed, or was produced against a different commit — so the numbers here are checkable
 rather than asserted.
@@ -51,12 +51,23 @@ issues #28 and #90).
 
 | Command | Result |
 |---|---|
-| `npm run check` | exit 0 — `gate:integrity` (gate drift over 6 gates, Biome/Ruff format, `greenroom-context check`, Python CLI tests, lint + AST error policy, typecheck, OpenAPI drift, declared-schema drift over 34 tables and 22 migrations), then `gate:test-build` (376 tests across the `node --test` tool suite, `@greenroom/api` and `@greenroom/web`, plus both production builds), then `gate:d1` (28 tests in 12 files), then `gate:evidence` |
-| `npm run gate:browser` (`setup:local`, production web build, `reset`, then the suite) | 30 passed, on derived ports with no manual port assignment. This is the clean-reset run; building first also proves Wrangler can serve the production frontend artifact from a clean checkout |
-| `npm run test:e2e` again against the same still-running servers | 30 passed — re-runnable on one fixture without a reset |
-| `npm run test:quality` | 3 passed |
+| `npm run check` | exit 0 — `gate:integrity` (gate drift over 6 gates, Biome/Ruff format, `greenroom-context check`, Python CLI tests, lint + AST error policy, typecheck, OpenAPI drift, declared-schema drift over 96 tables and 71 migrations), then `gate:test-build` (1123 tests in `@greenroom/api`, 380 in `@greenroom/web`, and the `node --test` tool suite, plus both production builds), then `gate:d1` (248 tests in 27 files), then `gate:evidence` |
+| `npm run gate:browser` (`setup:local`, production web build, `reset`, then the suite) | 79 passed, on derived ports with no manual port assignment. This is the clean-reset run; building first also proves Wrangler can serve the production frontend artifact from a clean checkout |
+| `npm run test:quality` | 7 passed |
 | `npm run gate:security` | exit 0 — `npm audit --audit-level=high` found 0 vulnerabilities |
 | gitleaks | **not runnable locally.** It is a marketplace action; it succeeded in the `security` job of run `31471037575` at head `10eab436` |
+
+The **re-runnable** property — a second `npm run test:e2e` against the same still-running servers,
+with no reset — was measured on 2026-08-11 at 30 passed and has **not** been re-measured since the
+suite grew to 73. It is listed here rather than in the table above because it is an older
+measurement of a property that is still claimed, and dropping it silently would be indistinguishable
+from withdrawing it.
+
+The 2026-08-14 measurement above is the *fourth* run of that commit's suite. The first found three
+real defects and is why they are fixed; the third collapsed 23 specs in when the local Worker died
+with a bare `✘ [ERROR]`, failing 47 tests in 19.8 minutes, and the fourth passed 72 in 1.5 minutes
+with nothing changed between them. That is `GAP-017`, and this pair of runs is the clearest
+before-and-after that entry has.
 
 The earlier measurement of two `wrangler dev` instances of one worktree corrupting each other —
 2 failures across 5 runs, a different spec each time — is **no longer reproducible and is not
@@ -140,11 +151,37 @@ five embed types and the JSON feed. The clean seed now contains two placed sessi
 These assertions close the former two-snapshot disagreement for the paths they exercise; live cache
 and deployment verification remain bounded by the existing hosted-smoke gap.
 
-R6 evaluator-journey evidence addendum (`ACC-IDENTITY-EVENTS`, `ACC-SPEAKER`, `ACC-CRM`):
+Programme, portals and reporting evidence addendum (`ACC-IDENTITY-EVENTS`, `ACC-PUBLIC`,
+`ACC-AGENDA`, `ACC-OPS`, `ACC-INTEGRATION`):
 
-- **CFP-17's missing deliberate second-event step now ships.** An authorized organizer reaches it beside the event switcher, chooses an organization, name, canonical IANA timezone, public address and dates, and either an explicitly selected active template or an empty event. The deliberate command carries a caller-held `Idempotency-Key` header through HTTP and namespaces it to actor and intent at the repository's existing provisioning seam; omitting the header preserves legacy unkeyed creation, reusing it with different input is a `409`, and a retry replays the original create response after later edits. `event-service.test.ts`, `http.test.ts`, and `d1-event-repository.integration.test.ts` prove those rules, a concurrent pair converges on one event and one grant, and a fresh key creates another. `App.test.tsx` asserts the control is discoverable, the fields and header cross the wire, the explicit template uses the existing versioned application API, and the new event is selected immediately. `reference-slice.spec.ts` creates and reloads a second event, then proves it starts with no proposals while the seeded event's proposals are unchanged. This is the deliberate additional-event path only; signup remains identity's first-event policy.
-- **SPK-01 and SPK-02/CNT-10 now cover the evaluator's organizer journeys.** `speaker-roster.test.tsx` proves the roster's own name/company search composes with readiness, has an explicit empty state, and never changes the independent session search; it also drives the organizer editor and asserts it sends the same expected-version profile and headshot commands as speaker self-service. Profiles now persist job title and a derived revision version, and text, headshot selection, replacement and removal all pass through the same optimistic revision seam. A stale speaker/organizer edit is refused, the winning version is recorded in the unified audit timeline with the actor, and replaced or removed objects become private in the same D1 batch. Migration `1410` repairs any pre-existing dangling selection before making the photo reference a committed ownership invariant: a restore cannot resurrect a deleted asset, and metadata deletion either sees no reference or clears a last-moment selection with its own canonical revision before deleting. `content-service.test.ts` and `d1-content-repository.integration.test.ts` cover the upgrade, those races and privacy effects. `content-publication-gate.test.ts` proves the public allowlist, while `public-event-pages.test.tsx` renders bio plus job title and company from that canonical projection.
-- **Issue #226 closes the two remaining stale-read decisions in the configurable pipeline.** A move now gives the repository only destination, actor, source and time; real D1 derives the prior stage from the row the batch actually moves and writes the transition plus human-readable activity before the update, so two commands holding the same stale snapshot record one truthful chain. Stage-list replacement no longer trusts a service count: migration `1503` refuses deletion from committed card rows, the adapter maps that constraint to the existing stage-in-use refusal, and migrate-and-delete continues to move and record its exact SQL-selected set first. The same migration guards every inverse interleaving: a move, migration, direct create or directory-sourced create whose target was deleted after its read is refused before the card, link or history changes, with the existing typed board error. Both creation paths heal a fresh event's board and choose the same configured entry stage. `d1-crm-repository.integration.test.ts` interleaves those races, asserts `identified → contacted → engaged`, proves a card arriving after the board read leaves both its stage and itself intact, and proves neither a late move nor either late create can strand a card in a deleted column.
+- **Per-field access** (`field-access.test.ts`, `custom-roles.test.ts`,
+  `d1-custom-roles.integration.test.ts`, `portal-field-locks.test.tsx`) covers the composition
+  rule across several grants, the required-field clamp from Hide to Lock, the refusal to grant
+  `identity:manage` to a composed role, the stale-revision refusal, and the resolution of a custom
+  role's capabilities *and* field policies in the same D1 read that resolves roles. What that read
+  proves is the property the rest rests on: a screen, an export and a share link cannot reach
+  different answers, because there is only one answer.
+- **Exports go through the same decision as the screen.** `reporting.test.ts` asserts that a
+  masked column is masked in CSV and XLSX as well as on screen, that a filter still evaluates
+  against the unmasked value so a saved report keeps meaning one thing, and that a caller without
+  `reports:pii` asking for an unmasked run is refused rather than quietly served masked rows.
+- **Portals** (`site-service.test.ts`, `d1-site-repository.integration.test.ts`) cover the refusal
+  to publish without a privacy notice, the append-only notice and consent record, the stored
+  notice version rather than the requested one, the unresolved-program projection, and a taken
+  slug answering as a conflict rather than a fault.
+- **Agenda generation** (`agenda-draft-generation.test.ts`, `agenda-generation-service.test.ts`,
+  `d1-agenda-generation.integration.test.ts`) covers criterion priority, the availability window,
+  the named reason a session could not be seated, and the stale-board refusal on accept.
+- **Embeds** (`embed-lifecycle.test.ts`) cover every output format, the immutable output and token,
+  and revocation.
+- **Not covered by any of these**: no browser spec drives the new workspaces end to end. Each is
+  audited by the `lifecycle-demo` axe and 390px sweeps, which enumerate the sidebar and refuse a
+  destination with no declared readiness signal — so `/reports`, `/sites`, `/roles` and
+  `/integrations/webhooks` each name in `READY` the content their audit waits for, and
+  `/integrations/webhooks` names the *unconfigured* state, because that is what a deployment with
+  no webhook egress renders and no suite here audits a configured one. What none of that is, is a
+  journey: no spec composes a portal and registers against it, builds a report and opens its share
+  link, or accepts a generated arrangement onto the board. That is the honest limit of these rows.
 
 ## What each row's automated evidence actually is
 

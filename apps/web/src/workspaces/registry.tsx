@@ -16,11 +16,15 @@ import { cfpWorkspace } from "./cfp";
 import { communicationsWorkspace } from "./communications";
 import { portalWorkspace, sessionsWorkspace } from "./content";
 import type { NavGroupName, WorkspaceAccess, WorkspaceModule } from "./contract";
+import { customRolesWorkspace } from "./custom-roles";
 import { crmDirectoryWorkspace, crmWorkspace } from "./crm";
 import { eventTemplatesWorkspace } from "./events";
 import { membersWorkspace } from "./identity";
 import { auditWorkspace, inboxWorkspace, searchWorkspace } from "./platform";
 import { publishingWorkspace } from "./publishing";
+import { reportsWorkspace } from "./reports";
+import { sitesWorkspace } from "./sites";
+import { webhooksWorkspace } from "./webhooks";
 import { abstractsWorkspace, reviewsWorkspace } from "./review";
 
 export const workspaceModules: readonly WorkspaceModule[] = [
@@ -31,15 +35,19 @@ export const workspaceModules: readonly WorkspaceModule[] = [
   crmWorkspace,
   crmDirectoryWorkspace,
   membersWorkspace,
+  customRolesWorkspace,
   apiClientsWorkspace,
   communicationsWorkspace,
   publishingWorkspace,
+  sitesWorkspace,
   reviewsWorkspace,
   portalWorkspace,
   eventTemplatesWorkspace,
   searchWorkspace,
   inboxWorkspace,
+  reportsWorkspace,
   auditWorkspace,
+  webhooksWorkspace,
 ];
 
 /**

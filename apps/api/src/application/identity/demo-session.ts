@@ -25,6 +25,11 @@ const personas = {
         "content:manage",
         "review:manage",
         "identity:manage",
+        // Kept in step with the organizer grant `d1-identity-directory` issues. These two maps
+        // answer the same question for two callers — this one where no directory is configured,
+        // that one in the running Worker — and a capability in one and not the other is a
+        // difference nobody sees until a browser decodes a session it does not recognize.
+        "reports:pii",
       ] as const,
     })),
     capabilities: [
@@ -37,6 +42,7 @@ const personas = {
       "content:manage",
       "review:manage",
       "identity:manage",
+      "reports:pii",
     ] as const,
   },
   reviewer: {

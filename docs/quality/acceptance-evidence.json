@@ -58,7 +58,11 @@
         "apps/web/e2e/members.spec.ts",
         "apps/web/e2e/api-clients.spec.ts",
         "apps/web/test/accept-invitation.test.tsx",
-        "apps/web/test/members-workspace.test.tsx"
+        "apps/web/test/members-workspace.test.tsx",
+        "apps/api/test/field-access.test.ts",
+        "apps/api/test/custom-roles.test.ts",
+        "apps/api/test/d1-custom-roles.integration.test.ts",
+        "apps/web/test/portal-field-locks.test.tsx"
       ]
     },
     "ACC-REVIEW": {
@@ -162,7 +166,10 @@
         "apps/web/test/agenda-week-board-cost.test.tsx",
         "apps/web/e2e/agenda.spec.ts",
         "apps/web/e2e/reference-slice.spec.ts",
-        "apps/web/e2e/lifecycle.spec.ts"
+        "apps/web/e2e/lifecycle.spec.ts",
+        "apps/api/test/agenda-draft-generation.test.ts",
+        "apps/api/test/agenda-generation-service.test.ts",
+        "apps/api/test/d1-agenda-generation.integration.test.ts"
       ]
     },
     "ACC-PUBLIC": {
@@ -179,8 +186,11 @@
         "apps/web/e2e/public-itinerary.spec.ts",
         "apps/web/e2e/publishing.spec.ts",
         "apps/web/e2e/00-seed-state.spec.ts",
-        "apps/web/e2e/cfp-window.spec.ts",
-        "apps/web/e2e/lifecycle.spec.ts"
+        "apps/web/e2e/lifecycle.spec.ts",
+        "apps/api/test/site-service.test.ts",
+        "apps/api/test/d1-site-repository.integration.test.ts",
+        "apps/api/test/embed-lifecycle.test.ts",
+        "apps/web/e2e/cfp-window.spec.ts"
       ]
     },
     "ACC-INTEGRATION": {
@@ -198,6 +208,7 @@
         "apps/api/test/d1-webhooks.integration.test.ts",
         "apps/api/test/webhook-security.test.ts",
         "apps/web/test/accelevents-sync-panel.test.tsx",
+        "apps/web/test/webhooks-workspace.test.tsx",
         "apps/api/test/provider-configuration.test.ts",
         "apps/api/test/default-templates.integration.test.ts"
       ]
@@ -239,7 +250,10 @@
         "apps/api/test/platform-audit.test.ts",
         "apps/web/test/platform-audit.test.tsx",
         "apps/api/test/publication-notifications.test.ts",
-        "apps/api/test/platform-attribution.test.ts"
+        "apps/api/test/platform-attribution.test.ts",
+        "apps/api/test/reporting.test.ts",
+        "apps/api/test/d1-capability-links.integration.test.ts",
+        "apps/web/test/reports-workspace.test.tsx"
       ]
     }
   }

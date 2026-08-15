@@ -199,3 +199,108 @@ export const publishedScheduleSchema = z.object({
    */
   agenda: agendaDraftSchema.omit({ conflicts: true, occurrences: true }),
 });
+
+/*
+ * ---- generated drafts (issue #192's residual generation epic) ---------------
+ *
+ * A generated draft is a *candidate*, never the board. It records the board revision it was
+ * generated against, so a comparison against a board that has since moved reports `stale` rather
+ * than proposing placements into slots that no longer exist.
+ *
+ * @spec PRD-AGD-001
+ */
+export const agendaCriterionSchema = z.enum([
+  "avoid-speaker-clash",
+  "respect-speaker-availability",
+  "keep-track-together",
+  "spread-tracks-across-rooms",
+  "prefer-earlier-slots",
+  "balance-room-load",
+]);
+export const agendaCriteriaResponseSchema = z.object({
+  criteria: z.array(
+    z.object({
+      criterion: agendaCriterionSchema,
+      /** The priority: earlier is stronger, and a hard criterion is absolute whatever it is. */
+      position: z.number().int().nonnegative(),
+      enabled: z.boolean(),
+    }),
+  ),
+});
+export const agendaCriteriaInputSchema = z.object({
+  criteria: z
+    .array(z.object({ criterion: agendaCriterionSchema, enabled: z.boolean().optional() }))
+    .max(12),
+});
+export const agendaAvailabilityWindowSchema = z.object({
+  speakerId: z.string().min(1).max(120),
+  startsAt: z.string().datetime(),
+  endsAt: z.string().datetime(),
+  kind: z.enum(["available", "unavailable"]),
+});
+export const agendaAvailabilityResponseSchema = z.object({
+  availability: z.array(agendaAvailabilityWindowSchema),
+});
+export const agendaAvailabilityInputSchema = z.object({
+  availability: z.array(agendaAvailabilityWindowSchema).max(200),
+});
+export const agendaGeneratedDraftSchema = z.object({
+  id: z.string().uuid(),
+  eventId: z.string().uuid(),
+  name: z.string(),
+  boardRevision: z.number().int().nonnegative(),
+  criteria: agendaCriteriaResponseSchema.shape.criteria,
+  placements: z.array(agendaPlacementSchema),
+  /** Why each session the pass could not seat was left out, naming the criterion that refused it. */
+  unplaced: z.array(
+    z.object({
+      sessionId: z.string(),
+      title: z.string(),
+      blockedBy: z.union([agendaCriterionSchema, z.enum(["no-cells", "board-conflict"])]),
+      reason: z.string(),
+    }),
+  ),
+  generatedBy: z.string(),
+  generatedAt: z.string().datetime(),
+  status: z.enum(["proposed", "accepted", "discarded"]),
+  acceptedAt: z.string().datetime().nullable(),
+});
+export const agendaGeneratedDraftsResponseSchema = z.object({
+  drafts: z.array(agendaGeneratedDraftSchema),
+});
+export const agendaGeneratedDraftResponseSchema = z.object({
+  draft: agendaGeneratedDraftSchema,
+});
+export const agendaGenerateInputSchema = z.object({ name: z.string().min(1).max(120) });
+/** The diff, session by session — the unit an organizer accepts or rejects. */
+export const agendaDraftComparisonResponseSchema = z.object({
+  draft: agendaGeneratedDraftSchema,
+  changes: z.array(
+    z.object({
+      sessionId: z.string(),
+      title: z.string(),
+      change: z.enum(["add", "move", "unchanged", "remove"]),
+      current: z.object({ roomId: z.string(), slotId: z.string(), trackId: z.string() }).nullable(),
+      proposed: z
+        .object({ roomId: z.string(), slotId: z.string(), trackId: z.string() })
+        .nullable(),
+    }),
+  ),
+  /** True when the board moved after the draft was generated. Reported, never hidden. */
+  stale: z.boolean(),
+  boardRevision: z.number().int().nonnegative(),
+});
+export const agendaDraftAcceptInputSchema = z.object({
+  /** The sessions to apply. A session left out keeps whatever the board says about it. */
+  sessionIds: z.array(z.string().min(1)).max(500),
+});
+export const agendaDraftAcceptResponseSchema = z.object({
+  applied: z.number().int().nonnegative(),
+  unscheduled: z.number().int().nonnegative(),
+});
+export const agendaDraftParamsSchema = z.object({
+  eventId: z.string().uuid(),
+  draftId: z.string().uuid(),
+});
+export type AgendaGeneratedDraftDto = z.infer<typeof agendaGeneratedDraftSchema>;
+export type AgendaDraftComparisonDto = z.infer<typeof agendaDraftComparisonResponseSchema>;

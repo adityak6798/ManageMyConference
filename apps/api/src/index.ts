@@ -1,12 +1,16 @@
 import { createDeliverablesZip } from "./adapters/content/create-deliverables-zip";
 import { D1SpeakerConversion } from "./adapters/content/d1-speaker-conversion";
 import { parseSpeakerCsv } from "./adapters/content/parse-speaker-csv";
+import { renderReportCsv, renderReportXlsx } from "./adapters/platform/render-report-export";
+import { createReportLinkDelivery } from "./adapters/platform/report-link-delivery";
+import { sanitizeSiteHtml } from "./adapters/publishing/sanitize-site-html";
 import {
   sanitizeResourceEmbed,
   sanitizeResourceHtml,
 } from "./adapters/content/sanitize-resource-html";
 import { GoogleOauthClient } from "./adapters/identity/google-oauth-client";
 import { D1AccelEventsSyncRuns } from "./adapters/persistence/d1-accelevents-sync-runs";
+import { D1AgendaGenerationRepository } from "./adapters/persistence/d1-agenda-generation";
 import { D1AgendaRepository } from "./adapters/persistence/d1-agenda-repository";
 import { D1ApiClientRepository } from "./adapters/persistence/d1-api-clients";
 import {
@@ -26,9 +30,14 @@ import {
   D1IdentityDirectory,
   preparedOrganizerGrant,
 } from "./adapters/persistence/d1-identity-directory";
+import { D1CustomRoleRepository } from "./adapters/persistence/d1-custom-roles";
 import { D1MembershipRepository } from "./adapters/persistence/d1-identity-membership";
 import { D1SessionStore } from "./adapters/persistence/d1-identity-sessions";
+import { D1EmbedRepository } from "./adapters/persistence/d1-embed-repository";
 import { D1ItineraryRepository } from "./adapters/persistence/d1-itinerary-repository";
+import { D1CapabilityLinkStore } from "./adapters/persistence/d1-capability-links";
+import { D1ReportRepository } from "./adapters/persistence/d1-report-repository";
+import { D1SiteRepository } from "./adapters/persistence/d1-site-repository";
 import { D1InboxDismissalStore } from "./adapters/persistence/d1-platform-repository";
 import { D1PublicationRepository } from "./adapters/persistence/d1-publication-repository";
 import { D1ReviewRepository } from "./adapters/persistence/d1-review-repository";
@@ -41,6 +50,7 @@ import { R2AssetStorage, type R2BucketPort } from "./adapters/storage/r2-asset-s
 import { resolveSuggestionProvider } from "./adapters/suggestions/configuration";
 import { AgendaService } from "./application/agenda/agenda-service";
 import {
+  AgendaGenerationService,
   agendaTemplateSlice,
   type ScheduleReconciliation,
   type ScheduleSweepResult,
@@ -97,6 +107,7 @@ import {
   startGoogleAuthorization,
   stateProof,
 } from "./application/identity/google-oauth";
+import { CustomRoleService } from "./application/identity/custom-roles";
 import { MembershipService, mintInvitationToken } from "./application/identity/membership";
 import { issuingSecret } from "./application/identity/real-auth";
 import { SignupService, UnverifiedProviderEmailError } from "./application/identity/signup";
@@ -104,10 +115,18 @@ import {
   AuditRecorder,
   createRequestIdentity,
   lifecycleAuditKey,
+  hashCapabilityToken,
+  mintCapabilityToken,
   PlatformOperationsService,
+  ReportingService,
 } from "./application/platform/public";
 import { ItineraryService } from "./application/publishing/itinerary-service";
-import { type ProjectionRefresh, publishingTemplateSlice } from "./application/publishing/public";
+import {
+  EmbedService,
+  type ProjectionRefresh,
+  publishingTemplateSlice,
+  SiteService,
+} from "./application/publishing/public";
 import { PublicationService } from "./application/publishing/publication-service";
 import { reviewTemplateSlice } from "./application/review/public";
 import type { ReviewNotificationPort } from "./application/review/review-service";
@@ -545,6 +564,44 @@ export async function reconcileScheduleMaterializations(
   return swept;
 }
 
+const reportDelivery = (environment: Environment) =>
+  createReportLinkDelivery(
+    environment.AUTH_EMAIL_ENDPOINT && environment.AUTH_EMAIL_TOKEN
+      ? { endpoint: environment.AUTH_EMAIL_ENDPOINT, token: environment.AUTH_EMAIL_TOKEN }
+      : null,
+  );
+
+/**
+ * One cron tick's scheduled reports.
+ *
+ * Composed with only the sources the tick actually uses. A tick mints a link and delivers it; it
+ * never *runs* a report, because nobody is present to be authorized — the recipient runs it by
+ * opening the link, under the share's own policy. So the reads a run would need are absent here
+ * rather than stubbed, which is what keeps a cron path from quietly gaining reach a request has.
+ */
+export function deliverScheduledReports(
+  environment: Environment,
+): Promise<{ fired: number; failed: number }> {
+  return new ReportingService({
+    repository: new D1ReportRepository(environment.DB),
+    links: new D1CapabilityLinkStore(environment.DB),
+    sources: {
+      events: {
+        organizationOf: async () => null,
+      },
+    },
+    // Nothing to audit on a tick: the only auditable act in reporting is somebody asking for
+    // unmasked data, and nobody is present here.
+    audit: { record: async () => undefined },
+    delivery: reportDelivery(environment),
+    mintToken: mintCapabilityToken,
+    hash: hashCapabilityToken,
+    shareBaseUrl: environment.PUBLIC_BASE_URL ?? "",
+    newId: () => crypto.randomUUID(),
+    now: () => new Date(),
+  }).tick();
+}
+
 export function pruneItineraries(environment: Environment): Promise<void> {
   const repository = new D1PublicationRepository(environment.DB);
   return new ItineraryService(new D1ItineraryRepository(environment.DB), {
@@ -787,6 +844,37 @@ export default {
         return Boolean(event && actor.organizations.some(({ id }) => id === event.organizationId));
       },
     );
+    /*
+     * Generated agenda drafts (issue #192's residual generation epic).
+     *
+     * The board port is three of `AgendaRepository`'s own methods plus the revision counter the
+     * board's optimistic writes already advance — reused rather than duplicated, because a
+     * counter maintained here would need advancing by every writer, including the ones that know
+     * nothing about generation.
+     *
+     * `declaredTracks` is content's own read, bound here so the agenda never learns what a
+     * content session is: it asks for a session's declared tracks and gets a map.
+     */
+    const agendaGenerationRepository = new D1AgendaGenerationRepository(environment.DB);
+    const agendaGenerationBoard = agendaRepository(environment, now);
+    const agendaGeneration = new AgendaGenerationService({
+      repository: agendaGenerationRepository,
+      board: {
+        getDraft: (eventId) => agendaGenerationBoard.getDraft(eventId),
+        boardRevision: (eventId) => agendaGenerationRepository.boardRevision(eventId),
+        savePlacements: (eventId, plan) => agendaGenerationBoard.savePlacements(eventId, plan),
+        removePlacement: (eventId, placementId) =>
+          agendaGenerationBoard.removePlacement(eventId, placementId),
+      },
+      declaredTracks: async (actor, eventId) => {
+        const workspace = await content.workspace(actor, eventId);
+        return Object.fromEntries(
+          workspace.sessions.map((session) => [session.id, [...(session.tracks ?? [])]]),
+        );
+      },
+      newId: () => crypto.randomUUID(),
+      now: () => new Date(),
+    });
     const logger = {
       info(fields: Record<string, unknown>, message: string) {
         // biome-ignore lint/suspicious/noConsole: Workers emit structured JSON at this telemetry boundary.
@@ -1805,6 +1893,14 @@ export default {
       now: () => Date.now(),
       mintToken: mintInvitationToken,
     });
+    // Custom event roles share `service` for the same reason membership does: it is the events
+    // domain's own interface, and identity reads none of its tables.
+    const customRoles = new CustomRoleService({
+      repository: new D1CustomRoleRepository(environment.DB),
+      events: service,
+      newId: () => crypto.randomUUID(),
+      now: () => Date.now(),
+    });
     const apiClientRepository = new D1ApiClientRepository(environment.DB);
     const apiClients = new ApiClientService({
       repository: apiClientRepository,
@@ -1902,6 +1998,86 @@ export default {
       },
     );
     const itineraries = new ItineraryService(new D1ItineraryRepository(environment.DB), publishing);
+    /*
+     * Named, revocable embeds (issue #192's residual lifecycle epic).
+     *
+     * `publications` and `schedule` are the same two reads the public event hub makes, which is
+     * what keeps an embed incapable of outliving the publication it renders: unpublishing an
+     * event silences every embed on it in the same instant, because there is nothing else for
+     * them to read.
+     */
+    const embeds = new EmbedService({
+      repository: new D1EmbedRepository(environment.DB),
+      publications: publicationRepository,
+      schedule: async (eventId) => {
+        const published = await agenda.published(eventId);
+        return published
+          ? { version: published.version, publishedAt: published.publishedAt }
+          : null;
+      },
+      mintToken: mintCapabilityToken,
+      hash: hashCapabilityToken,
+      // The API's own origin, because a host page fetches this rather than a person opening it.
+      embedBaseUrl: environment.PUBLIC_BASE_URL ?? "",
+      newId: () => crypto.randomUUID(),
+      now: () => new Date(),
+    });
+    /*
+     * Sites and portals (issue #196).
+     *
+     * `programs` is the seam a Site resolves its attached programs through, and binding it is the
+     * whole of what this file contributes: publishing states that it needs a title and a state
+     * for a `(kind, ref)` pair, and the composition root decides that a `event-cfp` is answered by
+     * the CFP domain's published form and a `speaker-portal` by the events domain's own name for
+     * that event. Publishing therefore imports neither, and adding a fourth program kind is a
+     * change here rather than inside publishing.
+     *
+     * A reference this cannot resolve is simply absent from the answer. `SiteService` keeps it in
+     * the order and reports it to the organizer as unresolved; a portal that quietly shortened
+     * itself would say nothing about why.
+     */
+    const sites = new SiteService({
+      repository: new D1SiteRepository(environment.DB),
+      events: service,
+      sanitize: sanitizeSiteHtml,
+      newId: () => crypto.randomUUID(),
+      now: () => new Date(),
+      programs: {
+        async resolve(references) {
+          const resolved = new Map<string, { title: string; state: string }>();
+          await Promise.all(
+            references.map(async ({ kind, ref }) => {
+              try {
+                if (kind === "event-cfp") {
+                  const form = await cfpService.getPublished(ref);
+                  resolved.set(`${kind}:${ref}`, {
+                    title: form.title,
+                    state: form.effectiveStatus === "open" ? "open" : "closed",
+                  });
+                  return;
+                }
+                // An interest form and a speaker portal are both addressed by their event today.
+                // Naming the event is what a visitor needs from the portal's list; the program's
+                // own page is where its detail lives.
+                const name = await service.nameOf(ref);
+                if (name) resolved.set(`${kind}:${ref}`, { title: name, state: "open" });
+              } catch (error) {
+                // ERROR-INTENT: an unresolvable program is a portal-composition fact, not a
+                // failure of the read. It is reported to the organizer as `unresolvedPrograms`
+                // and keeps its place in the visitor's list; letting one missing program refuse
+                // the whole portal would take a working page down over a deleted call.
+                if (error instanceof CfpUnavailableError) return;
+                logger.warn(
+                  { operation: "site.program.unresolved", kind, ref },
+                  "site.program.unresolved",
+                );
+              }
+            }),
+          );
+          return resolved;
+        },
+      },
+    });
     // --- events (issue #102) ---
     /*
      * The orchestration seam for reusable event templates.
@@ -2009,6 +2185,39 @@ export default {
       audit: auditRecorder,
       identity: requestIdentity,
     });
+    /*
+     * Reporting (issue #196).
+     *
+     * The same `sources` object the operations service composes, which is the whole point: a
+     * report answers exactly what search and the inbox would show the same caller, under the same
+     * per-source authorization and the same per-field redaction. Handing reporting its own reads
+     * would have made it a second way to ask a question the console itself refuses.
+     */
+    const reporting = new ReportingService({
+      repository: new D1ReportRepository(environment.DB),
+      links: new D1CapabilityLinkStore(environment.DB),
+      sources: {
+        events: service,
+        content,
+        review: reviewService,
+        agenda,
+        publishing,
+        communications,
+        crm,
+      },
+      audit: auditRecorder,
+      delivery: reportDelivery(environment),
+      // The renderers are adapters; the transport may not reach one, so the service holds the
+      // port and the composition root binds it. An export is a format applied to a run.
+      exports: { csv: renderReportCsv, xlsx: renderReportXlsx },
+      mintToken: mintCapabilityToken,
+      hash: hashCapabilityToken,
+      // Where a share link is reachable, so no client assembles one. The public origin rather
+      // than the API's, because the link is opened by a person rather than fetched by a script.
+      shareBaseUrl: environment.PUBLIC_BASE_URL ?? "",
+      newId: () => crypto.randomUUID(),
+      now: () => new Date(),
+    });
     // --- end platform ---
     const app = createHttpAppFrom({
       events: service,
@@ -2068,16 +2277,21 @@ export default {
       content,
       crm,
       agenda,
+      agendaGeneration,
       communications,
       webhooks,
       publishing,
       itineraries,
+      sites,
+      embeds,
       speakerCalendarInvites,
       accelEventsSync,
       membership,
+      customRoles,
       apiClients,
       eventTemplates,
       platformOps,
+      reporting,
       build:
         environment.GREENROOM_WORKTREE_ROOT && environment.GREENROOM_COMMIT
           ? { root: environment.GREENROOM_WORKTREE_ROOT, commit: environment.GREENROOM_COMMIT }
@@ -2110,6 +2324,9 @@ export default {
       drainOutbox(environment),
       pruneItineraries(environment),
       reconcileScheduleMaterializations(environment),
+      // Scheduled reports. Never throws: a failing delivery is recorded as a failed run so the
+      // rest of the tick still happens, which is the same obligation every other job here has.
+      deliverScheduledReports(environment),
     ]);
   },
 };

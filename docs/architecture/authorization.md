@@ -273,3 +273,68 @@ is not deployment isolation: they share one database. What the demo reset does t
 half of it is `GAP-019`, now closed — the restore counts the rows the seed did not create and
 refuses rather than deleting them — and one database still holding both populations is what that
 entry records as unfixed.
+
+## A custom role is a fifth grant, and its field policy is resolved with it
+
+The four roles above are the built-ins. An organizer may also compose **custom roles** on one
+event — an AV operator, a programme assistant, a sponsor liaison — and `event_roles` admits a
+fifth value, `custom`, paired with the role it names. The pairing is a database constraint rather
+than a convention: `CHECK ((role = 'custom') = (custom_role_id IS NOT NULL))`, so neither half can
+exist without the other. The primary key is unchanged, which states the rule plainly — a person
+holds at most one custom role on an event.
+
+A custom role carries two sets. Its **capabilities** are drawn from a fixed allowlist that
+deliberately excludes `identity:manage`, enforced by a CHECK on the table rather than by the
+service alone, because a role that could grant capabilities could grant itself the ones withheld
+from it. Its **field policies** decide, per record kind and per field, whether the holder may
+View, Lock (read, not write) or Hide (not receive at all) — with `*` as the subject-wide default,
+and a required field's Hide clamped to Lock, since a record with no identifying field is
+unjoinable to whoever is reading it.
+
+**Field access is resolved in the same D1 read that resolves roles.** `resolve()` joins the custom
+role, unions its capabilities and its field policies, and hands `FieldAccess` back on the actor.
+That is the whole reason a screen, a CSV, an XLSX, a JSON report and an expiring share link cannot
+reach different answers: there is one decision, made at the application boundary, and every reader
+is downstream of it. A field the client hides and the API returns is not hidden. Composition
+across several grants is least-restrictive, matching how capabilities already union, and the
+*absence* of a field-policy set on a built-in grant means unrestricted rather than hidden.
+
+Hidden fields are **absent from the payload rather than blanked**. The contracts mark them
+optional and the redaction returns `Omit<T, K> & Partial<Pick<T, K>>`, so a consumer that forgot to
+handle a hidden field fails to compile instead of printing an empty cell that reads as "no phone
+number on file". Redaction happens at the read boundary only: internal write paths load the
+unredacted record, because a service that cannot see a field it is about to write is a different
+and much worse bug.
+
+Previewing a role resolves the **stored role** and never fetches anything on its behalf. A preview
+that ran a real read "as" the role would run under the administrator's own grants and show their
+data wearing the role's name.
+
+`event_field_locks` is deliberately a *different* table with the same vocabulary. A role policy
+governs somebody staffed onto the event; a lock governs the person whose record it is, on their
+own portal, and is merged onto every **non-organizer** grant at the stricter of the two. A speaker
+holds no custom role, so nothing in the roles model could ever have closed their own portal — which
+is why that write surface used to be fixed in code. Locks are replaced as a whole set, so what is
+stored is what the organizer confirmed.
+
+`reports:pii` is the capability that unmasks personal columns in a report. It is held by neither
+role by default, must be **requested explicitly on the run** as well as held, and exercising it is
+recorded. Holding a capability and using it are different facts, and only one of them is worth an
+audit row.
+
+## A capability link is an anonymous grant with a stated shape
+
+Some things are shared with somebody who has no account: a report answer, an attendee's itinerary,
+and — when `GAP-028` is picked up — a speaker profile or asset. `capability_links` is the one
+convention for all of them, so a second one does not get invented per feature.
+
+A link is minted as an opaque token, and **only its hash is stored**, so the table is not a list of
+live credentials. It addresses `(resource_kind, resource_ref)` with no foreign key, because the
+resources it points at are owned by other domains; `report`, `speaker-profile` and `speaker-asset`
+are all declared today, and the last two are resolved by nothing yet, on purpose. A link may carry
+a password (hashed), an expiry no further out than 30 days, and a view limit; spending one checks
+every constraint in one place and records the view. Revocation is immediate and is a column rather
+than a delete, so a revoked link stays auditable.
+
+This is the shape `DEBT-012` records for capability URLs, and it is now a primitive rather than a
+pattern each feature copies.

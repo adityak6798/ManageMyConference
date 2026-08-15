@@ -172,6 +172,11 @@
         "path": "apps/web/src/workspaces/contract.ts",
         "governing": "ARC-DOM-001",
         "reason": "The workspace-module interface every domain's console surface implements."
+      },
+      {
+        "path": "packages/contracts/src/domains/identity-access.ts",
+        "governing": "PRD-IAM-002",
+        "reason": "The wire half of the authorization vocabulary. fieldPolicyEntrySchema states what a per-field View/Lock/Hide decision looks like on the wire, and a domain whose projection can be narrowed by one has to name it in its own response \u2014 content's workspace does, and the CRM directory follows. It is the same shared-surface argument application/identity/actor.ts already carries: every domain enforces authorization through identity's vocabulary rather than restating it, and two copies of a policy enum is how one surface comes to permit what another refuses."
       }
     ],
     "compositionRoots": [
@@ -441,7 +446,22 @@
         "apps/api/test/platform-attribution.test.ts",
         "apps/api/test/demo-reset-guard.integration.test.ts",
         "tools/remote-demo-reset.d.mts",
-        "tools/tests/setup-local.test.mjs"
+        "tools/tests/setup-local.test.mjs",
+        "apps/api/migrations/1902_reporting.sql",
+        "apps/api/src/application/platform/capability-link.ts",
+        "apps/api/src/application/platform/report-catalogue.ts",
+        "apps/api/src/application/platform/report-rows.ts",
+        "apps/api/src/application/platform/reporting-service.ts",
+        "apps/api/src/adapters/persistence/d1-capability-links.ts",
+        "apps/api/src/adapters/persistence/d1-report-repository.ts",
+        "apps/api/src/adapters/platform/render-report-export.ts",
+        "apps/api/src/adapters/platform/report-link-delivery.ts",
+        "apps/api/test/reporting.test.ts",
+        "apps/api/test/d1-capability-links.integration.test.ts",
+        "apps/web/src/ReportsWorkspace.tsx",
+        "apps/web/src/workspaces/reports.tsx",
+        "apps/web/src/api/reports.ts",
+        "apps/web/test/reports-workspace.test.tsx"
       ]
     },
     {
@@ -512,7 +532,18 @@
         "apps/web/e2e/api-clients.spec.ts",
         "apps/api/src/adapters/persistence/identity-fixture-statements.mjs",
         "apps/api/src/transport/http/oauth-attempt-cookie.ts",
-        "apps/api/test/oauth-attempt-cookie.test.ts"
+        "apps/api/test/oauth-attempt-cookie.test.ts",
+        "apps/api/migrations/1005_custom_event_roles.sql",
+        "apps/api/src/adapters/persistence/d1-custom-roles.ts",
+        "apps/api/test/field-access.test.ts",
+        "apps/api/test/custom-roles.test.ts",
+        "apps/api/test/d1-custom-roles.integration.test.ts",
+        "apps/web/src/CustomRolesWorkspace.tsx",
+        "apps/web/src/workspaces/custom-roles.tsx",
+        "apps/web/src/api/custom-roles.ts",
+        "apps/web/test/portal-field-locks.test.tsx",
+        "apps/api/migrations/1006_reports_pii_capability.sql",
+        "apps/api/migrations/1007_event_field_locks.sql"
       ]
     },
     {
@@ -869,7 +900,16 @@
         "apps/web/test/agenda-week-board-cost.test.tsx",
         "apps/web/e2e/agenda.spec.ts",
         "apps/api/src/transport/http/routes/agenda.ts",
-        "apps/web/src/workspaces/agenda.tsx"
+        "apps/web/src/workspaces/agenda.tsx",
+        "apps/api/migrations/1603_agenda_generation.sql",
+        "apps/api/src/domain/agenda/draft-generation.ts",
+        "apps/api/src/application/agenda/generation-service.ts",
+        "apps/api/test/agenda-draft-generation.test.ts",
+        "apps/api/src/adapters/persistence/d1-agenda-generation.ts",
+        "apps/api/test/agenda-generation-service.test.ts",
+        "apps/api/test/d1-agenda-generation.integration.test.ts",
+        "apps/web/src/agenda/GeneratedDrafts.tsx",
+        "apps/web/src/api/agenda-generation.ts"
       ]
     },
     {
@@ -940,7 +980,11 @@
         "apps/api/migrations/1751_accelevents_sync_runs.sql",
         "apps/api/test/accelevents-sync.test.ts",
         "apps/api/test/integrations-http.test.ts",
-        "apps/api/test/d1-migration-rebuild.integration.test.ts"
+        "apps/api/test/d1-migration-rebuild.integration.test.ts",
+        "apps/web/src/api/webhooks.ts",
+        "apps/web/src/WebhooksWorkspace.tsx",
+        "apps/web/src/workspaces/webhooks.tsx",
+        "apps/web/test/webhooks-workspace.test.tsx"
       ]
     },
     {
@@ -992,7 +1036,24 @@
         "apps/api/test/itinerary.test.ts",
         "apps/web/src/api/itinerary.ts",
         "apps/web/src/public-event/itinerary.tsx",
-        "apps/web/test/public-itinerary.test.ts"
+        "apps/web/test/public-itinerary.test.ts",
+        "apps/api/migrations/1804_sites.sql",
+        "apps/api/src/domain/publishing/site.ts",
+        "apps/api/src/application/publishing/site-service.ts",
+        "apps/api/src/adapters/persistence/d1-site-repository.ts",
+        "apps/api/src/adapters/publishing/sanitize-site-html.ts",
+        "apps/api/test/site-service.test.ts",
+        "apps/api/test/d1-site-repository.integration.test.ts",
+        "apps/web/src/SitesWorkspace.tsx",
+        "apps/web/src/workspaces/sites.tsx",
+        "apps/web/src/api/sites.ts",
+        "apps/api/migrations/1805_publication_embeds.sql",
+        "apps/api/src/domain/publishing/embed.ts",
+        "apps/api/src/application/publishing/embed-service.ts",
+        "apps/api/src/adapters/persistence/d1-embed-repository.ts",
+        "apps/api/test/embed-lifecycle.test.ts",
+        "apps/web/src/publishing/SavedEmbeds.tsx",
+        "apps/web/src/api/embeds.ts"
       ]
     }
   ],

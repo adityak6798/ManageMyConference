@@ -37,12 +37,22 @@ function hasIntent(source, node) {
 }
 
 /**
- * A bare `announce(...)` only counts when the file actually destructures it from
- * `useActionFeedback`. Without that, any unrelated local helper named `announce` would
- * satisfy the gate and a catch could silently discard an error.
+ * A bare `announce(...)` only counts when the file actually binds it to a feedback announcer.
+ * Without that, any unrelated local helper named `announce` would satisfy the gate and a catch
+ * could silently discard an error.
+ *
+ * Two bindings count. The first is the hook itself. The second is a component that is *given*
+ * one — a panel that shares its page's single live region rather than adding a second — which is
+ * recognised by its declared parameter type rather than by the name alone, so an unrelated
+ * `announce` still fails. The type is the announcer's exact signature: an unrelated function that
+ * happens to take `tone: "success" | "error"` first is the announcer, whatever it is called.
  */
 function bindsFeedbackAnnounce(text) {
-  return /\{[^}]*\bannounce\b[^}]*\}\s*=\s*useActionFeedback\s*\(/.test(text ?? "");
+  const source = text ?? "";
+  return (
+    /\{[^}]*\bannounce\b[^}]*\}\s*=\s*useActionFeedback\s*\(/.test(source) ||
+    /\bannounce\s*:\s*\(\s*tone\s*:\s*"success"\s*\|\s*"error"/.test(source)
+  );
 }
 
 function handledCatch(block, text) {
