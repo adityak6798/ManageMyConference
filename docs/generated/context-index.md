@@ -56,6 +56,7 @@
 - `test` / `repository-fact`: [apps/web/e2e/cfp.spec.ts](../../apps/web/e2e/cfp.spec.ts)
 - `test` / `repository-fact`: [apps/web/e2e/lifecycle.spec.ts](../../apps/web/e2e/lifecycle.spec.ts)
 - `test` / `repository-fact`: [apps/web/test/cfp-composer.test.tsx](../../apps/web/test/cfp-composer.test.tsx)
+- `test` / `repository-fact`: [apps/web/test/cfp-participants.test.tsx](../../apps/web/test/cfp-participants.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/cfp-republish-closed.test.tsx](../../apps/web/test/cfp-republish-closed.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/cfp-submitter-dashboard.test.tsx](../../apps/web/test/cfp-submitter-dashboard.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/cfp-window.test.tsx](../../apps/web/test/cfp-window.test.tsx)
