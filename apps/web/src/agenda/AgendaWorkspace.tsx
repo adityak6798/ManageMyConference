@@ -1536,8 +1536,8 @@ export function AgendaWorkspace({
                   feedback.announce(
                     "success",
                     withheld
-                      ? `Published schedule version ${schedule.version}. ${withheld} scheduled session${withheld === 1 ? " is" : "s are"} still off the public page because ${withheld === 1 ? "it is" : "they are"} not published.`
-                      : `Published schedule version ${schedule.version}.`,
+                      ? `Published version ${schedule.version}. ${withheld} scheduled session${withheld === 1 ? " is" : "s are"} still off the public page because ${withheld === 1 ? "it is" : "they are"} not published.`
+                      : `Published version ${schedule.version}.`,
                   );
                 }
               })
