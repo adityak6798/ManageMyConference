@@ -69,6 +69,7 @@ export function PublicSiteApp() {
       event.currentTarget.reset();
       setAnswers({});
     } catch (error) {
+      // ERROR-INTENT: the anonymous form keeps the entered fields and renders the API refusal.
       setRegistrationError(error instanceof Error ? error.message : "Registration failed.");
     } finally {
       setBusy(false);
