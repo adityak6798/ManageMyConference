@@ -320,7 +320,7 @@ export function ContentOperations({
             />
           </label>
           <p id="workflow-status-format" className="hint">
-            One stable-key|Label|category per line. Categories are open, ready, or blocked.
+            One column per line: identifier|Name|status. Status can be open, ready, or blocked.
           </p>
           <button className="secondary" type="submit" disabled={busy}>
             Save progress columns

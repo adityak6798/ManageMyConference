@@ -990,7 +990,7 @@ export function OrganizerReviewWorkspace({
                 }
               />
               <p className="hint">
-                Enforced when distributing, by the database rather than by this form.
+                Distribution stops assigning work when a reviewer reaches this limit.
               </p>
             </div>
             {activeRound ? (
@@ -1004,7 +1004,11 @@ export function OrganizerReviewWorkspace({
             ) : null}
           </div>
           {assignmentBlocked ? <Notice tone="warn">{assignmentBlocked}</Notice> : null}
-          {nextRoundBlocked ? <p className="hint">Start next round: {nextRoundBlocked}</p> : null}
+          {nextRoundBlocked ? (
+            <p className="triage-next-round-hint">
+              <strong>To start the next round:</strong> {nextRoundBlocked}
+            </p>
+          ) : null}
           {/* A download the browser handles silently is indistinguishable from a dead button. */}
           {exported ? (
             <p className="hint" role="status">
@@ -1421,7 +1425,7 @@ export function OrganizerReviewWorkspace({
           <Card
             labelledBy="ai-evaluator-report"
             title="AI evaluator report"
-            hint="Aggregate draft usage only; suggestion text and scores remain private to each reviewer."
+            hint="Shows how many private AI-assisted drafts reviewers received. Draft text and scores remain visible only to each reviewer."
             tight
           >
             <div className="table-wrap">
@@ -1438,8 +1442,8 @@ export function OrganizerReviewWorkspace({
                   {data.aiReport.map((row) => (
                     <tr key={`${row.round}:${row.model}:${row.state}`}>
                       <td>{row.round}</td>
-                      <td>{row.model}</td>
-                      <td>{row.state}</td>
+                      <td>{row.model.startsWith("fixture-") ? "Demo evaluator" : row.model}</td>
+                      <td>{row.state === "offered" ? "Available to reviewer" : row.state}</td>
                       <td>{row.count}</td>
                     </tr>
                   ))}

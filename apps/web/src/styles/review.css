@@ -189,6 +189,43 @@
   margin: var(--s-4) var(--s-5) 0;
 }
 
+.triage-next-round-hint {
+  margin: 0;
+  padding: var(--s-3) var(--s-5);
+  border-bottom: 1px solid var(--line);
+  background: var(--warn-bg);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+.triage-next-round-hint strong {
+  color: var(--ink);
+}
+
+@media (max-width: 780px) {
+  .triage-toolbar {
+    align-items: stretch;
+  }
+  .triage-toolbar .triage-search,
+  .triage-toolbar .field {
+    flex-basis: 100%;
+    max-width: none;
+  }
+  .triage-toolbar > button {
+    flex: 1 1 calc(50% - var(--s-2));
+    justify-content: center;
+  }
+  .triage-count {
+    margin-left: 0;
+    align-self: center;
+  }
+  .triage-round-bar .field,
+  .triage-round-bar select,
+  .triage-round-bar input[type="number"] {
+    width: 100%;
+    max-width: none;
+  }
+}
+
 .triage-skeleton {
   display: grid;
   gap: var(--s-3);
