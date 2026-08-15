@@ -4,8 +4,8 @@ Status: canonical | Owner: delivery | Last verified: 2026-08-14
 
 ## `PLAN-002` Product lifecycle
 
-Status: active; review-ready locally after lifecycle and closure-surface acceptance, hosted branch
-CI pending
+Status: active; single-artifact lifecycle acceptance and closure surfaces are review-ready locally;
+hosted branch CI pending
 
 The bounded vertical slices for `JNY-001` through `JNY-009` are available through public application
 entrypoints. `ACC-DEMO-SMOKE` provides the deterministic reset/runbook, role-aware evaluator path,
