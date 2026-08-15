@@ -5,6 +5,7 @@ import { MemoryCrmRepository } from "../src/adapters/persistence/memory-crm-repo
 import type { OrganizationContact } from "../src/domain/crm/contact";
 import { CrmService } from "../src/application/crm/crm-service";
 import {
+  CampaignStateConflictError,
   PipelineStageInUseError,
   PipelineStageInvalidError,
   PipelineStageNotFoundError,
@@ -1347,6 +1348,51 @@ describe("ACC-CRM organization directory", () => {
     ).rejects.toThrow(/matched|suppressed/);
     const prospect = (await service.list(organizer, eventId, {}))[0];
     expect(prospect?.activities.some(({ kind }) => kind === "engagement")).toBe(true);
+  });
+
+  it("lets only one concurrent scheduler claim a due campaign", async () => {
+    const { service, send } = setup();
+    const contact = await contactOf(service, { name: "Ada Rivera", email: "ada@example.test" });
+    await service.createCampaign(organizer, organizationId, {
+      eventId,
+      name: "One claimant",
+      templateKey: "speaker-invite",
+      contactIds: [contact.id],
+      scheduledAt: "2026-08-10T11:00:00.000Z",
+    });
+
+    const [first, second] = await Promise.all([
+      service.runDueCampaigns(),
+      service.runDueCampaigns(),
+    ]);
+    expect(first.completed.length + second.completed.length).toBe(1);
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses cancellation after campaign delivery has been claimed", async () => {
+    const { service, send } = setup();
+    const contact = await contactOf(service, { name: "Ada Rivera", email: "ada@example.test" });
+    const campaign = await service.createCampaign(organizer, organizationId, {
+      eventId,
+      name: "In flight",
+      templateKey: "speaker-invite",
+      contactIds: [contact.id],
+    });
+    let release: (() => void) | undefined;
+    send.mockImplementation(
+      async () =>
+        new Promise((resolve) => {
+          release = () => resolve({ deliveryId: "delivery-in-flight", created: true });
+        }),
+    );
+
+    const launch = service.launchCampaign(organizer, organizationId, campaign.id);
+    await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(1));
+    await expect(
+      service.cancelCampaign(organizer, organizationId, campaign.id),
+    ).rejects.toBeInstanceOf(CampaignStateConflictError);
+    release?.();
+    await expect(launch).resolves.toMatchObject({ state: "completed" });
   });
 
   it("deduplicates year-round interest by normalized address", async () => {

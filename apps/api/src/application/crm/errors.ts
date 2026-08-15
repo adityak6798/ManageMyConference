@@ -43,6 +43,9 @@ export class SegmentNameTakenError extends Error {
  */
 export class ContactMergeInvalidError extends Error {}
 
+/** A campaign changed lifecycle state before this command could claim it. */
+export class CampaignStateConflictError extends Error {}
+
 /** The uploaded file cannot be read as a contact sheet at all — no header, wrong columns. */
 export class ContactImportInvalidError extends Error {
   constructor(readonly fields: Record<string, string[]>) {

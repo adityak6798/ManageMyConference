@@ -1773,6 +1773,85 @@ describe("D1 CRM organization directory", () => {
       repository.listContacts(organizationId, byName.get("Corrupt") ?? {}),
     ).resolves.toHaveLength(4);
   });
+
+  it("commits engagement, suppression, and both timelines atomically and idempotently", async () => {
+    const migrated = await migratedRuntime("crm-engagement-effects");
+    runtime = migrated.runtime;
+    const database = migrated.database;
+    const repository = new D1CrmRepository(database);
+    const sourced = await database
+      .prepare(
+        "SELECT contact_id FROM crm_contact_events WHERE event_id=? ORDER BY contact_id LIMIT 1",
+      )
+      .bind(eventId)
+      .all<{ contact_id: string }>();
+    const sourcedContactId = sourced.results?.[0]?.contact_id;
+    if (!sourcedContactId) throw new Error("The seeded event needs a sourced CRM contact");
+    const engagement = {
+      id: "75000000-0000-4000-8000-0000000000f1",
+      organizationId,
+      eventId,
+      campaignId: null,
+      contactId: sourcedContactId,
+      kind: "unsubscribed" as const,
+      providerRef: "provider-unsubscribe-atomic",
+      occurredAt: "2026-08-11T12:00:00.000Z",
+      metadata: {},
+    };
+    const contactActivity = {
+      id: "unused-contact-id",
+      kind: "email" as const,
+      summary: "Unsubscribed outreach",
+      private: false,
+      occurredAt: engagement.occurredAt,
+      actorId: "missing-user",
+    };
+    const prospectActivity = {
+      id: "unused-prospect-id",
+      kind: "engagement" as const,
+      summary: "Unsubscribed outreach",
+      private: false,
+      occurredAt: engagement.occurredAt,
+      actorId: "missing-user",
+    };
+
+    await expect(
+      repository.saveEngagement(engagement, contactActivity, prospectActivity),
+    ).rejects.toThrow();
+    const beforeRetry = await database
+      .prepare(
+        "SELECT (SELECT COUNT(*) FROM crm_engagements WHERE id=?) AS engagements,(SELECT COUNT(*) FROM crm_contact_suppressions WHERE contact_id=?) AS suppressions",
+      )
+      .bind(engagement.id, sourcedContactId)
+      .all<{ engagements: number; suppressions: number }>();
+    expect(beforeRetry.results?.[0]).toEqual({ engagements: 0, suppressions: 0 });
+
+    const validContact = { ...contactActivity, actorId: "seed-organizer" };
+    const validProspect = { ...prospectActivity, actorId: "seed-organizer" };
+    await expect(repository.saveEngagement(engagement, validContact, validProspect)).resolves.toBe(
+      true,
+    );
+    await expect(repository.saveEngagement(engagement, validContact, validProspect)).resolves.toBe(
+      false,
+    );
+    const effects = await database
+      .prepare(
+        "SELECT (SELECT COUNT(*) FROM crm_engagements WHERE id=?) AS engagements,(SELECT COUNT(*) FROM crm_contact_suppressions WHERE contact_id=?) AS suppressions,(SELECT COUNT(*) FROM crm_contact_activities WHERE id='crm-engagement-contact:' || ?) AS contactActivities,(SELECT COUNT(*) FROM crm_activities WHERE id='crm-engagement-prospect:' || ?) AS prospectActivities",
+      )
+      .bind(engagement.id, sourcedContactId, engagement.id, engagement.id)
+      .all<{
+        engagements: number;
+        suppressions: number;
+        contactActivities: number;
+        prospectActivities: number;
+      }>();
+    expect(effects.results?.[0]).toEqual({
+      engagements: 1,
+      suppressions: 1,
+      contactActivities: 1,
+      prospectActivities: 1,
+    });
+  });
 });
 
 /**

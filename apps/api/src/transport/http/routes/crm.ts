@@ -33,6 +33,7 @@ import {
   updateProspectInputSchema,
 } from "@greenroom/contracts";
 import {
+  CampaignStateConflictError,
   ContactAlreadySourcedError,
   ContactEmailTakenError,
   ContactImportInvalidError,
@@ -695,7 +696,11 @@ export const crmRoutes: RouteModule = {
         status: 409 as const,
         fields: error.fields,
       };
-    if (error instanceof ContactMergeInvalidError || error instanceof ContactAlreadySourcedError)
+    if (
+      error instanceof CampaignStateConflictError ||
+      error instanceof ContactMergeInvalidError ||
+      error instanceof ContactAlreadySourcedError
+    )
       return { code: "CONFLICT" as const, message: error.message, status: 409 as const };
     if (error instanceof ContactImportInvalidError)
       return {

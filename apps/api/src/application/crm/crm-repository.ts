@@ -5,6 +5,7 @@ import type {
   ProspectContact,
   ProspectTransition,
 } from "../../domain/crm/prospect";
+import type { ContactActivity } from "../../domain/crm/contact";
 import type { CrmDirectoryRepository } from "./contact-repository";
 
 export interface ProspectFilters {
@@ -73,7 +74,18 @@ export interface CrmRepository extends CrmDirectoryRepository {
   listDueCampaigns(now: string): Promise<readonly CrmCampaign[]>;
   findCampaign(organizationId: string, campaignId: string): Promise<CrmCampaign | null>;
   saveCampaign(campaign: CrmCampaign): Promise<void>;
-  saveEngagement(engagement: CrmEngagement): Promise<boolean>;
+  transitionCampaign(
+    organizationId: string,
+    campaignId: string,
+    from: readonly CrmCampaign["state"][],
+    to: CrmCampaign["state"],
+    updatedAt: string,
+  ): Promise<CrmCampaign | null>;
+  saveEngagement(
+    engagement: CrmEngagement,
+    contactActivity: ContactActivity,
+    prospectActivity: ProspectActivity,
+  ): Promise<boolean>;
   suppressedContactIds(contactIds: readonly string[]): Promise<ReadonlySet<string>>;
   recordProspectEngagement(
     organizationId: string,

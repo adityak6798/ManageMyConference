@@ -1699,12 +1699,17 @@ export class ContentService {
     return { state: "draft" as const, field: "abstract" as const, ...draft };
   }
 
-  private async spendShare(token: string, password?: string) {
+  private async spendShare(
+    kind: "speaker-profile" | "speaker-asset",
+    token: string,
+    password?: string,
+  ) {
     const shares = this.dependencies.shares;
     if (!shares) throw new ContentShareUnavailableError();
     try {
       return await spendCapabilityLink(shares.links, shares.hash, {
         token,
+        kind,
         password,
         now: this.dependencies.now().toISOString(),
       });
@@ -1716,8 +1721,7 @@ export class ContentService {
   }
 
   async resolveProfileShare(token: string, password?: string) {
-    const link = await this.spendShare(token, password);
-    if (link.kind !== "speaker-profile") throw new ContentShareUnavailableError();
+    const link = await this.spendShare("speaker-profile", token, password);
     const profile = await this.dependencies.repository.findProfile(link.resourceRef);
     if (!profile || profile.eventId !== link.eventId) throw new ContentShareUnavailableError();
     return {
@@ -1734,8 +1738,7 @@ export class ContentService {
   }
 
   async resolveAssetShare(token: string, password?: string) {
-    const link = await this.spendShare(token, password);
-    if (link.kind !== "speaker-asset") throw new ContentShareUnavailableError();
+    const link = await this.spendShare("speaker-asset", token, password);
     const asset = await this.dependencies.repository.findAsset(link.resourceRef);
     if (!asset || asset.eventId !== link.eventId) throw new ContentShareUnavailableError();
     const stored = await this.dependencies.assetStorage.get(asset.storageKey);

@@ -426,7 +426,7 @@ test("audits every organizer destination and the Wave 2 evaluator surfaces", asy
     await openEveryToolPanel(
       page,
       organizerSurface(destination.href),
-      destination.href.startsWith("/sessions") ? 8 : undefined,
+      destination.href.startsWith("/sessions") ? 11 : undefined,
     );
     await expectNoAxeViolations(page, `organizer ${destination.label}`);
   }

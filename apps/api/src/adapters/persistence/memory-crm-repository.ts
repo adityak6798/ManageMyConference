@@ -36,7 +36,7 @@ export class MemoryCrmRepository implements CrmRepository {
   private readonly segments = new Map<string, ContactSegment>();
   private readonly imports: ContactImport[] = [];
   private readonly campaigns = new Map<string, CrmCampaign>();
-  private readonly engagements = new Set<string>();
+  private readonly engagements = new Map<string, CrmEngagement>();
   private readonly suppressions = new Set<string>();
   async listCampaigns(organizationId: string) {
     return [...this.campaigns.values()].filter(
@@ -58,12 +58,39 @@ export class MemoryCrmRepository implements CrmRepository {
   async saveCampaign(campaign: CrmCampaign) {
     this.campaigns.set(campaign.id, campaign);
   }
-  async saveEngagement(engagement: CrmEngagement) {
+  async transitionCampaign(
+    organizationId: string,
+    campaignId: string,
+    from: readonly CrmCampaign["state"][],
+    to: CrmCampaign["state"],
+    updatedAt: string,
+  ) {
+    const campaign = this.campaigns.get(campaignId);
+    if (!campaign || campaign.organizationId !== organizationId || !from.includes(campaign.state))
+      return null;
+    const transitioned = { ...campaign, state: to, updatedAt };
+    this.campaigns.set(campaignId, transitioned);
+    return transitioned;
+  }
+  async saveEngagement(
+    engagement: CrmEngagement,
+    contactActivity: ContactActivity,
+    prospectActivity: ProspectActivity,
+  ) {
     const key = `${engagement.organizationId}:${engagement.providerRef}:${engagement.kind}`;
     if (this.engagements.has(key)) return false;
-    this.engagements.add(key);
+    this.engagements.set(key, engagement);
     if (engagement.kind === "bounced" || engagement.kind === "unsubscribed")
       this.suppressions.add(engagement.contactId);
+    await this.recordContactActivities(engagement.organizationId, [
+      { contactId: engagement.contactId, activity: contactActivity },
+    ]);
+    await this.recordProspectEngagement(
+      engagement.organizationId,
+      engagement.contactId,
+      engagement.eventId,
+      prospectActivity,
+    );
     return true;
   }
   async suppressedContactIds(contactIds: readonly string[]) {

@@ -37,7 +37,9 @@ interface D1Statement {
 }
 interface D1DatabasePort {
   prepare(query: string): D1Statement;
-  batch(statements: D1Statement[]): Promise<Array<{ success: boolean; error?: string }>>;
+  batch(
+    statements: D1Statement[],
+  ): Promise<Array<{ results?: unknown[]; success: boolean; error?: string }>>;
 }
 
 interface ProspectRow {
@@ -241,39 +243,85 @@ export class D1CrmRepository implements CrmRepository {
     if (!result.success || !result.results?.[0]?.id)
       throw new Error(`D1 failed to save CRM campaign: ${result.error ?? "no returned row"}`);
   }
-  async saveEngagement(engagement: CrmEngagement) {
+  async transitionCampaign(
+    organizationId: string,
+    campaignId: string,
+    from: readonly CrmCampaign["state"][],
+    to: CrmCampaign["state"],
+    updatedAt: string,
+  ) {
+    if (!from.length) return null;
     const result = await this.database
       .prepare(
-        "INSERT OR IGNORE INTO crm_engagements(id,organization_id,event_id,campaign_id,contact_id,kind,provider_ref,occurred_at,metadata_json) VALUES(?,?,?,?,?,?,?,?,?) RETURNING id",
+        `UPDATE crm_campaigns SET state=?,updated_at=? WHERE organization_id=? AND id=? AND state IN (${from.map(() => "?").join(",")}) RETURNING *`,
       )
-      .bind(
-        engagement.id,
-        engagement.organizationId,
-        engagement.eventId,
-        engagement.campaignId,
-        engagement.contactId,
-        engagement.kind,
-        engagement.providerRef,
-        engagement.occurredAt,
-        JSON.stringify(engagement.metadata),
-      )
-      .all<{ id: string }>();
+      .bind(to, updatedAt, organizationId, campaignId, ...from)
+      .all<Record<string, string | number | null>>();
     if (!result.success)
-      throw new Error(`D1 failed to save CRM engagement: ${result.error ?? "unknown error"}`);
-    const created = Boolean(result.results?.[0]?.id);
-    if (created && (engagement.kind === "bounced" || engagement.kind === "unsubscribed")) {
-      const suppression = await this.database
+      throw new Error(`D1 failed to transition CRM campaign: ${result.error ?? "unknown error"}`);
+    return result.results?.[0] ? this.campaign(result.results[0]) : null;
+  }
+  async saveEngagement(
+    engagement: CrmEngagement,
+    contactActivity: ContactActivity,
+    prospectActivity: ProspectActivity,
+  ) {
+    const identity = [engagement.organizationId, engagement.providerRef, engagement.kind] as const;
+    const statements = [
+      this.database
         .prepare(
-          "INSERT INTO crm_contact_suppressions(contact_id,reason,created_at) VALUES(?,?,?) ON CONFLICT(contact_id) DO UPDATE SET reason=excluded.reason,created_at=excluded.created_at RETURNING contact_id",
+          "INSERT OR IGNORE INTO crm_engagements(id,organization_id,event_id,campaign_id,contact_id,kind,provider_ref,occurred_at,metadata_json) VALUES(?,?,?,?,?,?,?,?,?) RETURNING id",
         )
-        .bind(engagement.contactId, engagement.kind, engagement.occurredAt)
-        .all<{ contact_id: string }>();
-      if (!suppression.success || !suppression.results?.[0]?.contact_id)
-        throw new Error(
-          `D1 failed to suppress CRM contact: ${suppression.error ?? "no returned row"}`,
-        );
-    }
-    return created;
+        .bind(
+          engagement.id,
+          engagement.organizationId,
+          engagement.eventId,
+          engagement.campaignId,
+          engagement.contactId,
+          engagement.kind,
+          engagement.providerRef,
+          engagement.occurredAt,
+          JSON.stringify(engagement.metadata),
+        ),
+      ...(engagement.kind === "bounced" || engagement.kind === "unsubscribed"
+        ? [
+            this.database
+              .prepare(
+                "INSERT INTO crm_contact_suppressions(contact_id,reason,created_at) SELECT contact_id,kind,occurred_at FROM crm_engagements WHERE organization_id=? AND provider_ref=? AND kind=? ON CONFLICT(contact_id) DO UPDATE SET reason=excluded.reason,created_at=excluded.created_at",
+              )
+              .bind(...identity),
+          ]
+        : []),
+      this.database
+        .prepare(
+          "INSERT OR IGNORE INTO crm_contact_activities(id,contact_id,kind,summary,is_private,occurred_at,actor_id) SELECT 'crm-engagement-contact:' || e.id,COALESCE(o.merged_into_id,o.id),?,?,?,?,? FROM crm_engagements e JOIN crm_organization_contacts o ON o.id=e.contact_id WHERE e.organization_id=? AND e.provider_ref=? AND e.kind=?",
+        )
+        .bind(
+          contactActivity.kind,
+          contactActivity.summary,
+          contactActivity.private ? 1 : 0,
+          contactActivity.occurredAt,
+          contactActivity.actorId,
+          ...identity,
+        ),
+      this.database
+        .prepare(
+          "INSERT OR IGNORE INTO crm_activities(id,prospect_id,kind,summary,is_private,occurred_at,actor_id) SELECT 'crm-engagement-prospect:' || e.id,ce.prospect_id,?,?,?,?,? FROM crm_engagements e JOIN crm_contact_events ce ON ce.contact_id=e.contact_id AND ce.event_id=e.event_id WHERE e.organization_id=? AND e.provider_ref=? AND e.kind=?",
+        )
+        .bind(
+          prospectActivity.kind,
+          prospectActivity.summary,
+          prospectActivity.private ? 1 : 0,
+          prospectActivity.occurredAt,
+          prospectActivity.actorId,
+          ...identity,
+        ),
+    ];
+    const results = await this.database.batch(statements);
+    for (const result of results)
+      if (!result.success)
+        throw new Error(`D1 failed to save CRM engagement: ${result.error ?? "unknown error"}`);
+    return Boolean((results[0]?.results?.[0] as { id?: string } | undefined)?.id);
   }
   async suppressedContactIds(contactIds: readonly string[]) {
     const found = new Set<string>();

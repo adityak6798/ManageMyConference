@@ -36,6 +36,7 @@ import { fieldAccessAcross, type HideableContactField, type Redacted } from "../
 import type { CrmRepository, ProspectFilters } from "./crm-repository";
 import type { CrmCampaign } from "./crm-repository";
 import {
+  CampaignStateConflictError,
   ContactEmailTakenError,
   ContactImportInvalidError,
   ContactMergeInvalidError,
@@ -1363,48 +1364,60 @@ export class CrmService {
     };
   }
 
-  private async executeCampaign(campaign: CrmCampaign): Promise<CrmCampaign> {
+  private async executeCampaign(campaign: CrmCampaign): Promise<CrmCampaign | null> {
     if (campaign.state === "completed" || campaign.state === "cancelled") return campaign;
     const now = this.dependencies.now().toISOString();
-    const running = { ...campaign, state: "running" as const, updatedAt: now };
-    await this.dependencies.repository.saveCampaign(running);
+    const running = await this.dependencies.repository.transitionCampaign(
+      campaign.organizationId,
+      campaign.id,
+      ["draft", "scheduled"],
+      "running",
+      now,
+    );
+    // Another scheduler or launch already claimed it. Only the claimant may deliver or advance
+    // the state; delivery idempotency is a second line of defence, not the campaign lock.
+    if (!running) return null;
     try {
-      const command = this.campaignCommand(campaign);
-      const contacts = await this.recipients(campaign.organizationId, command);
+      const command = this.campaignCommand(running);
+      const contacts = await this.recipients(running.organizationId, command);
       for (const contact of contacts) {
         const { deliveryId, created } = await this.dependencies.outreach.send(
-          this.message(campaign.organizationId, command, contact),
+          this.message(running.organizationId, command, contact),
         );
         if (!created) continue;
-        await this.dependencies.repository.recordContactActivities(campaign.organizationId, [
+        await this.dependencies.repository.recordContactActivities(running.organizationId, [
           {
             contactId: contact.id,
             activity: {
               id: this.dependencies.newId(),
               kind: "outreach",
-              summary: `Campaign "${campaign.name}" sent (delivery ${deliveryId})`,
+              summary: `Campaign "${running.name}" sent (delivery ${deliveryId})`,
               private: false,
               occurredAt: now,
-              actorId: campaign.createdBy,
+              actorId: running.createdBy,
             },
           },
         ]);
       }
     } catch (error) {
       // The occurrence remains due and may be replayed; per-contact delivery keys converge.
-      await this.dependencies.repository.saveCampaign({
-        ...campaign,
-        state: campaign.scheduledAt ? "scheduled" : "draft",
-        updatedAt: this.dependencies.now().toISOString(),
-      });
+      await this.dependencies.repository.transitionCampaign(
+        running.organizationId,
+        running.id,
+        ["running"],
+        running.scheduledAt ? "scheduled" : "draft",
+        this.dependencies.now().toISOString(),
+      );
       throw error;
     }
-    const completed = {
-      ...campaign,
-      state: "completed" as const,
-      updatedAt: this.dependencies.now().toISOString(),
-    };
-    await this.dependencies.repository.saveCampaign(completed);
+    const completed = await this.dependencies.repository.transitionCampaign(
+      running.organizationId,
+      running.id,
+      ["running"],
+      "completed",
+      this.dependencies.now().toISOString(),
+    );
+    if (!completed) throw new CampaignStateConflictError("Campaign state changed during delivery");
     return completed;
   }
 
@@ -1413,7 +1426,9 @@ export class CrmService {
     const campaign = await this.dependencies.repository.findCampaign(organizationId, campaignId);
     if (!campaign) throw new ContactNotFoundError("Campaign not found");
     this.authorize(actor, campaign.eventId);
-    return this.executeCampaign(campaign);
+    const completed = await this.executeCampaign(campaign);
+    if (!completed) throw new CampaignStateConflictError("Campaign is already running");
+    return completed;
   }
 
   async cancelCampaign(actor: Actor | null, organizationId: string, campaignId: string) {
@@ -1421,13 +1436,20 @@ export class CrmService {
     const campaign = await this.dependencies.repository.findCampaign(organizationId, campaignId);
     if (!campaign) throw new ContactNotFoundError("Campaign not found");
     this.authorize(actor, campaign.eventId);
-    if (campaign.state === "completed") return campaign;
-    const cancelled = {
-      ...campaign,
-      state: "cancelled" as const,
-      updatedAt: this.dependencies.now().toISOString(),
-    };
-    await this.dependencies.repository.saveCampaign(cancelled);
+    if (campaign.state === "completed" || campaign.state === "cancelled") return campaign;
+    // A running send cannot be recalled from the provider. Refuse instead of claiming a
+    // cancellation that the executor could overwrite or that would only stop part of the audience.
+    if (campaign.state === "running")
+      throw new CampaignStateConflictError("A running campaign cannot be cancelled");
+    const cancelled = await this.dependencies.repository.transitionCampaign(
+      organizationId,
+      campaignId,
+      [campaign.state],
+      "cancelled",
+      this.dependencies.now().toISOString(),
+    );
+    if (!cancelled)
+      throw new CampaignStateConflictError("Campaign state changed before cancellation");
     return cancelled;
   }
 
@@ -1440,7 +1462,8 @@ export class CrmService {
     const failed: { campaignId: string; reason: string }[] = [];
     for (const campaign of due) {
       try {
-        completed.push(await this.executeCampaign(campaign));
+        const result = await this.executeCampaign(campaign);
+        if (result) completed.push(result);
       } catch (error) {
         // ERROR-INTENT: the failure is returned to the scheduled boundary, which logs it, while
         // later due campaigns continue and this one remains scheduled for an idempotent replay.
@@ -1490,38 +1513,27 @@ export class CrmService {
       occurredAt: input.occurredAt,
       metadata: input.metadata,
     };
-    const created = await this.dependencies.repository.saveEngagement(engagement);
-    if (!created) return { engagement, created: false };
     const summary = `${input.kind[0]?.toUpperCase()}${input.kind.slice(1)} outreach${input.campaignId ? ` from campaign ${input.campaignId}` : ""}`;
-    await Promise.all([
-      this.dependencies.repository.recordContactActivities(organizationId, [
-        {
-          contactId: input.contactId,
-          activity: {
-            id: this.dependencies.newId(),
-            kind: "email",
-            summary,
-            private: false,
-            occurredAt: input.occurredAt,
-            actorId: authorized.id,
-          },
-        },
-      ]),
-      this.dependencies.repository.recordProspectEngagement(
-        organizationId,
-        input.contactId,
-        input.eventId,
-        {
-          id: this.dependencies.newId(),
-          kind: "engagement",
-          summary,
-          private: false,
-          occurredAt: input.occurredAt,
-          actorId: authorized.id,
-        },
-      ),
-    ]);
-    return { engagement, created: true };
+    const created = await this.dependencies.repository.saveEngagement(
+      engagement,
+      {
+        id: this.dependencies.newId(),
+        kind: "email",
+        summary,
+        private: false,
+        occurredAt: input.occurredAt,
+        actorId: authorized.id,
+      },
+      {
+        id: this.dependencies.newId(),
+        kind: "engagement",
+        summary,
+        private: false,
+        occurredAt: input.occurredAt,
+        actorId: authorized.id,
+      },
+    );
+    return { engagement, created };
   }
 
   /* Organization-level analytics, counted over stored rows. */
