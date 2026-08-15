@@ -165,7 +165,7 @@ test("organizer tracks accepted content and speaker completes portal work", asyn
   // Sessions are never created from this workspace: content appears here only because an
   // abstract was accepted in review, which provisions its speaker in the same request.
   await page.goto(TRIAGE);
-  await expect(page.getByRole("heading", { level: 1, name: "Submissions" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Review" })).toBeVisible();
   // Playwright matches accessible names by substring, and the row link, Accept and Decline
   // all contain the title, so the decision control is addressed by its own leading word.
   //

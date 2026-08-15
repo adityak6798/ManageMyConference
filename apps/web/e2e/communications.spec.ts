@@ -64,7 +64,7 @@ async function openOutbox(page: Page) {
   // unauthenticated and the shell bounces to the sign-in surface.
   await expect(page.getByRole("combobox", { name: "Event workspace" })).toBeVisible();
   await page.goto(COMMUNICATIONS);
-  await expect(page.getByRole("heading", { name: "Compose", level: 1 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Messages", level: 1 })).toBeVisible();
 }
 
 /** Follow the real history pagination until the named delivery is on screen. */

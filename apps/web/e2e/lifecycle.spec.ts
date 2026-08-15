@@ -61,7 +61,7 @@ async function switchRole(page: Page, persona: "organizer" | "reviewer") {
 /** Narrow triage to the one abstract this run filed; the table is a growing fixture. */
 async function findInTriage(page: Page, title: string) {
   await page.goto(TRIAGE);
-  await expect(page.getByRole("heading", { level: 1, name: "Submissions" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Review" })).toBeVisible();
   await page.getByLabel("Search abstracts").fill(title);
   await expect(page.getByRole("table").first().getByRole("row", { name: title })).toBeVisible();
 }

@@ -152,7 +152,7 @@ test("organizer triages abstracts, assigns a reviewer, and configures the pipeli
   await restoreSeededPipeline(page);
   await page.goto(TRIAGE);
 
-  await expect(page.getByRole("heading", { level: 1, name: "Submissions" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Review" })).toBeVisible();
   await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
 
   // ---- statuses are tabs, and the counts describe the whole pipeline ----------
