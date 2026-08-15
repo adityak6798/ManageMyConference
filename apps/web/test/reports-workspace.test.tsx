@@ -70,6 +70,6 @@ it("offers the unmasking control to a caller holding the capability, and says it
   await screen.findByRole("option", { name: "Speakers" });
   // The label carries the consequence, because unmasking is an act rather than a preference.
   expect(
-    screen.getByRole("checkbox", { name: /recorded in the audit timeline/ }),
+    screen.getByRole("checkbox", { name: /this action is recorded/ }),
   ).toBeInTheDocument();
 });

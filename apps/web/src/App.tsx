@@ -915,7 +915,7 @@ export function App({
       return (
         <>
           <PageHeader
-            eyebrow="Configure"
+            eyebrow="Settings"
             title="Event settings"
             subtitle={`${selectedEvent.name} · ${selectedEvent.timezone}`}
           />
@@ -932,8 +932,12 @@ export function App({
             )}
           />
           {activeEventCapabilities.includes("events:settings:update") ? (
-            <Card title="Current event" labelledBy="current-event-title">
-              <form onSubmit={submitSettings}>
+            <Card
+              title="Current event"
+              hint="Update the name and timezone used throughout this workspace."
+              labelledBy="current-event-title"
+            >
+              <form className="stack settings-event-form" onSubmit={submitSettings}>
                 <div className="field">
                   <label htmlFor="settings-event-name">Current event name</label>
                   <input
@@ -958,11 +962,15 @@ export function App({
             </Card>
           ) : null}
           {session?.capabilities.includes("events:create") ? (
-            <Card title="Create another event" labelledBy="create-title">
-              <form onSubmit={submit}>
+            <Card
+              title="Create another event"
+              hint="Start fresh or use a template for the reusable setup."
+              labelledBy="create-title"
+            >
+              <form className="stack settings-event-form" onSubmit={submit}>
                 <p className="hint" id="create-event">
-                  Start empty, or explicitly apply one reusable template. Existing proposals,
-                  reviews, speakers, files, agenda, and publication state are never copied.
+                  Proposals, reviews, speakers, files, the agenda, and publication history are
+                  never copied from another event.
                 </p>
                 <div className="field">
                   <label htmlFor="event-organization">Organization</label>
@@ -972,9 +980,11 @@ export function App({
                     onChange={(event) => setCreateOrganizationId(event.target.value)}
                     required
                   >
-                    {session.organizations.map((organization) => (
+                    {session.organizations.map((organization, index) => (
                       <option key={organization.id} value={organization.id}>
-                        {organization.id}
+                        {organization.id === selectedEvent.organizationId
+                          ? "Current organization"
+                          : `Organization ${index + 1}`}
                       </option>
                     ))}
                   </select>
@@ -1013,8 +1023,8 @@ export function App({
                     />
                   </div>
                   <p className="hint">
-                    Lowercase letters, numbers, and hyphens. A conflicting address is refused so you
-                    can choose another.
+                    Use lowercase letters, numbers, and hyphens. If this address is already taken,
+                    choose another.
                   </p>
                 </div>
                 <div className="field-grid two">
@@ -1082,8 +1092,8 @@ export function App({
                       ))}
                     </select>
                     <p className="hint">
-                      The newest captured version is applied through the existing template path; any
-                      partial category is reported and remains repairable.
+                      The newest version is used. If part of the setup cannot be applied, you can
+                      review and retry it from Templates.
                     </p>
                   </div>
                 ) : null}

@@ -33,7 +33,7 @@ export const eventTemplatesWorkspace: WorkspaceModule = {
   canAccess: ({ capabilities, session }) =>
     capabilities.includes("events:settings:read") && (session?.organizations.length ?? 0) > 0,
   header: ({ event }) => ({
-    eyebrow: "Audience",
+    eyebrow: "Settings",
     title: "Event templates",
     subtitle: `Save a configuration once, then clone it into ${event.name} category by category.`,
   }),

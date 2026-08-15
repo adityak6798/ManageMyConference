@@ -66,3 +66,13 @@
 .template-list .sub {
   overflow-wrap: anywhere;
 }
+
+.template-list .template-open {
+  min-width: 0;
+  padding-inline: var(--s-2);
+}
+
+.template-list .template-open[aria-current="true"] {
+  background: var(--green-50);
+  color: var(--green-800);
+}

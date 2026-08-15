@@ -27,8 +27,7 @@ export const reportsWorkspace: WorkspaceModule = {
   canAccess: ({ capabilities }) => capabilities.includes("events:read"),
   header: () => ({
     title: "Reports",
-    subtitle:
-      "Ask a bounded question of this event, export the answer, and share it behind a link that expires.",
+    subtitle: "Build, save, export, and securely share a view of your event data.",
   }),
   render: ({ event, capabilities }) => (
     <ReportsWorkspace

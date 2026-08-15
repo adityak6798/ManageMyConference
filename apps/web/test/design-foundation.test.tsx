@@ -78,6 +78,38 @@ describe("design foundation", () => {
     expect(screen.getByRole("link", { name: "Review" })).not.toHaveAttribute("aria-current");
   });
 
+  it("brings the current hub tab into view on narrow, scrollable tab strips", () => {
+    const scrollIntoView = vi.fn();
+    const original = Element.prototype.scrollIntoView;
+    Object.defineProperty(Element.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+
+    try {
+      render(
+        <HubTabs
+          label="Settings jobs"
+          active="activity"
+          items={[
+            { id: "event", label: "Event", href: "/settings?tab=event" },
+            { id: "team", label: "Team", href: "/settings?tab=team" },
+            { id: "activity", label: "Activity", href: "/settings?tab=activity" },
+          ]}
+        />,
+      );
+
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest", inline: "nearest" });
+    } finally {
+      if (original)
+        Object.defineProperty(Element.prototype, "scrollIntoView", {
+          configurable: true,
+          value: original,
+        });
+      else delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    }
+  });
+
   it("resolves compatibility aliases to an advertised current tab", () => {
     const visible = hubTabsFor("people", "organizer");
     const selected = hubTabForSelection("people", "files", "organizer");

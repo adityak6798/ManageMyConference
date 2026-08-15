@@ -122,7 +122,9 @@ describe("the operational inbox", () => {
       `/sessions?event=${eventId}`,
     );
     expect(speakerWork.getByText(/Sam Speaker/)).toBeInTheDocument();
-    expect(speakerWork.getByText("high")).toBeInTheDocument();
+    expect(speakerWork.getByText("High priority")).toBeInTheDocument();
+    expect(speakerWork.getByText(/Due Aug 20/)).toBeInTheDocument();
+    expect(speakerWork.queryByText(/2026-08-20T23:59/)).not.toBeInTheDocument();
     // An empty category says why it is empty rather than showing a bare heading.
     const reviews = within(screen.getByRole("region", { name: "Reviews outstanding" }));
     expect(reviews.getByText(/Every assignment has a completed evaluation/)).toBeInTheDocument();
@@ -169,7 +171,7 @@ describe("the operational inbox", () => {
       }),
     ).toHaveAttribute("href", `/event-templates?event=${eventId}`);
     expect(configuration.getByText(/no room matching/)).toBeInTheDocument();
-    expect(configuration.getByText("high")).toBeInTheDocument();
+    expect(configuration.getByText("High priority")).toBeInTheDocument();
   });
 
   it("says an event nothing was cloned into owes nothing, rather than showing a bare heading", async () => {
@@ -215,7 +217,7 @@ describe("the operational inbox", () => {
     expect(calls.find(({ method }) => method === "POST")?.body).toEqual({ itemKey: TASK_KEY });
     // Still on the list, marked — an operator has to see what they set aside, and undo it.
     const restore = await screen.findByRole("button", { name: /^Restore/ });
-    expect(screen.getByText("dismissed")).toBeInTheDocument();
+    expect(screen.getByText("Dismissed")).toBeInTheDocument();
 
     fireEvent.click(restore);
     await waitFor(() => expect(calls.some(({ method }) => method === "DELETE")).toBe(true));
@@ -232,7 +234,7 @@ describe("the operational inbox", () => {
 
     expect(await screen.findByText(/no longer waiting on this event/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Dismiss/ })).toBeInTheDocument();
-    expect(screen.queryByText("dismissed")).not.toBeInTheDocument();
+    expect(screen.queryByText("Dismissed")).not.toBeInTheDocument();
   });
 
   it("reports a refused read rather than rendering an empty inbox", async () => {

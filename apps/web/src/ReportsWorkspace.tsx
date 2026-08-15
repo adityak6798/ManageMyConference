@@ -36,6 +36,7 @@ import {
   saveReport,
 } from "./api/reports";
 import "./styles/identity.css";
+import "./styles/reports.css";
 import { Card, EmptyState, Notice, Pill, useActionFeedback, useLoad } from "./ui/primitives";
 
 const describe = (reason: unknown) =>
@@ -187,12 +188,12 @@ export function ReportsWorkspace({
   };
 
   return (
-    <div className="members">
+    <div className="members reports">
       {feedback}
 
       <Card
-        title="Ask a question"
-        hint="Every dataset is authorized by the domain that owns it, so a report shows exactly what your role can already open."
+        title="Build a report"
+        hint="A report only includes information your role can already view."
       >
         <form className="stack" onSubmit={run}>
           <label>
@@ -214,10 +215,10 @@ export function ReportsWorkspace({
               ))}
             </select>
           </label>
-          <fieldset>
+          <fieldset className="report-columns">
             <legend>Columns</legend>
             {(activeDataset?.fields ?? []).map((field) => (
-              <label key={field.key} className="inline">
+              <label key={field.key} className="report-column-choice">
                 <input
                   type="checkbox"
                   checked={fields.length === 0 || fields.includes(field.key)}
@@ -293,9 +294,10 @@ export function ReportsWorkspace({
               </button>
             </div>
           ))}
-          <div className="actions">
+          <div className="actions report-filter-actions">
             <button
               type="button"
+              className="secondary"
               disabled={filters.length >= 12}
               onClick={() =>
                 setFilters((current) => [...current, { field: "", operator: "equals", value: "" }])
@@ -316,27 +318,29 @@ export function ReportsWorkspace({
             </select>
           </label>
           {canReadPii ? (
-            <label className="inline">
+            <label className="report-personal-data">
               <input
                 type="checkbox"
                 checked={includePii}
                 onChange={(changed) => setIncludePii(changed.target.checked)}
               />
-              Show personal data unmasked — recorded in the audit timeline
+              Show unmasked personal data (this action is recorded)
             </label>
           ) : (
             <p className="hint">
-              Personal columns are masked. Unmasking needs the <code>reports:pii</code> capability,
-              and is recorded in the audit timeline when it is used.
+              Personal columns are masked. Ask an administrator for personal-data report access
+              if you need to view them.
             </p>
           )}
-          <div className="actions">
+          <div className="report-run-actions">
             <button type="submit" disabled={busy}>
               Run
             </button>
+          </div>
+          <div className="report-save-row">
             <input
               aria-label="Report name"
-              placeholder="Name to save as"
+              placeholder="Report name"
               value={name}
               onChange={(changed) => setName(changed.target.value)}
             />
@@ -568,8 +572,7 @@ export function ReportsWorkspace({
           </div>
         ) : (
           <EmptyState title="No saved reports">
-            Build a question above and save it. A saved report stores the question, never the
-            answer, so it is re-run under the reader's own access every time.
+            Build a report above and give it a name to use it again later.
           </EmptyState>
         )}
       </Card>
@@ -581,14 +584,14 @@ function ReportResult({ result }: { result: ReportRunResponse }) {
   if (result.state === "unauthorized")
     return (
       <Notice tone="warn">
-        Your role cannot read this dataset. That is the authorization model working — the report
-        itself is fine.
+        Your role does not include access to this information. Choose another dataset or ask an
+        administrator for access.
       </Notice>
     );
   if (result.state === "failed") return <Notice tone="error">{result.error.message}</Notice>;
   const { fields, rows, totalRows, groups, meta } = result.result;
   return (
-    <Card title="Result" hint={`${rows.length} of ${totalRows} rows · scanned ${meta.scannedRows}`}>
+    <Card title="Result" hint={`${rows.length} of ${totalRows} rows shown`}>
       {meta.maskedFields.length > 0 ? (
         <Notice tone="info">
           Masked here: {meta.maskedFields.join(", ")}. A masked value is what you are shown, not

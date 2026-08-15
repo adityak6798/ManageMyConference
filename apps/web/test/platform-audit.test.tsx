@@ -67,20 +67,20 @@ describe("the audit timeline surface", () => {
     render(<AuditWorkspace eventId={eventId} />);
 
     const decision = within(
-      (await screen.findByRole("row", { name: /review\.decision_accepted/ })) as HTMLElement,
+      (await screen.findByRole("row", { name: /Review decision accepted/ })) as HTMLElement,
     );
     expect(decision.getByText("Olivia Organizer")).toBeInTheDocument();
-    expect(decision.getByText("human")).toBeInTheDocument();
+    expect(decision.getByText("Person")).toBeInTheDocument();
     expect(decision.getByText("proposal-1")).toBeInTheDocument();
     expect(decision.getByText("v7")).toBeInTheDocument();
     expect(decision.getByText("corr-1")).toBeInTheDocument();
 
     // A record nobody signed says so rather than showing a blank or inventing a name.
     const published = within(
-      screen.getByRole("row", { name: /agenda\.schedule_published/ }) as HTMLElement,
+      screen.getByRole("row", { name: /Agenda schedule published/ }) as HTMLElement,
     );
     expect(published.getByText("System")).toBeInTheDocument();
-    expect(published.getByText("system")).toBeInTheDocument();
+    expect(published.getByText("Automated")).toBeInTheDocument();
     expect(published.getByText("—")).toBeInTheDocument();
   });
 
@@ -92,8 +92,8 @@ describe("the audit timeline surface", () => {
     await waitFor(() => expect(calls).toHaveLength(2));
     expect(calls[1]).toContain("cursor=");
     // Both on screen: this is one continuous list the reader is walking down.
-    expect(screen.getByRole("row", { name: /review\.decision_accepted/ })).toBeInTheDocument();
-    expect(screen.getByRole("row", { name: /agenda\.schedule_published/ })).toBeInTheDocument();
+    expect(screen.getByRole("row", { name: /Review decision accepted/ })).toBeInTheDocument();
+    expect(screen.getByRole("row", { name: /Agenda schedule published/ })).toBeInTheDocument();
     // …and the control goes away when there is nothing older.
     expect(screen.queryByRole("button", { name: "Load older records" })).not.toBeInTheDocument();
   });

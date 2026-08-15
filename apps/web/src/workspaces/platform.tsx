@@ -44,9 +44,7 @@ export const searchWorkspace: WorkspaceModule = {
   canAccess: ({ capabilities }) => capabilities.includes("events:read"),
   header: () => ({
     title: "Search",
-    subtitle:
-      "Sessions, speakers, tasks, proposals, agenda placements, deliveries and contacts — " +
-      "each searched under the permission its own workspace already asks for.",
+    subtitle: "Find sessions, people, proposals, schedule items, messages, and contacts in one place.",
   }),
   render: ({ event }) => <SearchWorkspace eventId={event.id} />,
 };
@@ -70,9 +68,7 @@ export const inboxWorkspace: WorkspaceModule = {
   canAccess: ({ capabilities }) => capabilities.includes("events:read"),
   header: () => ({
     title: "Inbox",
-    subtitle:
-      "Programme gaps, speaker work, outstanding reviews, failed deliveries and unpublished " +
-      "changes. Every item is derived, so finishing the work is what removes it.",
+    subtitle: "See the work that still needs attention across this event.",
   }),
   render: ({ event }) => <InboxWorkspace eventId={event.id} />,
 };
@@ -94,11 +90,9 @@ export const auditWorkspace: WorkspaceModule = {
   personas: ["organizer"],
   canAccess: ({ capabilities }) => capabilities.includes("events:settings:read"),
   header: () => ({
-    eyebrow: "Audience",
+    eyebrow: "Settings",
     title: "Activity",
-    subtitle:
-      "Every recorded change on this event, in one order, from every domain — with who made it, " +
-      "whether it was a person or a program, and the correlation id it happened under.",
+    subtitle: "See what changed, when it happened, and who made the change.",
   }),
   render: ({ event }) => <AuditWorkspace eventId={event.id} />,
 };

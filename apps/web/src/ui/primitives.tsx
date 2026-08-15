@@ -134,11 +134,21 @@ export function HubTabs({
   label: string;
 }) {
   const linkProps = useLinkProps();
+  const activeRef = useRef<HTMLAnchorElement>(null);
+
+  // A settings hub can have more tabs than a phone can show. Direct navigation used to leave
+  // Reports and Activity off-screen with no visible indication of which page was open. Keep the
+  // selected destination in view without moving the whole page vertically.
+  useEffect(() => {
+    activeRef.current?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }, [active]);
+
   return (
     <nav className="hub-tabs" aria-label={label}>
       {items.map((item) => (
         <a
           key={item.id}
+          ref={item.id === active ? activeRef : undefined}
           className="hub-tab"
           aria-current={item.id === active ? "page" : undefined}
           {...linkProps(item.href)}

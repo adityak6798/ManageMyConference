@@ -1,0 +1,74 @@
+/* Report builder rhythm layered on the shared card, field, and members-table primitives. */
+
+.reports .report-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--s-2);
+  min-width: 0;
+  margin: 0;
+  padding: var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+
+.reports form.stack {
+  display: grid;
+  gap: var(--s-4);
+  align-content: start;
+}
+
+.reports .report-columns legend {
+  padding-inline: var(--s-1);
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-weight: 650;
+}
+
+.reports .report-column-choice,
+.reports .report-personal-data {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-width: 0;
+  font-weight: 500;
+}
+
+.reports .report-column-choice {
+  padding: var(--s-2) var(--s-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+
+.reports .report-column-choice input,
+.reports .report-personal-data input {
+  width: auto;
+  flex: none;
+}
+
+.reports .report-filter-actions {
+  margin-top: calc(var(--s-1) * -1);
+}
+
+.reports .report-run-actions {
+  display: flex;
+  align-items: center;
+}
+
+.reports .report-save-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--s-2);
+}
+
+@media (max-width: 560px) {
+  .reports .report-columns,
+  .reports .report-save-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .reports .report-save-row button,
+  .reports .report-run-actions button {
+    width: 100%;
+  }
+}

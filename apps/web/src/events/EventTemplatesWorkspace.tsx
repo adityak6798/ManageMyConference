@@ -714,11 +714,12 @@ export function EventTemplatesWorkspace({
                   <div className="section-heading">
                     <button
                       type="button"
-                      className="ghost"
+                      className="ghost template-open"
                       aria-current={template.id === selectedId ? "true" : undefined}
                       onClick={() => setSelectedId(template.id)}
                     >
-                      {template.name}
+                      <span>{template.name}</span>
+                      <span aria-hidden="true">→</span>
                     </button>
                     <Pill tone={template.state === "active" ? "ok" : "neutral"}>
                       {template.state === "active" ? "Active" : "Archived"}

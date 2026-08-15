@@ -48,7 +48,7 @@ export const webhooksHubTab: HubTabModule = {
   header: () => ({
     eyebrow: "Settings",
     title: "Integrations",
-    subtitle: "Manage least-privilege API access and signed outbound connections.",
+    subtitle: "Connect Greenroom to other tools with secure API access and outbound webhooks.",
   }),
   render: webhooksWorkspace.render,
 };
