@@ -90,6 +90,22 @@ export interface GoogleConfiguration {
   readonly redirectUri: string;
 }
 
+/**
+ * Which door a sign-in was started from, and therefore what it provisions.
+ *
+ * `organizer` is the default and is the behaviour that predates this: a first-time identity gets
+ * an organization and a first event. `submitter` withholds both — somebody who pressed "Continue
+ * with Google" on a public call page came to keep track of a talk proposal, not to run a
+ * conference, and handing them a workspace named after themselves is answering a question they
+ * did not ask (a `GAP-027` residual of issue #190).
+ *
+ * **It grants nothing.** The value only ever withholds provisioning, so it is not an
+ * authorization decision and a forged one costs its sender a workspace they can still obtain by
+ * signing in through the front door. That is why it is carried without a signature, on the
+ * attempt row the callback spends.
+ */
+export type WorkspaceIntent = "organizer" | "submitter";
+
 /** The half of an attempt that is stored; the browser is given only `state` and the URL. */
 export interface OauthAttempt {
   readonly id: string;
@@ -97,6 +113,7 @@ export interface OauthAttempt {
   readonly codeVerifier: string;
   readonly nonce: string;
   readonly expiresAt: number;
+  readonly workspaceIntent: WorkspaceIntent;
 }
 
 export interface StartedAuthorization {
@@ -114,6 +131,7 @@ export async function startGoogleAuthorization(
   configuration: GoogleConfiguration,
   secret: string,
   now: number,
+  workspaceIntent: WorkspaceIntent = "organizer",
 ): Promise<StartedAuthorization & { state: string }> {
   const state = randomBase64url(32);
   // 32 bytes base64url-encodes to 43 characters, the minimum RFC 7636 allows and the length it
@@ -139,6 +157,7 @@ export async function startGoogleAuthorization(
       codeVerifier,
       nonce,
       expiresAt: now + ATTEMPT_LIFETIME_MS,
+      workspaceIntent,
     },
   };
 }

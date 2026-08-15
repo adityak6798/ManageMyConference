@@ -14,7 +14,52 @@ verified against a live API.
 | Mode | Providers | Needs credentials | Used by |
 |---|---|---|---|
 | `fixture` (default) | `DeterministicProvider` on all three channels | no | local development, `npm run check`, Playwright, the demo reset |
-| `live` | `HttpEmailProvider`, `AirtableProjectionProvider`, `AccelEventsProjectionProvider` | yes, all of them | a deployment that really sends |
+| `live` | the HTTP adapter for **each channel that is configured** | yes, per channel | a deployment that really sends |
+
+### `live` is decided per channel
+
+Until issue #217's lane this was one switch over three channels: `live` demanded all eight
+bindings at once and threw on a partial set, so a deployment with a mail provider and no Airtable
+account could not turn email on at all — it threw on every drain and sent nothing. Each channel is
+now decided on its own bindings, so email goes live alone.
+
+Three rules, and none of them is a softening:
+
+- **A channel is still all-or-nothing.** Three of email's three bindings or none of them. A
+  partial set throws at resolution, naming the channel and every binding it is missing — across
+  every partly configured channel at once, so an operator does not spend one deploy cycle per
+  credential. This is the same refusal `resolveGoogleConfiguration` makes for two Google bindings
+  of three.
+- **`demandHttpsUrl` still applies** to each configured channel's endpoint. A `http:` endpoint
+  would put a bearer credential on the wire in clear text, and it is refused at resolution rather
+  than per delivery.
+- **A channel nobody configured never becomes a silent fake on a deployment that believes it is
+  live.** Where `ENVIRONMENT` names a **development** deployment — `development`, `dev`, `local`,
+  `test`, `ci`, `preview`, any case — an unconfigured channel gets `DeterministicProvider`, which
+  is what lets this deployment run the demo's Airtable and Accelevents projections beside real
+  mail. **Everywhere else, including a value nobody recognizes**, it gets `UnconfiguredProvider`,
+  which refuses every delivery terminally with `PROVIDER_NOT_CONFIGURED` and never reports a
+  `fake:` reference.
+
+  The question is "is this development?" rather than "is this production?" on purpose, and asking
+  it the other way round is a defect this lane shipped and then repaired. A deny-list fails open on
+  a name nobody anticipated: `ENVIRONMENT=production-eu` matched no production spelling, so an
+  unconfigured channel there answered `fake:` for every delivery *and* wrote projection state
+  recording it as pushed — green console, nothing off the machine. Under the all-or-nothing switch
+  the split replaced, that same configuration refused to resolve at all, which made the split
+  quietly worse for exactly one configuration. An operator who wants fakes now says so in a word
+  the set contains.
+
+Refusing *at resolution* was the other option and is worse: it takes the whole drain down, so the
+channel the operator did configure would stop sending too. Refusing per delivery keeps the failure
+where an organizer can see it, in the delivery history, and the console's retry is the recovery
+once the bindings are set.
+
+`ACCELEVENTS_TOKEN` belongs to two channels — the outbound projection and the inbound
+registration read — so it is deliberately **not** read as a request for either. What marks a
+channel as asked for is one of its own bindings: `ACCELEVENTS_API_ENDPOINT` for the outbound one,
+and `ACCELEVENTS_API_ORIGIN`/`ACCELEVENTS_EVENT_REF`/`ACCELEVENTS_GREENROOM_EVENT_ID` for the
+inbound one. Otherwise configuring the projection would demand the registration read as well.
 
 The same switch also selects the **inbound** Accelevents registration source
 (`resolveRegistrationSource`): `fixture` answers from a deterministic in-repository roster and
@@ -25,9 +70,20 @@ any route module, so the operator sees a generic 500 and the organizer's panel s
 platform could not be read. **The text naming the missing binding is in the Worker log, not in the
 response** — check the logs rather than the screen when a `live` sync fails immediately.
 
-The rule is otherwise identical: there is no fallback, and a sync must never report a count from
-the fixture roster while an operator believes it read their registration platform. The organizer
-surface prints the mode on screen for the same reason.
+The rule is otherwise identical: a `live` deployment that has configured *some* of the inbound
+bindings and not the rest is refused, and a sync must never report a count from the fixture roster
+while an operator believes it read their registration platform. A `live` deployment that has
+configured **none** of them keeps the fixture roster **only where `ENVIRONMENT` names a development
+deployment** — there it is a channel nobody asked for rather than one half set up. Anywhere else,
+including a name nobody recognizes, the fixture roster is refused outright. That refusal throws
+rather than answering, because this resolves on the request an organizer made and they are the
+right person to be told. The organizer surface prints the mode on screen for the same reason.
+
+Asking "is this development?" rather than "is this production?" here is the same repair the drain
+got, and this half is the more costly one to get wrong: a delivery that answers `fake:` sends
+nothing, while a *sync* that answers from the in-repository roster writes invented people into a
+real event's content on Apply. `provider-configuration.test.ts` asserts the refusal for
+`production-eu`, `prod-us`, `staging`, an empty value and an absent one, on both halves.
 
 ### Reaching a failure in `fixture` mode
 
@@ -37,11 +93,22 @@ row: `someone+bounce@…` is terminally rejected, `someone+timeout@…` fails re
 `someone+malformed@…` returns an unparsable success. The tag must be the **whole** sub-address —
 `alerts+bounces@corp.example` is somebody's real address and sends normally.
 
-There is no third state, and that is the point. A `live` mode missing any variable **throws**,
-naming every missing binding at once; it never falls back to a fake. The failure this rule exists
-to prevent is a deployment that believes it is mailing speakers while appending to an in-memory
-array. In the same spirit, `fixture` is refused when `ENVIRONMENT` names a production deployment
-(`production`, `prod` or `live`, in any case).
+A `live` channel missing some of its variables **throws**, naming every missing binding at once;
+it never falls back to a fake. The failure this rule exists to prevent is a deployment that
+believes it is mailing speakers while appending to an in-memory array. In the same spirit,
+`fixture` is refused when `ENVIRONMENT` names a production deployment (`production`, `prod` or
+`live`, in any case), and under `live` any deployment that has *not* named itself a development
+one gets a refusing provider rather than a deterministic one for each channel it has not
+configured. The two questions are deliberately different: refusing a whole deployment on an
+unrecognized name would take `fixture` down for anybody who spelled their environment unusually,
+while refusing one unconfigured channel there costs nothing that was working.
+
+**The inbound roster asks the `live` question the same way**, and it throws rather than refusing
+per delivery because it runs on the request an organizer made. A `live` deployment with none of the
+inbound bindings set keeps the fixture roster only where `ENVIRONMENT` names a development one;
+anywhere else Preview and Apply are refused outright. That matters more here than in the drain: a
+sync that answers from the in-repository roster while the panel reports the mode as `live` does not
+merely fail to send — an Apply writes invented people into a real event's content.
 
 **Where that throw happens, precisely.** `resolveProviders` is called from `drainOutbox`, which
 the one-minute scheduled trigger invokes — **not** at module load and **not** on the request path.
@@ -137,6 +204,7 @@ history means one thing across all three:
 | `MALFORMED_PROVIDER_RESPONSE` | terminal | 2xx we cannot parse, or with no reference | inspect the provider's own logs; the effect may have happened |
 | `RECIPIENT_NOT_ADDRESSABLE` | terminal | `recipient_ref` is not a mail address | correct the recipient reference at the source |
 | `MESSAGE_NOT_RENDERED` | terminal | an email delivery carrying no rendered body | a bug: the delivery was written outside the service |
+| `PROVIDER_NOT_CONFIGURED` | terminal | `live` on any deployment that has not named itself a development environment, on a channel with none of its bindings set | set that channel's bindings and retry the delivery, or accept that the channel is not in use. Never a fake success |
 | `CALENDAR_INVITE_MALFORMED` | terminal | `payload.calendarInvite` is present but unusable | a bug: the invitation was built outside `buildSpeakerInvite`. Sending the covering note without the invitation would tell a speaker a meeting exists and give them no way to accept it, so nothing is sent |
 | `RETRY_EXHAUSTED:<code>` | terminal | three retryable attempts | the underlying code names the cause |
 
@@ -247,3 +315,20 @@ record the result here:
 7. Record the date, the commit, and any request-shape corrections in this section.
 
 Until step 7 exists, treat `live` as unverified and keep deployments on `fixture`.
+
+### The calendar part is the least portable thing here, and it is a residual
+
+`HttpEmailProvider` POSTs `{from, to, subject, text}` plus, for `speaker-calendar-invite` only, a
+`calendar` object `{method, filename, content}`. The first four fields are close to universal
+across transactional mail APIs. The fifth is not: an invitation reaches a calendar by arriving as
+a `text/calendar; method=REQUEST` **alternative part**, and a provider that has no field for that
+— or that treats it as an ordinary file attachment — produces mail with an `.ics` download instead
+of an Accept/Decline card. Some providers express it as a MIME part, some as an attachment with
+an explicit content type, some not at all.
+
+Nothing in this repository can settle which, because no request has ever been made to a real mail
+API. So this is stated as a residual rather than left to be discovered: **whoever configures
+`EMAIL_API_ENDPOINT` must check that provider's contract for the calendar part before relying on
+`speaker-calendar-invite`, and adapt `HttpEmailProvider`'s body to it.** Every other lifecycle
+message carries no `calendar` field and is unaffected. `GAP-010` and `GAP-012` already record that
+this adapter has never exchanged a request with a live API.

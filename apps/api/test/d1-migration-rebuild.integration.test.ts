@@ -30,6 +30,7 @@ const rebuildCoverage = {
   "1703_delivery_domain_event_triggers.sql": "seeded replay below",
   "1705_delivery_proposal_submitted_trigger.sql": "seeded replay below",
   "1706_delivery_reviewer_reminder_trigger.sql": "seeded replay below",
+  "1708_delivery_cfp_deadline_triggers.sql": "seeded replay below",
   "1802_publication_slug_reservations.sql": "creates and drops a transient audit table",
 } as const;
 
@@ -250,5 +251,64 @@ describe("communication_deliveries rebuild", () => {
         "communication_deliveries_worker_idx",
       ]),
     );
+  });
+
+  it("replays 1708 over populated children and preserves main's reviewer reminder trigger", async () => {
+    /*
+     * The same replay for issue #210's rebuild. It is `1705`'s file with two more values in one
+     * `CHECK`, which is exactly the shape that looks safe and is not: the drop of the parent is
+     * refused the moment any child holds a row, and `calendar_invite_states` — the child a copy of
+     * `1703` forgets — is empty in the seed. So it is populated first, deliberately.
+     */
+    const migrated = await createMigratedDatabase({ label: "rebuild-1708", seed: true });
+    runtime = migrated.runtime;
+    await migrated.database
+      .prepare(
+        "INSERT INTO calendar_invite_states (organization_id, event_id, session_id, speaker_profile_id, schedule_ref, recipient_ref, sequence, delivery_id) SELECT organization_id, event_id, 'session-1', 'profile-1', 'schedule-1', recipient_ref, 3, id FROM communication_deliveries LIMIT 1",
+      )
+      .run();
+    const census = () =>
+      migrated.database
+        .prepare(
+          "SELECT (SELECT COUNT(*) FROM communication_deliveries) AS deliveries, (SELECT COUNT(*) FROM communication_attempts a JOIN communication_deliveries d ON d.id = a.delivery_id) AS joined, (SELECT COUNT(*) FROM outbound_projection_state) AS projections, (SELECT COUNT(*) FROM calendar_invite_states c JOIN communication_deliveries d ON d.id = c.delivery_id) AS invitesJoined",
+        )
+        .all<{
+          deliveries: number;
+          joined: number;
+          projections: number;
+          invitesJoined: number;
+        }>();
+    const before = (await census()).results?.[0];
+    for (const total of Object.values(before ?? {})) expect(total).toBeGreaterThan(0);
+
+    await applyMigrationFile(migrated.database, "1708_delivery_cfp_deadline_triggers.sql");
+
+    // Every row survives, and every child still resolves to the delivery it named.
+    expect((await census()).results?.[0]).toEqual(before);
+
+    const insert = (id: string, trigger: string) =>
+      migrated.database
+        .prepare(
+          `INSERT INTO communication_deliveries (id, organization_id, event_id, idempotency_key, trigger_type, channel, template_id, template_version, recipient_ref, payload_json, projection_version, state, attempt_count, next_attempt_at, lease_token, created_at, updated_at, rendered_subject, rendered_body) VALUES ('${id}', '00000000-0000-4000-8000-000000000010', '00000000-0000-4000-8000-000000000001', '${id}', '${trigger}', 'email', NULL, NULL, 'pat@example.test', '{}', NULL, 'queued', 0, '2026-08-14T09:00:00.000Z', NULL, '2026-08-14T09:00:00.000Z', '2026-08-14T09:00:00.000Z', 'Subject', 'Body')`,
+        )
+        .run();
+
+    // The two values the lane came for…
+    await expect(insert("rebuild-deadline", "cfp.deadline_approaching")).resolves.toMatchObject({
+      success: true,
+    });
+    await expect(insert("rebuild-closed", "cfp.call_closed")).resolves.toMatchObject({
+      success: true,
+    });
+    // …a value that predates them, still admitted…
+    await expect(insert("rebuild-kept", "proposal.submitted")).resolves.toMatchObject({
+      success: true,
+    });
+    // …and the trigger admitted by main's immediately preceding rebuild remains admitted.
+    await expect(insert("rebuild-reviewer-reminder", "reviewer.reminder")).resolves.toMatchObject({
+      success: true,
+    });
+    // …and no widening beyond them.
+    await expect(insert("rebuild-bogus", "cfp.deadline_missed")).rejects.toThrow();
   });
 });

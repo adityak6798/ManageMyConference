@@ -5,6 +5,7 @@ import {
   TemplateVersionTakenError,
 } from "../../application/communications/ports";
 import type { PreparedDeliveryWriter } from "../../application/communications/public";
+import { recipientCapKey } from "../../domain/communications/delivery";
 import type {
   Delivery,
   DeliveryAttempt,
@@ -41,6 +42,7 @@ type DeliveryRow = {
   template_id: string | null;
   template_version: number | null;
   recipient_ref: string;
+  recipient_trust: Delivery["recipientTrust"];
   payload_json: string;
   rendered_subject: string | null;
   rendered_body: string | null;
@@ -74,7 +76,7 @@ type CalendarInviteStateRow = {
 };
 
 const deliveryColumns =
-  "id, organization_id, event_id, idempotency_key, trigger_type, channel, template_id, template_version, recipient_ref, payload_json, rendered_subject, rendered_body, projection_version, state, attempt_count, next_attempt_at, lease_token, created_at, updated_at";
+  "id, organization_id, event_id, idempotency_key, trigger_type, channel, template_id, template_version, recipient_ref, recipient_trust, payload_json, rendered_subject, rendered_body, projection_version, state, attempt_count, next_attempt_at, lease_token, created_at, updated_at";
 const deliveryFromRow = (row: DeliveryRow): Delivery => ({
   id: row.id,
   organizationId: row.organization_id,
@@ -85,6 +87,7 @@ const deliveryFromRow = (row: DeliveryRow): Delivery => ({
   templateId: row.template_id,
   templateVersion: row.template_version,
   recipientRef: row.recipient_ref,
+  recipientTrust: row.recipient_trust,
   payload: JSON.parse(row.payload_json) as Record<string, unknown>,
   renderedSubject: row.rendered_subject,
   renderedBody: row.rendered_body,
@@ -131,7 +134,7 @@ const attemptFromRow = (row: AttemptRow): DeliveryAttempt => ({
 const insertDeliveryStatement = (database: Database, delivery: Delivery): Statement =>
   database
     .prepare(
-      `INSERT INTO communication_deliveries (${deliveryColumns}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (organization_id, idempotency_key) DO NOTHING`,
+      `INSERT INTO communication_deliveries (${deliveryColumns}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (organization_id, idempotency_key) DO NOTHING`,
     )
     .bind(
       delivery.id,
@@ -143,6 +146,7 @@ const insertDeliveryStatement = (database: Database, delivery: Delivery): Statem
       delivery.templateId,
       delivery.templateVersion,
       delivery.recipientRef,
+      delivery.recipientTrust,
       JSON.stringify(delivery.payload),
       delivery.renderedSubject,
       delivery.renderedBody,
@@ -190,6 +194,32 @@ const isTemplateVersionTaken = (error: unknown): boolean => {
     text.includes("message_templates.version") || text.includes("message_templates.template_key")
   );
 };
+
+/**
+ * `recipientCapKey`, expressed over the stored column (issue #132).
+ *
+ * The cap is a `WHERE` over rows that were written with whatever string the caller supplied, so
+ * the comparison has to normalize *both* sides — and the two statements of the rule have to agree
+ * on every input rather than on the ones somebody happened to test. Three details carry that:
+ *
+ * - `instr` is 1-based and returns 0 when the character is absent, so an absent `+` fails
+ *   `> 1` and an absent `@` makes the ordering test false. Both fall to the `ELSE`.
+ * - The `+` guard is `> 1`, not `> 0`. At position 1 the local part is empty, and
+ *   `substr(address, 1, 0)` is `''` — so `+a@x` normalized to `@x` here while `recipientCapKey`
+ *   left it alone, and the two never matched: the cap silently never bound for that address.
+ * - `trim` and `lower` are the *reference* here rather than the mirror: `recipientCapKey` folds
+ *   ASCII and strips spaces because that is what these two do, not the other way round. Doing more
+ *   on the JavaScript side is what let `Ä@example.test` be stored unfolded and looked up folded,
+ *   matching nothing — a cap that silently never binds.
+ *
+ * `d1-communications-repository.integration.test.ts` drives real rows through both statements.
+ */
+const RECIPIENT_CAP_KEY_SQL =
+  "CASE WHEN instr(trim(lower(recipient_ref)), '+') > 1 " +
+  "AND instr(trim(lower(recipient_ref)), '+') < instr(trim(lower(recipient_ref)), '@') " +
+  "THEN substr(trim(lower(recipient_ref)), 1, instr(trim(lower(recipient_ref)), '+') - 1) || " +
+  "substr(trim(lower(recipient_ref)), instr(trim(lower(recipient_ref)), '@')) " +
+  "ELSE trim(lower(recipient_ref)) END";
 
 export class D1CommunicationsRepository implements CommunicationsRepository {
   constructor(private readonly database: Database) {}
@@ -281,6 +311,38 @@ export class D1CommunicationsRepository implements CommunicationsRepository {
 
   async findByIdempotencyKey(organizationId: string, idempotencyKey: string) {
     return (await this.byKeys(organizationId, [idempotencyKey])).get(idempotencyKey) ?? null;
+  }
+
+  /**
+   * How many **declared-recipient** deliveries this event has written to one mailbox.
+   *
+   * Two predicates carry the whole meaning, and both were missing from the first version:
+   *
+   * - `recipient_trust = 'declared'` scopes the count to the messages the cap is *about*. Counting
+   *   every delivery to the address instead spent the budget on the product's own follow-up mail —
+   *   an accepted guest proposal produces a decision, a speaker welcome and an onboarding task to
+   *   the same address, which is three — and the organizer's later decline was then refused with
+   *   nothing abusive having happened.
+   * - The normalization matches `recipientCapKey` in the domain, applied here to the *stored*
+   *   column: ASCII case-folded — `lower()`, which is what the domain deliberately matches rather
+   *   than the other way round — and with a `+tag` stripped from the local part. Without it an
+   *   attacker gets a fresh budget per spelling, which is the exposure rather than a rounding
+   *   error.
+   *
+   * The SQL and `recipientCapKey` are two statements of one rule, so
+   * `d1-communications-repository.integration.test.ts` drives real rows through both.
+   */
+  async countDeliveriesTo(organizationId: string, eventId: string, recipientRef: string) {
+    const result = await this.database
+      .prepare(
+        "SELECT COUNT(*) AS tally FROM communication_deliveries " +
+          "WHERE organization_id = ? AND event_id = ? AND recipient_trust = 'declared' AND " +
+          `${RECIPIENT_CAP_KEY_SQL} = ?`,
+      )
+      .bind(organizationId, eventId, recipientCapKey(recipientRef))
+      .all<{ tally: number }>();
+    this.ensure(result, "count deliveries to a recipient");
+    return Number(result.results?.[0]?.tally ?? 0);
   }
 
   /**
@@ -385,6 +447,7 @@ export class D1CommunicationsRepository implements CommunicationsRepository {
       delivery.templateId,
       delivery.templateVersion,
       delivery.recipientRef,
+      delivery.recipientTrust,
       JSON.stringify(delivery.payload),
       delivery.renderedSubject,
       delivery.renderedBody,
@@ -401,7 +464,7 @@ export class D1CommunicationsRepository implements CommunicationsRepository {
         ? insertDeliveryStatement(this.database, delivery)
         : this.database
             .prepare(
-              `INSERT INTO communication_deliveries (${deliveryColumns}) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM calendar_invite_states WHERE organization_id = ? AND event_id = ? AND session_id = ? AND speaker_profile_id = ? AND sequence = ?) ON CONFLICT (organization_id, idempotency_key) DO NOTHING`,
+              `INSERT INTO communication_deliveries (${deliveryColumns}) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM calendar_invite_states WHERE organization_id = ? AND event_id = ? AND session_id = ? AND speaker_profile_id = ? AND sequence = ?) ON CONFLICT (organization_id, idempotency_key) DO NOTHING`,
             )
             .bind(
               ...deliveryValues,

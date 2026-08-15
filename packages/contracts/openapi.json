@@ -1915,7 +1915,9 @@
                               "speaker.task_reminder",
                               "speaker.calendar_invite",
                               "decision.recorded",
-                              "proposal.submitted"
+                              "proposal.submitted",
+                              "cfp.deadline_approaching",
+                              "cfp.call_closed"
                             ]
                           },
                           "channel": {
@@ -2883,7 +2885,9 @@
                             "speaker.task_reminder",
                             "speaker.calendar_invite",
                             "decision.recorded",
-                            "proposal.submitted"
+                            "proposal.submitted",
+                            "cfp.deadline_approaching",
+                            "cfp.call_closed"
                           ]
                         },
                         "channel": {
@@ -3365,7 +3369,9 @@
                             "speaker.task_reminder",
                             "speaker.calendar_invite",
                             "decision.recorded",
-                            "proposal.submitted"
+                            "proposal.submitted",
+                            "cfp.deadline_approaching",
+                            "cfp.call_closed"
                           ]
                         },
                         "channel": {
@@ -3933,7 +3939,9 @@
                                   "speaker.task_reminder",
                                   "speaker.calendar_invite",
                                   "decision.recorded",
-                                  "proposal.submitted"
+                                  "proposal.submitted",
+                                  "cfp.deadline_approaching",
+                                  "cfp.call_closed"
                                 ]
                               },
                               "channel": {

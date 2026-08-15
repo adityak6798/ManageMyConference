@@ -2,6 +2,8 @@ import type { IdentityDirectory } from "../../application/identity/identity-dire
 import type { DemoPersona } from "../../application/identity/demo-session";
 import type { Actor, Capability, EventAccess } from "../../application/identity/actor";
 import { ATTEMPT_LIFETIME_MS } from "../../application/identity/google-oauth";
+import type { WorkspaceIntent } from "../../application/identity/google-oauth";
+import { changedRows, type D1WriteResult } from "./d1-write-result";
 
 interface D1Result<T> {
   results?: T[];
@@ -11,11 +13,23 @@ interface D1Result<T> {
 interface D1Statement {
   bind(...values: unknown[]): D1Statement;
   all<T>(): Promise<D1Result<T>>;
-  run<T = unknown>(): Promise<D1Result<T>>;
+  /**
+   * `meta` is required here because one write in this adapter is conditional, and a conditional
+   * write that matched no row is `success: true` exactly as one that landed is. See
+   * `d1-write-result.ts`; `joinOrganization` is the caller that depends on it.
+   */
+  run<T = unknown>(): Promise<D1Result<T> & D1WriteResult>;
 }
 export interface IdentityDatabasePort {
   prepare(query: string): D1Statement;
-  batch<T = unknown>(statements: D1Statement[]): Promise<D1Result<T>[]>;
+  /**
+   * Batched results carry the same row-count contract single writes do.
+   *
+   * `joinOrganization` decides whether it won a race from the *batched* insert's `meta.changes`,
+   * and a conditional write that matched nothing is `success: true` exactly as one that landed is.
+   * Typing this as a bare `D1Result` would make that read a silent `undefined`.
+   */
+  batch<T = unknown>(statements: D1Statement[]): Promise<(D1Result<T> & D1WriteResult)[]>;
 }
 
 interface UserRow {
@@ -159,6 +173,7 @@ export class D1IdentityDirectory implements IdentityDirectory {
     codeVerifier: string;
     nonce: string;
     expiresAt: number;
+    workspaceIntent?: WorkspaceIntent;
   }): Promise<void> {
     const results = await this.database.batch([
       this.database
@@ -166,7 +181,7 @@ export class D1IdentityDirectory implements IdentityDirectory {
         .bind(attempt.expiresAt - ATTEMPT_LIFETIME_MS),
       this.database
         .prepare(
-          "INSERT INTO identity_oauth_attempts (id,state_proof,code_verifier,nonce,expires_at) VALUES (?,?,?,?,?)",
+          "INSERT INTO identity_oauth_attempts (id,state_proof,code_verifier,nonce,expires_at,workspace_intent) VALUES (?,?,?,?,?,?)",
         )
         .bind(
           attempt.id,
@@ -174,6 +189,9 @@ export class D1IdentityDirectory implements IdentityDirectory {
           attempt.codeVerifier,
           attempt.nonce,
           attempt.expiresAt,
+          // Defaulted here as well as in the column, so a caller that predates the context — and
+          // every test composition — mints exactly the attempt it always did.
+          attempt.workspaceIntent ?? "organizer",
         ),
     ]);
     const failed = results.find((result) => !result.success);
@@ -204,18 +222,32 @@ export class D1IdentityDirectory implements IdentityDirectory {
     ids: readonly string[],
     stateProof: string,
     now: number,
-  ): Promise<{ id: string; codeVerifier: string; nonce: string } | null> {
+  ): Promise<{
+    id: string;
+    codeVerifier: string;
+    nonce: string;
+    workspaceIntent: WorkspaceIntent;
+  } | null> {
     if (ids.length === 0) return null;
     const result = await this.database
       .prepare(
-        `DELETE FROM identity_oauth_attempts WHERE id IN (${ids.map(() => "?").join(",")}) AND state_proof=? AND expires_at>? RETURNING id, code_verifier, nonce`,
+        `DELETE FROM identity_oauth_attempts WHERE id IN (${ids.map(() => "?").join(",")}) AND state_proof=? AND expires_at>? RETURNING id, code_verifier, nonce, workspace_intent`,
       )
       .bind(...ids, stateProof, now)
-      .all<{ id: string; code_verifier: string; nonce: string }>();
+      .all<{ id: string; code_verifier: string; nonce: string; workspace_intent: string }>();
     if (!result.success)
       throw new Error(`D1 failed to consume sign-in attempt: ${result.error ?? "unknown error"}`);
     const row = result.results?.[0];
-    return row ? { id: row.id, codeVerifier: row.code_verifier, nonce: row.nonce } : null;
+    return row
+      ? {
+          id: row.id,
+          codeVerifier: row.code_verifier,
+          nonce: row.nonce,
+          // The column's `CHECK` allows only these two, so anything else is a row this build did
+          // not write; the safe reading is the default, which provisions exactly as before.
+          workspaceIntent: row.workspace_intent === "submitter" ? "submitter" : "organizer",
+        }
+      : null;
   }
 
   async findByProviderAccount(provider: "google", subject: string): Promise<Actor | null> {
@@ -269,6 +301,14 @@ export class D1IdentityDirectory implements IdentityDirectory {
    * Four rows across four tables that are only meaningful together — an account with no address
    * cannot be written to, and one with no membership has a console it cannot use. D1 applies a
    * batch atomically, so the alternative to this is a user who can sign in to nothing.
+   *
+   * **Three rows and no membership when `organizationId` is null**, which is the submitter door
+   * (see `SignupService.signInWithGoogle`). That account is complete rather than half-made: it
+   * owns proposals, receives their confirmations and reads their decisions, and belongs to no
+   * conference. Its persona is `public` for the same reason — the console picks the surfaces it
+   * offers from the persona when an account holds no event role, so writing `organizer` there
+   * would offer an organizer's workspaces to somebody holding none of an organizer's
+   * capabilities.
    */
   async createSelfServeIdentity(input: {
     userId: string;
@@ -277,12 +317,12 @@ export class D1IdentityDirectory implements IdentityDirectory {
     provider: "google";
     subject: string;
     linkedAt: number;
-    organizationId: string;
+    organizationId: string | null;
   }): Promise<void> {
     const results = await this.database.batch([
       this.database
-        .prepare("INSERT INTO users (id,name,persona) VALUES (?,?,'organizer')")
-        .bind(input.userId, input.name),
+        .prepare("INSERT INTO users (id,name,persona) VALUES (?,?,?)")
+        .bind(input.userId, input.name, input.organizationId === null ? "public" : "organizer"),
       this.database
         .prepare("INSERT INTO identity_emails (user_id,email) VALUES (?,?)")
         .bind(input.userId, input.email.trim().toLowerCase()),
@@ -291,15 +331,95 @@ export class D1IdentityDirectory implements IdentityDirectory {
           "INSERT INTO identity_provider_accounts (provider,subject,user_id,linked_at) VALUES (?,?,?,?)",
         )
         .bind(input.provider, input.subject, input.userId, input.linkedAt),
-      this.database
-        .prepare(
-          "INSERT INTO organization_memberships (organization_id,user_id,role) VALUES (?,?,'organizer')",
-        )
-        .bind(input.organizationId, input.userId),
+      ...(input.organizationId === null
+        ? []
+        : [
+            this.database
+              .prepare(
+                "INSERT INTO organization_memberships (organization_id,user_id,role) VALUES (?,?,'organizer')",
+              )
+              .bind(input.organizationId, input.userId),
+          ]),
     ]);
     const failed = results.find((result) => !result.success);
     if (failed)
       throw new Error(`D1 failed to provision identity: ${failed.error ?? "unknown error"}`);
+  }
+
+  /**
+   * Make an existing account an organizer of an organization **if it belongs to none**, and say so
+   * on its `users` row. Reports whether this call is the one that did it.
+   *
+   * The one caller is `SignupService.completeWorkspace`, giving a workspace to an account that
+   * was created without one — a submitter who came in through a public call page and has since
+   * signed in through the organizer door.
+   *
+   * **`WHERE NOT EXISTS` rather than `INSERT OR IGNORE`, and the difference is a defect.** Two
+   * concurrent callbacks each create their *own* organization before reaching this, so the
+   * conflict `INSERT OR IGNORE` absorbs — the same `(organization_id, user_id)` pair — never
+   * happens: both rows are distinct and both would land, leaving one person holding two
+   * conferences and two "Your first event"s that nothing in this repository can delete. The
+   * condition makes storage pick a winner, and `changedRows` is how the loser finds out.
+   *
+   * The persona lift is unconditional on the old value rather than only from `public`: an account
+   * being given a conference of its own is that conference's organizer, whatever it was before,
+   * and the console picks the workspaces it offers from the persona whenever no event is selected.
+   *
+   * **What the suites prove, and what they do not.** `d1-identity-signup.integration.test.ts`
+   * drives both statements against migrated D1 — the promotion case proves the persona lift lands
+   * and is bound correctly, and the concurrent-promotion case proves the insert's condition picks
+   * one winner. The `EXISTS` on the lift is belt-and-braces on top of that: the only caller
+   * reaches it while the account holds no membership, so removing the gate changes no observable
+   * outcome and no test can kill it. It stays because it makes the statement true on its own
+   * terms rather than by reference to a caller two files away.
+   *
+   * **One batch, because the two halves are one fact.** They were two `run()`s, and a failure
+   * between them left the membership written and the persona still `public` — with no other
+   * writer anywhere that lifts it, and no second chance, because the caller only reaches this
+   * while the account holds no membership. The batch is a transaction, so the second statement
+   * sees the first's row: gating the lift on that membership existing is what makes a loser
+   * relabel nobody, and it says so in SQL rather than relying on an early return above it.
+   *
+   * It writes a membership and nothing else: the event and the role on it are the events domain's
+   * and are created afterwards, against the actor this membership authorizes.
+   */
+  async joinOrganization(organizationId: string, userId: string): Promise<boolean> {
+    const results = await this.database.batch([
+      this.database
+        .prepare(
+          "INSERT INTO organization_memberships (organization_id,user_id,role) " +
+            "SELECT ?,?,'organizer' WHERE NOT EXISTS " +
+            "(SELECT 1 FROM organization_memberships WHERE user_id = ?)",
+        )
+        .bind(organizationId, userId, userId),
+      this.database
+        .prepare(
+          "UPDATE users SET persona = 'organizer' WHERE id = ? AND EXISTS " +
+            "(SELECT 1 FROM organization_memberships WHERE organization_id = ? AND user_id = ?)",
+        )
+        .bind(userId, organizationId, userId),
+    ]);
+    /*
+     * Unreachable defence, kept because it costs nothing and the alternative is a silent lie: D1
+     * rejects the whole batch on a statement failure rather than returning `success: false`, and
+     * the throw propagates into `completeWorkspace`'s catch, which discards the organization. The
+     * half is named because "the membership failed" about a persona failure would send whoever
+     * reads it to the wrong statement — and a short result array would let this return `true`
+     * with the second statement's outcome unknown.
+     */
+    const halves = ["record organization membership", "lift the organizer persona"] as const;
+    if (results.length !== halves.length)
+      throw new Error(
+        `D1 returned ${results.length} results for a ${halves.length}-statement membership batch`,
+      );
+    for (const [index, result] of results.entries())
+      if (!result.success)
+        throw new Error(`D1 failed to ${halves[index]}: ${result.error ?? "unknown error"}`);
+    // A missing `meta.changes` is a failure here, never a silent 0 or 1: this count is what tells
+    // the caller whether to keep the organization it just created or discard it.
+    const [insert] = results;
+    if (!insert) throw new Error("D1 returned no result for the organization membership insert");
+    return changedRows(insert, "record organization membership") > 0;
   }
 
   async findByEmail(email: string): Promise<Actor | null> {
@@ -412,6 +532,19 @@ export class D1IdentityDirectory implements IdentityDirectory {
       .all<{ id: string; name: string; email: string | null }>();
     if (!result.success)
       throw new Error(`D1 failed to list event speakers: ${result.error ?? "unknown error"}`);
+    return (result.results ?? []).map((row) => ({ ...row, email: row.email ?? null }));
+  }
+
+  /** The speaker list's sibling, on the organizer role. See the interface for why it is separate. */
+  async listOrganizersForEvent(eventId: string) {
+    const result = await this.database
+      .prepare(
+        "SELECT DISTINCT u.id, u.name, e.email FROM users u JOIN event_roles r ON r.user_id = u.id LEFT JOIN identity_emails e ON e.user_id = u.id WHERE r.event_id = ? AND r.role = 'organizer' ORDER BY u.name, u.id",
+      )
+      .bind(eventId)
+      .all<{ id: string; name: string; email: string | null }>();
+    if (!result.success)
+      throw new Error(`D1 failed to list event organizers: ${result.error ?? "unknown error"}`);
     return (result.results ?? []).map((row) => ({ ...row, email: row.email ?? null }));
   }
 

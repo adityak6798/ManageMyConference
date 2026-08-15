@@ -174,12 +174,30 @@ export const identityRoutes: RouteModule = {
           429,
         );
       }
+      /*
+       * Which door this is, and it decides one thing: whether a first-time identity is given a
+       * conference workspace.
+       *
+       * `?intent=submitter` is what the public call page's sign-in link sends. It **withholds**
+       * provisioning and grants nothing, so it is not an authorization input and needs no
+       * signature — a forged one costs its own sender a workspace they can still get by signing
+       * in here. Anything else is the front door, and an unrecognized value is reported rather
+       * than silently normalized, because a link somebody wrote by hand and got wrong should be
+       * findable in the log rather than quietly doing something else.
+       */
+      const requested = context.req.query("intent");
+      if (requested !== undefined && requested !== "submitter" && requested !== "organizer")
+        dependencies.logger.warn(
+          { correlationId: context.get("correlationId"), intent: requested },
+          "auth.google.unknown_intent",
+        );
+      const workspaceIntent = requested === "submitter" ? "submitter" : "organizer";
       // Minting an attempt is a D1 write. Left to the transport's error boundary it would answer a
       // JSON 500 to a plain link click, which is a dead end in the address bar; the person gets the
       // sign-in page back instead, and the reason goes to the log with their correlation id.
       let started: { authorizationUrl: string; attemptId: string };
       try {
-        started = await auth.google.start(now);
+        started = await auth.google.start(now, workspaceIntent);
       } catch (error) {
         // ERROR-INTENT: reported at error level because a sign-in that cannot even begin is this
         // deployment failing, not a caller being refused.

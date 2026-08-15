@@ -112,6 +112,9 @@ describe("Google signup against migrated D1", () => {
       id: attempt.id,
       codeVerifier: attempt.codeVerifier,
       nonce: attempt.nonce,
+      // Defaulted by the column and by the adapter: an attempt minted without a door is the
+      // front one, which is the behaviour that predates migration `1005`.
+      workspaceIntent: "organizer",
     });
     // A replayed callback — the same id, the same valid `state` — finds nothing to spend. This
     // is the property a read-then-delete could not promise under two racing callbacks.
@@ -130,6 +133,7 @@ describe("Google signup against migrated D1", () => {
       id: "attempt-wrong-proof",
       codeVerifier: attempt.codeVerifier,
       nonce: attempt.nonce,
+      workspaceIntent: "organizer",
     });
 
     await directory.saveOauthAttempt({ ...attempt, id: "attempt-expired" });
@@ -157,7 +161,12 @@ describe("Google signup against migrated D1", () => {
       directory.consumeOauthAttempt(["attempt-raced"], attempt.stateProof, 1_000_000),
     ]);
     expect(raced.filter((outcome) => outcome !== null)).toEqual([
-      { id: "attempt-raced", codeVerifier: attempt.codeVerifier, nonce: attempt.nonce },
+      {
+        id: "attempt-raced",
+        codeVerifier: attempt.codeVerifier,
+        nonce: attempt.nonce,
+        workspaceIntent: "organizer",
+      },
     ]);
 
     /*
@@ -260,7 +269,40 @@ describe("Google signup against migrated D1", () => {
       id: started.attempt.id,
       codeVerifier: started.attempt.codeVerifier,
       nonce: started.attempt.nonce,
+      workspaceIntent: "organizer",
     });
+  });
+
+  it("carries the door a sign-in was started from through the redirect", async () => {
+    /*
+     * The context has to outlive a round trip through Google, and it cannot ride on the callback
+     * URL — that is fixed configuration registered with Google, and deriving it from a request is
+     * the open redirect this flow refuses by construction. So it rides on the attempt row, which
+     * is already the per-attempt state the callback spends exactly once (migration `1005`).
+     */
+    const migrated = await createMigratedDatabase({ label: "identity-oauth-intent", seed: true });
+    runtime = migrated.runtime;
+    const { directory } = signupStack(migrated.database);
+    const secret = "a-session-secret-for-this-test";
+    const started = await startGoogleAuthorization(
+      {
+        clientId: "client.apps.googleusercontent.com",
+        clientSecret: "unused-here",
+        redirectUri: "https://greenroom.test/api/auth/google/callback",
+      },
+      secret,
+      1_000_000,
+      "submitter",
+    );
+    await directory.saveOauthAttempt(started.attempt);
+
+    await expect(
+      directory.consumeOauthAttempt(
+        [started.attempt.id],
+        await stateProof(started.state, secret),
+        1_000_100,
+      ),
+    ).resolves.toMatchObject({ workspaceIntent: "submitter" });
   });
 
   it("writes the whole identity of a self-serve signup, and resolves it back", async () => {
@@ -420,6 +462,127 @@ describe("Google signup against migrated D1", () => {
     await expect(events.listEventIdsForOrganization(organizationId)).resolves.toEqual([eventId]);
     await expect(directory.listAssignableOwnersForEvent(eventId)).resolves.toEqual([
       { id: first.actor.id, name: newcomer.name },
+    ]);
+  });
+
+  it("completes a submitter-door account's workspace, membership and persona together", async () => {
+    /*
+     * The one path that reaches `joinOrganization`, and until this case nothing executed its SQL.
+     *
+     * `completeWorkspace` calls it only for an account holding no organization, which the
+     * organizer door never produces — `createSelfServeIdentity` writes that membership itself.
+     * Only the submitter door leaves an account in that state, so every earlier case in this file
+     * goes past the branch. The unit suite covers the rule against a fake that reimplements it in
+     * TypeScript, which is exactly the coverage that cannot see a bind-order slip.
+     *
+     * What is proved here is one batch: the membership insert is conditional on the account
+     * holding none, and the persona lift is gated on the row that insert writes — a gate that
+     * means nothing unless the second statement sees the first's uncommitted write.
+     */
+    const migrated = await createMigratedDatabase({
+      label: "identity-submitter-promote",
+      seed: true,
+    });
+    runtime = migrated.runtime;
+    const database = migrated.database;
+    const { signup, directory } = signupStack(database);
+
+    // Through the public call for proposals: an identity, and deliberately no conference.
+    const submitter = await signup.signInWithGoogle(newcomer, "submitter");
+    expect(submitter.actor.organizations).toEqual([]);
+    expect(submitter.actor.eventAccess).toEqual([]);
+    await expect(unseededRows(database)).resolves.toEqual({
+      organizations: 0,
+      events: 0,
+      users: 1,
+    });
+    const personaOf = async () =>
+      (
+        await database
+          .prepare("SELECT persona FROM users WHERE id = ?")
+          .bind(submitter.actor.id)
+          .first<{ persona: string }>()
+      )?.persona;
+    expect(await personaOf()).toBe("public");
+
+    // And then the front door, which is that person asking for a conference of their own.
+    const promoted = await signup.signInWithGoogle(newcomer);
+
+    expect(promoted.actor.id).toBe(submitter.actor.id);
+    expect(promoted.actor.organizations).toHaveLength(1);
+    expect(promoted.actor.eventAccess).toHaveLength(1);
+    // The persona moved with the membership, in the same batch. The console picks the workspaces
+    // it offers from this whenever no event is selected, so an account left `public` here holds a
+    // conference it cannot open.
+    expect(await personaOf()).toBe("organizer");
+    await expect(unseededRows(database)).resolves.toEqual({
+      organizations: 1,
+      events: 1,
+      users: 1,
+    });
+
+    // Idempotent: signing in again finds the event role and writes nothing further.
+    await signup.signInWithGoogle(newcomer);
+    await expect(unseededRows(database)).resolves.toEqual({
+      organizations: 1,
+      events: 1,
+      users: 1,
+    });
+    await expect(
+      directory.listAssignableOwnersForEvent(promoted.actor.eventAccess[0]?.eventId as string),
+    ).resolves.toEqual([{ id: promoted.actor.id, name: newcomer.name }]);
+  });
+
+  it("gives a submitter-door account one workspace when two tabs promote it at once", async () => {
+    /*
+     * The conditional half of the same batch, which the case above cannot reach.
+     *
+     * `completeWorkspace` mints an organization *before* it writes the membership, so two
+     * concurrent promotions of one account each arrive holding a different organization id and
+     * the conflict `INSERT OR IGNORE` would absorb never happens — both rows are distinct, both
+     * land, and the person is left holding two conferences named after themselves with two "Your
+     * first event"s that nothing in this repository deletes. `WHERE NOT EXISTS (… user_id = ?)`
+     * is what makes storage pick one, and its removal survives every other test in this suite.
+     *
+     * Two open tabs on a sign-in page is the ordinary way to reach this, not a contrived one.
+     *
+     * **What this case can and cannot guarantee.** It kills the removal of that condition today,
+     * and it also covers the loser re-reading before it returns — but the second only because the
+     * loser happens to reach `eventsInOrganization` after the winner's event has committed, which
+     * is an await-ordering property of the runtime rather than something asserted here. If that
+     * ordering ever shifted, the loser would take the provisioning branch instead and this case
+     * would go quiet rather than red. Worth knowing before it is trusted as a permanent guard.
+     */
+    const migrated = await createMigratedDatabase({
+      label: "identity-submitter-promote-race",
+      seed: true,
+    });
+    runtime = migrated.runtime;
+    const database = migrated.database;
+    const { signup, events } = signupStack(database);
+
+    await signup.signInWithGoogle(newcomer, "submitter");
+    const [first, second] = await Promise.all([
+      signup.signInWithGoogle(newcomer),
+      signup.signInWithGoogle(newcomer),
+    ]);
+
+    // One of everything beyond the fixture, counted in the tables. A second organization here
+    // would be an orphan no product path removes — the row `GAP-019`'s data-aware reset refuses
+    // on for ever.
+    await expect(unseededRows(database)).resolves.toEqual({
+      organizations: 1,
+      events: 1,
+      users: 1,
+    });
+    expect(first.actor.id).toBe(second.actor.id);
+    const organizationId = first.actor.organizations[0]?.id as string;
+    expect(second.actor.organizations).toEqual([{ id: organizationId }]);
+    // And both callers hold the role on the one event, so the loser adopted rather than lost.
+    expect(first.actor.eventAccess).toHaveLength(1);
+    expect(second.actor.eventAccess).toEqual(first.actor.eventAccess);
+    await expect(events.listEventIdsForOrganization(organizationId)).resolves.toEqual([
+      first.actor.eventAccess[0]?.eventId,
     ]);
   });
 

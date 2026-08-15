@@ -338,23 +338,71 @@ export function CfpWorkspace({
       setBusy("window");
       try {
         const saved = await saveCfpWindow(eventId, window);
+        /*
+         * Everything below comes from the server's answer to this write, and nothing from the
+         * timestamps that were sent (issue #222).
+         *
+         * A window save changes what applicants are in without changing the publication, so the
+         * two things that describe the call — this composer's status line and the Live tab, which
+         * is "the same bytes an applicant receives" — both have to move. `setForm` alone moved
+         * only the first: saving a deadline already in the past left the Live tab, and every
+         * warning derived from it, showing an open call until somebody reloaded the page. The
+         * state transition below it has always refreshed for exactly this reason; the window
+         * control had not.
+         *
+         * Both directions are covered by construction, because `effectiveStatus` is computed
+         * server-side on each read: a deadline moved into the past closes the call and a deadline
+         * moved back into the future reopens it, and neither is decided here.
+         */
         setForm(saved);
+        await refreshLive();
         announce(
           "success",
-          window.closesAt
-            ? "Submission window saved. Applicants see the deadline on the public form."
-            : window.opensAt
-              ? "Submission window saved. The call opens at the time you set."
-              : "Submission window cleared. The call is bounded only by the open and closed controls.",
+          /*
+           * Phrased from the effective state the server just computed rather than from the
+           * timestamps that were sent, so a deadline saved in the past is never announced as a
+           * date applicants will "see on the public form" while the call is already shut.
+           *
+           * `closed` has two causes and they are not the same sentence. `cfpEffectiveState`
+           * answers `closed` for a call the organizer closed by hand *before* it looks at the
+           * deadline at all, so blaming the deadline for every closure told an organizer who had
+           * closed the call and then scheduled an opening date that a deadline had passed — on
+           * the surface this whole change exists to stop saying false things.
+           *
+           * Which cause it is comes from `publishedStatus`, the organizer's own half of the
+           * answer, and **not** from comparing the deadline against this browser's clock. Two
+           * reasons, and the second is the one that matters: a clock comparison is exactly the
+           * recomputation issue #222 exists to remove, and it gets the *overlap* wrong — an
+           * organizer may close a call whose deadline has already gone, and there the deadline is
+           * both past and not the reason. The server has already decided; this only picks words.
+           */
+          saved.effectiveStatus === "closed"
+            ? saved.publishedStatus === "closed"
+              ? "Submission window saved. The call is closed to new submissions until you reopen it, so the window changes nothing for applicants yet."
+              : "Submission window saved. That deadline has already passed, so the call is closed to new submissions."
+            : saved.effectiveStatus === "scheduled"
+              ? "Submission window saved. The call is not open yet and opens at the time you set."
+              : // Nothing published means no applicant reaches the form at all, so promising them
+                // a date on "the public form" was the same class of false sentence as blaming a
+                // deadline for a manual closure — the window is stored and takes effect on publish.
+                saved.effectiveStatus === "unpublished"
+                ? "Submission window saved. Nothing is published yet, so applicants see none of it until you publish the form."
+                : window.closesAt
+                  ? "Submission window saved. Applicants see the deadline on the public form."
+                  : window.opensAt
+                    ? "Submission window saved. The call opens at the time you set."
+                    : "Submission window cleared. The call is bounded only by the open and closed controls.",
         );
       } catch (reason: unknown) {
-        // ERROR-INTENT: the announcement is the user-facing failure state for this control.
+        // ERROR-INTENT: the announcement is the user-facing failure state for this control, and
+        // it is the whole of it deliberately — nothing above ran, so the composer still shows the
+        // window the call actually has rather than the one that was refused.
         announce("error", describe(reason, "The submission window could not be saved."));
       } finally {
         setBusy(null);
       }
     },
-    [announce, eventId],
+    [announce, eventId, refreshLive],
   );
 
   const transition = useCallback(

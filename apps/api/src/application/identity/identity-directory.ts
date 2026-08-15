@@ -31,6 +31,22 @@ export interface IdentityDirectory {
     eventId: string,
   ): Promise<readonly { id: string; name: string; email: string | null }[]>;
   /**
+   * The people holding an **organizer** role on one event, with the address each can be reached
+   * at.
+   *
+   * The counterpart of `listSpeakersForEvent`, and it exists for one caller: the scheduled notice
+   * that a call for proposals has closed (issue #210) has to reach the people who run the event,
+   * and had no way to learn who they are without reading `event_roles` and `identity_emails`.
+   *
+   * Deliberately narrower than `listAssignableOwnersForEvent`, which includes reviewers: a
+   * reviewer does not need to be told the call closed, and that method carries no address anyway
+   * because its result is projected into an API response. `email` is null when identity holds
+   * none, exactly as the speaker list reports it. Addressing only — appearing here grants nothing.
+   */
+  listOrganizersForEvent(
+    eventId: string,
+  ): Promise<readonly { id: string; name: string; email: string | null }[]>;
+  /**
    * The staff of one event — its organizers and reviewers, each listed once. This is the
    * authority on who may be assigned ownership of that event's work; callers must not read
    * `event_roles` or `users` themselves.

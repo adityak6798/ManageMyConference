@@ -340,6 +340,38 @@ export function PublicCfpView({
     return kept;
   };
 
+  /**
+   * Whether two answer sets are the same text under the same questions.
+   *
+   * Only ever compares the *pruned* form of both sides, so a stored answer the published form no
+   * longer accepts cannot make an untouched form look edited — that answer is not on screen and
+   * was never the applicant's to lose here.
+   */
+  const sameAnswers = (
+    left: Readonly<Record<string, string>>,
+    right: Readonly<Record<string, string>>,
+  ) => {
+    const prunedLeft = answersTheFormStillAccepts(left);
+    const prunedRight = answersTheFormStillAccepts(right);
+    const keys = Object.keys(prunedLeft);
+    return (
+      keys.length === Object.keys(prunedRight).length &&
+      keys.every((id) => prunedLeft[id] === prunedRight[id])
+    );
+  };
+
+  /**
+   * Whether anything is on the form **that the applicant can see**, bound to a proposal or not.
+   *
+   * Pruned like every other comparison on this page. An answer whose question the published form
+   * has since removed is not on screen and is not the applicant's to lose here, so counting it
+   * would refuse a switch over a visually empty form — and point at a Save that the server would
+   * reject for the very key that is invisible.
+   */
+  const formHasAnswers = Object.values(answersTheFormStillAccepts(answers)).some(
+    (value) => value.trim() !== "",
+  );
+
   const openForEditing = (proposal: SubmitterProposalDto) => {
     /*
      * Rebind from the copy in hand when it is the same proposal.
@@ -357,6 +389,69 @@ export function PublicCfpView({
      */
     const current =
       editing?.id === proposal.id && editing.revision >= proposal.revision ? editing : proposal;
+    /*
+     * Pressing a button in the list used to reload a stored copy over whatever had been typed and
+     * say only "Editing …. Change what you need" — the applicant's work discarded with no
+     * statement at all (issue #211), on a surface whose spec is emphatic about the opposite:
+     * `PRD-CFP-004` requires a drop to be stated before the save that makes it permanent, not
+     * discovered afterwards.
+     *
+     * **Both directions of that, because they are one defect.** The first repair covered
+     * re-opening the proposal already in the form and asserted, wrongly, that this was "the one
+     * path" — a review pass then walked one click sideways and found the same loss switching to a
+     * *different* proposal, which is the same class on the same screen. This repository has the
+     * habit written down: a lane that repairs one instance of a defect and leaves its siblings is
+     * how `GAP-025`'s content half came to describe four writers missing the same row-count check.
+     *
+     * So typing always wins over a reload it did not ask for:
+     *
+     * - **Same proposal**: nothing is loaded over the typing, and `editing` still moves to
+     *   whichever copy is newer so the escape from a conflict raised by another tab survives.
+     * - **Different proposal**: the switch is *refused* rather than silently taken, and the notice
+     *   says what to do about it. Rebinding while keeping the answers would be worse than either
+     *   option — it sends one proposal's text under another's id, which is the exact corruption
+     *   the in-flight-write guard elsewhere on this page exists to prevent.
+     *
+     * "Typed something" is measured against the copy the form was **bound** to, never against the
+     * newer one in the list: an applicant who has typed nothing while another tab saved has no
+     * unsaved changes to keep, and telling them they had would strand them on stale text. So they
+     * take the reload path exactly as before, and it costs them nothing.
+     *
+     * **And the form bound to nothing is the third sibling**, found by the review pass that
+     * followed the second. `editing === null` with text on screen is an applicant part-way
+     * through a *new* proposal — the state this page is in after every submit, and the one
+     * `Start another proposal` leaves — and measuring against `editing` made `unsaved` false
+     * there, so opening anything from the list wiped a whole unsent abstract with the same
+     * cheerful "Editing …" the first repair existed to remove. It is refused on the same terms
+     * as a switch between two stored proposals, because it is the same loss.
+     */
+    const typedIntoNewProposal = editing === null && formHasAnswers;
+    const unsaved =
+      typedIntoNewProposal ||
+      (editing !== null && !sameAnswers(answers, answersTheFormStillAccepts(editing.answers)));
+    if (unsaved && editing?.id !== proposal.id) {
+      setNotice({
+        tone: "error",
+        text: typedIntoNewProposal
+          ? // Reachable only from the list, which only a signed-in applicant is shown, so "save
+            // it as a draft" is always an option here.
+            `You have unsaved answers on a new proposal. Save or submit it before opening ${proposal.title ?? "another proposal"}, or press Start another proposal to discard what is on the form.`
+          : `You have unsaved changes to ${editing?.title ?? "the proposal you are editing"}. Save or submit it before opening ${proposal.title ?? "another proposal"}, or press Start another proposal to leave it as it was.`,
+      });
+      return;
+    }
+    if (unsaved) {
+      setEditing(current);
+      setFieldErrors({});
+      setNotice({
+        tone: "ok",
+        text:
+          current === editing
+            ? `Still editing ${current.title ?? "your proposal"}. Your unsaved changes are still on the form; nothing was loaded over them.`
+            : `Still editing ${current.title ?? "your proposal"}. Your unsaved changes are still on the form, and the stored copy has changed since you opened it — saving will replace it with what is on screen.`,
+      });
+      return;
+    }
     const kept = answersTheFormStillAccepts(current.answers);
     const dropped = Object.keys(current.answers).length - Object.keys(kept).length;
     setEditing(current);
@@ -373,11 +468,48 @@ export function PublicCfpView({
         : `Editing ${current.title ?? "your proposal"}. Change what you need, then save or submit it.`,
     });
   };
+  /**
+   * Leave the proposal in the form and start an empty one.
+   *
+   * This is the deliberate discard, and it is the only control on the page that is. It **says** so
+   * when there is typing to lose rather than clearing the form and setting no notice at all: the
+   * applicant asked for an empty form and gets one, and is told what left with it, which is the
+   * `PRD-CFP-004` rule applied to a loss the applicant chose. The refusal to switch proposals
+   * above names this control as the way out for exactly that reason.
+   */
   const startFresh = () => {
+    /*
+     * `editing === null` is load-bearing and was missing. `abandoned` is null in two different
+     * states — no proposal open, and a proposal open but unmodified — and a `typed` branch guarded
+     * only on `abandoned` fired in the second one too: pressing this straight after opening a
+     * stored proposal, or straight after saving one, announced that answers "were not saved
+     * anywhere and are gone" about a proposal sitting unchanged in the list two inches above.
+     * A false loss claim is the same defect as a silent loss, introduced by the repair for it.
+     */
+    const typedIntoNothing = editing === null && formHasAnswers;
+    const abandoned =
+      editing !== null && !sameAnswers(answers, answersTheFormStillAccepts(editing.answers))
+        ? editing
+        : null;
     setEditing(null);
     setAnswers({});
     setFieldErrors({});
-    setNotice(null);
+    setNotice(
+      abandoned
+        ? {
+            tone: "ok",
+            text: `Started a new proposal. Your unsaved changes to ${abandoned.title ?? "the previous proposal"} were not saved; it is unchanged, and you can open it again from the list.`,
+          }
+        : // The same statement for the form bound to no proposal at all: what is cleared there
+          // was never stored anywhere, so "it is unchanged and you can open it again" would be a
+          // lie, and saying nothing at all is what this control did before issue #211.
+          typedIntoNothing
+          ? {
+              tone: "ok",
+              text: "Started a new proposal. The answers that were on the form were not saved anywhere and are gone.",
+            }
+          : null,
+    );
   };
 
   function onFormSubmit(event: FormEvent) {
@@ -455,7 +587,13 @@ export function PublicCfpView({
               whole new proposal was typed and then written over the previous one as a `PUT`,
               with no create issued at all.
             */}
-            {formOpen && editing ? (
+            {/*
+              Offered whenever there is something on the form to leave, which is not the same as
+              "a stored proposal is open". A new proposal that has been typed into is exactly the
+              state the switch refusal points *at* this control from, and gating it on `editing`
+              meant that refusal named a button the page was not rendering.
+            */}
+            {formOpen && (editing !== null || formHasAnswers) ? (
               <button
                 type="button"
                 className="pub-button"
@@ -572,7 +710,16 @@ export function PublicCfpView({
           </p>
           <div className="pub-signin-doors">
             {doors?.google ? (
-              <a className="pub-button" href="/api/auth/google/start">
+              /*
+               * `intent=submitter`, which is what stops this button handing somebody a conference.
+               *
+               * A first-time Google identity is otherwise given an organization named after them
+               * and an event called "Your first event" — right for somebody who pressed this on
+               * `/signin`, and an answer to a question nobody asked for somebody who pressed it
+               * here to keep track of a talk proposal. The parameter withholds that and grants
+               * nothing; signing in from `/signin` later still provisions the workspace.
+               */
+              <a className="pub-button" href="/api/auth/google/start?intent=submitter">
                 Continue with Google
               </a>
             ) : null}

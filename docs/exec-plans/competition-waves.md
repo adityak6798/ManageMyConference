@@ -1630,6 +1630,96 @@ handler — **is not committed**. It found three real defects (triage selection 
 permanently disabled "Start next round" whose explanation lived in unreachable code, and a demo
 persona's "Create API client" that was disabled *and* had no handler), and a lane that wants that
 class of defect caught again has to write the probe again.
+
+### Issues #217, #210, #211, #222 and #132 rulings — the communications-reality lane
+
+The owner's decision of 2026-08-14 is that **the demo and a real conference share one deployment**.
+Demo personas stay: an automated browser cannot complete Google OAuth, so removing them takes the
+evaluator's credential-optional workflow to zero. That decision has a consequence, and this lane is
+it — a real organization on this deployment could send **nothing**, for four independent reasons,
+and fixing any one of them alone left the outcome exactly where it started. They ship together for
+that reason and no other.
+
+**Migration numbers taken.** Main already owns communications `1706` for `reviewer.reminder`, so
+this lane uses `1707` (default lifecycle templates), `1708` (`trigger_type` widened by
+`cfp.deadline_approaching` and `cfp.call_closed`, following `1705`'s four-table rebuild recipe while
+preserving `1706`'s reviewer value), and `1709` (`communication_deliveries.recipient_trust`, an
+`ADD COLUMN` defaulting to `account` with a covering index for the cap's read). Identity `1005`
+(`identity_oauth_attempts.workspace_intent`). `1708` is the second worked example of the
+cross-domain rule in `apps/api/migrations/README.md`: the table is communications', and half the
+reason to change it is CFP's.
+
+**Where the four fixes drew their lines.**
+
+- **#217, provisioning.** A copy the organization owns, not a system-wide fallback row and not a
+  write at organization creation. `message_templates.organization_id` is `NOT NULL REFERENCES
+  organizations(id)` and a delivery's `template_id` is a foreign key into it, so a system row needs
+  a nullable column or a sentinel organization the `GAP-019` guard would read as real data. And
+  `SignupService` writes the organization *before* the identity batch precisely so it can discard
+  it when that batch fails (#164) — a template written at creation makes that `DELETE` fail on a
+  foreign key and leaves the orphan `GAP-019` refuses on for ever.
+- **The provider split.** Per channel, each channel still all-or-nothing, `demandHttpsUrl` intact.
+  An unconfigured channel is deterministic on a **named development environment** and refuses each
+  delivery everywhere else. The rule is an allow-list rather than a production deny-list, and that
+  is a repair: the first version asked whether `ENVIRONMENT` named production, so `production-eu` —
+  or any value nobody anticipated — handed an unconfigured channel a provider that reports `fake:`
+  success and writes projection state. A deployment that has not said which environment it is gets
+  the safe answer. The **inbound** registration roster asks the same question and throws instead of
+  refusing per delivery, because it runs on the request an organizer made — and it is the more
+  costly half to get wrong: a sync answering from the in-repository roster while the panel reports
+  `live` writes invented people into a real event on Apply. Refusing at *resolution* in the drain
+  was the other option there and is worse: it takes the whole drain down, so the channel the
+  operator did configure stops sending too.
+- **The reset scoping.** Every cleanup names the ids the seed inserts, and `tools/compose-seed.mjs`
+  now refuses a bare `DELETE` in any fragment. `#208`'s guard is deliberately untouched — it reads
+  what the database holds, and a real organization on this deployment is still worth stopping for.
+  What changed is the cost of proceeding, which leaves `--destroy-real-data` overstating itself;
+  that is recorded in `GAP-019` rather than fixed by relaxing a guard on the strength of SQL
+  somebody could edit tomorrow.
+- **#132.** Shipped as a durable per-`(event, address)` cap on messages to an address nobody proved
+  they control, derived from the deliveries themselves rather than a counter. Two properties of it
+  are load-bearing and each came out of the review pass. The address is compared as a **mailbox**,
+  lower-cased with any `+tag` removed, because `Victim@x`, `vIctim@x` and `victim+1@x` are one
+  person's inbox and three buckets would have made "a hundred proposals cost three messages" false.
+  And only a delivery the caller marked `declared` counts (migration `1708`), because counting the
+  verified ones let a speaker's three messages refuse a legitimate decline to the same address
+  (migration `1709`). **Left open**, and
+  deliberately: the issue's outcome is an address somebody has *proven or confirmed*, and a cap is a
+  bound on amplification rather than a verification. Double opt-in — the issue's other mechanism —
+  does not close it either while the guest door must keep working, because the confirmation mail is
+  itself a send to an unverified address on an unauthenticated form, at one per submission rather
+  than one per decision. Stated in `GAP-027` rather than closed on a narrowing.
+
+**Two scope additions taken mid-lane rather than filed.** A public-call sign-in no longer provisions
+a conference workspace (a `GAP-027` residual of #190 that no lane owned), because the lane was
+already deciding what happens when an organization is created; and #222's post-mutation state
+convergence, because it is the same surface as #210 and #211.
+
+**#222 drew one line worth recording.** The public page re-reads the server's `effectiveStatus`
+when its tab returns to the front rather than polling, which converges the case that happens — the
+deadline is moved in one tab while the public page sits in another — and adds nothing to a page
+left open on a conference screen all day. A page in the foreground across a deadline still shows
+the previous answer until the visitor acts; the server refuses the submission either way, so what
+is at stake is the wording rather than the enforcement. The browser spec that proves it states its
+own limit: headless Chromium keeps a background tab `visible`, so `bringToFront` fires no
+`visibilitychange` and the spec dispatches the event on the real document.
+
+**Seven review passes, and what the later ones were for.** Pass 1 found a blocker and five majors.
+Passes 2 and 3 then found that three of *those repairs* were incomplete or wrong — the provider
+question was inverted in the drain and left as it was in the inbound sibling, the cap's SQL and its
+domain twin disagreed for a local part beginning with `+`, and #211's rule reached two of its three
+siblings, with the third repair introducing a false "your work is gone" notice while removing a
+silent one. Pass 4 found the batched membership write executed by no test at all. Passes 5 to 8 found defects
+in the *tests and the prose*: an assertion that no mutation
+could kill, a wait equal to the test timeout it was meant to exceed, a comment claiming a
+user-visible symptom the composition cannot produce, and several counts and bounds stated more
+generously than the code supports — including, twice, a sentence the lane's own earlier commit had
+written while the code still behaved the way it described. That is the shape a repair pass has, and
+it is the argument for reviewing the repairs rather than the original diff.
+
+**What is still not proven.** No mail has ever left this codebase. Every provider test stubs
+`fetch`, and this lane adds none that do not — the per-channel split is verified against stubs and
+says so. `GAP-010` and `GAP-012` are unchanged in that respect.
 ### Issue #191 rulings — the review plans lane
 
 Issue #191 was deliberately not taken by the lane that landed PR #218, and the ruling recorded

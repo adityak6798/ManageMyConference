@@ -226,9 +226,22 @@ describe("communications HTTP acceptance", () => {
       { headers },
     );
     expect(templates.status).toBe(200);
-    await expect(templates.json()).resolves.toMatchObject({
-      templates: [{ key: "speaker-welcome", version: 1 }],
-    });
+    /*
+     * The organization's own template beside the provisioned defaults, not instead of them.
+     *
+     * Listing provisions this organization's lifecycle catalogue (issue #217): before that, a
+     * self-serve organization opened this page to an empty list — a surface saying the product
+     * has no messages and there is nothing to edit — while every lifecycle trigger silently
+     * resolved nothing. Asserted by membership rather than by array shape, because the order is
+     * the repository's and the count is the catalogue's.
+     */
+    const listed = (await templates.json()) as { templates: { key: string; version: number }[] };
+    expect(listed.templates).toContainEqual(
+      expect.objectContaining({ key: "speaker-welcome", version: 1 }),
+    );
+    expect(listed.templates.map(({ key }) => key)).toEqual(
+      expect.arrayContaining(["speaker-invite", "decision-accepted", "proposal-submitted"]),
+    );
   });
 
   it("refuses a send from someone without communications:manage", async () => {

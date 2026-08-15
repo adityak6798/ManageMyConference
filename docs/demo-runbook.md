@@ -51,10 +51,13 @@ Wrangler configuration to match the exact demo Worker, database ID, D1 binding, 
 resource, or disabled demo mode fails closed. Do not weaken these checks to reuse the command for
 production.
 
-**It also reads the data, not only the configuration** (`GAP-019`). `seed/reset.sql` is a full
-teardown — it deletes every row of `organizations`, `users` and `events` before reinserting the
-fixture — so after applying migrations and before deleting anything, the command counts the rows of
-those three tables whose ids the fixture does not insert, and refuses if it finds any. That is what
+**It also reads the data, not only the configuration** (`GAP-019`). The restore used to be a full
+teardown — every row of `organizations`, `users` and `events` removed before the fixture went back
+— and every cleanup is scoped to the seeded ids now. The guard is unchanged regardless: after
+applying migrations and before deleting anything, the command counts the rows of those three tables
+whose ids the fixture does not insert, and refuses if it finds any. It asks whether this database
+holds somebody's workspace, which is a question about the deployment rather than about the SQL, and
+the answer should not depend on a fragment staying scoped. That is what
 makes it safe for this deployment to offer Google sign-in: a real signup is no longer erased by the
 next routine restore. The check fails closed — an unreachable database, a query that errors, output
 it cannot parse are each a refusal, never a proceed — and the command above is unchanged on a

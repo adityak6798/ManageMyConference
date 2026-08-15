@@ -57,7 +57,10 @@ import {
   CommunicationsNotFoundError,
   CommunicationsService,
   lifecycleRecipientForAccount,
+  MessageTemplateMissingError,
+  UnverifiedRecipientCapError,
 } from "./application/communications/public";
+import { enqueueCfpDeadlineNotices } from "./application/communications/cfp-deadline-notices";
 import { SchedulePublishedConsumer } from "./application/communications/schedule-published-consumer";
 import { enqueueDueTaskReminders } from "./application/communications/task-reminders";
 import type {
@@ -356,6 +359,31 @@ export async function remindDueSpeakerTasks(environment: Environment) {
     onFailure(fields) {
       // biome-ignore lint/suspicious/noConsole: Workers emit structured JSON at this telemetry boundary.
       console.warn(JSON.stringify({ level: "warn", message: "task.reminder.failed", ...fields }));
+    },
+  });
+}
+
+/**
+ * Announce a CFP deadline before it passes, and its closure after (issue #210).
+ *
+ * Composed here for the same reason the task reminder is: it needs the CFP domain's calls, the
+ * events domain's name and timezone, and identity's addresses, and none of those three may reach
+ * into another's tables. Each arrives as its own declared interface.
+ */
+export async function announceCfpDeadlines(environment: Environment) {
+  const { events, service } = scheduledCommunications(environment);
+  const directory = new D1IdentityDirectory(environment.DB);
+  return enqueueCfpDeadlineNotices({
+    calls: new D1CfpRepository(environment.DB),
+    enqueue: service,
+    alreadyEnqueued: (organizationId, key) => service.alreadyEnqueued(organizationId, key),
+    eventOf: (eventId) => events.describeForNotice(eventId),
+    findRecipient: (userId) => directory.findRecipient(userId),
+    organizersOf: (eventId) => directory.listOrganizersForEvent(eventId),
+    now: () => new Date(),
+    onFailure(fields) {
+      // biome-ignore lint/suspicious/noConsole: Workers emit structured JSON at this telemetry boundary.
+      console.warn(JSON.stringify({ level: "warn", message: "cfp.deadline.failed", ...fields }));
     },
   });
 }
@@ -814,8 +842,13 @@ export default {
             report: (fields, event) => logger.error(fields, event),
           });
           return {
-            async start(now) {
-              const started = await startGoogleAuthorization(configuration, sessionSecret, now);
+            async start(now, workspaceIntent) {
+              const started = await startGoogleAuthorization(
+                configuration,
+                sessionSecret,
+                now,
+                workspaceIntent,
+              );
               await identityDirectory.saveOauthAttempt(started.attempt);
               return {
                 authorizationUrl: started.authorizationUrl,
@@ -874,7 +907,9 @@ export default {
                   { code, attempt: spent, configuration, now },
                   { exchange: client.exchange, keys: client.keys },
                 );
-                const session = await signup.signInWithGoogle(identity);
+                // The door this sign-in was started from, read back off the attempt row it just
+                // spent rather than from anything the callback carried (migration `1005`).
+                const session = await signup.signInWithGoogle(identity, spent.workspaceIntent);
                 return {
                   spentAttemptId,
                   outcome: {
@@ -991,8 +1026,11 @@ export default {
       subject: Record<string, string>,
       request: (organizationId: string) => Omit<DeliveryRequest, "organizationId" | "eventId">,
     ): Promise<void> => {
+      // Held outside the try so the catch can put a configuration failure on this event's own
+      // timeline, which needs the organization the failure happened in.
+      let organizationId: string | null = null;
       try {
-        const organizationId = await organizationOf(eventId);
+        organizationId = await organizationOf(eventId);
         // Not an error to swallow quietly: an event with no owning organization means the id is
         // wrong or the row is gone, and either way there is nobody to address the message to.
         if (!organizationId) throw new Error("Event has no owning organization");
@@ -1025,6 +1063,75 @@ export default {
           { eventId, ...subject, error: error instanceof Error ? error.message : String(error) },
           "lifecycle.notification.failed",
         );
+        /*
+         * The catch above was written for a **transient** failure — a D1 read that rejects — and
+         * issue #217 showed it hiding a different class entirely. A missing lifecycle template is
+         * permanent and total for that organization: the action succeeds, no delivery row is
+         * written, and from every surface an organizer can see it is indistinguishable from a
+         * message that went out. A Worker log line is not a surface an organizer reads.
+         *
+         * So that one class also lands on the event's own timeline, beside the action that
+         * should have sent it — the same place `communications.delivery_enqueued` goes, which is
+         * exactly the record whose absence is the symptom. The catch itself stays: nothing here
+         * fails the committed action, and this is a second report rather than a rethrow.
+         *
+         * Keyed on `(event, template key)` with no occurrence, so a condition that repeats every
+         * time anybody triggers that message records **once** rather than filling the timeline
+         * with the same permanent fact. Defaults are provisioned on resolution now, so reaching
+         * this at all means something an operator has to look at.
+         */
+        if (error instanceof MessageTemplateMissingError && organizationId)
+          await auditRecorder.record({
+            organizationId,
+            eventId,
+            action: "communications.template_missing",
+            targetType: "message-template",
+            targetId: error.templateKey,
+            idempotencyKey: lifecycleAuditKey({
+              action: "communications.template_missing",
+              eventId,
+              targetId: error.templateKey,
+            }),
+          });
+        /*
+         * And the second class the catch would otherwise hide: a message refused because this
+         * event has reached its cap for an address nobody proved they control (issue #132).
+         *
+         * An organizer who records a decline and hears nothing has no way to tell "sent" from
+         * "refused because ninety-nine other proposals name that address". The subject the caller
+         * supplied identifies which action it was — a proposal id, a profile id — and the
+         * recipient is deliberately **not** in the key or the record: it is the address of
+         * somebody who did not ask to be here, and this timeline is read by every organizer on
+         * the event.
+         */
+        if (error instanceof UnverifiedRecipientCapError && organizationId) {
+          /*
+           * `subject` is the structured-logging bag every caller already passes, and its first
+           * entry is the identifier the message is *about* — the proposal, the profile, the
+           * task. `taskAssigned` is the only caller with two, and it names `taskId` first for
+           * this reason. Object literals preserve insertion order for string keys, so this is a
+           * stated convention rather than an accident; the fallback keeps the record on the
+           * event if a future caller passes nothing.
+           *
+           * No occurrence in the key, so an organizer who retries the same decision three times
+           * gets one entry rather than three of the same permanent fact. A *different* decision
+           * carries a different subject id and records again, which is the distinction that
+           * matters when reading the timeline.
+           */
+          const subjectId = Object.values(subject)[0] ?? eventId;
+          await auditRecorder.record({
+            organizationId,
+            eventId,
+            action: "communications.recipient_cap_reached",
+            targetType: "delivery",
+            targetId: subjectId,
+            idempotencyKey: lifecycleAuditKey({
+              action: "communications.recipient_cap_reached",
+              eventId,
+              targetId: subjectId,
+            }),
+          });
+        }
       }
     };
     /**
@@ -1374,6 +1481,26 @@ export default {
           triggerType: "decision.recorded",
           channel: "email",
           recipientRef: recipient,
+          /*
+           * The one place in this file where an **anonymous** submitter chose the address
+           * (issue #132). `lifecycleRecipientForAccount` returns the account's address when there
+           * is an account and the form answer when there is not, so the absence of
+           * `submitterUserId` *is* the answer to "was this verified" — and it is passed on rather
+           * than re-derived inside communications, which has no way to know.
+           *
+           * `declared` puts this delivery under `UNVERIFIED_RECIPIENT_CAP`. It does not make the
+           * address verified: `DEBT-012` stands, bounded.
+           *
+           * It is not the only unproven address this file writes to — `fact.speakerEmail` above
+           * is typed into a speaker profile and nobody proves that one either — and it is
+           * deliberately the only one marked `declared`. The cap bounds *who can aim the mail*:
+           * a speaker address is chosen by an authenticated organizer of that event, who can
+           * already send to any address through the composer, so capping it would restrain
+           * somebody the product does not restrain anyway. This address is chosen by whoever
+           * filled in a public form. `DEBT-012` records the addresses; this line records which
+           * of them an untrusted party picked.
+           */
+          recipientTrust: fact.submitterUserId ? "account" : "declared",
           payload: { submitterName: fact.submitterName, proposalTitle: fact.proposalTitle },
           templateKey: fact.outcome === "accepted" ? "decision-accepted" : "decision-declined",
         }));
@@ -1975,7 +2102,10 @@ export default {
    * is no ordering here that would make a queued delivery more correct.
    */
   async scheduled(_controller: unknown, environment: Environment): Promise<void> {
-    await remindDueSpeakerTasks(environment);
+    // Both reminder passes run before the drain and are awaited, so a message decided this minute
+    // goes out this minute. Neither can stall it: both report rather than throw, including when
+    // their own read fails.
+    await Promise.all([remindDueSpeakerTasks(environment), announceCfpDeadlines(environment)]);
     await Promise.all([
       drainOutbox(environment),
       pruneItineraries(environment),
