@@ -60,11 +60,13 @@ export function OrganizerView({
   workspace,
   busy,
   run,
+  canAdministerShares,
 }: {
   eventId: string;
   workspace: Workspace;
   busy: boolean;
   run: Run;
+  canAdministerShares: boolean;
 }) {
   const sessionFeedback = useActionFeedback();
   const assetFeedback = useActionFeedback();
@@ -640,7 +642,13 @@ export function OrganizerView({
         <SpeakerOutreach workspace={workspace} busy={busy} run={run} />
       </div>
 
-      <ContentOperations eventId={eventId} workspace={workspace} busy={busy} run={run} />
+      <ContentOperations
+        eventId={eventId}
+        workspace={workspace}
+        busy={busy}
+        run={run}
+        canAdministerShares={canAdministerShares}
+      />
     </div>
   );
 }

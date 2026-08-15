@@ -17,6 +17,7 @@ const workspace = ({ event, session, activeRole }: WorkspaceContext) => (
     key={`${event.id}:${session?.actor.id}:${activeRole}`}
     eventId={event.id}
     role={activeRole === "speaker" ? "speaker" : "organizer"}
+    canAdministerShares={activeRole === "organizer"}
   />
 );
 

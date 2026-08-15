@@ -19,6 +19,8 @@ import { Pill } from "../ui/primitives";
 interface Props {
   eventId: string;
   role: "organizer" | "speaker";
+  /** Custom roles use the organizer layout but cannot administer anonymous share links. */
+  canAdministerShares?: boolean;
 }
 
 type Workspace = ContentWorkspaceDto;

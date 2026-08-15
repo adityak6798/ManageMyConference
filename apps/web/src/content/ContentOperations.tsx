@@ -66,11 +66,13 @@ export function ContentOperations({
   workspace,
   busy,
   run,
+  canAdministerShares,
 }: {
   eventId: string;
   workspace: Workspace;
   busy: boolean;
   run: Run;
+  canAdministerShares: boolean;
 }) {
   const feedback = useActionFeedback();
   const [selectedSpeakers, setSelectedSpeakers] = useState<string[]>([]);
@@ -357,68 +359,75 @@ export function ContentOperations({
         </div>
         {workflowSpeaker ? (
           <>
-            <details className="tool-panel">
-              <summary>Private profile share links</summary>
-              <form className="stack" onSubmit={(event) => shareProfile(event, workflowSpeaker.id)}>
-                <label>
-                  Lifetime (hours)
-                  <input name="lifetimeHours" type="number" min="1" max="720" defaultValue="72" />
-                </label>
-                <label>
-                  View limit (optional)
-                  <input name="viewLimit" type="number" min="1" max="1000" />
-                </label>
-                <label>
-                  Password (optional)
-                  <input name="password" type="password" minLength={8} maxLength={200} />
-                </label>
-                <div className="crm-form-actions">
-                  <button type="submit" disabled={busy}>
-                    Create share link
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary"
-                    disabled={busy}
-                    onClick={() => refreshShares(workflowSpeaker.id)}
-                  >
-                    Refresh links
-                  </button>
-                </div>
-              </form>
-              {newShareUrl ? (
-                <p>
-                  <a href={newShareUrl}>Open newly created share link</a> — copy it now; its token
-                  is not stored.
-                </p>
-              ) : null}
-              {profileShares.length ? (
-                <ul>
-                  {profileShares.map((share) => (
-                    <li key={share.id}>
-                      {share.revokedAt
-                        ? "Revoked"
-                        : `${share.views}${share.viewLimit ? `/${share.viewLimit}` : ""} views · expires ${new Date(share.expiresAt).toLocaleString()}`}{" "}
-                      {!share.revokedAt ? (
-                        <button
-                          type="button"
-                          className="ghost"
-                          onClick={() => {
-                            // ERROR-INTENT: run owns rejection handling and visible feedback.
-                            void run(async () => {
-                              await revokeProfileShare(workflowSpeaker.id, share.id);
-                              setProfileShares([...(await listProfileShares(workflowSpeaker.id))]);
-                            });
-                          }}
-                        >
-                          Revoke
-                        </button>
-                      ) : null}
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-            </details>
+            {canAdministerShares ? (
+              <details className="tool-panel">
+                <summary>Private profile share links</summary>
+                <form
+                  className="stack"
+                  onSubmit={(event) => shareProfile(event, workflowSpeaker.id)}
+                >
+                  <label>
+                    Lifetime (hours)
+                    <input name="lifetimeHours" type="number" min="1" max="720" defaultValue="72" />
+                  </label>
+                  <label>
+                    View limit (optional)
+                    <input name="viewLimit" type="number" min="1" max="1000" />
+                  </label>
+                  <label>
+                    Password (optional)
+                    <input name="password" type="password" minLength={8} maxLength={200} />
+                  </label>
+                  <div className="crm-form-actions">
+                    <button type="submit" disabled={busy}>
+                      Create share link
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary"
+                      disabled={busy}
+                      onClick={() => refreshShares(workflowSpeaker.id)}
+                    >
+                      Refresh links
+                    </button>
+                  </div>
+                </form>
+                {newShareUrl ? (
+                  <p>
+                    <a href={newShareUrl}>Open newly created share link</a> — copy it now; its token
+                    is not stored.
+                  </p>
+                ) : null}
+                {profileShares.length ? (
+                  <ul>
+                    {profileShares.map((share) => (
+                      <li key={share.id}>
+                        {share.revokedAt
+                          ? "Revoked"
+                          : `${share.views}${share.viewLimit ? `/${share.viewLimit}` : ""} views · expires ${new Date(share.expiresAt).toLocaleString()}`}{" "}
+                        {!share.revokedAt ? (
+                          <button
+                            type="button"
+                            className="ghost"
+                            onClick={() => {
+                              // ERROR-INTENT: run owns rejection handling and visible feedback.
+                              void run(async () => {
+                                await revokeProfileShare(workflowSpeaker.id, share.id);
+                                setProfileShares([
+                                  ...(await listProfileShares(workflowSpeaker.id)),
+                                ]);
+                              });
+                            }}
+                          >
+                            Revoke
+                          </button>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </details>
+            ) : null}
             <details className="tool-panel">
               <summary>AI bio remix</summary>
               <form className="stack" onSubmit={(event) => remixProfile(event, workflowSpeaker.id)}>
