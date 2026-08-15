@@ -382,11 +382,16 @@ export function CfpWorkspace({
               : "Submission window saved. That deadline has already passed, so the call is closed to new submissions."
             : saved.effectiveStatus === "scheduled"
               ? "Submission window saved. The call is not open yet and opens at the time you set."
-              : window.closesAt
-                ? "Submission window saved. Applicants see the deadline on the public form."
-                : window.opensAt
-                  ? "Submission window saved. The call opens at the time you set."
-                  : "Submission window cleared. The call is bounded only by the open and closed controls.",
+              : // Nothing published means no applicant reaches the form at all, so promising them
+                // a date on "the public form" was the same class of false sentence as blaming a
+                // deadline for a manual closure — the window is stored and takes effect on publish.
+                saved.effectiveStatus === "unpublished"
+                ? "Submission window saved. Nothing is published yet, so applicants see none of it until you publish the form."
+                : window.closesAt
+                  ? "Submission window saved. Applicants see the deadline on the public form."
+                  : window.opensAt
+                    ? "Submission window saved. The call opens at the time you set."
+                    : "Submission window cleared. The call is bounded only by the open and closed controls.",
         );
       } catch (reason: unknown) {
         // ERROR-INTENT: the announcement is the user-facing failure state for this control, and

@@ -679,8 +679,13 @@ feature-by-feature verdict.
   the product sends to one. An event may now write at most three such messages to one address —
   so a hundred guest proposals naming one victim cost that person three messages rather than a
   hundred — and a refused one is reported on the event's timeline rather than swallowed. The
-  address is compared as a mailbox rather than as a string: lower-cased, with any `+tag` removed,
-  because one inbox spelled three ways would otherwise be three separate budgets. Only a delivery
+  address is compared as a mailbox rather than as a string: case-folded, with any `+tag` removed,
+  because one inbox spelled three ways would otherwise be three separate budgets. **The folding is
+  ASCII-only**, deliberately, because it has to be the same folding the stored column is compared
+  under and SQLite's `lower()` is ASCII-only; the residual is that spellings of one mailbox
+  differing in non-ASCII case are separate budgets, so on an internationalized domain the bound is
+  looser than three by a factor the victim's alphabet decides. Folding *differently* on the two
+  sides was the state before it, and there the cap never bound for such an address at all. Only a delivery
   the caller marked `declared` is counted (`communication_deliveries.recipient_trust`, migration
   `1708`), so a speaker's messages to the same address cannot exhaust a guest's budget or be
   exhausted by it. That is

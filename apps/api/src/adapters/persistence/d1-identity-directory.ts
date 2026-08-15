@@ -391,11 +391,22 @@ export class D1IdentityDirectory implements IdentityDirectory {
         )
         .bind(userId, organizationId, userId),
     ]);
-    for (const result of results)
+    /*
+     * Unreachable defence, kept because it costs nothing and the alternative is a silent lie: D1
+     * rejects the whole batch on a statement failure rather than returning `success: false`, and
+     * the throw propagates into `completeWorkspace`'s catch, which discards the organization. The
+     * half is named because "the membership failed" about a persona failure would send whoever
+     * reads it to the wrong statement — and a short result array would let this return `true`
+     * with the second statement's outcome unknown.
+     */
+    const halves = ["record organization membership", "lift the organizer persona"] as const;
+    if (results.length !== halves.length)
+      throw new Error(
+        `D1 returned ${results.length} results for a ${halves.length}-statement membership batch`,
+      );
+    for (const [index, result] of results.entries())
       if (!result.success)
-        throw new Error(
-          `D1 failed to record organization membership: ${result.error ?? "unknown error"}`,
-        );
+        throw new Error(`D1 failed to ${halves[index]}: ${result.error ?? "unknown error"}`);
     // A missing `meta.changes` is a failure here, never a silent 0 or 1: this count is what tells
     // the caller whether to keep the organization it just created or discard it.
     const [insert] = results;

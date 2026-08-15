@@ -324,8 +324,10 @@ export class D1CommunicationsRepository implements CommunicationsRepository {
    *   the same address, which is three — and the organizer's later decline was then refused with
    *   nothing abusive having happened.
    * - The normalization matches `recipientCapKey` in the domain, applied here to the *stored*
-   *   column: lower-cased, and with a `+tag` stripped from the local part. Without it an attacker
-   *   gets a fresh budget per spelling, which is the exposure rather than a rounding error.
+   *   column: ASCII case-folded — `lower()`, which is what the domain deliberately matches rather
+   *   than the other way round — and with a `+tag` stripped from the local part. Without it an
+   *   attacker gets a fresh budget per spelling, which is the exposure rather than a rounding
+   *   error.
    *
    * The SQL and `recipientCapKey` are two statements of one rule, so
    * `d1-communications-repository.integration.test.ts` drives real rows through both.

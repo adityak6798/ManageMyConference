@@ -465,6 +465,74 @@ describe("Google signup against migrated D1", () => {
     ]);
   });
 
+  it("completes a submitter-door account's workspace, membership and persona together", async () => {
+    /*
+     * The one path that reaches `joinOrganization`, and until this case nothing executed its SQL.
+     *
+     * `completeWorkspace` calls it only for an account holding no organization, which the
+     * organizer door never produces — `createSelfServeIdentity` writes that membership itself.
+     * Only the submitter door leaves an account in that state, so every earlier case in this file
+     * goes past the branch. The unit suite covers the rule against a fake that reimplements it in
+     * TypeScript, which is exactly the coverage that cannot see a bind-order slip.
+     *
+     * What is proved here is one batch: the membership insert is conditional on the account
+     * holding none, and the persona lift is gated on the row that insert writes — a gate that
+     * means nothing unless the second statement sees the first's uncommitted write.
+     */
+    const migrated = await createMigratedDatabase({
+      label: "identity-submitter-promote",
+      seed: true,
+    });
+    runtime = migrated.runtime;
+    const database = migrated.database;
+    const { signup, directory } = signupStack(database);
+
+    // Through the public call for proposals: an identity, and deliberately no conference.
+    const submitter = await signup.signInWithGoogle(newcomer, "submitter");
+    expect(submitter.actor.organizations).toEqual([]);
+    expect(submitter.actor.eventAccess).toEqual([]);
+    await expect(unseededRows(database)).resolves.toEqual({
+      organizations: 0,
+      events: 0,
+      users: 1,
+    });
+    const personaOf = async () =>
+      (
+        await database
+          .prepare("SELECT persona FROM users WHERE id = ?")
+          .bind(submitter.actor.id)
+          .first<{ persona: string }>()
+      )?.persona;
+    expect(await personaOf()).toBe("public");
+
+    // And then the front door, which is that person asking for a conference of their own.
+    const promoted = await signup.signInWithGoogle(newcomer);
+
+    expect(promoted.actor.id).toBe(submitter.actor.id);
+    expect(promoted.actor.organizations).toHaveLength(1);
+    expect(promoted.actor.eventAccess).toHaveLength(1);
+    // The persona moved with the membership, in the same batch. The console picks the workspaces
+    // it offers from this whenever no event is selected, so an account left `public` here holds a
+    // conference it cannot open.
+    expect(await personaOf()).toBe("organizer");
+    await expect(unseededRows(database)).resolves.toEqual({
+      organizations: 1,
+      events: 1,
+      users: 1,
+    });
+
+    // Idempotent: signing in again finds the event role and writes nothing further.
+    await signup.signInWithGoogle(newcomer);
+    await expect(unseededRows(database)).resolves.toEqual({
+      organizations: 1,
+      events: 1,
+      users: 1,
+    });
+    await expect(
+      directory.listAssignableOwnersForEvent(promoted.actor.eventAccess[0]?.eventId as string),
+    ).resolves.toEqual([{ id: promoted.actor.id, name: newcomer.name }]);
+  });
+
   /**
    * The workspace owner's event is not handed to somebody who merely joins the organization.
    *

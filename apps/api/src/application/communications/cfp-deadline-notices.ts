@@ -206,10 +206,12 @@ export const deadlineInZone = (instant: string, timeZone: string): string => {
  * ever. Reading in list order therefore lets a run of unreachable accounts at the front of a call
  * hold the whole budget permanently, and every holder behind them — and every call after this one
  * — is never reached at all. The offset is the hour, so it is stable within a tick and across the
- * retries of one. Stated exactly rather than generously: it advances one position per hour, so an
- * event needs more unreachable holders at the front than the lead window has hours before anybody
- * reachable is missed — with today's constants, over two hundred of them. That is a bound rather
- * than a guarantee, and it is the honest one. Nothing here decides *whether* a message is sent,
+ * retries of one. Stated exactly rather than generously: the offset advances one position per
+ * hour and takes `REMINDER_LEAD_HOURS` distinct values over the window, and each tick reads
+ * `DEADLINE_RECIPIENT_LIMIT` holders from wherever it starts — so a run of unreachable holders at
+ * the front hides everybody behind it only once that run exceeds the two added together, about
+ * 248 with today's constants. A bound rather than a guarantee, and it is the honest one; whoever
+ * changes either constant is changing this. Nothing here decides *whether* a message is sent,
  * only in which order candidates are considered, so a rotation cannot send twice: the key is what
  * prevents that.
  */

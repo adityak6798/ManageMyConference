@@ -238,8 +238,12 @@ export const lifecycleRecipient = (subject: {
  * - **Case folding is ASCII-only**, like `lower()`. `String.prototype.toLowerCase` is
  *   Unicode-aware, so it folds `Ä` to `ä` where SQLite leaves it alone — and `Ä@x` stored then
  *   matched nothing at all. The regex that validates a submitted address admits those characters,
- *   so this is reachable. Folding less means `ä@x` and `Ä@x` are two budgets rather than none,
- *   which is the safe direction: the cap binds later, never not at all.
+ *   so this is reachable. Folding less is the better of two bad answers rather than a good one:
+ *   before this, a non-ASCII address matched nothing and the cap **never bound** for it; now the
+ *   spellings of one mailbox that differ only in non-ASCII case are separate budgets, and on an
+ *   internationalized domain that is up to `2^n` of them for `n` such letters. The cap binds
+ *   later, rather than not at all. Recorded as a residual of `#132` in `GAP-027`, because a cap
+ *   whose bound depends on the victim's alphabet is not the bound the specification states.
  * - **Trimming strips spaces only**, like `trim()`. JavaScript's strips every Unicode space.
  * - **The `@` is the first one**, like `instr`, rather than the last. Asking the two sides
  *   different questions made `a+b@x@y` normalize two ways.

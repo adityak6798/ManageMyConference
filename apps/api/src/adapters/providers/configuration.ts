@@ -253,14 +253,19 @@ const namesDevelopment = (environment: ProviderEnvironment) =>
  * question is per channel and the cost of the strict answer is one channel refusing, so an
  * unrecognized name gets the safe answer here instead.
  */
-const mustBeDevelopment = (environment: ProviderEnvironment, what: string) => {
+const mustBeDevelopment = (
+  environment: ProviderEnvironment,
+  what: string,
+  spec: ChannelBindings,
+) => {
   if (!namesDevelopment(environment))
     throw new ProviderConfigurationError(
-      `${what} are refused under COMMUNICATIONS_PROVIDERS=live unless ENVIRONMENT names a ` +
-        `development deployment (got "${environment.ENVIRONMENT ?? ""}"). Configure the real ` +
-        "bindings, or accept that this channel is not in use. Renaming ENVIRONMENT is not the " +
-        "fix: it also hands every other unconfigured channel a deterministic fake, on the same " +
-        "deployment, which is what this refusal exists to prevent.",
+      `${what} is refused under COMMUNICATIONS_PROVIDERS=live unless ENVIRONMENT names a ` +
+        `development deployment (got "${environment.ENVIRONMENT ?? ""}"). Set ${spec.required.join(
+          ", ",
+        )} to read the real one. Renaming ENVIRONMENT is not the fix: it also hands every other ` +
+        "unconfigured channel on this deployment a deterministic fake, which is what this " +
+        "refusal exists to prevent.",
     );
 };
 
@@ -359,7 +364,8 @@ export function resolveRegistrationSource(
     );
   if (mode === "live") demand(environment, [REGISTRATIONS]);
   if (mode === "fixture" || !isConfigured(environment, REGISTRATIONS)) {
-    if (mode === "live") mustBeDevelopment(environment, "The Accelevents fixture roster");
+    if (mode === "live")
+      mustBeDevelopment(environment, "The Accelevents fixture roster", REGISTRATIONS);
     else mustNotFake(environment, "The Accelevents fixture roster");
     return new FixtureAccelEventsRegistrations();
   }

@@ -268,6 +268,22 @@ describe("a saved window converges on the state the server computed", () => {
     return { reads };
   };
 
+  /**
+   * Long enough for two awaited round trips, because that is what these assertions wait on.
+   *
+   * `persistWindow` awaits the save, then awaits `refreshLive()`, and only then announces — so a
+   * rendering asserted after a window save is three microtask hops and two stubbed responses
+   * away. RTL's one-second default is generous on an idle machine and not generous under
+   * `gate:test-build`, which runs three workspaces' suites with vitest threading files inside
+   * each. The comment on the deadline-conversion test above records the same pattern failing
+   * "roughly two runs in ten when both workspaces' suites run at once"; there the fix was to
+   * assert on the request instead, and here the rendering *is* the subject, so the wait is what
+   * has to give. A timeout is not a race fix — it is the honest bound on a wait whose subject is
+   * the render.
+   */
+  const SETTLED = { timeout: 5_000 } as const;
+  // `findBy*` takes the wait options third; the second slot is the matcher's own options.
+
   const saveDeadline = async (value: string) => {
     const deadline = await screen.findByLabelText("Deadline");
     await waitFor(() => expect(screen.getByLabelText("Opens")).toHaveValue(""));
@@ -290,7 +306,11 @@ describe("a saved window converges on the state the server computed", () => {
 
     // The status line applicants are described by, without a reload.
     expect(
-      await screen.findByText(/deadline has passed, so applicants cannot submit/),
+      await screen.findByText(
+        /deadline has passed, so applicants cannot submit/,
+        undefined,
+        SETTLED,
+      ),
     ).toBeInTheDocument();
     // And the announcement says the call is shut rather than promising applicants a date.
     expect(screen.getByText(/already passed, so the call is closed/)).toBeInTheDocument();
@@ -325,7 +345,9 @@ describe("a saved window converges on the state the server computed", () => {
 
     await saveDeadline("2026-09-30T23:59");
 
-    expect(await screen.findByText("Applicants can submit now.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Applicants can submit now.", undefined, SETTLED),
+    ).toBeInTheDocument();
     expect(screen.queryByText(/deadline has passed, so applicants cannot submit/)).toBeNull();
   });
 
@@ -356,9 +378,30 @@ describe("a saved window converges on the state the server computed", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save window" }));
 
     expect(
-      await screen.findByText(/closed to new submissions until you reopen it/),
+      await screen.findByText(/closed to new submissions until you reopen it/, undefined, SETTLED),
     ).toBeInTheDocument();
     expect(screen.queryByText(/already passed/)).toBeNull();
+  });
+
+  it("promises applicants nothing while the form is unpublished", async () => {
+    // The third false sentence in the same chain: an unpublished call reaches no applicant, so
+    // "Applicants see the deadline on the public form" describes a page nobody can open.
+    composer({
+      initial: { publishedStatus: null, effectiveStatus: "unpublished", publishedAt: null },
+      afterSave: {
+        closesAt: "2026-10-01T06:59:00.000Z",
+        publishedStatus: null,
+        publishedAt: null,
+        effectiveStatus: "unpublished",
+      },
+    });
+
+    await saveDeadline("2026-09-30T23:59");
+
+    expect(
+      await screen.findByText(/Nothing is published yet/, undefined, SETTLED),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Applicants see the deadline/)).toBeNull();
   });
 
   it("leaves the previous state intact when the save is refused", async () => {
