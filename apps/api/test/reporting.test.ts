@@ -545,7 +545,7 @@ describe("scheduled delivery", () => {
     await started;
     await expect(concurrent.tick()).resolves.toEqual({ fired: 0, failed: 0 });
     expect(delivered).toHaveLength(1);
-    expect(claims).toHaveLength(1);
+    expect(claims.size).toBe(1);
     expect(runs).toHaveLength(0);
     releaseDelivery?.();
     await expect(first).resolves.toEqual({ fired: 1, failed: 0 });

@@ -1,5 +1,5 @@
 /** Anonymous organization portal and consent-stamped registration. @spec PRD-PUB-002 */
-import { type FormEvent, useEffect, useState } from "react";
+import { type CSSProperties, type FormEvent, useEffect, useState } from "react";
 import type { PublicSiteDto } from "@greenroom/contracts";
 import { readPublicSite, readPublicSitePage, registerForSite } from "./api/sites";
 import "./styles/public-pages.css";
@@ -107,7 +107,7 @@ export function PublicSiteApp() {
   return (
     <div
       className={`public-shell theme-${site.theme}`}
-      style={{ "--accent": site.primaryColor } as React.CSSProperties}
+      style={{ "--accent": site.primaryColor } as CSSProperties}
     >
       <header>
         <strong>{site.name}</strong>
