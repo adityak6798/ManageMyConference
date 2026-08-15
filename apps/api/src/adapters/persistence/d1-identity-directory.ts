@@ -736,6 +736,16 @@ export class D1IdentityDirectory implements IdentityDirectory {
     return result.results ?? [];
   }
 
+  async isAssignedToEvent(userId: string, eventId: string): Promise<boolean> {
+    const result = await this.database
+      .prepare("SELECT 1 AS assigned FROM event_roles WHERE user_id = ? AND event_id = ? LIMIT 1")
+      .bind(userId, eventId)
+      .all<{ assigned: number }>();
+    if (!result.success)
+      throw new Error(`D1 failed to resolve event assignment: ${result.error ?? "unknown error"}`);
+    return result.results?.[0]?.assigned === 1;
+  }
+
   async grantOrganizer(eventId: string, userId: string): Promise<void> {
     const result = await this.database.prepare(GRANT_ORGANIZER).bind(eventId, userId).run();
     if (!result.success)

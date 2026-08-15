@@ -175,14 +175,17 @@ export interface SpeakerNotificationPort {
 }
 
 /**
- * Identity's answer to "what is this person called?", narrowed to the one method content needs.
+ * Identity's answers for event-scoped people, narrowed to the two methods content needs.
  *
  * The whole `IdentityDirectory` is not taken: content never resolves a persona, grants a role or
  * reads an address. Optional, so a composition exercising only the workspace still constructs —
- * without it the audit surface falls back to the stored id, which is what it printed before.
+ * without it the audit surface falls back to the stored id, while assigning a collaborator is
+ * refused because content cannot prove that identity belongs to the event.
  */
 export interface ContentActorDirectoryPort {
   listAssignableOwnersForEvent(eventId: string): Promise<readonly AssignableOwner[]>;
+  /** Whether this user currently holds any role on this exact event. */
+  isAssignedToEvent(userId: string, eventId: string): Promise<boolean>;
 }
 
 /**
@@ -1375,11 +1378,17 @@ export class ContentService {
     const hasContentGrant = authorized.eventAccess.some(
       (access) => access.eventId === eventId && access.capabilities.has("content:read"),
     );
+    const hasEventAssignment = authorized.eventAccess.some((access) => access.eventId === eventId);
     if (!hasContentGrant || (!isOrganizer && !isSpeaker && !isCustom)) {
       // A profile collaboration is deliberately narrower than an event role. Ask the repository
       // for this identity's already-filtered projection, then refuse an empty result so merely
       // knowing an event id grants no access.
-      const collaboration = await this.projected(eventId, authorized.id);
+      if (!hasEventAssignment) throw new CapabilityDeniedError("Content workspace access denied");
+      const collaboration = await this.projected(
+        eventId,
+        authorized.id,
+        fieldAccessFor(authorized, eventId),
+      );
       if (collaboration.speakers.length === 0)
         throw new CapabilityDeniedError("Content workspace access denied");
       return collaboration;
@@ -1532,7 +1541,13 @@ export class ContentService {
     const profile = await this.dependencies.repository.findProfile(profileId);
     if (!profile) throw new CapabilityDeniedError("Speaker profile access denied");
     if (!actor) throw new AuthenticationRequiredError("Authentication is required");
-    if (await this.dependencies.repository.isProfileCollaborator(profile.id, actor.id, true))
+    const hasEventAssignment = actor.eventAccess.some(
+      (access) => access.eventId === profile.eventId,
+    );
+    if (
+      hasEventAssignment &&
+      (await this.dependencies.repository.isProfileCollaborator(profile.id, actor.id, true))
+    )
       return { profile, authorized: actor };
     const authorized = requireEventCapability(actor, profile.eventId, "content:read");
     const isOwner = await this.mayStewardProfile(authorized, profile, true);
@@ -1556,9 +1571,21 @@ export class ContentService {
     const profile = await this.dependencies.repository.findProfile(profileId);
     if (!profile) throw new CapabilityDeniedError("Speaker profile access denied");
     const authorized = requireEventCapability(actor, profile.eventId, "content:manage");
+    const unique = [...new Map(collaborators.map((item) => [item.userId, item])).values()];
+    const identities = this.dependencies.identities;
+    if (
+      unique.length > 0 &&
+      (!identities ||
+        (
+          await Promise.all(
+            unique.map(({ userId }) => identities.isAssignedToEvent(userId, profile.eventId)),
+          )
+        ).some((assigned) => !assigned))
+    )
+      throw new CapabilityDeniedError("Speaker collaborator access denied");
     await this.dependencies.repository.replaceProfileCollaborators(
       profileId,
-      [...new Map(collaborators.map((item) => [item.userId, item])).values()],
+      unique,
       authorized.id,
       this.dependencies.now().toISOString(),
     );
@@ -1576,7 +1603,7 @@ export class ContentService {
       password?: string | undefined;
     },
   ) {
-    const authorized = requireEventCapability(actor, eventId, "content:manage");
+    const authorized = this.requireContentOrganizer(actor, eventId);
     const shares = this.dependencies.shares;
     if (!shares) throw new ContentShareUnavailableError("Content sharing is unavailable");
     const organizationId = await shares.organizationOf(eventId);
@@ -1644,7 +1671,7 @@ export class ContentService {
   async listProfileShares(actor: Actor | null, profileId: string) {
     const profile = await this.dependencies.repository.findProfile(profileId);
     if (!profile) throw new CapabilityDeniedError("Speaker profile access denied");
-    requireEventCapability(actor, profile.eventId, "content:manage");
+    this.requireContentOrganizer(actor, profile.eventId);
     if (!this.dependencies.shares) throw new ContentShareUnavailableError();
     return this.dependencies.shares.links.list("speaker-profile", profileId);
   }
@@ -1652,7 +1679,7 @@ export class ContentService {
   async listAssetShares(actor: Actor | null, assetId: string) {
     const asset = await this.dependencies.repository.findAsset(assetId);
     if (!asset) throw new CapabilityDeniedError("Speaker asset access denied");
-    requireEventCapability(actor, asset.eventId, "content:manage");
+    this.requireContentOrganizer(actor, asset.eventId);
     if (!this.dependencies.shares) throw new ContentShareUnavailableError();
     return this.dependencies.shares.links.list("speaker-asset", assetId);
   }
@@ -1660,7 +1687,7 @@ export class ContentService {
   async revokeProfileShare(actor: Actor | null, profileId: string, shareId: string) {
     const profile = await this.dependencies.repository.findProfile(profileId);
     if (!profile) throw new CapabilityDeniedError("Speaker profile access denied");
-    requireEventCapability(actor, profile.eventId, "content:manage");
+    this.requireContentOrganizer(actor, profile.eventId);
     if (!this.dependencies.shares) throw new ContentShareUnavailableError();
     return (
       (await this.dependencies.shares.links.revoke(
@@ -1675,7 +1702,7 @@ export class ContentService {
   async revokeAssetShare(actor: Actor | null, assetId: string, shareId: string) {
     const asset = await this.dependencies.repository.findAsset(assetId);
     if (!asset) throw new CapabilityDeniedError("Speaker asset access denied");
-    requireEventCapability(actor, asset.eventId, "content:manage");
+    this.requireContentOrganizer(actor, asset.eventId);
     if (!this.dependencies.shares) throw new ContentShareUnavailableError();
     return (
       (await this.dependencies.shares.links.revoke(
@@ -1688,7 +1715,9 @@ export class ContentService {
   }
 
   async draftProfileRemix(actor: Actor | null, profileId: string, instruction: string) {
-    const { profile } = await this.requireProfileSteward(actor, profileId);
+    const { profile, authorized } = await this.requireProfileSteward(actor, profileId);
+    if (!fieldAccessFor(authorized, profile.eventId).canView("speaker", "bio"))
+      throw new CapabilityDeniedError("Speaker profile access denied");
     if (!this.dependencies.remix)
       throw new ContentShareUnavailableError("Content remix is unavailable");
     const draft = await this.dependencies.remix.remix({
@@ -1702,7 +1731,9 @@ export class ContentService {
   async draftSessionRemix(actor: Actor | null, sessionId: string, instruction: string) {
     const session = await this.dependencies.repository.findSession(sessionId);
     if (!session) throw new CapabilityDeniedError("Session access denied");
-    requireEventCapability(actor, session.eventId, "content:manage");
+    const authorized = requireEventCapability(actor, session.eventId, "content:manage");
+    if (!fieldAccessFor(authorized, session.eventId).canView("session", "abstract"))
+      throw new CapabilityDeniedError("Session access denied");
     if (!this.dependencies.remix)
       throw new ContentShareUnavailableError("Content remix is unavailable");
     const draft = await this.dependencies.remix.remix({
@@ -1758,6 +1789,13 @@ export class ContentService {
     const stored = await this.dependencies.assetStorage.get(asset.storageKey);
     if (!stored) throw new ContentShareUnavailableError();
     return { asset, contentType: stored.contentType, bytes: stored.bytes };
+  }
+
+  private requireContentOrganizer(actor: Actor | null, eventId: string): Actor {
+    const authorized = requireEventCapability(actor, eventId, "content:manage");
+    if (!hasEventRole(authorized, eventId, "organizer"))
+      throw new CapabilityDeniedError("Content sharing access denied");
+    return authorized;
   }
 
   private async recordProfileUpdate(actor: Actor, profile: SpeakerProfile) {

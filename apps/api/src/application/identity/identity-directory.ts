@@ -52,6 +52,8 @@ export interface IdentityDirectory {
    * `event_roles` or `users` themselves.
    */
   listAssignableOwnersForEvent(eventId: string): Promise<readonly AssignableOwner[]>;
+  /** Whether a user currently holds any built-in or custom role on this exact event. */
+  isAssignedToEvent(userId: string, eventId: string): Promise<boolean>;
   grantOrganizer(eventId: string, userId: string): Promise<void>;
   provisionSpeaker(userId: string, name: string, eventId: string): Promise<void>;
   /**

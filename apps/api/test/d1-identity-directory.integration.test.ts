@@ -62,6 +62,12 @@ describe("D1IdentityDirectory", () => {
     const database = migrated.database;
 
     const directory = new D1IdentityDirectory(database as IdentityDatabasePort);
+    await expect(
+      directory.isAssignedToEvent("seed-organizer", "00000000-0000-4000-8000-000000000001"),
+    ).resolves.toBe(true);
+    await expect(
+      directory.isAssignedToEvent("seed-organizer", "00000000-0000-4000-8000-000000000099"),
+    ).resolves.toBe(false);
     await expect(directory.findByPersona("organizer")).resolves.toMatchObject({
       organizations: [{ id: "00000000-0000-4000-8000-000000000010" }],
       eventAccess: expect.arrayContaining([
@@ -117,6 +123,9 @@ describe("D1IdentityDirectory", () => {
       .prepare("DELETE FROM event_roles WHERE user_id = ?")
       .bind("seed-organizer")
       .run();
+    await expect(
+      directory.isAssignedToEvent("seed-organizer", "00000000-0000-4000-8000-000000000001"),
+    ).resolves.toBe(false);
     await database
       .prepare("DELETE FROM organization_memberships WHERE user_id = ?")
       .bind("seed-organizer")

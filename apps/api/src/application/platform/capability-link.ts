@@ -26,9 +26,9 @@
  * on the link rather than on the request because the person opening it is anonymous and cannot be
  * asked to hold a capability.
  *
- * `speaker-profile` and `speaker-asset` are declared here and resolved by nothing yet. That is
- * deliberate: issue #189's `GAP-028` residual needs exactly this shape, and a kind declared in
- * advance is a lane adding a resolver instead of a second token table.
+ * Content resolves `speaker-profile` and `speaker-asset` through the same primitive. Their
+ * creation, listing and revocation remain organizer-only because an anonymous link must not widen
+ * a custom role's field projection.
  *
  * @spec PRD-OPS-004 PRD-IAM-002 ARC-DOM-001
  */

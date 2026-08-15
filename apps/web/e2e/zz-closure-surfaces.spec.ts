@@ -3,8 +3,8 @@
 // Playwright's shared fixture, so earlier journeys must observe the reset state they own.
 /** Browser evidence for GAP-031's highest-risk surfaces. @spec PRD-IAM-002 PRD-OPS-004 */
 import { readFile } from "node:fs/promises";
-import { expect, test } from "@playwright/test";
 import { resolveWorktreeEnvironment } from "../../../tools/worktree-env.mjs";
+import { expect, test } from "./fixtures";
 
 const DEMO_EVENT = "00000000-0000-4000-8000-000000000001";
 const WORKSHOP_EVENT = "00000000-0000-4000-8000-000000000002";
