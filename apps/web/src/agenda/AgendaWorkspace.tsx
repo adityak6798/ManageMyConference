@@ -28,7 +28,7 @@
  * which is the only failure that leaves no workspace to report it in.
  */
 
-import type { EventDto } from "@greenroom/contracts";
+import type { ContentWorkspaceDto, EventDto } from "@greenroom/contracts";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
   AgendaApiError,
@@ -39,6 +39,7 @@ import {
   saveAgendaResources,
   savePlacement,
 } from "../api/agenda";
+import { getContent } from "../api/content";
 import "../styles/agenda.css";
 import { IconCalendar, IconCheck, IconClock, IconGrip, IconPlus, IconWarning } from "../ui/icons";
 import { Card, EmptyState, Notice, Pill, Tabs, useActionFeedback } from "../ui/primitives";
@@ -114,6 +115,9 @@ export function AgendaWorkspace({
   // re-renders of a drag, and a switch to an event in another zone rebuilds them.
   const clock = useMemo(() => clockFor(event.timezone), [event.timezone]);
   const [agenda, setAgenda] = useState<Draft | null>(null);
+  const [contentSessions, setContentSessions] = useState<ContentWorkspaceDto["sessions"] | null>(
+    null,
+  );
   const [missing, setMissing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [view, setView] = useState<ViewId>(readViewFromUrl);
@@ -158,6 +162,7 @@ export function AgendaWorkspace({
     mounted.current = true;
     let active = true;
     setAgenda(null);
+    setContentSessions(null);
     setMissing(false);
     // Half-typed times belong to the event they were typed for, never to the next one.
     setSlotForms({});
@@ -175,6 +180,18 @@ export function AgendaWorkspace({
           return;
         }
         onError(error instanceof Error ? error.message : "Agenda failed to load.");
+      });
+    // Publication readiness belongs to Content and is read through its public HTTP projection.
+    // It is supplementary preflight information: an unavailable Content read must not make the
+    // independently owned agenda board unusable.
+    void getContent(eventId)
+      .then((loaded) => {
+        if (active) setContentSessions(loaded.sessions);
+      })
+      .catch(() => {
+        // ERROR-INTENT: the agenda remains authoritative and usable when its optional cross-domain
+        // publication-readiness hint cannot load; the permanent rule stays visible in the toolbar.
+        if (active) setContentSessions(null);
       });
     return () => {
       active = false;
@@ -339,6 +356,20 @@ export function AgendaWorkspace({
     scheduled.add(placement.sessionId);
     scheduledSessionsByDay.set(day, scheduled);
   }
+  const scheduledSessionIds = new Set(draft.placements.map(({ sessionId }) => sessionId));
+  const withheldSessions = (contentSessions ?? []).filter(
+    (session) =>
+      scheduledSessionIds.has(session.id) &&
+      session.publicationState !== undefined &&
+      session.publicationState !== "published",
+  );
+  const publicReadyCount = (contentSessions ?? []).filter(
+    (session) => scheduledSessionIds.has(session.id) && session.publicationState === "published",
+  ).length;
+  const sessionsParams = new URLSearchParams(window.location.search);
+  sessionsParams.set("tab", "sessions");
+  sessionsParams.delete("view");
+  const sessionsHref = `${window.location.pathname}?${sessionsParams.toString()}`;
 
   // Cell order matches DOM order so the arrow keys move focus where the eye expects.
   const boardCells: Cell[] =
@@ -1500,8 +1531,15 @@ export function AgendaWorkspace({
             // ERROR-INTENT: React event handlers cannot await; publication is rendered below.
             void publishAgenda(eventId)
               .then((schedule) => {
-                if (mounted.current)
-                  feedback.announce("success", `Published version ${schedule.version}`);
+                if (mounted.current) {
+                  const withheld = withheldSessions.length;
+                  feedback.announce(
+                    "success",
+                    withheld
+                      ? `Published schedule version ${schedule.version}. ${withheld} scheduled session${withheld === 1 ? " is" : "s are"} still off the public page because ${withheld === 1 ? "it is" : "they are"} not published.`
+                      : `Published schedule version ${schedule.version}.`,
+                  );
+                }
               })
               .catch((error: unknown) => {
                 // A refused publication is news about this button, and the live region
@@ -1518,7 +1556,7 @@ export function AgendaWorkspace({
           }}
         >
           <IconCheck size={15} />
-          Publish schedule
+          {contentSessions ? `Publish schedule (${publicReadyCount} public)` : "Publish schedule"}
         </button>
       </div>
 
@@ -1546,6 +1584,30 @@ export function AgendaWorkspace({
           })}
         </fieldset>
       ) : null}
+
+      {withheldSessions.length ? (
+        <div className="notice warn">
+          <div className="agenda-publication-warning">
+            <div>
+              <strong>
+                {withheldSessions.length} scheduled session
+                {withheldSessions.length === 1 ? " will" : "s will"} not appear publicly
+              </strong>
+              <p>
+                Scheduling sets the room and time; it does not publish session content. Publish
+                these first: {withheldSessions.map(({ title }) => title).join(", ")}.
+              </p>
+            </div>
+            <a className="btn secondary small" href={sessionsHref}>
+              Review sessions
+            </a>
+          </div>
+        </div>
+      ) : (
+        <p className="agenda-publication-rule">
+          The public page includes only sessions marked Published in Sessions.
+        </p>
+      )}
 
       {feedback.node}
 

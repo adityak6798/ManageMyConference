@@ -142,6 +142,55 @@ describe("AgendaWorkspace timezone rendering", () => {
     expect(onError).not.toHaveBeenCalled();
   });
 
+  it("warns when scheduled session content is not published", async () => {
+    const sessionId = "123e4567-e89b-12d3-a456-426614174009";
+    const agenda = {
+      ...draft,
+      sessions: [{ id: sessionId, title: "Opening keynote", speakerIds: [] }],
+      placements: [{ ...draft.placements[0], sessionId }],
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) =>
+        Promise.resolve(
+          String(input).endsWith("/content")
+            ? new Response(
+                JSON.stringify({
+                  sessions: [
+                    {
+                      id: sessionId,
+                      eventId,
+                      proposalId: "proposal-opening",
+                      title: "Opening keynote",
+                      speakerProfileIds: [],
+                      publicationState: "draft",
+                    },
+                  ],
+                  speakers: [],
+                  tasks: [],
+                  assets: [],
+                  messages: [],
+                }),
+                { status: 200 },
+              )
+            : new Response(JSON.stringify({ agenda }), { status: 200 }),
+        ),
+      ),
+    );
+
+    render(<AgendaWorkspace event={eventIn("America/Los_Angeles")} onError={onError} />);
+
+    expect(
+      await screen.findByText("1 scheduled session will not appear publicly"),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Publish these first: Opening keynote/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Review sessions" })).toHaveAttribute(
+      "href",
+      "/?tab=sessions",
+    );
+    expect(screen.getByRole("button", { name: "Publish schedule (0 public)" })).toBeVisible();
+  });
+
   /*
    * `DEBT-008`: an empty board used to read the zone abbreviation at `new Date()`.
    *

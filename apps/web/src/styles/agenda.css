@@ -90,6 +90,31 @@
   text-align: center;
 }
 
+.agenda-publication-warning {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-4);
+  width: 100%;
+}
+.agenda-publication-warning p,
+.agenda-publication-rule {
+  margin: var(--s-1) 0 0;
+}
+.agenda-publication-warning .btn {
+  flex: 0 0 auto;
+}
+.agenda-publication-rule {
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+@media (max-width: 720px) {
+  .agenda-publication-warning {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
 .agenda-layout {
   display: grid;
   gap: var(--s-4);
