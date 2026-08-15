@@ -151,7 +151,7 @@ export const cfpRoutes: RouteModule = {
       });
     });
     /*
-     * The submitter's dashboard and the three writes behind it.
+     * The submitter's dashboard, participant invitations, and the writes behind them.
      *
      * Each hands `context.get("actor")` to the service and nothing else about identity: the owner
      * of a proposal is the resolved session, never a field of the request. That is what makes the
@@ -178,7 +178,7 @@ export const cfpRoutes: RouteModule = {
      * **Middleware on the prefix rather than a line in each handler.** A repeated guard is one a
      * sixth route added later silently does not get, and nothing would fail to say so — which is
      * what a review pass pointed out about the first version of this. Hono applies `use` to
-     * handlers registered after it, and the five routes below are the only ones under this prefix.
+     * handlers registered after it, and the routes below are the only ones under this prefix.
      */
     const refuseMachineCredentials = async (context: HttpContext, next: () => Promise<void>) => {
       if (context.get("authentication") !== "bearer") return next();

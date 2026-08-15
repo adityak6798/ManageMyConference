@@ -113,13 +113,13 @@ export const cfpPaths: OpenApiFragment = {
       },
     });
     /*
-     * The five submitter routes take a session cookie and **not** `eventBearer`.
+     * The submitter routes take a session cookie and **not** `eventBearer`.
      *
      * Every other event-addressed route accepts both, because both resolve to an actor whose event
      * capability is then checked. These are authorized by ownership of a row instead, so an
      * event-scoped token's one restriction — the event it was minted for — is never consulted, and
      * an API-client credential has no user to own anything. The transport refuses `bearer` on all
-     * five; this is the contract saying so rather than leaving a caller to discover it.
+     * this route group; this is the contract saying so rather than leaving a caller to discover it.
      */
     registry.registerPath({
       method: "get",
