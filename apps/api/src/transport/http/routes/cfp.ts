@@ -8,6 +8,7 @@
  */
 import {
   cfpProposalParamsSchema,
+  cfpParticipantParamsSchema,
   cfpStateInputSchema,
   cfpRoutingStatusesResponseSchema,
   cfpWindowInputSchema,
@@ -15,6 +16,9 @@ import {
   eventIdParamsSchema,
   saveCfpInputSchema,
   saveProposalInputSchema,
+  respondProposalParticipantInputSchema,
+  proposalParticipantResponseSchema,
+  proposalParticipantInvitationsResponseSchema,
   submitProposalInputSchema,
   submitterProposalResponseSchema,
   submitterProposalsResponseSchema,
@@ -25,6 +29,7 @@ import {
   CfpDraftConflictError,
   CfpProposalStateConflictError,
   CfpProposalNotFoundError,
+  CfpParticipantNotFoundError,
   CfpStateError,
   CfpUnavailableError,
   CfpValidationError,
@@ -54,6 +59,8 @@ const routes = [
   "GET /api/events/:eventId/cfp/proposals/:proposalId",
   "PUT /api/events/:eventId/cfp/proposals/:proposalId",
   "POST /api/events/:eventId/cfp/proposals/:proposalId/submit",
+  "POST /api/events/:eventId/cfp/proposals/:proposalId/participants/:participantId/respond",
+  "GET /api/events/:eventId/cfp/participant-invitations",
   "GET /api/public/events/:eventId/cfp",
   "POST /api/public/events/:eventId/submissions",
 ] as const;
@@ -144,7 +151,7 @@ export const cfpRoutes: RouteModule = {
       });
     });
     /*
-     * The submitter's dashboard and the three writes behind it.
+     * The submitter's dashboard, participant invitations, and the writes behind them.
      *
      * Each hands `context.get("actor")` to the service and nothing else about identity: the owner
      * of a proposal is the resolved session, never a field of the request. That is what makes the
@@ -171,7 +178,7 @@ export const cfpRoutes: RouteModule = {
      * **Middleware on the prefix rather than a line in each handler.** A repeated guard is one a
      * sixth route added later silently does not get, and nothing would fail to say so — which is
      * what a review pass pointed out about the first version of this. Hono applies `use` to
-     * handlers registered after it, and the five routes below are the only ones under this prefix.
+     * handlers registered after it, and the routes below are the only ones under this prefix.
      */
     const refuseMachineCredentials = async (context: HttpContext, next: () => Promise<void>) => {
       if (context.get("authentication") !== "bearer") return next();
@@ -195,6 +202,26 @@ export const cfpRoutes: RouteModule = {
      * scoped to this module's own prefix.
      */
     app.use("/api/events/:eventId/cfp/proposals/*", refuseMachineCredentials);
+    app.use("/api/events/:eventId/cfp/participant-invitations", refuseMachineCredentials);
+    app.get("/api/events/:eventId/cfp/participant-invitations", async (context) => {
+      if (!cfpService) throw new CfpUnavailableError("CFP service is unavailable");
+      const params = eventIdParamsSchema.safeParse(context.req.param());
+      if (!params.success)
+        return context.json(
+          envelope("VALIDATION_FAILED", "Event ID is malformed.", context.get("correlationId")),
+          400,
+        );
+      submitterFor(context.get("actor"));
+      context.header("cache-control", "private, no-store");
+      return context.json(
+        proposalParticipantInvitationsResponseSchema.parse({
+          invitations: await cfpService.participantInvitations(
+            context.get("actor"),
+            params.data.eventId,
+          ),
+        }),
+      );
+    });
 
     app.get("/api/events/:eventId/cfp/proposals", async (context) => {
       if (!cfpService) throw new CfpUnavailableError("CFP service is unavailable");
@@ -249,6 +276,7 @@ export const cfpRoutes: RouteModule = {
             params.data.eventId,
             parsed.data.idempotencyKey,
             parsed.data.answers,
+            parsed.data.participants,
           ),
         }),
         201,
@@ -305,6 +333,7 @@ export const cfpRoutes: RouteModule = {
             params.data.proposalId,
             parsed.data.answers,
             parsed.data.expectedRevision,
+            parsed.data.participants,
           ),
         }),
       );
@@ -341,10 +370,47 @@ export const cfpRoutes: RouteModule = {
             params.data.proposalId,
             parsed.data.answers,
             parsed.data.expectedRevision,
+            parsed.data.participants,
           ),
         }),
       );
     });
+    app.post(
+      "/api/events/:eventId/cfp/proposals/:proposalId/participants/:participantId/respond",
+      async (context) => {
+        if (!cfpService) throw new CfpUnavailableError("CFP service is unavailable");
+        const params = cfpParticipantParamsSchema.safeParse(context.req.param());
+        if (!params.success)
+          return context.json(
+            envelope("VALIDATION_FAILED", "Invitation is malformed.", context.get("correlationId")),
+            400,
+          );
+        submitterFor(context.get("actor"));
+        const parsed = respondProposalParticipantInputSchema.safeParse(await readJson(context.req));
+        if (!parsed.success)
+          return context.json(
+            envelope(
+              "VALIDATION_FAILED",
+              "Choose accept or decline.",
+              context.get("correlationId"),
+              validationFields(parsed.error.issues),
+            ),
+            400,
+          );
+        return context.json(
+          proposalParticipantResponseSchema.parse(
+            await cfpService.respondToParticipantInvitation(
+              context.get("actor"),
+              params.data.eventId,
+              params.data.proposalId,
+              params.data.participantId,
+              parsed.data.state,
+              parsed.data.expectedRevision,
+            ),
+          ),
+        );
+      },
+    );
     app.post("/api/events/:eventId/cfp/state", async (context) => {
       if (!cfpService) throw new CfpUnavailableError("CFP service is unavailable");
       const params = eventIdParamsSchema.safeParse(context.req.param());
@@ -428,6 +494,7 @@ export const cfpRoutes: RouteModule = {
         params.data.eventId,
         parsed.data.idempotencyKey,
         parsed.data.answers,
+        parsed.data.participants,
       );
       return context.json(
         { submission: { confirmationId: submission.id, submittedAt: submission.submittedAt } },
@@ -445,6 +512,8 @@ export const cfpRoutes: RouteModule = {
       };
     if (error instanceof CfpRoutingConfigurationError)
       return { code: "VALIDATION_FAILED" as const, message: error.message, status: 400 as const };
+    if (error instanceof CfpParticipantNotFoundError)
+      return { code: "NOT_FOUND" as const, message: error.message, status: 404 as const };
     if (error instanceof CfpDraftConflictError)
       return {
         code: "CONFLICT" as const,

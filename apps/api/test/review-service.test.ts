@@ -36,6 +36,12 @@ const build = (
     submitter?: { name: string; email: string } | null;
     /** The owning account, or `null` for the guest submission this fixture defaults to. */
     submitterUserId?: string | null;
+    answers?: readonly {
+      fieldId: string;
+      label: string;
+      type: "short_text" | "long_text" | "select";
+      value: string;
+    }[];
   } = {},
 ) => {
   // The people identity-access reports as reviewers of this event. The seeded organizer holds
@@ -56,7 +62,7 @@ const build = (
           ? { name: "Robin Submitter", email: "robin@example.test" }
           : options.submitter,
       submitterUserId: options.submitterUserId ?? null,
-      answers: [
+      answers: options.answers ?? [
         { fieldId: "format", label: "Session format", type: "select", value: "Workshop" },
         {
           fieldId: "coauthors",
@@ -334,6 +340,52 @@ describe("review workflow", () => {
       email: "alex.morgan@example.test",
     });
     expect(JSON.stringify(projected?.answers)).not.toContain("Alex Morgan");
+  });
+
+  it("allows only review-safe proposal answers into a blind projection", async () => {
+    const { service } = build({
+      answers: [
+        { fieldId: "title", label: "Title", type: "short_text", value: "Taming CI" },
+        {
+          fieldId: "abstract",
+          label: "Abstract",
+          type: "long_text",
+          value: "Incremental builds without identity context.",
+        },
+        { fieldId: "track", label: "Track", type: "select", value: "Platform" },
+        {
+          fieldId: "speaker_bio",
+          label: "Speaker bio",
+          type: "long_text",
+          value: "Priya Raman leads Latticework Systems.",
+        },
+        {
+          fieldId: "company",
+          label: "Company",
+          type: "short_text",
+          value: "Latticework Systems",
+        },
+        {
+          fieldId: "social_url",
+          label: "Social URL",
+          type: "short_text",
+          value: "https://example.test/priya",
+        },
+      ],
+    });
+    const organizer = await resolveSeededDemoActor("organizer");
+    const reviewer = await resolveSeededDemoActor("reviewer");
+    await service.configurePlan(organizer, eventId, [
+      { id: "fit", name: "Fit", description: "Fit", minScore: 1, maxScore: 5 },
+    ]);
+    await service.distribute(organizer, eventId, [proposalId], [reviewer.id], 1);
+    const blind = JSON.stringify(await service.reviewerQueue(reviewer, eventId));
+    expect(blind).not.toContain("Priya Raman");
+    expect(blind).not.toContain("Latticework Systems");
+    expect(blind).not.toContain("example.test/priya");
+    expect(blind).toContain("Taming CI");
+    const organizerView = JSON.stringify(await service.organizerWorkspace(organizer, eventId));
+    expect(organizerView).toContain("Priya Raman");
   });
 
   it("keeps a person-name field masked when its label describes the name in prose", async () => {

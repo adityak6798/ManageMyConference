@@ -9,6 +9,11 @@
   "architecture": {
     "publicApplicationEntryPoints": [
       {
+        "path": "apps/web/src/cfp/ParticipantsEditor.tsx",
+        "governing": "PRD-CFP-002",
+        "reason": "The CFP-owned structured participant editor is shared by the authenticated applicant dashboard and the publishing-owned public CFP shell; it exposes only proposal participant input and keeps participant invariants in one applicant control."
+      },
+      {
         "path": "packages/contracts/src/domains/platform.ts",
         "governing": "ARC-DOM-001",
         "reason": "The platform-owned HTTP contract vocabulary: every response shares its declared API version and collection domains reuse its cursor-page schemas instead of drifting transport mechanics. It contains no business-domain nouns or behavior."
@@ -630,7 +635,8 @@
         "ACC-CFP"
       ],
       "plans": [
-        "PLAN-002"
+        "PLAN-002",
+        "PLAN-004"
       ],
       "paths": [
         "packages/contracts/src/domains/cfp.ts",
@@ -654,6 +660,7 @@
         "apps/web/src/CfpWorkspace.tsx",
         "apps/web/src/cfp/CfpWorkspace.tsx",
         "apps/web/src/cfp/ApplicantCfpForm.tsx",
+        "apps/web/src/cfp/ParticipantsEditor.tsx",
         "apps/web/src/cfp/controls.tsx",
         "apps/web/src/cfp/model.ts",
         "apps/web/test/cfp-composer.test.tsx",
@@ -667,9 +674,11 @@
         "apps/api/test/d1-cfp-account-binding.integration.test.ts",
         "apps/web/test/cfp-window.test.tsx",
         "apps/web/test/cfp-submitter-dashboard.test.tsx",
+        "apps/web/test/cfp-participants.test.tsx",
         "apps/web/e2e/cfp-submitter.spec.ts",
         "apps/web/e2e/cfp-window.spec.ts",
-        "apps/api/test/cfp-draft-isolation.test.ts"
+        "apps/api/test/cfp-draft-isolation.test.ts",
+        "apps/api/migrations/2000_cfp_structured_participants_and_classification.sql"
       ]
     },
     {
@@ -685,7 +694,8 @@
         "ACC-REVIEW"
       ],
       "plans": [
-        "PLAN-002"
+        "PLAN-002",
+        "PLAN-004"
       ],
       "paths": [
         "packages/contracts/src/domains/review.ts",
@@ -764,7 +774,8 @@
         "ACC-SPEAKER"
       ],
       "plans": [
-        "PLAN-002"
+        "PLAN-002",
+        "PLAN-004"
       ],
       "paths": [
         "packages/contracts/src/domains/content.ts",
@@ -827,7 +838,8 @@
         "apps/web/src/content/ChecklistEditor.tsx",
         "apps/web/src/content/DeliverableTracker.tsx",
         "apps/web/test/deliverable-tracker.test.tsx",
-        "apps/web/test/speaker-checklist.test.tsx"
+        "apps/web/test/speaker-checklist.test.tsx",
+        "apps/api/migrations/2001_content_source_classification.sql"
       ]
     },
     {

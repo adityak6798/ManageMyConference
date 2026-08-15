@@ -1038,23 +1038,46 @@ describe("ContentService", () => {
     expect(storage.objects.size).toBe(0);
   });
   it("converts an acceptance idempotently while preserving proposal provenance", async () => {
-    const { service } = setup();
+    const { service } = setup({
+      proposals: new FakeAcceptedProposals([
+        acceptedProposal({
+          track: "Platform & Infra",
+          trackId: "track-platform",
+          formatId: "talk-30",
+          participants: [
+            {
+              id: "participant-1",
+              name: "Inez Invited",
+              email: "inez@example.test",
+              role: "co_speaker",
+            },
+          ],
+        }),
+        acceptedProposal({ proposalId: "proposal-2", title: "Second session" }),
+      ]),
+    });
     const organizer = await resolveSeededDemoActor("organizer");
     await service.accept(organizer, command, correlationId);
     const twice = await service.accept(organizer, command, correlationId);
     expect(twice.sessions).toHaveLength(1);
     expect(twice.sessions[0]?.proposalId).toBe("proposal-1");
-    expect(twice.speakers).toHaveLength(1);
-    expect(twice.tasks).toHaveLength(2);
+    expect(twice.sessions[0]).toMatchObject({
+      sourceTrackId: "track-platform",
+      sourceFormatId: "talk-30",
+      tracks: ["Platform & Infra"],
+    });
+    expect(twice.sessions[0]?.speakerProfileIds).toHaveLength(2);
+    expect(twice.speakers).toHaveLength(2);
+    expect(twice.tasks).toHaveLength(4);
     await service.accept(organizer, { eventId, proposalId: "proposal-2" }, correlationId);
     const linked = await service.workspace(organizer, eventId);
     expect(linked.sessions).toHaveLength(2);
-    expect(linked.speakers).toHaveLength(1);
+    expect(linked.speakers).toHaveLength(2);
     // The second acceptance reuses the person, so the onboarding checklist is not reissued.
-    expect(linked.tasks).toHaveLength(2);
+    expect(linked.tasks).toHaveLength(4);
     expect(
       new Set(linked.sessions.flatMap(({ speakerProfileIds }) => speakerProfileIds)).size,
-    ).toBe(1);
+    ).toBe(2);
   });
   it("scopes the portal to the assigned speaker and protects uploads", async () => {
     const { service, storage } = setup();

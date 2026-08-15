@@ -33,6 +33,8 @@ export function defineContentSchema(references: {
       // No schedule columns: a session's time is its agenda placement, resolved through the
       // agenda's public application interface on every read (migration 0022).
       publicationState: text("publication_state").notNull(),
+      sourceTrackId: text("source_track_id"),
+      sourceFormatId: text("source_format_id"),
     },
     (table) => [
       // Idempotency guard for ContentService.accept under concurrency.

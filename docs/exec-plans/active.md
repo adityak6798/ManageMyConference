@@ -1,6 +1,28 @@
 # Active execution plans
 
-Status: canonical | Owner: delivery | Last verified: 2026-08-14
+Status: canonical | Owner: delivery | Last verified: 2026-08-15
+
+## `PLAN-004` SessionBoard defect closure
+
+Status: active; implementation is complete in PRs #233 and #236, with the scored evaluator rerun blocked on its model credential
+
+Issue #235 closes the six defects reproduced by the 2026-08-15 pinned SessionBoard evaluation and
+the functional paths that were not judgeable from its deterministic fixture. The work remained
+below 10,000 changed lines per pull request:
+
+1. PR #233 delivered evaluator/closure infrastructure, speaker assets, task-bound deliverables,
+   content history/approval/export, agenda demonstration, public detail/search/embed/download
+   parity, and fixture coverage;
+2. PR #236 delivers CFP classifications and structured participants, the server-side blind-review
+   projection, and the idempotent acceptance-to-content handoff.
+
+Each layer is based on the preceding PR head. Product behavior is recorded in the owning product
+specification, HTTP shapes in the contracts/OpenAPI package, and storage history in additive
+migrations. The final layer reran the credential-optional wrapper for evaluator commit
+`d8fafa41cdc484309e3fda953c5567cc2d462734` from a clean fixture and archives its target commit,
+configuration, timestamps, validated 18-scenario plan, and tree state through the #193 evidence
+path. This environment has no `ANTHROPIC_API_KEY`, so the wrapper correctly records that run as
+blocked and does not invent pass verdicts; #193 continues to own the credentialed scored rerun.
 
 ## `PLAN-002` Product lifecycle
 

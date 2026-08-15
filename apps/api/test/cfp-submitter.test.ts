@@ -18,6 +18,7 @@ import {
   CfpDraftConflictError,
   CfpProposalNotFoundError,
   CfpProposalStateConflictError,
+  CfpParticipantNotFoundError,
   CfpService,
   CfpStateError,
   CfpUnavailableError,
@@ -90,7 +91,15 @@ const complete = {
 };
 
 /** A published, open call, plus a clock the test moves by hand. */
-async function open(options: { notifications?: CfpNotificationPort } = {}) {
+async function open(
+  options: {
+    notifications?: CfpNotificationPort;
+    participantIdentities?: {
+      findByEmail(email: string): Promise<Actor | null>;
+      findRecipient(userId: string): Promise<{ email: string | null } | null>;
+    };
+  } = {},
+) {
   let clock = new Date("2026-08-10T12:00:00.000Z");
   let sequence = 0;
   const repository = new MemoryCfpRepository();
@@ -100,6 +109,7 @@ async function open(options: { notifications?: CfpNotificationPort } = {}) {
     () => clock,
     undefined,
     options.notifications,
+    options.participantIdentities,
   );
   await service.save(organizer, {
     eventId,
@@ -383,6 +393,138 @@ describe("the scheduled submission window", () => {
 });
 
 describe("a proposal that belongs to an account", () => {
+  it("stores stable classifications and lets only the invited account answer for itself", async () => {
+    const invited = submitter("user-invited", "Inez Invited");
+    const { service, repository } = await open({
+      participantIdentities: {
+        findByEmail: async (email) => (email === "inez@example.test" ? invited : null),
+        findRecipient: async (userId) =>
+          userId === invited.id ? { email: "inez@example.test" } : null,
+      },
+    });
+    const current = await service.getForOrganizer(organizer, eventId);
+    await service.save(organizer, {
+      eventId,
+      title: "Speak",
+      description: "",
+      fields: [
+        ...fields,
+        {
+          id: "track",
+          type: "select",
+          label: "Track",
+          guidance: "",
+          required: true,
+          options: [],
+          choices: [{ id: "track-platform", label: "Platform & Infra", active: true }],
+        },
+        {
+          id: "format",
+          type: "select",
+          label: "Format",
+          guidance: "",
+          required: true,
+          options: [],
+          choices: [{ id: "talk-30", label: "Talk (30 min)", active: true }],
+        },
+      ],
+      expectedVersion: current?.version ?? 1,
+    });
+    await service.changeState(organizer, eventId, "publish");
+    const participant = {
+      id: "10000000-0000-4000-8000-000000000099",
+      name: "Inez Invited",
+      email: "inez@example.test",
+      role: "co_speaker" as const,
+    };
+    const answers = { ...complete, track: "track-platform", format: "talk-30" };
+    const draft = await service.createDraft(pat, eventId, "classified", answers, [participant]);
+    const submitted = await service.submitProposal(
+      pat,
+      eventId,
+      draft.id,
+      answers,
+      draft.revision,
+      [participant],
+    );
+    await expect(repository.findProposalById(eventId, draft.id)).resolves.toMatchObject({
+      trackId: "track-platform",
+      formatId: "talk-30",
+      participants: [{ ...participant, state: "pending" }],
+    });
+    await expect(
+      service.respondToParticipantInvitation(
+        sam,
+        eventId,
+        draft.id,
+        participant.id,
+        "accepted",
+        submitted.revision,
+      ),
+    ).rejects.toBeInstanceOf(CfpParticipantNotFoundError);
+    await expect(
+      service.respondToParticipantInvitation(
+        invited,
+        eventId,
+        draft.id,
+        participant.id,
+        "accepted",
+        submitted.revision,
+      ),
+    ).resolves.toEqual({
+      participant: { id: participant.id, state: "accepted" },
+      revision: submitted.revision + 1,
+    });
+  });
+
+  it("does not let an owner rewrite private fields of an accepted participant", async () => {
+    const invited = submitter("user-invited", "Inez Invited");
+    const { service } = await open({
+      participantIdentities: {
+        findByEmail: async () => invited,
+        findRecipient: async () => ({ email: "inez@example.test" }),
+      },
+    });
+    const participant = {
+      id: "10000000-0000-4000-8000-000000000099",
+      name: "Inez Invited",
+      email: "inez@example.test",
+      role: "co_speaker" as const,
+    };
+    const draft = await service.createDraft(pat, eventId, "participant-authority", complete, [
+      participant,
+    ]);
+    await service.respondToParticipantInvitation(
+      invited,
+      eventId,
+      draft.id,
+      participant.id,
+      "accepted",
+      draft.revision,
+    );
+    await expect(
+      service.saveProposal(pat, eventId, draft.id, complete, draft.revision + 1, [
+        { ...participant, email: "attacker@example.test" },
+      ]),
+    ).rejects.toMatchObject({
+      fieldErrors: { participants: ["An accepted participant must update their own profile."] },
+    });
+    await expect(
+      service.saveProposal(pat, eventId, draft.id, complete, draft.revision + 1, []),
+    ).rejects.toMatchObject({
+      fieldErrors: {
+        participants: ["An accepted participant must remove themselves from the proposal."],
+      },
+    });
+    await expect(service.participantInvitations(invited, eventId)).resolves.toMatchObject([
+      {
+        proposalId: draft.id,
+        participant: { ...participant, state: "accepted" },
+        revision: draft.revision + 1,
+      },
+    ]);
+  });
+
   it("saves a title-only draft, resumes it, and submits it later", async () => {
     const { service } = await open();
     // The whole feature: absent answers are the normal state of something being written, so a

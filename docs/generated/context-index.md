@@ -6,9 +6,9 @@
 | platform | `ARC-001`, `ARC-DOM-001`, `ENG-CI-001`, `PRD-OPS-001`, `PRD-OPS-002`, `PRD-OPS-003`, `PRD-OPS-004` | — | `ACC-HARNESS`, `ACC-DEMO-SMOKE`, `ACC-OPS` | `PLAN-001`, `PLAN-002` | [docs/architecture/README.md](../architecture/README.md) |
 | identity-access | `PRD-IAM-001`, `PRD-IAM-002` | `JNY-010` | — | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
 | events | `PRD-EVT-001`, `PRD-EVT-002` | — | `ACC-IDENTITY-EVENTS`, `ACC-EVENT-TEMPLATES` | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
-| cfp | `PRD-CFP-001`, `PRD-CFP-002`, `PRD-CFP-003`, `PRD-CFP-004`, `PRD-ABS-001` | `JNY-001`, `JNY-002` | `ACC-CFP` | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
-| review | `PRD-REV-001` | `JNY-003` | `ACC-REVIEW` | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
-| content | `PRD-SPK-001`, `PRD-SPK-002`, `PRD-CNT-001` | `JNY-004`, `JNY-005` | `ACC-SPEAKER` | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
+| cfp | `PRD-CFP-001`, `PRD-CFP-002`, `PRD-CFP-003`, `PRD-CFP-004`, `PRD-ABS-001` | `JNY-001`, `JNY-002` | `ACC-CFP` | `PLAN-002`, `PLAN-004` | [docs/product/specifications.md](../product/specifications.md) |
+| review | `PRD-REV-001` | `JNY-003` | `ACC-REVIEW` | `PLAN-002`, `PLAN-004` | [docs/product/specifications.md](../product/specifications.md) |
+| content | `PRD-SPK-001`, `PRD-SPK-002`, `PRD-CNT-001` | `JNY-004`, `JNY-005` | `ACC-SPEAKER` | `PLAN-002`, `PLAN-004` | [docs/product/specifications.md](../product/specifications.md) |
 | crm | `PRD-CRM-001` | `JNY-008` | `ACC-CRM` | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
 | agenda | `PRD-AGD-001` | `JNY-006` | `ACC-AGENDA` | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
 | communications-integrations | `PRD-COM-001`, `PRD-INT-001` | `JNY-009` | `ACC-INTEGRATION` | `PLAN-002` | [docs/product/specifications.md](../product/specifications.md) |
@@ -56,6 +56,7 @@
 - `test` / `repository-fact`: [apps/web/e2e/cfp.spec.ts](../../apps/web/e2e/cfp.spec.ts)
 - `test` / `repository-fact`: [apps/web/e2e/lifecycle.spec.ts](../../apps/web/e2e/lifecycle.spec.ts)
 - `test` / `repository-fact`: [apps/web/test/cfp-composer.test.tsx](../../apps/web/test/cfp-composer.test.tsx)
+- `test` / `repository-fact`: [apps/web/test/cfp-participants.test.tsx](../../apps/web/test/cfp-participants.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/cfp-republish-closed.test.tsx](../../apps/web/test/cfp-republish-closed.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/cfp-submitter-dashboard.test.tsx](../../apps/web/test/cfp-submitter-dashboard.test.tsx)
 - `test` / `repository-fact`: [apps/web/test/cfp-window.test.tsx](../../apps/web/test/cfp-window.test.tsx)
@@ -447,6 +448,9 @@
 - `specification` / `normative`: [docs/exec-plans/active.md](../../docs/exec-plans/active.md)
 
 ### `PLAN-003`
+- `specification` / `normative`: [docs/exec-plans/active.md](../../docs/exec-plans/active.md)
+
+### `PLAN-004`
 - `specification` / `normative`: [docs/exec-plans/active.md](../../docs/exec-plans/active.md)
 
 ### `PRD-ABS-001`

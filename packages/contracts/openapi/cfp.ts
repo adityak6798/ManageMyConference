@@ -6,6 +6,7 @@
  */
 import {
   cfpProposalParamsSchema,
+  cfpParticipantParamsSchema,
   cfpResponseSchema,
   cfpRoutingStatusesResponseSchema,
   cfpStateInputSchema,
@@ -13,6 +14,9 @@ import {
   createProposalDraftInputSchema,
   eventIdParamsSchema,
   proposalConfirmationResponseSchema,
+  proposalParticipantResponseSchema,
+  proposalParticipantInvitationsResponseSchema,
+  respondProposalParticipantInputSchema,
   saveCfpInputSchema,
   saveProposalInputSchema,
   submitProposalInputSchema,
@@ -109,13 +113,13 @@ export const cfpPaths: OpenApiFragment = {
       },
     });
     /*
-     * The five submitter routes take a session cookie and **not** `eventBearer`.
+     * The submitter routes take a session cookie and **not** `eventBearer`.
      *
      * Every other event-addressed route accepts both, because both resolve to an actor whose event
      * capability is then checked. These are authorized by ownership of a row instead, so an
      * event-scoped token's one restriction — the event it was minted for — is never consulted, and
      * an API-client credential has no user to own anything. The transport refuses `bearer` on all
-     * five; this is the contract saying so rather than leaving a caller to discover it.
+     * this route group; this is the contract saying so rather than leaving a caller to discover it.
      */
     registry.registerPath({
       method: "get",
@@ -130,6 +134,22 @@ export const cfpPaths: OpenApiFragment = {
         400: errorResponse,
         401: errorResponse,
         // A bearer credential — an event token or an API client — is refused here.
+        403: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "get",
+      path: "/api/events/{eventId}/cfp/participant-invitations",
+      security: [{ sessionCookie: [] }],
+      request: { params: eventIdParamsSchema },
+      responses: {
+        200: {
+          description: "Participant invitations linked to the signed-in account's address",
+          content: json(proposalParticipantInvitationsResponseSchema),
+        },
+        400: errorResponse,
+        401: errorResponse,
         403: errorResponse,
         500: errorResponse,
       },
@@ -218,6 +238,27 @@ export const cfpPaths: OpenApiFragment = {
         400: errorResponse,
         401: errorResponse,
         // A bearer credential — an event token or an API client — is refused here.
+        403: errorResponse,
+        404: errorResponse,
+        409: errorResponse,
+        500: errorResponse,
+      },
+    });
+    registry.registerPath({
+      method: "post",
+      path: "/api/events/{eventId}/cfp/proposals/{proposalId}/participants/{participantId}/respond",
+      security: [{ sessionCookie: [] }],
+      request: {
+        params: cfpParticipantParamsSchema,
+        body: { required: true, content: json(respondProposalParticipantInputSchema) },
+      },
+      responses: {
+        200: {
+          description: "The invited participant's accepted or declined response",
+          content: json(proposalParticipantResponseSchema),
+        },
+        400: errorResponse,
+        401: errorResponse,
         403: errorResponse,
         404: errorResponse,
         409: errorResponse,

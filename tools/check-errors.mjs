@@ -7,6 +7,7 @@ import { pathToFileURL } from "node:url";
 const root = new URL("../", import.meta.url).pathname;
 const ignored = new Set([
   ".git",
+  ".evidence",
   ".venv",
   ".wrangler",
   "coverage",

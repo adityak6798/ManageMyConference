@@ -4,6 +4,8 @@ import { IconForm } from "../ui/icons";
 import { Card, EmptyState, Pill } from "../ui/primitives";
 import { FieldControl } from "./controls";
 import { conditionMatches, DEFAULT_TITLE, describe } from "./model";
+import { ParticipantsEditor } from "./ParticipantsEditor";
+import type { ProposalParticipantInput } from "@greenroom/contracts";
 
 /** The applicant submission lifecycle, separate from the organizer's draft composer. */
 export function ApplicantCfpForm({ eventId, form }: { eventId: string; form: CfpFormDto }) {
@@ -12,13 +14,14 @@ export function ApplicantCfpForm({ eventId, form }: { eventId: string; form: Cfp
   const [submissionKey, setSubmissionKey] = useState(() => crypto.randomUUID());
   const [submitting, setSubmitting] = useState(false);
   const [notice, setNotice] = useState("");
+  const [participants, setParticipants] = useState<ProposalParticipantInput[]>([]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     setErrors({});
     setSubmitting(true);
     try {
-      const result = await submitProposal(eventId, answers, submissionKey);
+      const result = await submitProposal(eventId, answers, submissionKey, participants);
       setNotice(`Proposal received. Confirmation: ${result.confirmationId}`);
       setSubmissionKey(crypto.randomUUID());
     } catch (reason) {
@@ -82,6 +85,11 @@ export function ApplicantCfpForm({ eventId, form }: { eventId: string; form: Cfp
                 }
               />
             ))}
+          <ParticipantsEditor
+            participants={participants}
+            onChange={setParticipants}
+            disabled={submitting}
+          />
           <div className="cfp-public-actions">
             <button type="submit" disabled={submitting}>
               {submitting ? "Submitting…" : "Submit proposal"}

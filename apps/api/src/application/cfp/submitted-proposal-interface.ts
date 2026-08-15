@@ -32,6 +32,16 @@ export interface SubmittedProposal {
    * immutable submitted value for bulk selection; content carries it forward on acceptance.
    */
   readonly track?: string;
+  readonly trackId?: string | null;
+  readonly formatId?: string | null;
+  readonly formatLabel?: string | null;
+  readonly participants?: readonly {
+    readonly id: string;
+    readonly name: string;
+    readonly email: string;
+    readonly role: "co_speaker" | "moderator";
+    readonly state: "pending" | "accepted" | "declined";
+  }[];
   /** Display name only. Reviewer projections replace it with a mask. */
   readonly submitterName: string;
   /** Organizer-only contact details, or `null` when the form collected no email. */

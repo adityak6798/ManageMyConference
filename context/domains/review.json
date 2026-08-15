@@ -5,7 +5,7 @@
   "specs": ["PRD-REV-001"],
   "journeys": ["JNY-003"],
   "acceptance": ["ACC-REVIEW"],
-  "plans": ["PLAN-002"],
+  "plans": ["PLAN-002", "PLAN-004"],
   "paths": [
     "packages/contracts/src/domains/review.ts",
     "apps/api/src/adapters/persistence/schema/review.ts",

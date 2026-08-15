@@ -1173,10 +1173,37 @@ export class ContentService {
       command.proposalId,
     );
     if (existing) return existing.id;
-    const speaker = await this.resolveSpeaker(accepted, authorized.id, correlationId);
+    const speakers = await Promise.all([
+      this.resolveSpeaker(
+        accepted.eventId,
+        accepted.proposalId,
+        accepted.submitter,
+        authorized.id,
+        correlationId,
+      ),
+      ...(accepted.participants ?? []).map((participant) =>
+        this.resolveSpeaker(
+          accepted.eventId,
+          `${accepted.proposalId}:participant:${participant.id}`,
+          participant,
+          authorized.id,
+          correlationId,
+        ),
+      ),
+    ]);
     // The conversion port owns the profile row, so the onboarding checklist is keyed off the
     // work already assigned to this person rather than off "did I just insert the profile".
-    const isNew = !(await this.dependencies.repository.hasSpeakerWork(command.eventId, speaker.id));
+    const newSpeakerIds = new Set(
+      (
+        await Promise.all(
+          speakers.map(async (speaker) =>
+            (await this.dependencies.repository.hasSpeakerWork(command.eventId, speaker.id))
+              ? null
+              : speaker.id,
+          ),
+        )
+      ).filter((id): id is string => Boolean(id)),
+    );
     const session: ContentSession = {
       id: this.dependencies.newId(),
       eventId: command.eventId,
@@ -1184,21 +1211,25 @@ export class ContentService {
       title: accepted.title,
       abstract: accepted.abstract,
       format: accepted.format,
-      speakerProfileIds: [speaker.id],
+      sourceTrackId: accepted.trackId ?? null,
+      sourceFormatId: accepted.formatId ?? null,
+      speakerProfileIds: speakers.map(({ id }) => id),
       tags: [],
       tracks: accepted.track ? [accepted.track] : [],
       publicationState: "draft",
     };
-    const tasks: SpeakerTask[] = isNew
-      ? ["Complete your speaker profile", "Upload a headshot"].map((title) => ({
-          id: this.dependencies.newId(),
-          eventId: command.eventId,
-          speakerProfileId: speaker.id,
-          title,
-          dueAt: this.dependencies.now().toISOString(),
-          status: "open",
-        }))
-      : [];
+    const tasks: SpeakerTask[] = speakers.flatMap((speaker) =>
+      newSpeakerIds.has(speaker.id)
+        ? ["Complete your speaker profile", "Upload a headshot"].map((title) => ({
+            id: this.dependencies.newId(),
+            eventId: command.eventId,
+            speakerProfileId: speaker.id,
+            title,
+            dueAt: this.dependencies.now().toISOString(),
+            status: "open",
+          }))
+        : [],
+    );
     try {
       await this.dependencies.repository.accept({
         session,
@@ -1245,21 +1276,25 @@ export class ContentService {
      * threw, where this invokes both and surfaces the first rejection. Unreachable through the
      * bound port, and it is the port's contract rather than this line that makes it so.
      */
-    await this.dependencies.speakerNotifications?.speakerAccepted({
-      eventId: command.eventId,
-      profileId: speaker.id,
-      speakerName: speaker.name,
-      speakerEmail: speaker.email,
-      sessionTitle: session.title,
-    });
+    await Promise.all(
+      speakers.map((speaker) =>
+        this.dependencies.speakerNotifications?.speakerAccepted({
+          eventId: command.eventId,
+          profileId: speaker.id,
+          speakerName: speaker.name,
+          speakerEmail: speaker.email,
+          sessionTitle: session.title,
+        }),
+      ),
+    );
     await Promise.all(
       tasks.map((task) =>
         this.dependencies.speakerNotifications?.taskAssigned({
           eventId: command.eventId,
-          profileId: speaker.id,
+          profileId: task.speakerProfileId,
           taskId: task.id,
-          speakerName: speaker.name,
-          speakerEmail: speaker.email,
+          speakerName: speakers.find(({ id }) => id === task.speakerProfileId)?.name ?? "Speaker",
+          speakerEmail: speakers.find(({ id }) => id === task.speakerProfileId)?.email ?? "",
           taskTitle: task.title,
           dueAt: task.dueAt,
         }),
@@ -1332,25 +1367,23 @@ export class ContentService {
   }
 
   private async resolveSpeaker(
-    accepted: {
-      eventId: string;
-      proposalId: string;
-      submitter: { name: string; email: string };
-    },
+    eventId: string,
+    sourceId: string,
+    person: { name: string; email: string },
     actorId: string,
     correlationId: string,
   ): Promise<SpeakerProfile> {
     let speakerId: string;
     try {
       ({ speakerId } = await this.dependencies.speakerConversion.createOrLink({
-        eventId: accepted.eventId,
-        source: { kind: "cfp-proposal", id: accepted.proposalId },
-        name: accepted.submitter.name,
-        email: accepted.submitter.email,
+        eventId,
+        source: { kind: "cfp-proposal", id: sourceId },
+        name: person.name,
+        email: person.email,
         actorId,
         occurredAt: this.dependencies.now().toISOString(),
         correlationId,
-        idempotencyKey: `content-accept:${accepted.eventId}:${accepted.proposalId}`,
+        idempotencyKey: `content-accept:${eventId}:${sourceId}`,
       }));
     } catch (error) {
       // A referential failure here means the submitted identity cannot be provisioned. That is
@@ -1362,7 +1395,7 @@ export class ContentService {
       throw error;
     }
     const profile = await this.dependencies.repository.findProfile(speakerId);
-    if (!profile || profile.eventId !== accepted.eventId)
+    if (!profile || profile.eventId !== eventId)
       throw new SpeakerIdentityUnavailableError({
         "submitter.email": ["This submitter cannot be linked to a speaker identity."],
       });

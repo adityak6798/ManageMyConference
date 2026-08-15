@@ -65,6 +65,9 @@ export function defineCfpSchema(references: {
       /** Optimistic concurrency for one proposal, as `cfp_forms.version` is for the composer. */
       revision: integer("revision").notNull().default(1),
       updatedAt: text("updated_at"),
+      participantsJson: text("participants_json").notNull().default("[]"),
+      trackId: text("track_id"),
+      formatId: text("format_id"),
     },
     (table) => [
       unique("cfp_submissions_event_id_idempotency_key_unique").on(

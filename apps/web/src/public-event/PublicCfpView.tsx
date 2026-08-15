@@ -9,13 +9,20 @@
  *
  * @spec PRD-CFP-001 PRD-CFP-002
  */
-import { cfpConditionMatches, type SessionDto } from "@greenroom/contracts";
+import {
+  cfpConditionMatches,
+  type ProposalParticipantInput,
+  type ProposalParticipantInvitationDto,
+  type SessionDto,
+} from "@greenroom/contracts";
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import {
   CfpApiError,
   type CfpFormDto,
   createProposalDraft,
   loadMyProposals,
+  loadParticipantInvitations,
+  respondToParticipantInvitation,
   saveProposal,
   submitOwnedProposal,
   type SubmitterProposalDto,
@@ -30,6 +37,7 @@ import {
 } from "../api/identity";
 import { Pill } from "./cards";
 import { fullTimeWithZone } from "./model";
+import { ParticipantsEditor } from "../cfp/ParticipantsEditor";
 
 /**
  * Four states, and `scheduled` is the one worth having separately.
@@ -101,8 +109,10 @@ export function PublicCfpView({
   const [session, setSession] = useState<SessionDto | null>(null);
   const [doors, setDoors] = useState<AuthDoors | null>(null);
   const [proposals, setProposals] = useState<readonly SubmitterProposalDto[]>([]);
+  const [invitations, setInvitations] = useState<readonly ProposalParticipantInvitationDto[]>([]);
   /** The owned proposal the form is bound to, or null when the form is a fresh one. */
   const [editing, setEditing] = useState<SubmitterProposalDto | null>(null);
+  const [participants, setParticipants] = useState<ProposalParticipantInput[]>([]);
   // `/api/session` answers 401 to a visitor with no credential, which `probeIdentity` resolves as
   // a null session rather than as a failure — so holding one is the whole test.
   const signedIn = session !== null;
@@ -129,6 +139,9 @@ export function PublicCfpView({
     const listed = await loadMyProposals(eventId);
     if (generation === refreshGeneration.current) setProposals(listed);
   }, [eventId]);
+  const refreshInvitations = useCallback(async () => {
+    setInvitations(await loadParticipantInvitations(eventId));
+  }, [eventId]);
 
   useEffect(() => {
     let live = true;
@@ -146,7 +159,8 @@ export function PublicCfpView({
          * went wrong, contact support" is the wrong thing to say about an empty dashboard.
          */
         // ERROR-INTENT: an absent list is what a failed read leaves, and the page renders that.
-        if (identity.session) void refreshProposals().catch(() => undefined);
+        if (identity.session)
+          void Promise.all([refreshProposals(), refreshInvitations()]).catch(() => undefined);
       })
       .catch((reason: unknown) => {
         // ERROR-INTENT: rendered rather than rethrown. A visitor whose identity could not be read
@@ -158,7 +172,7 @@ export function PublicCfpView({
     return () => {
       live = false;
     };
-  }, [refreshProposals]);
+  }, [refreshInvitations, refreshProposals]);
 
   /**
    * Report a refusal beside the control that caused it, keeping any field errors it carried.
@@ -224,20 +238,22 @@ export function PublicCfpView({
        * outcome is already rendered, and the next action or page load reads it again.
        */
       // ERROR-INTENT: a list that failed to reload is stale and nothing more.
-      if (refreshes && signedIn) void refreshProposals().catch(() => undefined);
+      if (refreshes && signedIn)
+        void Promise.all([refreshProposals(), refreshInvitations()]).catch(() => undefined);
     }
   }
 
   /** Anonymous submission: unchanged, and the only path that produces an unowned proposal. */
   const submitAnonymously = () =>
     guarded(async () => {
-      const confirmation = await submitProposal(eventId, answers, submissionKey);
+      const confirmation = await submitProposal(eventId, answers, submissionKey, participants);
       setNotice({
         tone: "ok",
         text: `Proposal received. Confirmation: ${confirmation.confirmationId}`,
       });
       setSubmissionKey(crypto.randomUUID());
       setAnswers({});
+      setParticipants([]);
     }, "The proposal could not be submitted.");
 
   /**
@@ -250,8 +266,8 @@ export function PublicCfpView({
   const saveDraft = () =>
     guarded(async () => {
       const saved = editing
-        ? await saveProposal(eventId, editing.id, answers, editing.revision)
-        : await createProposalDraft(eventId, answers, submissionKey);
+        ? await saveProposal(eventId, editing.id, answers, editing.revision, participants)
+        : await createProposalDraft(eventId, answers, submissionKey, participants);
       setEditing(saved);
       setSubmissionKey(crypto.randomUUID());
       setNotice({
@@ -289,13 +305,20 @@ export function PublicCfpView({
          *
          * Adopting here makes every path after this a revision of a proposal we know about.
          */
-        target = await createProposalDraft(eventId, answers, submissionKey);
+        target = await createProposalDraft(eventId, answers, submissionKey, participants);
         setEditing(target);
         setSubmissionKey(crypto.randomUUID());
       }
-      const submitted = await submitOwnedProposal(eventId, target.id, answers, target.revision);
+      const submitted = await submitOwnedProposal(
+        eventId,
+        target.id,
+        answers,
+        target.revision,
+        participants,
+      );
       setEditing(null);
       setAnswers({});
+      setParticipants([]);
       setSubmissionKey(crypto.randomUUID());
       setNotice({
         tone: "ok",
@@ -456,6 +479,9 @@ export function PublicCfpView({
     const dropped = Object.keys(current.answers).length - Object.keys(kept).length;
     setEditing(current);
     setAnswers(kept);
+    setParticipants(
+      (current.participants ?? []).map(({ id, name, email, role }) => ({ id, name, email, role })),
+    );
     setFieldErrors({});
     // Announced rather than only rendered: the form below has just changed underneath somebody who
     // pressed a button in the list above it, and that is not visible to a screen reader. And when
@@ -493,6 +519,7 @@ export function PublicCfpView({
         : null;
     setEditing(null);
     setAnswers({});
+    setParticipants([]);
     setFieldErrors({});
     setNotice(
       abandoned
@@ -633,6 +660,53 @@ export function PublicCfpView({
               Sign out
             </button>
           </p>
+          {invitations.length ? (
+            <section aria-labelledby="participant-invitations-title">
+              <h3 id="participant-invitations-title">Co-presenter invitations</h3>
+              <ul className="pub-proposal-list">
+                {invitations.map((invitation) => (
+                  <li className="pub-proposal" key={invitation.participant.id}>
+                    <div>
+                      <p className="pub-proposal-title">
+                        {invitation.proposalTitle ?? "Untitled proposal"}
+                      </p>
+                      <p className="pub-note">
+                        Invited as{" "}
+                        {invitation.participant.role === "moderator" ? "moderator" : "co-presenter"}
+                        {invitation.participant.state === "pending"
+                          ? "."
+                          : ` · ${invitation.participant.state}.`}
+                      </p>
+                    </div>
+                    {invitation.participant.state === "pending" ? (
+                      <div className="pub-proposal-side">
+                        {(["accepted", "declined"] as const).map((state) => (
+                          <button
+                            className="pub-button"
+                            disabled={submitting}
+                            key={state}
+                            type="button"
+                            onClick={() => {
+                              // ERROR-INTENT: guarded reports rejection through the shared action feedback.
+                              void guarded(
+                                async () => {
+                                  await respondToParticipantInvitation(invitation, state);
+                                  await refreshInvitations();
+                                },
+                                `The invitation could not be ${state === "accepted" ? "accepted" : "declined"}.`,
+                              );
+                            }}
+                          >
+                            {state === "accepted" ? "Accept invitation" : "Decline invitation"}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
           {proposals.length === 0 ? (
             <p className="pub-note">
               Nothing yet. Fill in the form below and save it as a draft, or submit it straight away
@@ -803,9 +877,16 @@ export function PublicCfpView({
                   ) : field.type === "select" ? (
                     <select {...shared}>
                       <option value="">Choose an option</option>
-                      {field.options.map((option) => (
-                        <option key={option}>{option}</option>
-                      ))}
+                      {(
+                        field.choices ??
+                        field.options.map((label) => ({ id: label, label, active: true }))
+                      )
+                        .filter(({ active }) => active)
+                        .map((option) => (
+                          <option key={option.id} value={option.id}>
+                            {option.label}
+                          </option>
+                        ))}
                     </select>
                   ) : (
                     <input {...shared} type={field.type === "email" ? "email" : "text"} />
@@ -820,6 +901,11 @@ export function PublicCfpView({
                 </div>
               );
             })}
+          <ParticipantsEditor
+            participants={participants}
+            onChange={setParticipants}
+            disabled={submitting}
+          />
           {/*
             Two shapes, decided by what is on the form rather than by what the API would accept.
 

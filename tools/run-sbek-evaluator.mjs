@@ -13,7 +13,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveWorktreeEnvironment, worktreeRoot } from "./worktree-env.mjs";
 
-export const EVALUATOR_URL = "https://forge.smol.ai/swyx/killmysaas-evals.git";
+export const EVALUATOR_URL = "https://github.com/mkly/killmysaas-evals-coding-agent.git";
 export const EVALUATOR_COMMIT = "d8fafa41cdc484309e3fda953c5567cc2d462734";
 const ROOT = worktreeRoot(path.dirname(fileURLToPath(import.meta.url)));
 
@@ -65,6 +65,7 @@ function ensureEvaluator(checkout) {
     mkdirSync(path.dirname(checkout), { recursive: true });
     command("git", ["clone", "--no-checkout", EVALUATOR_URL, checkout], ROOT);
   }
+  command("git", ["remote", "set-url", "origin", EVALUATOR_URL], checkout);
   command("git", ["fetch", "--depth=1", "origin", EVALUATOR_COMMIT], checkout);
   command("git", ["checkout", "--detach", EVALUATOR_COMMIT], checkout);
   const actual = command("git", ["rev-parse", "HEAD"], checkout).stdout.trim();

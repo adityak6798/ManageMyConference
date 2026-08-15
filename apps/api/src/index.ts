@@ -1813,6 +1813,7 @@ export default {
       now,
       new D1SubmittedProposalAdapter(environment.DB),
       cfpNotifications,
+      new D1IdentityDirectory(environment.DB),
     );
     /*
      * The AI suggestion port (#110), resolved once per request and never able to take review down.
