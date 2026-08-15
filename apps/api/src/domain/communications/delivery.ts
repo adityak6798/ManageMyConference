@@ -241,7 +241,8 @@ export const lifecycleRecipient = (subject: {
  *   so this is reachable. Folding less is the better of two bad answers rather than a good one:
  *   before this, a non-ASCII address matched nothing and the cap **never bound** for it; now the
  *   spellings of one mailbox that differ only in non-ASCII case are separate budgets, and on an
- *   internationalized domain that is up to `2^n` of them for `n` such letters. The cap binds
+ *   internationalized domain that is at least `2^n` of them for `n` such letters — more where a
+ *   letter has three forms that fold together, as Greek sigma does. The cap binds
  *   later, rather than not at all. Recorded as a residual of `#132` in `GAP-027`, because a cap
  *   whose bound depends on the victim's alphabet is not the bound the specification states.
  * - **Trimming strips spaces only**, like `trim()`. JavaScript's strips every Unicode space.

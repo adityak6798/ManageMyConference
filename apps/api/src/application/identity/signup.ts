@@ -482,6 +482,17 @@ export class SignupService {
      * invited elsewhere would otherwise have their workspace completed — or silently not —
      * according to which organization id sorts first.
      */
+    /*
+     * Whether an organization was skipped because it already holds an event.
+     *
+     * That is what the loser of a promotion race sees: it re-entered here holding the winner's
+     * organization, the winner's event already exists, so there is nothing to provision — and
+     * returning `actor` returns the snapshot read *before* the winner granted the role. The tab
+     * that lost then gets a session with no event access and shows the person no workspace at all
+     * until they reload, while the other tab shows one. The row is right and the answer is stale,
+     * so the answer is re-read, and only on the path that can be stale.
+     */
+    let sawExistingEvent = false;
     for (const { id } of actor.organizations) {
       /*
        * Two reads, and neither can be made atomic with the write that follows. Both directions of
@@ -498,7 +509,10 @@ export class SignupService {
        * empty when both reads ran, and this person still receives a brand-new event of their own
        * rather than anything that already existed.
        */
-      if ((await workspace.eventsInOrganization(actor, id)).length > 0) continue;
+      if ((await workspace.eventsInOrganization(actor, id)).length > 0) {
+        sawExistingEvent = true;
+        continue;
+      }
       if ((await directory.countOrganizationMembers(id)) !== 1) continue;
       // Creates, or is handed the event a concurrent callback for this same person provisioned a
       // moment ago under their shared key. Either way the role that opens it lands in the same
@@ -513,6 +527,6 @@ export class SignupService {
       // decides every capability the session is about to be issued with, and D1 holds it.
       return (await directory.findByUserId(actor.id)) ?? actor;
     }
-    return actor;
+    return sawExistingEvent ? ((await directory.findByUserId(actor.id)) ?? actor) : actor;
   }
 }

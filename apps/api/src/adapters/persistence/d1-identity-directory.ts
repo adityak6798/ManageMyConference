@@ -365,6 +365,14 @@ export class D1IdentityDirectory implements IdentityDirectory {
    * being given a conference of its own is that conference's organizer, whatever it was before,
    * and the console picks the workspaces it offers from the persona whenever no event is selected.
    *
+   * **What the suites prove, and what they do not.** `d1-identity-signup.integration.test.ts`
+   * drives both statements against migrated D1 — the promotion case proves the persona lift lands
+   * and is bound correctly, and the concurrent-promotion case proves the insert's condition picks
+   * one winner. The `EXISTS` on the lift is belt-and-braces on top of that: the only caller
+   * reaches it while the account holds no membership, so removing the gate changes no observable
+   * outcome and no test can kill it. It stays because it makes the statement true on its own
+   * terms rather than by reference to a caller two files away.
+   *
    * **One batch, because the two halves are one fact.** They were two `run()`s, and a failure
    * between them left the membership written and the persona still `public` — with no other
    * writer anywhere that lifts it, and no second chance, because the caller only reaches this

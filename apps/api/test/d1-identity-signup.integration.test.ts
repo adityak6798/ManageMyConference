@@ -533,6 +533,52 @@ describe("Google signup against migrated D1", () => {
     ).resolves.toEqual([{ id: promoted.actor.id, name: newcomer.name }]);
   });
 
+  it("gives a submitter-door account one workspace when two tabs promote it at once", async () => {
+    /*
+     * The conditional half of the same batch, which the case above cannot reach.
+     *
+     * `completeWorkspace` mints an organization *before* it writes the membership, so two
+     * concurrent promotions of one account each arrive holding a different organization id and
+     * the conflict `INSERT OR IGNORE` would absorb never happens — both rows are distinct, both
+     * land, and the person is left holding two conferences named after themselves with two "Your
+     * first event"s that nothing in this repository deletes. `WHERE NOT EXISTS (… user_id = ?)`
+     * is what makes storage pick one, and its removal survives every other test in this suite.
+     *
+     * Two open tabs on a sign-in page is the ordinary way to reach this, not a contrived one.
+     */
+    const migrated = await createMigratedDatabase({
+      label: "identity-submitter-promote-race",
+      seed: true,
+    });
+    runtime = migrated.runtime;
+    const database = migrated.database;
+    const { signup, events } = signupStack(database);
+
+    await signup.signInWithGoogle(newcomer, "submitter");
+    const [first, second] = await Promise.all([
+      signup.signInWithGoogle(newcomer),
+      signup.signInWithGoogle(newcomer),
+    ]);
+
+    // One of everything beyond the fixture, counted in the tables. A second organization here
+    // would be an orphan no product path removes — the row `GAP-019`'s data-aware reset refuses
+    // on for ever.
+    await expect(unseededRows(database)).resolves.toEqual({
+      organizations: 1,
+      events: 1,
+      users: 1,
+    });
+    expect(first.actor.id).toBe(second.actor.id);
+    const organizationId = first.actor.organizations[0]?.id as string;
+    expect(second.actor.organizations).toEqual([{ id: organizationId }]);
+    // And both callers hold the role on the one event, so the loser adopted rather than lost.
+    expect(first.actor.eventAccess).toHaveLength(1);
+    expect(second.actor.eventAccess).toEqual(first.actor.eventAccess);
+    await expect(events.listEventIdsForOrganization(organizationId)).resolves.toEqual([
+      first.actor.eventAccess[0]?.eventId,
+    ]);
+  });
+
   /**
    * The workspace owner's event is not handed to somebody who merely joins the organization.
    *

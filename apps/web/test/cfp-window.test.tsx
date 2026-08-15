@@ -280,8 +280,12 @@ describe("a saved window converges on the state the server computed", () => {
    * assert on the request instead, and here the rendering *is* the subject, so the wait is what
    * has to give. A timeout is not a race fix — it is the honest bound on a wait whose subject is
    * the render.
+   *
+   * Under vitest's own 5 s `testTimeout`, deliberately: a wait equal to the test budget can never
+   * fire, so every failure would report "Test timed out" instead of the element diagnostic that
+   * says what was on screen.
    */
-  const SETTLED = { timeout: 5_000 } as const;
+  const SETTLED = { timeout: 3_000 } as const;
   // `findBy*` takes the wait options third; the second slot is the matcher's own options.
 
   const saveDeadline = async (value: string) => {
@@ -384,11 +388,29 @@ describe("a saved window converges on the state the server computed", () => {
   });
 
   it("promises applicants nothing while the form is unpublished", async () => {
-    // The third false sentence in the same chain: an unpublished call reaches no applicant, so
-    // "Applicants see the deadline on the public form" describes a page nobody can open.
+    /*
+     * The third false sentence in the same chain: an unpublished call reaches no applicant, so
+     * "Applicants see the deadline on the public form" describes a page nobody can open.
+     *
+     * Matched on the **whole announcement**, and scoped to the live region. The first version of
+     * this case matched `/Nothing is published yet/`, which the composer's own empty-state
+     * paragraph already renders before any save — so it passed against a mutated announcement,
+     * and could resolve against either of two matching elements depending on scheduling. A test
+     * that a mutation cannot kill is not coverage, and one that can match two nodes is a flake
+     * waiting for a slow machine.
+     */
     composer({
-      initial: { publishedStatus: null, effectiveStatus: "unpublished", publishedAt: null },
+      initial: {
+        // A form nobody has published: `status` is the editable row's, and `changeState` is the
+        // only writer of `open`/`closed` — it sets the publication in the same write, so an open
+        // row with no publication is a state the server cannot return.
+        status: "draft",
+        publishedStatus: null,
+        effectiveStatus: "unpublished",
+        publishedAt: null,
+      },
       afterSave: {
+        status: "draft",
         closesAt: "2026-10-01T06:59:00.000Z",
         publishedStatus: null,
         publishedAt: null,
@@ -398,9 +420,12 @@ describe("a saved window converges on the state the server computed", () => {
 
     await saveDeadline("2026-09-30T23:59");
 
-    expect(
-      await screen.findByText(/Nothing is published yet/, undefined, SETTLED),
-    ).toBeInTheDocument();
+    const announcement = await screen.findByText(
+      /Submission window saved\. Nothing is published yet/,
+      undefined,
+      SETTLED,
+    );
+    expect(announcement).toBeInTheDocument();
     expect(screen.queryByText(/Applicants see the deadline/)).toBeNull();
   });
 
