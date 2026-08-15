@@ -77,9 +77,15 @@
         "apps/api/test/content-csv-import.test.ts",
         "apps/api/test/content-deliverables.test.ts",
         "apps/api/test/d1-review-repository.integration.test.ts",
+        "apps/api/test/review-rounds.test.ts",
+        "apps/api/test/review-rounds-http.test.ts",
+        "apps/api/test/d1-review-round-backfill.integration.test.ts",
         "apps/web/test/proposal-acceptance.test.tsx",
         "apps/web/test/review-suggestions.test.tsx",
+        "apps/web/test/review-decisions.test.tsx",
+        "apps/web/test/review-rounds.test.tsx",
         "apps/web/e2e/review-workflow.spec.ts",
+        "apps/web/e2e/review-rounds.spec.ts",
         "apps/web/e2e/lifecycle.spec.ts",
         "apps/api/test/acceptance-latency.integration.test.ts"
       ]

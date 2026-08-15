@@ -109,6 +109,8 @@
     "publication_embeds": "publishing",
     "agenda_generated_drafts": "agenda",
     "agenda_generation_criteria": "agenda",
-    "agenda_speaker_availability": "agenda"
+    "agenda_speaker_availability": "agenda",
+    "review_rounds": "review",
+    "review_round_members": "review"
   }
 }

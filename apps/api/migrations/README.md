@@ -33,3 +33,48 @@ confirmation (issue #190); the table is communications', the reason is CFP's, an
 therefore comes from the communications block. It is announced in
 [the wave ledger](../../../docs/exec-plans/competition-waves.md#issue-190-rulings) so a concurrent
 communications lane meets the number rather than the conflict.
+
+`1706_delivery_reviewer_reminder_trigger.sql` is the second instance of that rule, from the review
+lane, adding `reviewer.reminder` so an organizer can nudge reviewers who still owe evaluations
+(issue #191). The alternative — labelling a reminder `reviewer.assigned` — was ruled out in
+writing under `ACC-REVIEW` before this lane existed, and it is announced in
+[the wave ledger](../../../docs/exec-plans/competition-waves.md#issue-191-rulings) for the same
+reason `1705` is.
+
+## Rebuilding a review table
+
+`review_assignments` is the parent with the longest child chain in this schema, and each migration
+that has touched it left the next one more to do. Counted against the migrations rather than from
+memory — `grep "REFERENCES review_assignments" apps/api/migrations/` and
+`grep "^CREATE TRIGGER"` are what these numbers are:
+
+**Three children**, copied and dropped in order: `review_conflicts` and `review_evaluations`
+(`0006`), and `review_suggestions` (`1310`) — with `review_evaluations.suggestion_id` citing
+suggestions in turn, so the two are a pair rather than two independent copies.
+
+**Ten triggers to restate**, where `1301` restates five:
+
+| Trigger | Added by | On |
+|---|---|---|
+| `review_completion_rejects_conflict` | `0007` | `review_evaluations` |
+| `review_conflict_rejects_completion` | `0008` | `review_conflicts` |
+| `review_assignment_requires_plan` | `0009` | `review_assignments` |
+| `review_plan_lock` | `0010` | `review_plans` |
+| `review_assignment_cap` | `1300` | `review_assignments` |
+| `review_evaluation_source_insert` | `1310` | `review_evaluations` |
+| `review_evaluation_source_update` | `1310` | `review_evaluations` |
+| `review_assignment_requires_round` | `1312` | `review_assignments` |
+| `review_assignment_requires_open_round` | `1312` | `review_assignments` |
+| `review_assignment_requires_pool_membership` | `1312` | `review_assignments` |
+
+SQLite drops a table's triggers with the table, so forgetting any of them leaves its rule holding
+in the service and no longer holding in the schema — the half that was the point. The two
+`review_evaluation_source_*` guards are the pair most easily missed: they are the AI-provenance
+rules, they sit on a *child* rather than on the parent being rebuilt, and `1301` predates them.
+
+**What actually catches a forgotten one** is `tools/check-schema-drift.mjs`, which fails when an
+entry in `UNMODELLED_OBJECTS` names a trigger no migration creates. That is the net; it is not the
+D1 replay, which re-runs `1301` and therefore only ever describes the world `1301` was written in.
+
+`1312` itself deliberately rebuilds nothing, and its header explains why the surrogate-key shape
+that would have required one was the more dangerous design over a deployed database.

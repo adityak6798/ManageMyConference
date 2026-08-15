@@ -339,6 +339,23 @@ describe("CFP template slice, applied behind the triage statuses", () => {
     await review.configurePlan(actor, DESTINATION, [
       { id: "clarity", name: "Clarity", description: "", minScore: 1, maxScore: 5 },
     ]);
+    // Written straight to storage, so the round an assignment belongs to has to be written too:
+    // an assignment naming a round that does not exist is refused by storage now (`1312`), and
+    // the service's own `ensureDefaultRound` is not in the path here.
+    await reviewRepository.createRound({
+      eventId: DESTINATION,
+      sequence: 1,
+      name: "Round 1",
+      opensAt: null,
+      closesAt: null,
+      state: "open",
+      anonymized: true,
+      criteria: null,
+      poolMode: "event",
+      reviewerIds: [],
+      createdAt: "2026-08-11T00:00:00.000Z",
+      updatedAt: "2026-08-11T00:00:00.000Z",
+    });
     await reviewRepository.createAssignments([
       {
         id: "00000000-0000-4000-8000-0000000000b1",

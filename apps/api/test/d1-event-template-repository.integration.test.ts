@@ -184,6 +184,7 @@ function compose(database: D1DatabasePort, templateDatabase: D1DatabasePort = da
     events,
     notifications: {
       reviewerAssigned: unreachable("Reviewer notification"),
+      remindOutstanding: unreachable("Reviewer reminder"),
       decisionRecorded: unreachable("Decision notification"),
     },
     newId,

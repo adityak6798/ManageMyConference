@@ -23,7 +23,32 @@ type Reviewer = OrganizerReviewWorkspaceDto["reviewers"][number];
 type Assignment = OrganizerReviewWorkspaceDto["assignments"][number];
 type Decision = NonNullable<OrganizerReviewWorkspaceDto["decisions"]>[number];
 type DecisionOutcome = Decision["outcome"];
+type Round = NonNullable<OrganizerReviewWorkspaceDto["rounds"]>[number];
+type Evaluation = NonNullable<OrganizerReviewWorkspaceDto["evaluations"]>[number];
 type PillTone = "neutral" | "ok" | "warn" | "danger" | "info" | "strong";
+
+/** How a round's lifecycle reads on screen, and what colour says so. */
+const ROUND_STATE: Record<Round["state"], { label: string; tone: PillTone }> = {
+  draft: { label: "Draft", tone: "neutral" },
+  open: { label: "Open", tone: "ok" },
+  closed: { label: "Closed", tone: "info" },
+};
+
+/** A date-only rendering of an ISO instant, or a dash when the round is unbounded on that side. */
+const roundDate = (instant: string | null) =>
+  instant ? new Date(instant).toLocaleDateString() : "—";
+
+/**
+ * The rubric a round is actually scored against.
+ *
+ * The same fallback the server applies, restated here because the console renders criterion names
+ * beside stored scores and a round with its own scorecard must not be labelled with the event
+ * plan's criteria. Mirrors `roundCriteria` in the review domain.
+ */
+const criteriaOf = (
+  round: Round | undefined,
+  plan: OrganizerReviewWorkspaceDto["plan"],
+): readonly NonNullable<Round["criteria"]>[number][] => round?.criteria ?? plan?.criteria ?? [];
 
 /** A handled API failure, with the reference an organizer can quote when reporting it. */
 const message = (error: unknown, fallback = "Review work could not be loaded. Please retry.") =>
@@ -117,17 +142,22 @@ export type {
   Assignment,
   Decision,
   DecisionOutcome,
+  Evaluation,
   PillTone,
   Proposal,
   Reviewer,
+  Round,
   StatusDefinition,
 };
 export {
+  criteriaOf,
   DECISION_STATUS_KEYS,
   fieldErrorsOf,
   listTitles,
   message,
   OUTCOME_LABEL,
   ProposalAnswers,
+  ROUND_STATE,
+  roundDate,
   statusTone,
 };

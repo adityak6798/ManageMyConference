@@ -35,6 +35,7 @@ const rebuildCoverage = {
   "1502_crm_prospect_stage_rebuild.sql": "seeded replay in the CRM D1 integration suite",
   "1703_delivery_domain_event_triggers.sql": "seeded replay below",
   "1705_delivery_proposal_submitted_trigger.sql": "seeded replay below",
+  "1706_delivery_reviewer_reminder_trigger.sql": "seeded replay below",
   "1802_publication_slug_reservations.sql": "creates and drops a transient audit table",
 } as const;
 

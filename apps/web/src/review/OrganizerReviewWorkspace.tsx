@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   advanceReviewRound,
   assignReviewer,
@@ -11,10 +11,13 @@ import {
 import "../styles/review.css";
 import { IconInbox, IconReview } from "../ui/icons";
 import { Card, EmptyState, Notice, Pill, Tabs, useActionFeedback, useLoad } from "../ui/primitives";
+import { ReviewerProgressPanel } from "./ReviewerProgressPanel";
+import { RoundsPanel } from "./RoundsPanel";
 import { RubricForm } from "./RubricForm";
 import { StatusForm } from "./StatusForm";
 import {
   type Assignment,
+  criteriaOf,
   DecisionForm,
   type DecisionOutcome,
   type DecisionState,
@@ -25,11 +28,23 @@ import {
   type Proposal,
   ProposalActions,
   ProposalAnswers,
+  ROUND_STATE,
   statusTone,
 } from "./shared";
 
 /** The audit grows without bound; triage only needs the tail of it on screen. */
 const RECENT_CHANGES = 12;
+
+/**
+ * The default ceiling on how many abstracts one reviewer is given in a distribution pass.
+ *
+ * A *default*, not a constant, and that distinction is the defect this replaces. Per-reviewer caps
+ * have existed in storage since `1300` — a `review_assignment_caps` table and a trigger that
+ * refuses an insert past the cap, driven through `createCappedAssignments` — and the console
+ * passed a hard-coded 20 to every call, so nothing an organizer could do reached them. A capability
+ * nobody can reach scores exactly like one that does not exist.
+ */
+const DEFAULT_CAP = 20;
 
 // @spec PRD-ABS-001 PRD-REV-001
 // This triage state owner intentionally exceeds 400 lines because selection, decisions, detail
@@ -54,10 +69,23 @@ export function OrganizerReviewWorkspace({
 }) {
   const [tab, setTab] = useState("all");
   const [search, setSearch] = useState("");
-  const [sortByScore, setSortByScore] = useState(false);
+  /**
+   * How the table is ordered. Three states rather than two.
+   *
+   * The control used to toggle between submission order and descending aggregate, so the
+   * highest-scoring abstract was reachable and the lowest was not — and "sort correctly in both
+   * directions" is one of this area's acceptance criteria precisely because an organizer looking
+   * for what to decline needs the other end of the list.
+   */
+  const [sort, setSort] = useState<"submitted" | "score-desc" | "score-asc">("submitted");
   const [selected, setSelected] = useState<string[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /** Which round assignment, distribution and the results column are working in. */
+  const [round, setRound] = useState<number | null>(null);
+  const [cap, setCap] = useState(DEFAULT_CAP);
+  /** What the last CSV export produced, so finishing it is observable rather than assumed. */
+  const [exported, setExported] = useState<{ rows: number; name: string } | null>(null);
   // Which abstracts have their accept/decline confirmation open, and what it would record. A
   // selection decided from the bulk bar is the same dialog over more than one row.
   const [pending, setPending] = useState<{
@@ -123,13 +151,26 @@ export function OrganizerReviewWorkspace({
         .toLowerCase()
         .includes(needle);
     });
-    if (!sortByScore) return filtered;
+    if (sort === "submitted") return filtered;
     const score = (proposalId: string) =>
       data.outcomes
         .filter((outcome) => outcome.proposalId === proposalId)
-        .sort((left, right) => right.round - left.round)[0]?.averageScore ?? -Infinity;
-    return filtered.sort((left, right) => score(right.id) - score(left.id));
-  }, [data, search, sortByScore, tab]);
+        .sort((left, right) => right.round - left.round)[0]?.averageScore ?? null;
+    /*
+     * Unscored abstracts sink in both directions, rather than leading the ascending list.
+     *
+     * `-Infinity` for "not scored" is right for descending and exactly wrong for ascending: it
+     * would put every abstract nobody has reviewed above the genuinely weakest ones, which is
+     * the opposite of what an organizer sorting upwards is looking for. "No score" is not a low
+     * score; it is the absence of one, and it belongs at the end either way.
+     */
+    return filtered.sort((left, right) => {
+      const [leftScore, rightScore] = [score(left.id), score(right.id)];
+      if (leftScore === null || rightScore === null)
+        return leftScore === rightScore ? 0 : leftScore === null ? 1 : -1;
+      return sort === "score-desc" ? rightScore - leftScore : leftScore - rightScore;
+    });
+  }, [data, search, sort, tab]);
 
   useEffect(() => {
     if (openId) detailRef.current?.focus();
@@ -316,6 +357,48 @@ export function OrganizerReviewWorkspace({
   const assignmentsFor = (proposalId: string) =>
     data.assignments.filter((assignment) => assignment.proposalId === proposalId);
 
+  /*
+   * Which round this console is working in, and who may be given work in it.
+   *
+   * Every assignment and distribution below is scoped to it. Before rounds were first-class the
+   * console assigned into round 1 implicitly and distributed to `data.reviewers` — the whole
+   * assignable directory — so an organizer running a second pass had no way to say which round it
+   * belonged to, and distribution silently ignored who was actually on the round.
+   *
+   * The default is the **earliest open** round, and both halves of that are deliberate. Open,
+   * because a draft round takes no work and quietly assigning into one would produce refusals an
+   * organizer could not explain. Earliest, because triage is where abstracts nobody has looked at
+   * yet are handled, and those belong at the start of the process — defaulting to the newest round
+   * would drop a freshly submitted abstract straight into a second-pass committee.
+   */
+  const rounds = data.rounds ?? [];
+  const openRounds = rounds.filter(({ state }) => state === "open");
+  const activeRound =
+    rounds.find(({ sequence }) => sequence === round) ?? openRounds[0] ?? rounds[rounds.length - 1];
+  /** The reviewers the *active round* admits — not every reviewer the event has. */
+  const roundReviewers =
+    activeRound && activeRound.poolMode === "named"
+      ? data.reviewers.filter(({ id }) => activeRound.reviewerIds.includes(id))
+      : data.reviewers;
+  /**
+   * Why assignment is unavailable right now, or `null` when it is available.
+   *
+   * Stated rather than encoded as a disabled attribute. Every greyed-out control on this screen
+   * used to explain itself by not being pressable, which told an organizer that something was
+   * wrong and nothing about what.
+   */
+  const assignmentBlocked = !activeRound
+    ? "No review round is configured yet. Create one in Review rounds below."
+    : activeRound.state !== "open"
+      ? `“${activeRound.name}” is ${activeRound.state === "draft" ? "still a draft" : "closed"}, so it takes no new assignments. Open it in Review rounds below.`
+      : // An event with no reviewers at all is already answered by the notice above the tabs,
+        // which links into the members workspace and names the role to grant. Repeating it here
+        // would be two notices for one condition — and it was, until a component test found the
+        // duplicate.
+        activeRound.poolMode === "named" && !roundReviewers.length && data.reviewers.length
+        ? `“${activeRound.name}” has no reviewers in its pool yet. Add them in Review rounds below.`
+        : null;
+
   const transition = (proposalIds: string[], toStatus: string, _clearSelection: boolean) => {
     const label = labelFor(toStatus);
     // ERROR-INTENT: React event handlers cannot await; act announces every outcome.
@@ -338,32 +421,63 @@ export function OrganizerReviewWorkspace({
   };
   const assign = (proposalIds: string[], reviewerId: string, _clearSelection: boolean) => {
     const name = reviewerName(reviewerId);
+    if (!activeRound) {
+      feedback.announce("error", assignmentBlocked ?? "No review round is configured.");
+      return;
+    }
     // ERROR-INTENT: React event handlers cannot await; act announces every outcome.
     void act(
-      () => assignReviewer(eventId, { proposalIds, reviewerId }),
-      `${name} is now reviewing ${proposalIds.length} abstract${proposalIds.length === 1 ? "" : "s"}.`,
+      () => assignReviewer(eventId, { proposalIds, reviewerId, round: activeRound.sequence }),
+      `${name} is now reviewing ${proposalIds.length} abstract${proposalIds.length === 1 ? "" : "s"} in ${activeRound.name}.`,
     );
   };
   const distribute = (proposalIds: string[]) => {
+    if (!activeRound) {
+      feedback.announce("error", assignmentBlocked ?? "No review round is configured.");
+      return;
+    }
     // ERROR-INTENT: React event handlers cannot await; act announces every outcome.
     void act(
       () =>
         distributeReviewers(eventId, {
           proposalIds,
-          reviewerIds: data.reviewers.map(({ id }) => id),
-          maxAssignmentsPerReviewer: 20,
+          // The round's pool, not the event's directory: distributing to somebody the round does
+          // not admit is refused by storage, and choosing them here would only move where the
+          // organizer meets that refusal.
+          reviewerIds: roundReviewers.map(({ id }) => id),
+          maxAssignmentsPerReviewer: cap,
+          round: activeRound.sequence,
         }),
-      `${proposalIds.length} abstracts distributed across the reviewer team.`,
+      `${proposalIds.length} abstracts distributed across ${roundReviewers.length} reviewer${roundReviewers.length === 1 ? "" : "s"} in ${activeRound.name}, at most ${cap} each.`,
     );
   };
-  /*
-   * A round is started *from* one status, so "All" is not a source and an event with no
-   * reviewers has nobody to assign to. Both conditions used to be spelled as `disabled`, which
-   * meant the button was permanently grey on the tab the workspace opens on and the sentence
-   * below — already written — could never be reached. Pressing it now says which of the two
-   * it is (#206; the same shape as #149).
+  /**
+   * Why "Start next round" is unavailable, or `null` when it is available.
+   *
+   * A round is started *from* one status, so "All" is not a source, and a round with nobody in its
+   * pool has nobody to assign to. Both used to be spelled as `disabled`, which left the button
+   * permanently grey on the tab the workspace opens on and put the sentence explaining it inside a
+   * handler nothing could reach — `#206`'s sweep found it, and `#149` is the same shape.
+   *
+   * Derived once and used twice: the handler announces it, and the toolbar renders it beside the
+   * control. Two copies of the condition is how the button and its explanation come to disagree.
+   * The second clause reads the *round's* pool rather than the event's directory, because a round
+   * the event staffs reviewers for but this round admits none of is still a round nobody can
+   * advance into.
    */
+  const nextRoundBlocked =
+    activeTab === "all"
+      ? "Choose one status tab first — a round advances the abstracts in a single status."
+      : !roundReviewers.length
+        ? activeRound && activeRound.poolMode === "named"
+          ? `No reviewers are in “${activeRound.name}”'s pool. Add them in Review rounds below before starting a round.`
+          : "This event has no reviewers yet. Invite one from Members before starting a round."
+        : null;
   const startNextRound = () => {
+    if (nextRoundBlocked) {
+      feedback.announce("error", nextRoundBlocked);
+      return;
+    }
     const fromStatus = data.statuses.find(({ key }) => key === activeTab)?.key;
     if (!fromStatus) {
       feedback.announce(
@@ -372,59 +486,79 @@ export function OrganizerReviewWorkspace({
       );
       return;
     }
-    if (!data.reviewers.length) {
-      feedback.announce(
-        "error",
-        "This event has no reviewers yet. Invite one from Members before starting a round.",
-      );
-      return;
-    }
     // ERROR-INTENT: React event handlers cannot await; act announces every outcome.
     void act(
       () =>
         advanceReviewRound(eventId, {
           fromStatus,
-          reviewerIds: data.reviewers.map(({ id }) => id),
-          maxAssignmentsPerReviewer: 20,
-          currentRound: Math.max(0, ...data.assignments.map(({ round }) => round)),
+          reviewerIds: roundReviewers.map(({ id }) => id),
+          maxAssignmentsPerReviewer: cap,
+          currentRound: Math.max(0, ...data.assignments.map(({ round: at }) => at)),
         }),
-      `Proposals in ${labelFor(fromStatus)} advanced to the next review round.`,
+      `Proposals in ${labelFor(fromStatus)} advanced to the next review round, which starts with these ${roundReviewers.length} reviewer${roundReviewers.length === 1 ? "" : "s"} in its pool.`,
     );
   };
+  /**
+   * The results export.
+   *
+   * Two things changed here beyond the round columns. The criterion columns are the **union of
+   * every round's scorecard**, because rounds can now score against different rubrics and a
+   * header taken from the event plan alone would silently drop a round's own criteria — the
+   * values would be in the file's data and have no column to land in. And the reviewer's written
+   * comment travels with the row, which is what makes an exported file the record of a review
+   * rather than a table of numbers (`#221`).
+   *
+   * `exported` is set afterwards so completion is *observable*: a download that the browser
+   * handles silently is indistinguishable from a button that did nothing, which is the state this
+   * screen was in.
+   */
   const exportCsv = () => {
     const quote = (value: unknown) => {
       const raw = String(value ?? "");
       const safe = /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw;
       return `"${safe.replaceAll('"', '""')}"`;
     };
-    const criteria = data.plan?.criteria ?? [];
-    const lines = [
-      [
-        "Proposal",
-        "Submitter",
-        "Co-authors",
-        "Status",
-        "Round",
-        "Reviewer",
-        "State",
-        "Aggregate",
-        ...criteria.map(({ name }) => name),
-      ]
-        .map(quote)
-        .join(","),
+    // Union across the event plan and every round's override, first occurrence winning, so a
+    // criterion two rounds share appears once and each round's own criteria appear at all.
+    const criteria = [
+      ...rounds.map((item) => criteriaOf(item, data.plan)),
+      data.plan?.criteria ?? [],
+    ]
+      .flat()
+      .filter((criterion, index, all) => all.findIndex(({ id }) => id === criterion.id) === index);
+    const authorship = (proposal: Proposal) =>
+      (proposal.coAuthors ?? []).map(({ name, role }) => `${name} (${role})`).join("; ");
+    const header = [
+      "Proposal",
+      "Submitter",
+      "Co-authors",
+      "Status",
+      "Decision",
+      "Round",
+      "Round name",
+      "Reviewer",
+      "State",
+      "Aggregate",
+      "Reviewer comment",
+      ...criteria.map(({ name }) => name),
     ];
+    const lines = [header.map(quote).join(",")];
     for (const proposal of data.proposals) {
       const assigned = assignmentsFor(proposal.id);
+      const decided = decisionFor(proposal.id);
       if (!assigned.length)
         lines.push(
           [
             proposal.title,
             proposal.submitterName,
-            (proposal.coAuthors ?? []).map(({ name, role }) => `${name} (${role})`).join("; "),
+            authorship(proposal),
             proposal.status,
+            decided ? OUTCOME_LABEL[decided.outcome] : "",
+            "",
             "",
             "",
             "unassigned",
+            "",
             "",
             ...criteria.map(() => ""),
           ]
@@ -432,20 +566,38 @@ export function OrganizerReviewWorkspace({
             .join(","),
         );
       for (const assignment of assigned) {
-        const evaluation = data.evaluations?.find((item) => item.assignmentId === assignment.id);
+        /*
+         * Completed only, at the lookup rather than at one column.
+         *
+         * The server now sends completed evaluations alone, so this is belt to that braces — but
+         * the previous shape is worth naming, because it gated `notes` and left every criterion
+         * column ungated. A draft's free-text criterion is prose the reviewer meant to rewrite,
+         * and it went into the file beside a `State` of `draft`. One filter, all columns.
+         */
+        const evaluation = data.evaluations?.find(
+          (item) => item.assignmentId === assignment.id && item.state === "completed",
+        );
         const outcome = data.outcomes.find(
           (item) => item.proposalId === proposal.id && item.round === assignment.round,
         );
+        const inRound = rounds.find(({ sequence }) => sequence === assignment.round);
         lines.push(
           [
             proposal.title,
             proposal.submitterName,
-            (proposal.coAuthors ?? []).map(({ name, role }) => `${name} (${role})`).join("; "),
+            authorship(proposal),
             proposal.status,
+            decided ? OUTCOME_LABEL[decided.outcome] : "",
             assignment.round,
+            inRound?.name ?? "",
             reviewerName(assignment.reviewerId),
-            evaluation?.state ?? "outstanding",
+            // Three states, not two: the server sends completed evaluations and the *ids* of the
+            // started ones, so a reviewer halfway through still reads as `draft` here without
+            // their half-formed scores travelling with it.
+            evaluation?.state ??
+              ((data.draftAssignmentIds ?? []).includes(assignment.id) ? "draft" : "outstanding"),
             outcome?.averageScore ?? "",
+            evaluation?.notes ?? "",
             ...criteria.map((criterion) =>
               (() => {
                 const score = evaluation?.scores.find((item) => item.criterionId === criterion.id);
@@ -458,11 +610,13 @@ export function OrganizerReviewWorkspace({
         );
       }
     }
+    const name = `review-results-${eventId}.csv`;
     const link = document.createElement("a");
     link.href = URL.createObjectURL(new Blob([lines.join("\n")], { type: "text/csv" }));
-    link.download = `review-results-${eventId}.csv`;
+    link.download = name;
     link.click();
     URL.revokeObjectURL(link.href);
+    setExported({ rows: lines.length - 1, name });
   };
   /**
    * Undo one assignment.
@@ -539,6 +693,86 @@ export function OrganizerReviewWorkspace({
     );
   };
 
+  /*
+   * What the reviewers actually said, on the abstract they said it about.
+   *
+   * Issue #221: the evaluator submitted a rating of 4 and a written comment, the review persisted,
+   * the reviewer's queue said "completed" — and this panel showed the 4.0 aggregate and the
+   * completion count and no comment anywhere. The numeric result was exposed and the words were
+   * not, which is the half an organizer actually decides on.
+   *
+   * Two boundaries hold while it is shown. **Only completed evaluations.** A draft is a reviewer's
+   * unfinished thinking, and the same reviewer can still change it — publishing it to an organizer
+   * would misreport an opinion nobody has finished forming, and the export draws the same line.
+   * **Only to organizers.** This is the `review:manage` console; a reviewer's own queue returns
+   * only their own evaluation and has no path to anybody else's, blind round or open.
+   *
+   * A plain function rather than a nested component, for the reason `assignedReviewers` gives:
+   * a component declared in this body is a new type on every render, so the list would remount
+   * after each reload.
+   */
+  const submittedReviews = (proposal: Proposal) => {
+    const submitted = assignmentsFor(proposal.id).flatMap((assignment) => {
+      const evaluation = (data.evaluations ?? []).find(
+        (item) => item.assignmentId === assignment.id && item.state === "completed",
+      );
+      return evaluation ? [{ assignment, evaluation }] : [];
+    });
+    if (!submitted.length)
+      return (
+        <p className="detail-reviewers">
+          <span className="detail-term">Submitted reviews</span>
+          <span className="empty-text">
+            No reviewer has completed an evaluation of this abstract yet.
+          </span>
+        </p>
+      );
+    return (
+      <div className="detail-reviewers submitted-reviews">
+        <span className="detail-term">Submitted reviews</span>
+        <ul>
+          {submitted.map(({ assignment, evaluation }) => {
+            const inRound = rounds.find(({ sequence }) => sequence === assignment.round);
+            // The round's own scorecard where it has one, so a criterion name printed beside a
+            // stored value is the name that value was recorded under.
+            const criteria = criteriaOf(inRound, data.plan);
+            return (
+              <li key={assignment.id}>
+                <p className="submitted-review-head">
+                  <strong>{reviewerName(assignment.reviewerId)}</strong>
+                  <Pill tone="ok">Completed</Pill>
+                  <span className="sub">
+                    {inRound?.name ?? `Round ${assignment.round}`}
+                    {evaluation.completedAt
+                      ? ` · ${new Date(evaluation.completedAt).toLocaleString()}`
+                      : ""}
+                  </span>
+                </p>
+                <dl className="review-scores">
+                  {evaluation.scores.map((score) => (
+                    <Fragment key={score.criterionId}>
+                      <dt>
+                        {criteria.find(({ id }) => id === score.criterionId)?.name ??
+                          score.criterionId}
+                      </dt>
+                      {/* The exact stored value, numeric or written, not a re-derived one. */}
+                      <dd>{score.value ?? score.score}</dd>
+                    </Fragment>
+                  ))}
+                </dl>
+                {evaluation.notes ? (
+                  <p className="submitted-review-note">{evaluation.notes}</p>
+                ) : (
+                  <p className="empty-text">This reviewer left no written comment.</p>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    );
+  };
+
   return (
     <>
       {loading ? <p role="status">Updating abstract triage…</p> : null}
@@ -591,6 +825,15 @@ export function OrganizerReviewWorkspace({
             <p className="triage-count">
               Showing {rows.length} of {data.proposals.length}
             </p>
+            {/*
+              Select-all, moved out of the table header by `#206`'s sweep. It lived in `<thead>`,
+              and `review.css` hides that row below 780px so the table can reflow into cards —
+              which removed the only way to select every abstract on a phone.
+
+              The short visible label with the sentence as its accessible name is that sweep's
+              shape and is kept: this lane first put the whole sentence on screen, which made the
+              label 369px wide inside a 390px viewport and panned the console sideways.
+            */}
             {rows.length ? (
               <label className="triage-select-all">
                 <input
@@ -604,13 +847,23 @@ export function OrganizerReviewWorkspace({
                 Select all
               </label>
             ) : null}
-            <button
-              type="button"
-              className="secondary small"
-              onClick={() => setSortByScore((value) => !value)}
-            >
-              {sortByScore ? "Use submission order" : "Sort by aggregate"}
-            </button>
+            {/*
+              Three orderings, not a toggle. The control used to swap between submission order and
+              *descending* aggregate, so the strongest abstract was reachable and the weakest was
+              not — and an organizer looking for what to decline needs the other end of the list.
+            */}
+            <div className="field triage-sort">
+              <label htmlFor="triage-sort">Order</label>
+              <select
+                id="triage-sort"
+                value={sort}
+                onChange={(event) => setSort(event.target.value as typeof sort)}
+              >
+                <option value="submitted">Submission order</option>
+                <option value="score-desc">Highest aggregate first</option>
+                <option value="score-asc">Lowest aggregate first</option>
+              </select>
+            </div>
             <button type="button" className="secondary small" onClick={exportCsv}>
               Export CSV
             </button>
@@ -623,6 +876,64 @@ export function OrganizerReviewWorkspace({
               Start next round
             </button>
           </div>
+
+          {/*
+            The round every assignment on this screen lands in, and the ceiling one reviewer can
+            be given in a distribution pass. The cap reaches `review_assignment_caps` and its
+            trigger, which have existed since `1300` and which the console previously pinned to a
+            hard-coded 20 — a capability nobody could reach.
+          */}
+          <div className="toolbar triage-round-bar">
+            <div className="field">
+              <label htmlFor="triage-round">Working in round</label>
+              <select
+                id="triage-round"
+                value={activeRound?.sequence ?? ""}
+                disabled={!rounds.length}
+                onChange={(event) => setRound(Number(event.target.value))}
+              >
+                {rounds.map((item) => (
+                  <option key={item.sequence} value={item.sequence}>
+                    {item.name} — {ROUND_STATE[item.state].label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="triage-cap">Max abstracts per reviewer</label>
+              <input
+                id="triage-cap"
+                type="number"
+                min={1}
+                max={100}
+                value={cap}
+                onChange={(event) =>
+                  setCap(Math.min(100, Math.max(1, Number(event.target.value) || 1)))
+                }
+              />
+              <p className="hint">
+                Enforced when distributing, by the database rather than by this form.
+              </p>
+            </div>
+            {activeRound ? (
+              <p className="triage-round-summary">
+                {activeRound.anonymized ? "Blind" : "Open"} review ·{" "}
+                {activeRound.criteria ? "its own scorecard" : "the event plan"} ·{" "}
+                {activeRound.poolMode === "named"
+                  ? `${roundReviewers.length} reviewer${roundReviewers.length === 1 ? "" : "s"} in the pool`
+                  : "every event reviewer"}
+              </p>
+            ) : null}
+          </div>
+          {assignmentBlocked ? <Notice tone="warn">{assignmentBlocked}</Notice> : null}
+          {nextRoundBlocked ? <p className="hint">Start next round: {nextRoundBlocked}</p> : null}
+          {/* A download the browser handles silently is indistinguishable from a dead button. */}
+          {exported ? (
+            <p className="hint" role="status">
+              Exported {exported.rows} result row{exported.rows === 1 ? "" : "s"} to {exported.name}
+              .
+            </p>
+          ) : null}
 
           {selected.length ? (
             <fieldset className="triage-bulk">
@@ -643,7 +954,9 @@ export function OrganizerReviewWorkspace({
                 statusLabel="Move selection to"
                 reviewerLabel="Assign selection to"
                 statuses={data.statuses}
-                reviewers={data.reviewers}
+                // The round's pool, not the event's directory: a name offered here that the
+                // round does not admit is an assignment the organizer would be refused for.
+                reviewers={roundReviewers}
                 busy={busy}
                 onTransition={(toStatus) => transition(selected, toStatus, true)}
                 onAssign={(reviewerId) => assign(selected, reviewerId, true)}
@@ -651,7 +964,7 @@ export function OrganizerReviewWorkspace({
               <button
                 type="button"
                 className="secondary"
-                disabled={busy || !data.reviewers.length}
+                disabled={busy}
                 onClick={() => distribute(selected)}
               >
                 Distribute selection
@@ -707,6 +1020,11 @@ export function OrganizerReviewWorkspace({
           ) : (
             <div className="table-wrap">
               <table className="data triage-table">
+                {/* Named, because this page now holds more than one table and a screen-reader
+                    user moving between them needs to know which is which. */}
+                <caption className="visually-hidden">
+                  Submitted abstracts, with their status, reviewers, aggregate and decision
+                </caption>
                 <thead>
                   <tr>
                     {/* The control itself lives in the toolbar: below 780px the table becomes a
@@ -946,6 +1264,7 @@ export function OrganizerReviewWorkspace({
                 <span className="empty-text">Nobody yet</span>
               )}
             </div>
+            {submittedReviews(open)}
             <ProposalActions
               // Remount per proposal: the status select seeds from currentStatus, so
               // reusing the instance left the previous abstract's status preselected
@@ -955,7 +1274,9 @@ export function OrganizerReviewWorkspace({
               statusLabel="Move this abstract to"
               reviewerLabel="Assign this abstract to"
               statuses={data.statuses}
-              reviewers={data.reviewers}
+              // The round's pool here too: the detail panel and the bulk bar assign into the same
+              // round, so they must offer the same people.
+              reviewers={roundReviewers}
               currentStatus={open.status}
               busy={busy}
               onTransition={(toStatus) => transition([open.id], toStatus, false)}
@@ -964,6 +1285,17 @@ export function OrganizerReviewWorkspace({
           </Card>
         </div>
       ) : null}
+
+      <div className="review-block">
+        <RoundsPanel
+          eventId={eventId}
+          data={data}
+          reviewerName={reviewerName}
+          onSaved={async () => {
+            await load();
+          }}
+        />
+      </div>
 
       <details className="review-setup">
         <summary>
@@ -989,29 +1321,7 @@ export function OrganizerReviewWorkspace({
       </details>
 
       <div className="review-block">
-        <Card
-          labelledBy="review-progress"
-          title="Reviewer progress"
-          hint="Assigned, completed, and outstanding evaluations by reviewer."
-        >
-          {(data.progress ?? []).some(({ outstanding }) => outstanding > 0) ? (
-            <>
-              <ul className="assigned-reviewers">
-                {(data.progress ?? []).map((item) => (
-                  <li key={item.reviewerId}>
-                    {reviewerName(item.reviewerId)} — {item.assigned} assigned · {item.completed}{" "}
-                    completed · {item.outstanding} outstanding
-                  </li>
-                ))}
-              </ul>
-              <p className="hint">Reminder emails to reviewers aren’t available yet.</p>
-            </>
-          ) : (
-            <EmptyState title="No outstanding reviews" icon={<IconReview size={20} />}>
-              Every assigned evaluation is complete.
-            </EmptyState>
-          )}
-        </Card>
+        <ReviewerProgressPanel eventId={eventId} data={data} reviewerName={reviewerName} />
       </div>
 
       <div className="review-block">

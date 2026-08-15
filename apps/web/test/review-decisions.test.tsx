@@ -60,6 +60,29 @@ const plan = {
   updatedAt: "2026-08-01T09:00:00.000Z",
 };
 
+/**
+ * The default round the server answers with when nobody has configured one.
+ *
+ * `ReviewService.organizerWorkspace` never returns an empty round list — an event that has never
+ * configured a round is answered with this, so it behaves exactly as it did before rounds were
+ * first-class. The fixture states it for the same reason: without it these tests would be driving
+ * a console against a response shape the server does not produce.
+ */
+const defaultRound = {
+  eventId,
+  sequence: 1,
+  name: "Round 1",
+  opensAt: null,
+  closesAt: null,
+  state: "open" as const,
+  anonymized: true,
+  criteria: null,
+  poolMode: "event" as const,
+  reviewerIds: [],
+  createdAt: "2026-08-11T09:00:00.000Z",
+  updatedAt: "2026-08-11T09:00:00.000Z",
+};
+
 const workspace = (overrides: Json = {}) => ({
   proposals: [proposal(firstId, "Typed boundaries at scale"), proposal(secondId, "Hallway track")],
   plan: null,
@@ -69,6 +92,8 @@ const workspace = (overrides: Json = {}) => ({
   statuses,
   reviewers: [],
   decisions: [],
+  rounds: [defaultRound],
+  roundProgress: [],
   ...overrides,
 });
 
