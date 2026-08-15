@@ -43,12 +43,13 @@ export class MemoryCrmRepository implements CrmRepository {
       (campaign) => campaign.organizationId === organizationId,
     );
   }
-  async listDueCampaigns(now: string) {
+  async listDueCampaigns(now: string, staleRunningBefore: string) {
     return [...this.campaigns.values()].filter(
       (campaign) =>
-        campaign.state === "scheduled" &&
-        campaign.scheduledAt !== null &&
-        campaign.scheduledAt <= now,
+        (campaign.state === "scheduled" &&
+          campaign.scheduledAt !== null &&
+          campaign.scheduledAt <= now) ||
+        (campaign.state === "running" && campaign.updatedAt <= staleRunningBefore),
     );
   }
   async findCampaign(organizationId: string, campaignId: string) {
@@ -64,9 +65,15 @@ export class MemoryCrmRepository implements CrmRepository {
     from: readonly CrmCampaign["state"][],
     to: CrmCampaign["state"],
     updatedAt: string,
+    expectedUpdatedAt?: string,
   ) {
     const campaign = this.campaigns.get(campaignId);
-    if (!campaign || campaign.organizationId !== organizationId || !from.includes(campaign.state))
+    if (
+      !campaign ||
+      campaign.organizationId !== organizationId ||
+      !from.includes(campaign.state) ||
+      (expectedUpdatedAt !== undefined && campaign.updatedAt !== expectedUpdatedAt)
+    )
       return null;
     const transitioned = { ...campaign, state: to, updatedAt };
     this.campaigns.set(campaignId, transitioned);

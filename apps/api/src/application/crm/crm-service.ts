@@ -54,6 +54,8 @@ import {
 } from "./errors";
 import type { OutreachDispatchPort } from "./outreach-dispatch";
 
+const CAMPAIGN_LEASE_MS = 15 * 60 * 1000;
+
 /**
  * What an import row and the contact it updates come to, together.
  *
@@ -1370,9 +1372,10 @@ export class CrmService {
     const running = await this.dependencies.repository.transitionCampaign(
       campaign.organizationId,
       campaign.id,
-      ["draft", "scheduled"],
+      [campaign.state],
       "running",
       now,
+      campaign.updatedAt,
     );
     // Another scheduler or launch already claimed it. Only the claimant may deliver or advance
     // the state; delivery idempotency is a second line of defence, not the campaign lock.
@@ -1407,6 +1410,7 @@ export class CrmService {
         ["running"],
         running.scheduledAt ? "scheduled" : "draft",
         this.dependencies.now().toISOString(),
+        running.updatedAt,
       );
       throw error;
     }
@@ -1416,6 +1420,7 @@ export class CrmService {
       ["running"],
       "completed",
       this.dependencies.now().toISOString(),
+      running.updatedAt,
     );
     if (!completed) throw new CampaignStateConflictError("Campaign state changed during delivery");
     return completed;
@@ -1426,6 +1431,8 @@ export class CrmService {
     const campaign = await this.dependencies.repository.findCampaign(organizationId, campaignId);
     if (!campaign) throw new ContactNotFoundError("Campaign not found");
     this.authorize(actor, campaign.eventId);
+    if (campaign.state === "running")
+      throw new CampaignStateConflictError("Campaign is already running");
     const completed = await this.executeCampaign(campaign);
     if (!completed) throw new CampaignStateConflictError("Campaign is already running");
     return completed;
@@ -1447,6 +1454,7 @@ export class CrmService {
       [campaign.state],
       "cancelled",
       this.dependencies.now().toISOString(),
+      campaign.updatedAt,
     );
     if (!cancelled)
       throw new CampaignStateConflictError("Campaign state changed before cancellation");
@@ -1455,8 +1463,10 @@ export class CrmService {
 
   /** Scheduled tick: creation already captured authority and immutable audience/message inputs. */
   async runDueCampaigns() {
+    const now = this.dependencies.now();
     const due = await this.dependencies.repository.listDueCampaigns(
-      this.dependencies.now().toISOString(),
+      now.toISOString(),
+      new Date(now.getTime() - CAMPAIGN_LEASE_MS).toISOString(),
     );
     const completed: CrmCampaign[] = [];
     const failed: { campaignId: string; reason: string }[] = [];

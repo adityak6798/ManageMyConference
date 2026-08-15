@@ -1852,6 +1852,68 @@ describe("D1 CRM organization directory", () => {
       prospectActivities: 1,
     });
   });
+
+  it("reclaims only the exact stale campaign lease", async () => {
+    const migrated = await migratedRuntime("crm-campaign-lease");
+    runtime = migrated.runtime;
+    const repository = new D1CrmRepository(migrated.database);
+    const campaign = {
+      id: "74000000-0000-4000-8000-0000000000f1",
+      organizationId,
+      eventId,
+      name: "Lease recovery",
+      templateKey: "speaker-invite",
+      templateVersion: null,
+      contactIds: [] as string[],
+      segmentId: null,
+      state: "scheduled" as const,
+      scheduledAt: "2026-08-11T10:00:00.000Z",
+      createdBy: "seed-organizer",
+      createdAt: "2026-08-11T10:00:00.000Z",
+      updatedAt: "2026-08-11T10:00:00.000Z",
+    };
+    await repository.saveCampaign(campaign);
+    const firstLease = await repository.transitionCampaign(
+      organizationId,
+      campaign.id,
+      ["scheduled"],
+      "running",
+      "2026-08-11T10:01:00.000Z",
+      campaign.updatedAt,
+    );
+    if (!firstLease) throw new Error("The scheduled campaign was not claimed");
+    expect(firstLease.state).toBe("running");
+    const reclaimed = await repository.transitionCampaign(
+      organizationId,
+      campaign.id,
+      ["running"],
+      "running",
+      "2026-08-11T10:20:00.000Z",
+      firstLease.updatedAt,
+    );
+    if (!reclaimed) throw new Error("The stale campaign lease was not reclaimed");
+    expect(reclaimed.updatedAt).toBe("2026-08-11T10:20:00.000Z");
+    await expect(
+      repository.transitionCampaign(
+        organizationId,
+        campaign.id,
+        ["running"],
+        "completed",
+        "2026-08-11T10:21:00.000Z",
+        firstLease.updatedAt,
+      ),
+    ).resolves.toBeNull();
+    await expect(
+      repository.transitionCampaign(
+        organizationId,
+        campaign.id,
+        ["running"],
+        "completed",
+        "2026-08-11T10:21:00.000Z",
+        reclaimed.updatedAt,
+      ),
+    ).resolves.toMatchObject({ state: "completed" });
+  });
 });
 
 /**

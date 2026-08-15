@@ -1369,6 +1369,29 @@ describe("ACC-CRM organization directory", () => {
     expect(send).toHaveBeenCalledTimes(1);
   });
 
+  it("reclaims a campaign whose running lease expired", async () => {
+    const { repository, service, send } = setup();
+    const contact = await contactOf(service, { name: "Ada Rivera", email: "ada@example.test" });
+    const campaign = await service.createCampaign(organizer, organizationId, {
+      eventId,
+      name: "Recover after termination",
+      templateKey: "speaker-invite",
+      contactIds: [contact.id],
+      scheduledAt: "2026-08-10T10:00:00.000Z",
+    });
+    await repository.transitionCampaign(
+      organizationId,
+      campaign.id,
+      ["scheduled"],
+      "running",
+      "2026-08-10T11:00:00.000Z",
+      campaign.updatedAt,
+    );
+
+    expect((await service.runDueCampaigns()).completed[0]?.state).toBe("completed");
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
   it("refuses cancellation after campaign delivery has been claimed", async () => {
     const { service, send } = setup();
     const contact = await contactOf(service, { name: "Ada Rivera", email: "ada@example.test" });

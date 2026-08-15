@@ -182,12 +182,12 @@ export class D1CrmRepository implements CrmRepository {
       throw new Error(`D1 failed to list CRM campaigns: ${result.error ?? "unknown error"}`);
     return (result.results ?? []).map((row) => this.campaign(row));
   }
-  async listDueCampaigns(now: string): Promise<readonly CrmCampaign[]> {
+  async listDueCampaigns(now: string, staleRunningBefore: string): Promise<readonly CrmCampaign[]> {
     const result = await this.database
       .prepare(
-        "SELECT * FROM crm_campaigns WHERE state='scheduled' AND scheduled_at<=? ORDER BY scheduled_at,id LIMIT 50",
+        "SELECT * FROM crm_campaigns WHERE (state='scheduled' AND scheduled_at<=?) OR (state='running' AND updated_at<=?) ORDER BY COALESCE(scheduled_at,updated_at),id LIMIT 50",
       )
-      .bind(now)
+      .bind(now, staleRunningBefore)
       .all<Record<string, string | number | null>>();
     if (!result.success)
       throw new Error(`D1 failed to list due CRM campaigns: ${result.error ?? "unknown error"}`);
@@ -249,13 +249,21 @@ export class D1CrmRepository implements CrmRepository {
     from: readonly CrmCampaign["state"][],
     to: CrmCampaign["state"],
     updatedAt: string,
+    expectedUpdatedAt?: string,
   ) {
     if (!from.length) return null;
     const result = await this.database
       .prepare(
-        `UPDATE crm_campaigns SET state=?,updated_at=? WHERE organization_id=? AND id=? AND state IN (${from.map(() => "?").join(",")}) RETURNING *`,
+        `UPDATE crm_campaigns SET state=?,updated_at=? WHERE organization_id=? AND id=? AND state IN (${from.map(() => "?").join(",")})${expectedUpdatedAt === undefined ? "" : " AND updated_at=?"} RETURNING *`,
       )
-      .bind(to, updatedAt, organizationId, campaignId, ...from)
+      .bind(
+        to,
+        updatedAt,
+        organizationId,
+        campaignId,
+        ...from,
+        ...(expectedUpdatedAt === undefined ? [] : [expectedUpdatedAt]),
+      )
       .all<Record<string, string | number | null>>();
     if (!result.success)
       throw new Error(`D1 failed to transition CRM campaign: ${result.error ?? "unknown error"}`);

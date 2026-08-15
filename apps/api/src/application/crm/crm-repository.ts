@@ -71,7 +71,7 @@ export interface CrmEngagement {
  */
 export interface CrmRepository extends CrmDirectoryRepository {
   listCampaigns(organizationId: string): Promise<readonly CrmCampaign[]>;
-  listDueCampaigns(now: string): Promise<readonly CrmCampaign[]>;
+  listDueCampaigns(now: string, staleRunningBefore: string): Promise<readonly CrmCampaign[]>;
   findCampaign(organizationId: string, campaignId: string): Promise<CrmCampaign | null>;
   saveCampaign(campaign: CrmCampaign): Promise<void>;
   transitionCampaign(
@@ -80,6 +80,7 @@ export interface CrmRepository extends CrmDirectoryRepository {
     from: readonly CrmCampaign["state"][],
     to: CrmCampaign["state"],
     updatedAt: string,
+    expectedUpdatedAt?: string | undefined,
   ): Promise<CrmCampaign | null>;
   saveEngagement(
     engagement: CrmEngagement,
