@@ -9,7 +9,7 @@
  */
 import { MembersWorkspace } from "../MembersWorkspace";
 import { IconSettings } from "../ui/icons";
-import type { WorkspaceModule } from "./contract";
+import type { HubTabModule, WorkspaceModule } from "./contract";
 
 export const membersWorkspace: WorkspaceModule = {
   domain: "identity-access",
@@ -48,4 +48,17 @@ export const membersWorkspace: WorkspaceModule = {
   render: ({ event }) => (
     <MembersWorkspace organizationId={event.organizationId} eventId={event.id} />
   ),
+};
+
+export const teamHubTab: HubTabModule = {
+  domain: "identity-access",
+  hub: "settings",
+  tab: "team",
+  label: "Team",
+  order: 20,
+  personas: ["organizer"],
+  legacyPaths: ["/members"],
+  canAccess: (access) => membersWorkspace.canAccess?.(access) ?? false,
+  header: membersWorkspace.header,
+  render: membersWorkspace.render,
 };

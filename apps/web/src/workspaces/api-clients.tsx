@@ -10,7 +10,7 @@ import {
 import "../styles/identity.css";
 import { IconSettings } from "../ui/icons";
 import { Card, EmptyState, Notice, useActionFeedback, useLoad } from "../ui/primitives";
-import type { WorkspaceModule } from "./contract";
+import type { HubTabModule, WorkspaceModule } from "./contract";
 
 const CAPABILITIES = [
   "events:read",
@@ -297,4 +297,22 @@ export const apiClientsWorkspace: WorkspaceModule = {
       realSession={session?.authentication === "session"}
     />
   ),
+};
+
+/** Identity-owned half of Settings > Integrations; #237 composes same-tab contributions. */
+export const apiClientsHubTab: HubTabModule = {
+  domain: "identity-access",
+  hub: "settings",
+  tab: "integrations",
+  label: "Integrations",
+  order: 40,
+  personas: ["organizer"],
+  legacyPaths: ["/integrations/api-clients"],
+  canAccess: (access) => apiClientsWorkspace.canAccess?.(access) ?? false,
+  header: () => ({
+    eyebrow: "Settings",
+    title: "Integrations",
+    subtitle: "Manage least-privilege API access and signed outbound connections.",
+  }),
+  render: apiClientsWorkspace.render,
 };

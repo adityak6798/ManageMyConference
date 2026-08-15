@@ -11,7 +11,7 @@
 import { CrmDirectoryWorkspace } from "../CrmDirectoryWorkspace";
 import { CrmWorkspace } from "../CrmWorkspace";
 import { IconSpeakers } from "../ui/icons";
-import type { WorkspaceModule } from "./contract";
+import type { HubTabModule, WorkspaceModule } from "./contract";
 
 export const crmWorkspace: WorkspaceModule = {
   domain: "crm",
@@ -71,4 +71,31 @@ export const crmDirectoryWorkspace: WorkspaceModule = {
       ownerId={session?.actor.id ?? ""}
     />
   ),
+};
+
+/** Job-shaped People hub contributions. Registered only by the final #237 cutover. */
+export const crmHubTab: HubTabModule = {
+  domain: "crm",
+  hub: "people",
+  tab: "crm",
+  label: "CRM",
+  order: 10,
+  personas: ["organizer"],
+  legacyPaths: ["/speakers"],
+  canAccess: (access) => crmWorkspace.canAccess?.(access) ?? false,
+  header: crmWorkspace.header,
+  render: crmWorkspace.render,
+};
+
+export const directoryHubTab: HubTabModule = {
+  domain: "crm",
+  hub: "people",
+  tab: "directory",
+  label: "Directory",
+  order: 20,
+  personas: ["organizer"],
+  legacyPaths: ["/speaker-directory"],
+  canAccess: (access) => crmDirectoryWorkspace.canAccess?.(access) ?? false,
+  header: crmDirectoryWorkspace.header,
+  render: crmDirectoryWorkspace.render,
 };

@@ -11,7 +11,7 @@
  */
 import { WebhooksWorkspace } from "../WebhooksWorkspace";
 import { IconSettings } from "../ui/icons";
-import type { WorkspaceModule } from "./contract";
+import type { HubTabModule, WorkspaceModule } from "./contract";
 
 export const webhooksWorkspace: WorkspaceModule = {
   domain: "communications-integrations",
@@ -33,4 +33,22 @@ export const webhooksWorkspace: WorkspaceModule = {
   render: ({ event }) => (
     <WebhooksWorkspace key={event.organizationId} organizationId={event.organizationId} />
   ),
+};
+
+/** Communications-owned half of Settings > Integrations; #237 composes same-tab contributions. */
+export const webhooksHubTab: HubTabModule = {
+  domain: "communications-integrations",
+  hub: "settings",
+  tab: "integrations",
+  label: "Integrations",
+  order: 40,
+  personas: ["organizer"],
+  legacyPaths: ["/integrations/webhooks"],
+  canAccess: (access) => webhooksWorkspace.canAccess?.(access) ?? false,
+  header: () => ({
+    eyebrow: "Settings",
+    title: "Integrations",
+    subtitle: "Manage least-privilege API access and signed outbound connections.",
+  }),
+  render: webhooksWorkspace.render,
 };

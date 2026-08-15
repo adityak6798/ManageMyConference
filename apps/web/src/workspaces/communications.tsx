@@ -5,7 +5,7 @@
  */
 import { CommunicationsWorkspace } from "../CommunicationsWorkspace";
 import { IconSend } from "../ui/icons";
-import type { WorkspaceModule } from "./contract";
+import type { HubTabModule, WorkspaceModule } from "./contract";
 
 export const communicationsWorkspace: WorkspaceModule = {
   domain: "communications-integrations",
@@ -26,3 +26,43 @@ export const communicationsWorkspace: WorkspaceModule = {
   }),
   render: ({ event }) => <CommunicationsWorkspace event={event} />,
 };
+
+const communicationsTab = (
+  tab: string,
+  label: string,
+  order: number,
+  subtitle: string,
+): HubTabModule => ({
+  domain: "communications-integrations",
+  hub: "communications",
+  tab,
+  label,
+  order,
+  personas: ["organizer"],
+  legacyPaths: ["/communications"],
+  canAccess: (access) => communicationsWorkspace.canAccess?.(access) ?? false,
+  header: () => ({ eyebrow: "Communications", title: label, subtitle }),
+  // Compose and template versioning deliberately share their roster/template read; delivery
+  // recovery refreshes the same outbox after a send. The hub tab changes the entry job without
+  // inventing a second state lifecycle or weakening idempotency and provider-state honesty.
+  render: communicationsWorkspace.render,
+});
+
+export const composeHubTab = communicationsTab(
+  "compose",
+  "Compose",
+  10,
+  "Choose the recipients, inspect their resolved messages, and confirm the sending impact.",
+);
+export const communicationTemplatesHubTab = communicationsTab(
+  "templates",
+  "Templates",
+  20,
+  "Create immutable message versions while keeping every earlier send attributable.",
+);
+export const deliveryHubTab = communicationsTab(
+  "delivery",
+  "Delivery",
+  30,
+  "Inspect queued, retrying, sent, and terminal attempts, then recover eligible failures.",
+);

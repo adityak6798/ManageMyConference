@@ -89,3 +89,31 @@ export const scheduleSessionsTab: HubTabModule = {
 };
 
 export const scheduleSessionsHref = hubTabHref("schedule", scheduleSessionsTab.tab);
+
+const peopleContentTab = (tab: string, label: string, order: number): HubTabModule => ({
+  domain: "content",
+  hub: "people",
+  tab,
+  label,
+  order,
+  personas: ["organizer"],
+  // The former combined route has one deterministic redirect: Schedule > Sessions. These are
+  // additional focused views of the same content workspace, not competing redirect targets.
+  legacyPaths: [],
+  canAccess: canReadContent,
+  header: () => ({
+    eyebrow: "People",
+    title: label,
+    subtitle:
+      tab === "speakers"
+        ? "Accepted speakers, profile readiness, publication, and outreach."
+        : tab === "tasks"
+          ? "Speaker onboarding work, deadlines, checklist assignment, and reminders."
+          : "Requested deliverables, uploads, downloads, and immutable asset versions.",
+  }),
+  render: workspace,
+});
+
+export const speakersHubTab = peopleContentTab("speakers", "Speakers", 30);
+export const tasksHubTab = peopleContentTab("tasks", "Tasks", 40);
+export const filesHubTab = peopleContentTab("files", "Files", 50);

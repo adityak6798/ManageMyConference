@@ -10,7 +10,7 @@ import { OverviewPage } from "../OverviewPage";
 import { InboxWorkspace } from "../platform/InboxWorkspace";
 import { SearchWorkspace } from "../platform/SearchWorkspace";
 import { IconClock, IconDashboard, IconInbox, IconSearch } from "../ui/icons";
-import type { WorkspaceModule } from "./contract";
+import type { HubTabModule, WorkspaceModule } from "./contract";
 
 /** Organizer home contribution exported for the final #237 cutover, not registered here. */
 export const organizerOverviewWorkspace: WorkspaceModule = {
@@ -101,4 +101,17 @@ export const auditWorkspace: WorkspaceModule = {
       "whether it was a person or a program, and the correlation id it happened under.",
   }),
   render: ({ event }) => <AuditWorkspace eventId={event.id} />,
+};
+
+export const activityHubTab: HubTabModule = {
+  domain: "platform",
+  hub: "settings",
+  tab: "activity",
+  label: "Activity",
+  order: 70,
+  personas: ["organizer"],
+  legacyPaths: ["/audit"],
+  canAccess: (access) => auditWorkspace.canAccess?.(access) ?? false,
+  header: auditWorkspace.header,
+  render: auditWorkspace.render,
 };

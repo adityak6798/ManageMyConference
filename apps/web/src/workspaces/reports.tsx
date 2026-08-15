@@ -13,7 +13,7 @@
  */
 import { ReportsWorkspace } from "../ReportsWorkspace";
 import { IconTask } from "../ui/icons";
-import type { WorkspaceModule } from "./contract";
+import type { HubTabModule, WorkspaceModule } from "./contract";
 
 export const reportsWorkspace: WorkspaceModule = {
   domain: "platform",
@@ -37,4 +37,17 @@ export const reportsWorkspace: WorkspaceModule = {
       canReadPii={capabilities.includes("reports:pii")}
     />
   ),
+};
+
+export const reportsHubTab: HubTabModule = {
+  domain: "platform",
+  hub: "settings",
+  tab: "reports",
+  label: "Reports",
+  order: 60,
+  personas: ["organizer"],
+  legacyPaths: ["/reports"],
+  canAccess: (access) => reportsWorkspace.canAccess?.(access) ?? false,
+  header: reportsWorkspace.header,
+  render: reportsWorkspace.render,
 };
