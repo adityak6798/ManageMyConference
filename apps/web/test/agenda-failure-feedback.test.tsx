@@ -16,6 +16,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgendaWorkspace } from "../src/agenda/AgendaWorkspace";
 
 const eventId = "123e4567-e89b-12d3-a456-426614174000";
+const sessionId = "223e4567-e89b-42d3-a456-426614174000";
 
 const event: EventDto = {
   id: eventId,
@@ -40,11 +41,11 @@ const board = {
       endsAt: "2026-09-01T17:00:00.000Z",
     },
   ],
-  sessions: [{ id: "session-opening", title: "Opening keynote", speakerIds: [] }],
+  sessions: [{ id: sessionId, title: "Opening keynote", speakerIds: [] }],
   placements: [
     {
       id: "placement-opening",
-      sessionId: "session-opening",
+      sessionId,
       roomId: "room-main",
       trackId: "track-platform",
       slotId: "slot-0900",
@@ -96,7 +97,7 @@ function stubRedactedPublicationFetch() {
             JSON.stringify({
               sessions: [
                 {
-                  id: "session-opening",
+                  id: sessionId,
                   eventId,
                   proposalId: "proposal-opening",
                   title: "Opening keynote",
