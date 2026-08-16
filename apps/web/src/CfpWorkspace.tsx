@@ -1,1 +1,1 @@
-export { CfpWorkspace, parseStableChoices } from "./cfp/CfpWorkspace";
+export { CfpWorkspace } from "./cfp/CfpWorkspace";

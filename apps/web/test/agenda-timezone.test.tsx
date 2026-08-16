@@ -7,8 +7,9 @@
  * and a different day bucket depending on the event's timezone, and that is cheap to
  * assert without a server.
  */
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+
 import type { EventDto } from "@greenroom/contracts";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgendaWorkspace } from "../src/agenda/AgendaWorkspace";
 
@@ -133,7 +134,61 @@ describe("AgendaWorkspace timezone rendering", () => {
     expect(zoneLabel()).toHaveTextContent("Times are shown in America/New_York (EDT)");
     // Midnight Eastern belongs to the next day, so Eastern really does split these two.
     expect(screen.getByRole("option", { name: "Wed, Sep 2" })).toBeInTheDocument();
+    // Every day is also exposed without opening the select. A session on another day should not
+    // look missing merely because the room board initially shows the event's first day.
+    expect(
+      screen.getByRole("button", { name: "Wed, Sep 2 0 scheduled sessions" }),
+    ).toBeInTheDocument();
     expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("warns when scheduled session content is not published", async () => {
+    const sessionId = "123e4567-e89b-12d3-a456-426614174009";
+    const agenda = {
+      ...draft,
+      sessions: [{ id: sessionId, title: "Opening keynote", speakerIds: [] }],
+      placements: [{ ...draft.placements[0], sessionId }],
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) =>
+        Promise.resolve(
+          String(input).endsWith("/content")
+            ? new Response(
+                JSON.stringify({
+                  sessions: [
+                    {
+                      id: sessionId,
+                      eventId,
+                      proposalId: "proposal-opening",
+                      title: "Opening keynote",
+                      speakerProfileIds: [],
+                      publicationState: "draft",
+                    },
+                  ],
+                  speakers: [],
+                  tasks: [],
+                  assets: [],
+                  messages: [],
+                }),
+                { status: 200 },
+              )
+            : new Response(JSON.stringify({ agenda }), { status: 200 }),
+        ),
+      ),
+    );
+
+    render(<AgendaWorkspace event={eventIn("America/Los_Angeles")} onError={onError} />);
+
+    expect(
+      await screen.findByText("1 scheduled session will not appear publicly"),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Publish these first: Opening keynote/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Review sessions" })).toHaveAttribute(
+      "href",
+      "/?tab=sessions",
+    );
+    expect(screen.getByRole("button", { name: "Publish schedule (0 public)" })).toBeVisible();
   });
 
   /*

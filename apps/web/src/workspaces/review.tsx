@@ -5,7 +5,7 @@
  */
 import { IconReview } from "../ui/icons";
 import { OrganizerReviewWorkspace, ReviewerWorkspace } from "../ReviewWorkspace";
-import type { WorkspaceModule } from "./contract";
+import { hubTabHref, type HubTabModule, type WorkspaceModule } from "./contract";
 
 export const abstractsWorkspace: WorkspaceModule = {
   domain: "review",
@@ -51,3 +51,45 @@ export const reviewsWorkspace: WorkspaceModule = {
     />
   ),
 };
+
+const organizerReview = ({ event, session }: Parameters<HubTabModule["render"]>[0]) => (
+  <OrganizerReviewWorkspace
+    key={`${event.id}:${session?.actor.id}:organizer-review`}
+    eventId={event.id}
+    {...(session ? { currentActor: session.actor } : {})}
+  />
+);
+
+export const programSubmissionsTab: HubTabModule = {
+  domain: "review",
+  hub: "program",
+  tab: "submissions",
+  label: "Submissions",
+  order: 20,
+  icon: <IconReview size={16} />,
+  personas: ["organizer"],
+  legacyPaths: ["/abstracts"],
+  canAccess: ({ capabilities }) => capabilities.includes("review:manage"),
+  header: () => ({
+    eyebrow: "Program",
+    title: "Submissions",
+    subtitle: "Filter, route, assign, export, and decide proposals without losing your place.",
+  }),
+  render: organizerReview,
+};
+
+export const programReviewTab: HubTabModule = {
+  ...programSubmissionsTab,
+  tab: "review",
+  label: "Review",
+  order: 30,
+  legacyPaths: [],
+  header: () => ({
+    eyebrow: "Program",
+    title: "Review",
+    subtitle: "Configure rounds and scoring, then follow reviewer progress and decision history.",
+  }),
+};
+
+export const programSubmissionsHref = hubTabHref("program", programSubmissionsTab.tab);
+export const programReviewHref = hubTabHref("program", programReviewTab.tab);

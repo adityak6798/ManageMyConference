@@ -32,6 +32,24 @@ function sourceTone(source: AuditRecordDto["source"]) {
   return source === "system" ? ("neutral" as const) : ("info" as const);
 }
 
+const sourceLabel: Record<AuditRecordDto["source"], string> = {
+  human: "Person",
+  system: "Automated",
+  api: "API client",
+  agent: "Automation",
+};
+
+const readableToken = (value: string) => {
+  const words = value.replace(/[._-]+/g, " ").trim();
+  return words ? `${words[0]?.toUpperCase()}${words.slice(1)}` : value;
+};
+
+const readableTime = (instant: string) =>
+  new Intl.DateTimeFormat("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(instant));
+
 export function AuditWorkspace({ eventId }: { eventId: string }) {
   const [records, setRecords] = useState<AuditRecordDto[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -100,10 +118,12 @@ export function AuditWorkspace({ eventId }: { eventId: string }) {
         }
       >
         {records.length === 0 && !loading ? (
-          <EmptyState title="Nothing recorded yet">
-            Records appear here as work happens: an accepted speaker, an assigned reviewer, a
-            recorded decision, a published schedule, a message sent.
-          </EmptyState>
+          <div className="audit-empty">
+            <EmptyState title="Nothing recorded yet">
+              Activity will appear here as people review proposals, update the schedule, and publish
+              the event.
+            </EmptyState>
+          </div>
         ) : (
           <div className="table-wrap">
             <table className="audit-table">
@@ -114,9 +134,9 @@ export function AuditWorkspace({ eventId }: { eventId: string }) {
                 <tr>
                   <th scope="col">When</th>
                   <th scope="col">Who</th>
-                  <th scope="col">Action</th>
-                  <th scope="col">Target</th>
-                  <th scope="col">Correlation</th>
+                  <th scope="col">Change</th>
+                  <th scope="col">Item</th>
+                  <th scope="col">Reference</th>
                 </tr>
               </thead>
               <tbody>
@@ -128,14 +148,14 @@ export function AuditWorkspace({ eventId }: { eventId: string }) {
                 */}
                 {records.map((record) => (
                   <tr key={record.id}>
-                    <td data-label="When">{record.occurredAt}</td>
+                    <td data-label="When">{readableTime(record.occurredAt)}</td>
                     <td data-label="Who">
                       {record.actorName}{" "}
-                      <Pill tone={sourceTone(record.source)}>{record.source}</Pill>
+                      <Pill tone={sourceTone(record.source)}>{sourceLabel[record.source]}</Pill>
                     </td>
-                    <td data-label="Action">{record.action}</td>
-                    <td data-label="Target">
-                      {record.targetType} <code>{record.targetId}</code>
+                    <td data-label="Change">{readableToken(record.action)}</td>
+                    <td data-label="Item">
+                      {readableToken(record.targetType)} <code>{record.targetId}</code>
                       {record.targetVersion !== undefined ? (
                         <>
                           {" "}
@@ -143,7 +163,7 @@ export function AuditWorkspace({ eventId }: { eventId: string }) {
                         </>
                       ) : null}
                     </td>
-                    <td data-label="Correlation">
+                    <td data-label="Reference">
                       <code>{record.correlationId ?? "—"}</code>
                     </td>
                   </tr>

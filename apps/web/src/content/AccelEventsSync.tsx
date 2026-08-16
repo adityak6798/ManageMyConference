@@ -143,7 +143,7 @@ export function AccelEventsSync({
         <Notice tone={integration.mode === "live" ? "success" : "warn"}>
           {integration.mode === "live"
             ? "Reading the live Accelevents registration platform."
-            : "Fixture mode — registrants come from a built-in sample roster, not from Accelevents. Set COMMUNICATIONS_PROVIDERS=live with the Accelevents bindings to read the real platform."}
+            : "Demo mode — preview uses a sample registration list and does not contact Accelevents."}
         </Notice>
       ) : null}
       <p className="sub">

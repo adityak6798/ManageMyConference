@@ -12,7 +12,17 @@ import {
   Pill,
   Skeleton,
 } from "../src/ui/primitives";
+import { scheduleAgendaHref, scheduleAgendaTab } from "../src/workspaces/agenda";
+import { programFormsHref, programFormsTab } from "../src/workspaces/cfp";
+import { scheduleSessionsHref, scheduleSessionsTab } from "../src/workspaces/content";
 import { HUB_PATHS, hubTabHref } from "../src/workspaces/contract";
+import { hubTabForSelection, hubTabsFor } from "../src/workspaces/registry";
+import {
+  programReviewHref,
+  programReviewTab,
+  programSubmissionsHref,
+  programSubmissionsTab,
+} from "../src/workspaces/review";
 
 afterEach(() => {
   cleanup();
@@ -24,6 +34,31 @@ describe("design foundation", () => {
   it("builds stable, encoded hub links", () => {
     expect(HUB_PATHS.program).toBe("/program");
     expect(hubTabHref("program", "submission review")).toBe("/program?tab=submission+review");
+  });
+
+  it("accepts the domain-owned Program and Schedule integration exports", () => {
+    expect([programFormsTab, programSubmissionsTab, programReviewTab]).toMatchObject([
+      { hub: "program", tab: "forms", legacyPaths: ["/cfp"] },
+      { hub: "program", tab: "submissions", legacyPaths: ["/abstracts"] },
+      { hub: "program", tab: "review", legacyPaths: [] },
+    ]);
+    expect([scheduleSessionsTab, scheduleAgendaTab]).toMatchObject([
+      { hub: "schedule", tab: "sessions", legacyPaths: ["/sessions"] },
+      { hub: "schedule", tab: "agenda", legacyPaths: ["/agenda"] },
+    ]);
+    expect([
+      programFormsHref,
+      programSubmissionsHref,
+      programReviewHref,
+      scheduleSessionsHref,
+      scheduleAgendaHref,
+    ]).toEqual([
+      "/program?tab=forms",
+      "/program?tab=submissions",
+      "/program?tab=review",
+      "/schedule?tab=sessions",
+      "/schedule?tab=agenda",
+    ]);
   });
 
   it("renders shareable hub tabs with one current destination", () => {
@@ -41,6 +76,47 @@ describe("design foundation", () => {
     expect(screen.getByRole("navigation", { name: "Program jobs" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Forms 2" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: "Review" })).not.toHaveAttribute("aria-current");
+  });
+
+  it("brings the current hub tab into view on narrow, scrollable tab strips", () => {
+    const scrollIntoView = vi.fn();
+    const original = Element.prototype.scrollIntoView;
+    Object.defineProperty(Element.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+
+    try {
+      render(
+        <HubTabs
+          label="Settings jobs"
+          active="activity"
+          items={[
+            { id: "event", label: "Event", href: "/settings?tab=event" },
+            { id: "team", label: "Team", href: "/settings?tab=team" },
+            { id: "activity", label: "Activity", href: "/settings?tab=activity" },
+          ]}
+        />,
+      );
+
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest", inline: "nearest" });
+    } finally {
+      if (original)
+        Object.defineProperty(Element.prototype, "scrollIntoView", {
+          configurable: true,
+          value: original,
+        });
+      else delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    }
+  });
+
+  it("resolves compatibility aliases to an advertised current tab", () => {
+    const visible = hubTabsFor("people", "organizer");
+    const selected = hubTabForSelection("people", "files", "organizer");
+
+    expect(visible.map(({ tab }) => tab)).toContain("speakers");
+    expect(visible.map(({ tab }) => tab)).not.toContain("files");
+    expect(selected?.tab).toBe("speakers");
   });
 
   it("composes list/detail, dense rows, status, and stable loading semantics", () => {

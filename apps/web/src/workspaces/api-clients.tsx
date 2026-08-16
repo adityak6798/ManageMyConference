@@ -10,7 +10,7 @@ import {
 import "../styles/identity.css";
 import { IconSettings } from "../ui/icons";
 import { Card, EmptyState, Notice, useActionFeedback, useLoad } from "../ui/primitives";
-import type { WorkspaceModule } from "./contract";
+import type { HubTabModule, WorkspaceModule } from "./contract";
 
 const CAPABILITIES = [
   "events:read",
@@ -70,13 +70,12 @@ export function ApiClientsWorkspace({
     return (
       <Card title="API clients">
         <Notice tone="warn">
-          API clients can be administered only from a real organizer session. A demo persona is a
-          throwaway identity, and an API credential is hashed and shown once — there would be nobody
-          durable to own it.
+          API clients require a signed-in organizer account. Demo identities are temporary, so they
+          cannot safely own credentials.
         </Notice>
         <p>
-          <a href="/">Sign in with Google</a> as an organizer of this organization to create, rotate
-          and revoke machine credentials.
+          <a href="/">Sign in with Google</a> to create, rotate, or revoke API credentials for this
+          organization.
         </p>
       </Card>
     );
@@ -297,4 +296,22 @@ export const apiClientsWorkspace: WorkspaceModule = {
       realSession={session?.authentication === "session"}
     />
   ),
+};
+
+/** Identity-owned half of Settings > Integrations; #237 composes same-tab contributions. */
+export const apiClientsHubTab: HubTabModule = {
+  domain: "identity-access",
+  hub: "settings",
+  tab: "integrations",
+  label: "Integrations",
+  order: 40,
+  personas: ["organizer"],
+  legacyPaths: ["/integrations/api-clients"],
+  canAccess: (access) => apiClientsWorkspace.canAccess?.(access) ?? false,
+  header: () => ({
+    eyebrow: "Settings",
+    title: "Integrations",
+    subtitle: "Manage least-privilege API access and signed outbound connections.",
+  }),
+  render: apiClientsWorkspace.render,
 };

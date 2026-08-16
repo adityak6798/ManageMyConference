@@ -84,7 +84,7 @@ test("organizer composes, sees draft diverge from the live form, publishes, and 
 
   // The seeded CFP is published and matches its live snapshot, so the composer offers
   // no publish action until something actually changes.
-  await expect(page.getByRole("heading", { level: 1, name: "Call for proposals" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Forms" })).toBeVisible();
   await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
   await expect(page.getByText("Published · open")).toBeVisible();
   await expect(page.getByText("Live copy matches")).toBeVisible();
@@ -100,11 +100,17 @@ test("organizer composes, sees draft diverge from the live form, publishes, and 
 
   // ---- compose a new question ------------------------------------------------
   await page.getByRole("button", { name: "Add question" }).click();
+  await page
+    .getByRole("dialog", { name: "Add a question" })
+    .getByRole("button", { name: /Single select/ })
+    .click();
   const added = page.locator(".cfp-question").last();
   await added.getByLabel("Field type").selectOption("select");
   await added.getByLabel("Question label").fill("Experience level");
   await added.getByLabel("Guidance").fill("Choose the closest match");
-  await added.getByLabel("Options (comma separated)").fill("New, Experienced");
+  await added.getByLabel("Option 1").fill("New");
+  await added.getByRole("button", { name: "Add option" }).click();
+  await added.getByLabel("Option 2").fill("Experienced");
   await added.getByLabel("Required").check();
   // Appended last, then moved one place up: fourth of the five questions on the form.
   await page.getByRole("button", { name: "Move Experience level up" }).click();

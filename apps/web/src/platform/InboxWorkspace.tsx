@@ -66,8 +66,18 @@ function describeFailure(reason: unknown): string {
 
 function priorityTone(priority: InboxItemDto["priority"]) {
   if (priority === "high") return "danger" as const;
-  return priority === "low" ? ("neutral" as const) : ("warn" as const);
+  return "neutral" as const;
 }
+
+const priorityLabel = (priority: InboxItemDto["priority"]) =>
+  priority === "high" ? "High priority" : priority === "low" ? "Low priority" : "Normal";
+
+const formatDueDate = (instant: string) =>
+  new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(instant));
 
 export function InboxWorkspace({ eventId }: { eventId: string }) {
   /** The last answer that arrived, kept across a failed refresh rather than blanked. */
@@ -163,7 +173,9 @@ export function InboxWorkspace({ eventId }: { eventId: string }) {
                     Every other category below is complete.
                   </Notice>
                 ) : category.items.length === 0 ? (
-                  <EmptyState title="Nothing waiting">{CATEGORY_EMPTY[key]}</EmptyState>
+                  <div className="inbox-empty">
+                    <EmptyState title="Nothing waiting">{CATEGORY_EMPTY[key]}</EmptyState>
+                  </div>
                 ) : (
                   <ul className="plain-list">
                     {category.items.map((item) => (
@@ -173,17 +185,32 @@ export function InboxWorkspace({ eventId }: { eventId: string }) {
                           item.status === "dismissed" ? "inbox-item is-dismissed" : "inbox-item"
                         }
                       >
-                        <a {...linkProps(item.href)}>{item.title}</a>{" "}
-                        <Pill tone={priorityTone(item.priority)}>{item.priority}</Pill>
-                        {item.status === "dismissed" ? <Pill>dismissed</Pill> : null}
-                        <span className="sub">
-                          {[item.subtitle, item.owner, item.dueAt ? `Due ${item.dueAt}` : null]
-                            .filter(Boolean)
-                            .join(" · ")}
-                        </span>
+                        <div className="inbox-item-copy">
+                          <div className="inbox-item-title">
+                            <a {...linkProps(item.href)}>{item.title}</a>
+                            <Pill tone={priorityTone(item.priority)}>
+                              {priorityLabel(item.priority)}
+                            </Pill>
+                            {item.status === "dismissed" ? <Pill>Dismissed</Pill> : null}
+                          </div>
+                          <span className="sub">
+                            {[
+                              item.subtitle,
+                              item.owner,
+                              item.dueAt ? `Due ${formatDueDate(item.dueAt)}` : null,
+                            ]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          </span>
+                        </div>
                         <button
                           type="button"
                           className="secondary"
+                          aria-label={
+                            item.status === "dismissed"
+                              ? `Restore ${item.title}`
+                              : `Dismiss ${item.title}`
+                          }
                           disabled={busyKey === item.key}
                           onClick={() => {
                             // ERROR-INTENT: handlers cannot await; setDismissed announces both
@@ -191,9 +218,7 @@ export function InboxWorkspace({ eventId }: { eventId: string }) {
                             void setDismissed(item, item.status !== "dismissed");
                           }}
                         >
-                          {item.status === "dismissed"
-                            ? `Restore ${item.title}`
-                            : `Dismiss ${item.title}`}
+                          {item.status === "dismissed" ? "Restore" : "Dismiss"}
                         </button>
                       </li>
                     ))}

@@ -16,6 +16,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgendaWorkspace } from "../src/agenda/AgendaWorkspace";
 
 const eventId = "123e4567-e89b-12d3-a456-426614174000";
+const sessionId = "223e4567-e89b-42d3-a456-426614174000";
 
 const event: EventDto = {
   id: eventId,
@@ -40,11 +41,11 @@ const board = {
       endsAt: "2026-09-01T17:00:00.000Z",
     },
   ],
-  sessions: [{ id: "session-opening", title: "Opening keynote", speakerIds: [] }],
+  sessions: [{ id: sessionId, title: "Opening keynote", speakerIds: [] }],
   placements: [
     {
       id: "placement-opening",
-      sessionId: "session-opening",
+      sessionId,
       roomId: "room-main",
       trackId: "track-platform",
       slotId: "slot-0900",
@@ -81,6 +82,39 @@ function stubFetch(reply?: () => Response) {
     }),
   );
   return writes;
+}
+
+/** A complete Content projection whose publication field was removed by field policy. */
+function stubRedactedPublicationFetch() {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (method === "GET" && url.endsWith("/content"))
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              sessions: [
+                {
+                  id: sessionId,
+                  eventId,
+                  proposalId: "proposal-opening",
+                  title: "Opening keynote",
+                  speakerProfileIds: [],
+                },
+              ],
+              speakers: [],
+              tasks: [],
+              assets: [],
+              messages: [],
+            }),
+            { status: 200 },
+          ),
+        );
+      return Promise.resolve(new Response(JSON.stringify({ agenda: board }), { status: 200 }));
+    }),
+  );
 }
 
 /**
@@ -198,6 +232,19 @@ describe("AgendaWorkspace failure feedback", () => {
     expect(alert).toHaveTextContent("Schedule conflicts must be resolved before publication");
     expect(alert.previousElementSibling).toHaveClass("agenda-toolbar");
     expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("does not invent a public count when field policy hides publication readiness", async () => {
+    stubRedactedPublicationFetch();
+    render(<AgendaWorkspace event={event} onError={onError} />);
+
+    const publish = await screen.findByRole("button", { name: "Publish schedule" });
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    expect(publish).toHaveAccessibleName("Publish schedule");
+    expect(screen.queryByRole("button", { name: /public/ })).toBeNull();
+    expect(
+      screen.getByText("The public page includes only sessions marked Published in Sessions."),
+    ).toBeInTheDocument();
   });
 
   it("announces a refused placement where the successful one would have announced", async () => {

@@ -64,11 +64,8 @@ test("a real-session organizer creates a client and sees its credential only onc
   });
 
   await page.goto("/");
-  await page
-    .getByRole("navigation", { name: "Workspace navigation" })
-    .getByRole("link", { name: "API clients", exact: true })
-    .click();
-  await expect(page.getByRole("heading", { level: 1, name: "API clients" })).toBeVisible();
+  await page.goto(`/settings?event=${EVENT}&tab=integrations`);
+  await expect(page.getByRole("heading", { level: 1, name: "Integrations" })).toBeVisible();
   await page.getByLabel("Client name").fill("Schedule exporter");
   await page.getByRole("button", { name: "Create client" }).click();
 
@@ -76,7 +73,7 @@ test("a real-session organizer creates a client and sees its credential only onc
   await expect(page.getByText(CREDENTIAL, { exact: true })).toBeVisible();
 
   await page.reload();
-  await expect(page.getByRole("heading", { level: 1, name: "API clients" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Integrations" })).toBeVisible();
   await expect(page.getByRole("cell", { name: "Schedule exporter" })).toBeVisible();
   await expect(page.getByText(CREDENTIAL, { exact: true })).toHaveCount(0);
 });

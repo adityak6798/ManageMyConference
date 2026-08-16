@@ -25,10 +25,10 @@ test.use({ extraHTTPHeaders: { "cf-connecting-ip": "198.51.100.3" } });
 const DEMO_EVENT = "00000000-0000-4000-8000-000000000001";
 const SLUG = "greenroom-demo-summit";
 const TRIAGE = `/abstracts?event=${DEMO_EVENT}`;
-const QUEUE = `/reviews?event=${DEMO_EVENT}`;
-const SESSIONS = `/sessions?event=${DEMO_EVENT}`;
-const AGENDA = `/agenda?event=${DEMO_EVENT}&view=room`;
-const PUBLISHING = `/publishing?event=${DEMO_EVENT}`;
+const QUEUE = `/program?event=${DEMO_EVENT}&tab=submissions`;
+const SESSIONS = `/schedule?event=${DEMO_EVENT}&tab=sessions`;
+const AGENDA = `/schedule?event=${DEMO_EVENT}&tab=agenda&view=room`;
+const PUBLISHING = `/publish?event=${DEMO_EVENT}&tab=event-site`;
 
 async function becomeOrganizer(page: Page) {
   await page.goto("/");
@@ -61,7 +61,7 @@ async function switchRole(page: Page, persona: "organizer" | "reviewer") {
 /** Narrow triage to the one abstract this run filed; the table is a growing fixture. */
 async function findInTriage(page: Page, title: string) {
   await page.goto(TRIAGE);
-  await expect(page.getByRole("heading", { level: 1, name: "Abstracts" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Review" })).toBeVisible();
   await page.getByLabel("Search abstracts").fill(title);
   await expect(page.getByRole("table").first().getByRole("row", { name: title })).toBeVisible();
 }
@@ -75,7 +75,7 @@ async function publishSite(page: Page) {
 
 async function setReadiness(page: Page, title: string, state: "draft" | "published") {
   await page.goto(SESSIONS);
-  await expect(page.getByRole("heading", { level: 1, name: "Sessions & speakers" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Sessions" })).toBeVisible();
   await page.getByRole("button", { name: `Edit ${title}` }).click();
   await page.getByLabel("Publication readiness").selectOption(state);
   await page.getByRole("button", { name: "Save session" }).click();
@@ -158,12 +158,14 @@ test("carries one proposal from the public form to the published site", async ({
   await expect(sessions.getByRole("row", { name: new RegExp(title) })).toContainText(speaker);
   // The speaker was provisioned from the submission, not typed by an organizer: the
   // roster names them by the address the applicant filed with.
+  await page.goto(`/people?event=${DEMO_EVENT}&tab=speakers`);
   await expect(
     page
       .getByRole("region", { name: "Speakers" })
       .getByRole("row", { name: new RegExp(speaker) })
       .getByText(email),
   ).toBeVisible();
+  await page.goto(SESSIONS);
 
   // ---- 5. it is marked ready for the public site ----------------------------
   await setReadiness(page, title, "published");

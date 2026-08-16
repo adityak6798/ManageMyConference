@@ -5,7 +5,7 @@
  */
 import { CfpWorkspace } from "../CfpWorkspace";
 import { IconForm } from "../ui/icons";
-import type { WorkspaceModule } from "./contract";
+import { hubTabHref, type HubTabModule, type WorkspaceModule } from "./contract";
 
 export const cfpWorkspace: WorkspaceModule = {
   domain: "cfp",
@@ -32,3 +32,25 @@ export const cfpWorkspace: WorkspaceModule = {
     />
   ),
 };
+
+/** Domain-owned Program contribution. Registered only by the final #237 cutover. */
+export const programFormsTab: HubTabModule = {
+  domain: "cfp",
+  hub: "program",
+  tab: "forms",
+  label: "Forms",
+  order: 10,
+  icon: <IconForm size={16} />,
+  personas: ["organizer"],
+  legacyPaths: ["/cfp"],
+  canAccess: ({ capabilities }) => capabilities.includes("events:settings:update"),
+  header: () => ({
+    eyebrow: "Program",
+    title: "Forms",
+    subtitle: "Build the submission form, check readiness, and control when it is live.",
+  }),
+  render: cfpWorkspace.render,
+};
+
+/** Stable URL exported beside the module for consumers that link directly into Forms. */
+export const programFormsHref = hubTabHref("program", programFormsTab.tab);

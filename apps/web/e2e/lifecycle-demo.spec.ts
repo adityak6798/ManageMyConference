@@ -20,7 +20,7 @@ const EMBED_SURFACES = ["schedule", "sessions", "speakers", "gallery", "itinerar
  * console Overview, which the organizer sweep below already covers.
  */
 const MARKETING_SURFACES = [
-  { path: "/", heading: "One workspace from the first proposal to the closing keynote." },
+  { path: "/", heading: "Run the whole conference without losing the thread." },
   { path: "/signin", heading: "Sign in" },
 ] as const;
 
@@ -168,9 +168,14 @@ const READY: Readonly<Record<string, (page: Page) => Locator>> = {
   "organizer /agenda": (page) => page.locator(".agenda-count"),
   "organizer /cfp": (page) =>
     page.getByRole("heading", { level: 2, name: "Publication", exact: true }),
+  "organizer /program": (page) =>
+    page.getByRole("heading", { level: 2, name: "Publication", exact: true }),
   // The Card around the pipeline is painted with skeletons inside it, so the card is not the
   // signal — `.pipeline-board` replaces those skeletons and exists only in the loaded branch.
   "organizer /speakers": (page) => page.locator(".pipeline-board"),
+  "organizer /people": (page) => page.locator(".pipeline-board"),
+  "organizer /schedule": (page) =>
+    page.getByRole("heading", { level: 2, name: "Accepted sessions", exact: true }),
   // Same shape, and the empty directory is a loaded directory: both are the branch that replaces
   // the skeletons, and only one of the two is ever on screen.
   "organizer /speaker-directory": (page) =>
@@ -207,12 +212,14 @@ const READY: Readonly<Record<string, (page: Page) => Locator>> = {
    */
   "organizer /integrations/webhooks": (page) =>
     page
-      .getByRole("heading", { name: "Webhook delivery is not configured here" })
+      .getByRole("heading", { name: "Webhooks are unavailable in this deployment" })
       .or(page.getByRole("heading", { name: "No webhooks yet" })),
   // The outbox card is painted before its read answers; only the hint counts what arrived.
   "organizer /communications": (page) =>
     page.locator("p.hint").filter({ hasText: /\d+ deliver(y|ies) loaded/ }),
   "organizer /publishing": (page) =>
+    page.getByRole("heading", { level: 2, name: "Publication", exact: true }),
+  "organizer /publish": (page) =>
     page.getByRole("heading", { level: 2, name: "Publication", exact: true }),
   // Portals have the same two loaded branches as the directory above — a table of portals, or the
   // empty state that replaces it — and a `Loading sites…` card before either.
@@ -407,7 +414,7 @@ test("audits every organizer destination and the Wave 2 evaluator surfaces", asy
       label: link.textContent?.trim() ?? "",
     })),
   );
-  expect(destinations.length).toBeGreaterThanOrEqual(10);
+  expect(destinations.length).toBeGreaterThanOrEqual(7);
   for (const destination of destinations) {
     await page
       .getByRole("navigation", { name: "Workspace navigation" })
@@ -426,21 +433,18 @@ test("audits every organizer destination and the Wave 2 evaluator surfaces", asy
     await openEveryToolPanel(
       page,
       organizerSurface(destination.href),
-      destination.href.startsWith("/sessions") ? 11 : undefined,
+      destination.href.startsWith("/schedule") ? 10 : undefined,
     );
     await expectNoAxeViolations(page, `organizer ${destination.label}`);
   }
 
-  await page.goto("/sessions");
+  await page.goto("/schedule?tab=sessions");
   // #144: the dashboard leads. The accepted-sessions table is above the authoring tools and
   // inside the first screen, where it used to start 1420px down — 32% of a 4475px page.
   const sessionsHeading = page.getByRole("heading", { name: "Accepted sessions" });
-  const resourcesHeading = page.getByRole("heading", { name: "Speaker resources" });
   await expect(sessionsHeading).toBeVisible();
   const sessionsBox = await sessionsHeading.boundingBox();
-  const resourcesBox = await resourcesHeading.boundingBox();
   expect(sessionsBox, "the accepted-sessions table is rendered").not.toBeNull();
-  expect(resourcesBox, "the resource tool is rendered").not.toBeNull();
   // Measured against the viewport actually in use, not a number that happens to exceed it —
   // neither Playwright config sets a viewport, so this runs at the 1280x720 default and a 900px
   // threshold would have accepted a table 130px below the fold while claiming it was above it.
@@ -449,27 +453,28 @@ test("audits every organizer destination and the Wave 2 evaluator surfaces", asy
     sessionsBox?.y ?? 0,
     `accepted sessions is inside the first ${firstScreen}px screen, not behind authoring forms`,
   ).toBeLessThan(firstScreen);
-  expect(sessionsBox?.y ?? 0, "the dashboard is above the authoring tools").toBeLessThan(
-    resourcesBox?.y ?? 0,
-  );
-  // Authoring is one deliberate action away, and its HTML fields are not rendered until then.
+  // Resource authoring moved to its focused People > Files job and remains one deliberate action
+  // away; its HTML fields are not rendered until then.
+  await page.goto("/people?tab=files");
+  const resourcesHeading = page.getByRole("heading", { name: "Speaker resources" });
+  await expect(resourcesHeading).toBeVisible();
   await expect(page.locator('input[value="Speaker handbook"]')).toHaveCount(0);
   await resourcesHeading.click();
   await page.getByRole("button", { name: "Edit Speaker handbook" }).click();
   await expect(page.locator('input[value="Speaker handbook"]')).toBeVisible();
   await expect(page.locator('input[value="speaker-handbook"]')).toBeVisible();
-  await page.goto("/agenda");
+  await page.goto("/schedule?tab=agenda");
   await expect(page.getByRole("button", { name: "Generate draft" })).toBeVisible();
   await expect(page.getByText("2 of 2 scheduled")).toBeVisible();
-  await page
-    .getByRole("combobox", { name: "Day", exact: true })
-    .selectOption({ label: "Wed, Sep 2" });
+  // The room board shows one day at a time, so every event day is exposed without making an
+  // organizer infer that a session on day two is hidden inside the Day select.
+  await page.getByRole("button", { name: "Wed, Sep 2 1 scheduled sessions" }).click();
   await expect(
     page.getByRole("button", {
       name: /Accessible by default\. Workshop lab, 10:00–11:00/,
     }),
   ).toBeVisible();
-  await page.goto("/abstracts");
+  await page.goto("/program?tab=review");
   await expect(page.getByRole("heading", { name: "Reviewer progress" })).toBeVisible();
   await expect(
     page.getByRole("button", { name: "Designing for the hallway track", exact: true }),

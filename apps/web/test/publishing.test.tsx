@@ -167,6 +167,7 @@ describe("PublishingWorkspace", () => {
     const frames = [...container.querySelectorAll("iframe")].map((frame) =>
       frame.getAttribute("src"),
     );
+    expect(screen.getAllByText("Preview this embed")).toHaveLength(5);
     // Programme, directory, gallery, and a private-link itinerary all use the same
     // published projection and the same configurable embed contract.
     expect(frames).toEqual([
@@ -544,7 +545,7 @@ describe("Publishing route", () => {
     vi.unstubAllGlobals();
   });
 
-  it("resolves the sidebar Publishing item to a real route with exactly one h1", async () => {
+  it("resolves the sidebar Publish item to a real route with exactly one h1", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn((input: RequestInfo | URL) => {
@@ -559,14 +560,14 @@ describe("Publishing route", () => {
     );
     render(<App />);
 
-    const navItem = await screen.findByRole("link", { name: /Publishing/ });
+    const navItem = await screen.findByRole("link", { name: "Publish" });
     fireEvent.click(navItem);
 
     expect(
       await screen.findByRole("heading", { level: 1, name: "Publishing" }),
     ).toBeInTheDocument();
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
-    expect(window.location.pathname).toBe("/publishing");
+    expect(window.location.pathname).toBe("/publish");
     expect(
       await screen.findByRole("link", { name: `${origin}/events/${slug}` }),
     ).toBeInTheDocument();

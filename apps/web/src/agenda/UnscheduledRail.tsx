@@ -110,7 +110,11 @@ export function UnscheduledRail({
       <Card
         labelledBy="agenda-unscheduled"
         title="Unscheduled"
-        hint={`${sessions.length} session${sessions.length === 1 ? "" : "s"} without a slot`}
+        hint={
+          sessions.length
+            ? `${sessions.length} session${sessions.length === 1 ? "" : "s"} ready to place`
+            : "Drag a scheduled card here to remove its room and time"
+        }
         tight
       >
         {sessions.length ? (
@@ -243,7 +247,7 @@ export function UnscheduledRail({
           <EmptyState title="Everything is scheduled" icon={<IconCheck size={20} />}>
             {searching
               ? "No unscheduled session matches your search."
-              : "Every accepted session has a room and a time slot."}
+              : "Every accepted session has a room and time. Drag a card from the grid into this panel to unschedule it."}
           </EmptyState>
         )}
       </Card>

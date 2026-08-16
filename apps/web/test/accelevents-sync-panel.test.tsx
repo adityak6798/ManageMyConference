@@ -69,12 +69,12 @@ afterEach(() => {
 });
 
 describe("the Accelevents organizer surface", () => {
-  it("says the numbers came from the fixture roster rather than from Accelevents", async () => {
+  it("explains that demo previews do not contact Accelevents", async () => {
     mount(async () => json({ mode: "fixture", direction: "inbound", lastRun: null }));
 
     // An organizer reading "2 imported" has to be able to tell whether their registration
     // platform was contacted at all. Saying nothing would be the misleading answer.
-    expect(await screen.findByText(/Fixture mode/)).toBeTruthy();
+    expect(await screen.findByText(/Demo mode/)).toHaveTextContent("does not contact Accelevents");
     expect(screen.getByText(/never been applied/)).toBeTruthy();
   });
 

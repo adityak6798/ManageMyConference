@@ -61,6 +61,20 @@ function lastError({ attempts }: HistoryEntry) {
   return failed?.errorCode ?? null;
 }
 
+const DELIVERY_ERRORS: Readonly<Record<string, string>> = {
+  PROVIDER_REJECTED: "Provider rejected the delivery",
+  PROVIDER_TIMEOUT: "Provider timed out",
+};
+
+function deliveryErrorLabel(code: string) {
+  return DELIVERY_ERRORS[code] ?? "Delivery failed";
+}
+
+function technicalLabel(value: string) {
+  const words = value.replace(/[._-]+/g, " ");
+  return `${words.charAt(0).toUpperCase()}${words.slice(1)}`;
+}
+
 function readError(reason: unknown, fallback: string) {
   if (reason instanceof CommunicationsApiError)
     return `${reason.message} Reference: ${reason.envelope.error.correlationId}`;
@@ -304,7 +318,7 @@ export function CommunicationsWorkspace({ event }: CommunicationsWorkspaceProps)
                         <tr className={open ? "is-open" : undefined}>
                           <td className="primary-cell" data-label="Recipient">
                             {delivery.recipientRef}
-                            <span className="sub">{delivery.triggerType}</span>
+                            <span className="sub">{technicalLabel(delivery.triggerType)}</span>
                           </td>
                           <td className="comms-channel" data-label="Channel">
                             {delivery.channel}
@@ -355,7 +369,9 @@ export function CommunicationsWorkspace({ event }: CommunicationsWorkspaceProps)
                           </td>
                           <td data-label="Last error">
                             {error ? (
-                              <code className="comms-error">{error}</code>
+                              <span className="comms-error" title={error}>
+                                {deliveryErrorLabel(error)}
+                              </span>
                             ) : (
                               <span className="comms-muted">—</span>
                             )}
@@ -371,7 +387,10 @@ export function CommunicationsWorkspace({ event }: CommunicationsWorkspaceProps)
                                   void recover(delivery.id, delivery.recipientRef);
                                 }}
                               >
-                                Retry {delivery.recipientRef}
+                                <span aria-hidden="true">Retry</span>
+                                <span className="visually-hidden">
+                                  Retry delivery to {delivery.recipientRef}
+                                </span>
                               </button>
                             ) : null}
                           </td>
@@ -396,8 +415,10 @@ export function CommunicationsWorkspace({ event }: CommunicationsWorkspaceProps)
                               <ol className="attempt-history" id={`attempts-${delivery.id}`}>
                                 {attempts.map((attempt) => (
                                   <li key={attempt.id}>
-                                    Attempt {attempt.sequence}: {attempt.outcome}
-                                    {attempt.errorCode ? ` — ${attempt.errorCode}` : ""}
+                                    Attempt {attempt.sequence}: {technicalLabel(attempt.outcome)}
+                                    {attempt.errorCode
+                                      ? ` — ${deliveryErrorLabel(attempt.errorCode)}`
+                                      : ""}
                                     <span className="sub">
                                       {stampedTime(attempt.completedAt)}
                                       {attempt.providerReference

@@ -29,7 +29,7 @@ test("creates an event, previews without publishing, publishes, and takes it dow
 
   await page.goto("/");
   await page.getByRole("button", { name: "Continue as organizer" }).click();
-  await page.getByRole("link", { name: /Event settings/ }).click();
+  await page.goto("/settings?tab=event");
   await fillAdditionalEvent(page, { name });
   await page.getByRole("button", { name: "Create event" }).click();
   await expect(page.getByRole("combobox", { name: "Event workspace" })).toContainText(name);
@@ -43,7 +43,7 @@ test("creates an event, previews without publishing, publishes, and takes it dow
    * on its own; what this journey is about is the ordinary case, so it opens the board and
    * adds the slot an organizer would add before announcing anything.
    */
-  await page.getByRole("link", { name: /Agenda/ }).click();
+  await page.goto(`/schedule?event=${new URL(page.url()).searchParams.get("event")}&tab=agenda`);
   await expect(page.getByRole("heading", { level: 1, name: "Agenda" })).toBeVisible();
   // Every workspace link carries the selected event, which is how this run learns the id
   // the console assigned. Navigating to a bare `/publishing` later would land on whichever
@@ -61,7 +61,7 @@ test("creates an event, previews without publishing, publishes, and takes it dow
   await page.getByRole("button", { name: "Publish schedule" }).click();
   await expect(page.getByRole("status")).toContainText("Published version 1");
 
-  await page.getByRole("link", { name: /Publishing/ }).click();
+  await page.goto(`/publish?event=${eventId}&tab=event-site`);
   await expect(page.getByRole("heading", { level: 1, name: "Publishing" })).toBeVisible();
 
   /*
@@ -178,7 +178,7 @@ test("creates an event, previews without publishing, publishes, and takes it dow
   await expect(page.getByRole("navigation", { name: "Event navigation" })).toHaveCount(0);
 
   // ---- and unpublishing takes them away ------------------------------------
-  await page.goto(`/publishing?event=${eventId}`);
+  await page.goto(`/publish?event=${eventId}&tab=event-site`);
   await expect(page.getByRole("heading", { level: 1, name: "Publishing" })).toBeVisible();
   await expect(page.locator(".publishing-url a").first()).toHaveAttribute(
     "href",

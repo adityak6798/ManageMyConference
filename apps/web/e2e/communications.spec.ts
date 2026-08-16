@@ -18,7 +18,7 @@ import { expect, type Locator, type Page, test } from "./fixtures";
 
 const EVENT_ID = "00000000-0000-4000-8000-000000000001";
 const ORGANIZATION_ID = "00000000-0000-4000-8000-000000000010";
-const COMMUNICATIONS = `/communications?event=${EVENT_ID}`;
+const COMMUNICATIONS = `/communications?event=${EVENT_ID}&tab=compose`;
 
 /**
  * The Worker's scheduled entrypoint, driven directly.
@@ -64,7 +64,7 @@ async function openOutbox(page: Page) {
   // unauthenticated and the shell bounces to the sign-in surface.
   await expect(page.getByRole("combobox", { name: "Event workspace" })).toBeVisible();
   await page.goto(COMMUNICATIONS);
-  await expect(page.getByRole("heading", { name: "Communications", level: 1 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Messages", level: 1 })).toBeVisible();
 }
 
 /** Follow the real history pagination until the named delivery is on screen. */
@@ -221,11 +221,11 @@ test("an organizer recovers a delivery the provider refused, by clicking Retry",
 
   const row = await findDeliveryRow(page, recipient);
   await expect(row.locator(".delivery-state.state-terminal")).toBeVisible();
-  await expect(row).toContainText("PROVIDER_REJECTED");
+  await expect(row).toContainText("Provider rejected the delivery");
 
   // Clicked, not merely present. The previous version of this spec asserted the button existed
   // and called that "explicit recovery".
-  await row.getByRole("button", { name: `Retry ${recipient}` }).click();
+  await row.getByRole("button", { name: `Retry delivery to ${recipient}` }).click();
   await expect(page.getByText(`Retry queued for ${recipient}`)).toBeVisible();
   await expect
     .poll(
@@ -241,8 +241,12 @@ test("an organizer recovers a delivery the provider refused, by clicking Retry",
   await page.reload();
   const recoveredRow = await findDeliveryRow(page, recipient);
   await recoveredRow.getByRole("button", { name: `Show attempt history for ${recipient}` }).click();
-  await expect(page.getByText("Attempt 1: terminal_failure — PROVIDER_REJECTED")).toBeVisible();
-  await expect(page.getByText("Attempt 2: terminal_failure — PROVIDER_REJECTED")).toBeVisible();
+  await expect(
+    page.getByText("Attempt 1: Terminal failure — Provider rejected the delivery"),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Attempt 2: Terminal failure — Provider rejected the delivery"),
+  ).toBeVisible();
 });
 
 test("a queued delivery is not recoverable, and the route says so", async ({ page }) => {
@@ -271,7 +275,9 @@ test("a queued delivery is not recoverable, and the route says so", async ({ pag
     .first();
   // The worker still owns it, so the control is absent rather than present and refused on click.
   await expect(
-    row.getByRole("button", { name: `Retry ${queued?.delivery.recipientRef}` }),
+    row.getByRole("button", {
+      name: `Retry delivery to ${queued?.delivery.recipientRef}`,
+    }),
   ).toHaveCount(0);
 
   const refused = await page.request.post(

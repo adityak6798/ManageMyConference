@@ -40,18 +40,33 @@ import { InstanceMarker } from "./InstanceMarker";
 import { OverviewPage } from "./OverviewPage";
 import { navigate, useLocation } from "./router";
 import "./styles.css";
-import { IconDashboard, IconSettings } from "./ui/icons";
-import { Card, EmptyState, Notice, PageHeader } from "./ui/primitives";
+import {
+  IconCalendar,
+  IconDashboard,
+  IconForm,
+  IconGlobe,
+  IconSend,
+  IconSettings,
+  IconSpeakers,
+} from "./ui/icons";
+import { Card, EmptyState, HubTabs, Notice, PageHeader } from "./ui/primitives";
 import type {
+  HubTabModule,
   NavGroupName,
   WorkspaceAccess,
   WorkspaceContext,
+  WorkspaceHub,
   WorkspaceModule,
   WorkspaceRole,
 } from "./workspaces/contract";
+import { HUB_PATHS } from "./workspaces/contract";
 import {
   assertNoDuplicateWorkspaces,
   canOpen,
+  canOpenTab,
+  hubTabForLegacyPath,
+  hubTabForSelection,
+  hubTabsFor,
   NAV_GROUP_ORDER,
   workspaceForPath,
   workspacesForPersona,
@@ -106,12 +121,56 @@ interface NavEntry {
  */
 const ACCEPT_INVITATION_PATH = "/invitations/accept";
 
+const organizerHubs: readonly NavEntry[] = [
+  {
+    href: HUB_PATHS.program,
+    label: "Program",
+    group: "Program",
+    order: 10,
+    icon: <IconForm size={16} />,
+  },
+  {
+    href: HUB_PATHS.people,
+    label: "People",
+    group: "Program",
+    order: 20,
+    icon: <IconSpeakers size={16} />,
+  },
+  {
+    href: HUB_PATHS.schedule,
+    label: "Schedule",
+    group: "Program",
+    order: 30,
+    icon: <IconCalendar size={16} />,
+  },
+  {
+    href: HUB_PATHS.communications,
+    label: "Communications",
+    group: "Audience",
+    order: 40,
+    icon: <IconSend size={16} />,
+  },
+  {
+    href: HUB_PATHS.publish,
+    label: "Publish",
+    group: "Audience",
+    order: 50,
+    icon: <IconGlobe size={16} />,
+  },
+  {
+    href: HUB_PATHS.settings,
+    label: "Settings",
+    group: "Audience",
+    order: 60,
+    icon: <IconSettings size={16} />,
+  },
+];
+
 /**
- * The two surfaces the shell owns itself. Every other entry comes from a domain's workspace
- * module, so adding a domain adds no line to this file.
+ * The persona-specific surfaces the shell owns itself. Organizer job hubs are composed below;
+ * every role-specific entry still comes from a domain workspace module.
  *
- * `/` is the shell's because what it shows depends on the persona rather than on a domain,
- * and `/settings` is the shell's because its create-event form is the shell's own state.
+ * `/` is the shell's because what it shows depends on the persona rather than on a domain.
  */
 function shellRoutes(role: WorkspaceRole): NavEntry[] {
   const overview = (label: string): NavEntry => ({
@@ -121,17 +180,7 @@ function shellRoutes(role: WorkspaceRole): NavEntry[] {
     order: 0,
     icon: <IconDashboard size={16} />,
   });
-  if (role === "organizer" || role === "custom")
-    return [
-      overview("Overview"),
-      {
-        href: "/settings",
-        label: "Event settings",
-        group: "Audience",
-        order: 8,
-        icon: <IconSettings size={16} />,
-      },
-    ];
+  if (role === "organizer" || role === "custom") return [overview("Overview")];
   // A reviewer and a speaker land on their own single workspace, so the shell adds nothing.
   if (role === "reviewer" || role === "speaker") return [];
   return [overview("Events")];
@@ -141,7 +190,23 @@ function shellRoutes(role: WorkspaceRole): NavEntry[] {
 function routesFor(role: WorkspaceRole): NavEntry[] {
   // A custom role is capability-shaped rather than persona-shaped. Its discoverable surface is
   // the organizer catalogue; each module's own capability gate still decides whether it opens.
-  const domains = workspacesForPersona(role === "custom" ? "organizer" : role).map((module) => ({
+  if (role === "organizer" || role === "custom") {
+    // Search and Inbox are cross-hub utilities rather than another organizer job hub. Keeping
+    // their routes discoverable also gives command-palette and overview links a full-page target.
+    const utilities = workspacesForPersona("organizer")
+      .filter(({ path }) => path === "/search" || path === "/inbox")
+      .map((module) => ({
+        href: module.path,
+        label: module.label,
+        group: module.group,
+        order: module.order,
+        icon: module.icon,
+      }));
+    return [...shellRoutes(role), ...utilities, ...organizerHubs].sort(
+      (left, right) => left.order - right.order,
+    );
+  }
+  const domains = workspacesForPersona(role).map((module) => ({
     href: module.path,
     label: module.label,
     group: module.group,
@@ -238,6 +303,10 @@ export function App({
    * overview — which is as long as advice about an empty workspace is worth reading.
    */
   const welcome = new URLSearchParams(location.split("?")[1] ?? "").get("welcome") === "1";
+  const locationQuery = useMemo(
+    () => new URLSearchParams(location.split("?")[1] ?? ""),
+    [location],
+  );
 
   const loadShell = useCallback(async () => {
     const primed = probed.current;
@@ -354,14 +423,29 @@ export function App({
   );
   const allowed = useMemo(() => routesFor(activeRole), [activeRole]);
 
+  // Old bookmarks remain useful after the information architecture changes. Preserve all
+  // unrelated query state (especially the selected event) while replacing only the tab.
+  useEffect(() => {
+    if (loading || !session || (activeRole !== "organizer" && activeRole !== "custom")) return;
+    const target = hubTabForLegacyPath(path);
+    if (!target || path === HUB_PATHS[target.hub]) return;
+    const params = new URLSearchParams(location.split("?")[1] ?? "");
+    params.set("tab", target.tab);
+    navigate(`${HUB_PATHS[target.hub]}?${params.toString()}`, { replace: true });
+  }, [activeRole, loading, location, path, session]);
+
   // A persona that cannot reach the current route lands on its own home rather than
   // an empty frame — switching identity used to leave the page blank.
   useEffect(() => {
     if (loading || !session) return;
     if (path === ACCEPT_INVITATION_PATH) return;
-    if (allowed.some((route) => route.href === path)) return;
+    if (
+      allowed.some((route) => route.href === path) ||
+      ((activeRole === "organizer" || activeRole === "custom") && hubTabForLegacyPath(path))
+    )
+      return;
     navigate(`${allowed[0]?.href ?? "/"}${query}`, { replace: true });
-  }, [allowed, loading, path, query, session]);
+  }, [activeRole, allowed, loading, path, query, session]);
 
   // A failure raised for one surface, or for one event, must not follow the user to the
   // next one — switching event keeps the same path, so both axes have to clear it.
@@ -484,7 +568,9 @@ export function App({
 
   function selectEvent(eventId: string) {
     setSelectedEventId(eventId);
-    navigate(`${path}?event=${eventId}`, { replace: true });
+    const params = new URLSearchParams(location.split("?")[1] ?? "");
+    params.set("event", eventId);
+    navigate(`${path}?${params.toString()}`, { replace: true });
   }
 
   async function submit(formEvent: FormEvent) {
@@ -720,6 +806,46 @@ export function App({
     );
   }
 
+  function renderHubTab(tab: HubTabModule, access: WorkspaceAccess, tabs: readonly HubTabModule[]) {
+    if (!selectedEvent) return noAccess;
+    const context: WorkspaceContext = {
+      ...access,
+      event: selectedEvent,
+      query,
+      agendaLoadFailure,
+      reportAgendaLoadFailure,
+      onPublicationChange: setPublication,
+    };
+    const header = tab.header(context);
+    const tabItems = tabs.map((item) => {
+      const params = new URLSearchParams(locationQuery);
+      params.set("tab", item.tab);
+      if (selectedEventId) params.set("event", selectedEventId);
+      return { id: item.tab, label: item.label, href: `${HUB_PATHS[item.hub]}?${params}` };
+    });
+    return (
+      <>
+        <PageHeader {...header} />
+        <HubTabs
+          items={tabItems}
+          active={tab.tab}
+          label={`${header.eyebrow ?? header.title} sections`}
+        />
+        {canOpenTab(tab, access) ? (
+          <Fragment key={`${selectedEvent.id}:${tab.hub}:${tab.tab}`}>
+            {tab.render(context)}
+          </Fragment>
+        ) : (
+          <Card>
+            <EmptyState title="Your role on this event does not include this section">
+              Switch to an event you organize, or ask an administrator for the required access.
+            </EmptyState>
+          </Card>
+        )}
+      </>
+    );
+  }
+
   function renderPage() {
     if (!selectedEvent)
       return (
@@ -739,6 +865,18 @@ export function App({
       capabilities: activeEventCapabilities,
       isEventOrganizer,
     };
+    const hub = (Object.entries(HUB_PATHS).find(([, hubPath]) => hubPath === path)?.[0] ??
+      null) as WorkspaceHub | null;
+    if (hub) {
+      const tabs = hubTabsFor(hub, activeRole === "custom" ? "organizer" : activeRole);
+      const requestedTab = locationQuery.get("tab");
+      const persona = activeRole === "custom" ? "organizer" : activeRole;
+      const activeTab = hubTabForSelection(hub, requestedTab, persona) ?? tabs[0];
+      // The shell still owns event creation state; its settings form is rendered below, now as
+      // the Event tab. Every other hub tab is a domain contribution.
+      if (activeTab && !(hub === "settings" && activeTab.tab === "event"))
+        return renderHubTab(activeTab, access, tabs);
+    }
     const workspace = workspaceForPath(path);
     if (workspace)
       return canOpen(workspace, access) ? renderWorkspace(workspace, access) : noAccess;
@@ -777,13 +915,29 @@ export function App({
       return (
         <>
           <PageHeader
-            eyebrow="Configure"
+            eyebrow="Settings"
             title="Event settings"
             subtitle={`${selectedEvent.name} · ${selectedEvent.timezone}`}
           />
+          <HubTabs
+            label="Settings sections"
+            active="event"
+            items={hubTabsFor("settings", activeRole === "custom" ? "organizer" : activeRole).map(
+              (item) => {
+                const params = new URLSearchParams(locationQuery);
+                params.set("tab", item.tab);
+                if (selectedEventId) params.set("event", selectedEventId);
+                return { id: item.tab, label: item.label, href: `${HUB_PATHS.settings}?${params}` };
+              },
+            )}
+          />
           {activeEventCapabilities.includes("events:settings:update") ? (
-            <Card title="Current event" labelledBy="current-event-title">
-              <form onSubmit={submitSettings}>
+            <Card
+              title="Current event"
+              hint="Update the name and timezone used throughout this workspace."
+              labelledBy="current-event-title"
+            >
+              <form className="stack settings-event-form" onSubmit={submitSettings}>
                 <div className="field">
                   <label htmlFor="settings-event-name">Current event name</label>
                   <input
@@ -808,11 +962,15 @@ export function App({
             </Card>
           ) : null}
           {session?.capabilities.includes("events:create") ? (
-            <Card title="Create another event" labelledBy="create-title">
-              <form onSubmit={submit}>
+            <Card
+              title="Create another event"
+              hint="Start fresh or use a template for the reusable setup."
+              labelledBy="create-title"
+            >
+              <form className="stack settings-event-form" onSubmit={submit}>
                 <p className="hint" id="create-event">
-                  Start empty, or explicitly apply one reusable template. Existing proposals,
-                  reviews, speakers, files, agenda, and publication state are never copied.
+                  Proposals, reviews, speakers, files, the agenda, and publication history are never
+                  copied from another event.
                 </p>
                 <div className="field">
                   <label htmlFor="event-organization">Organization</label>
@@ -822,9 +980,11 @@ export function App({
                     onChange={(event) => setCreateOrganizationId(event.target.value)}
                     required
                   >
-                    {session.organizations.map((organization) => (
+                    {session.organizations.map((organization, index) => (
                       <option key={organization.id} value={organization.id}>
-                        {organization.id}
+                        {organization.id === selectedEvent.organizationId
+                          ? "Current organization"
+                          : `Organization ${index + 1}`}
                       </option>
                     ))}
                   </select>
@@ -863,8 +1023,8 @@ export function App({
                     />
                   </div>
                   <p className="hint">
-                    Lowercase letters, numbers, and hyphens. A conflicting address is refused so you
-                    can choose another.
+                    Use lowercase letters, numbers, and hyphens. If this address is already taken,
+                    choose another.
                   </p>
                 </div>
                 <div className="field-grid two">
@@ -932,8 +1092,8 @@ export function App({
                       ))}
                     </select>
                     <p className="hint">
-                      The newest captured version is applied through the existing template path; any
-                      partial category is reported and remains repairable.
+                      The newest version is used. If part of the setup cannot be applied, you can
+                      review and retry it from Templates.
                     </p>
                   </div>
                 ) : null}

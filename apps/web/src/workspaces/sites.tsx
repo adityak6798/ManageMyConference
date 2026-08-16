@@ -10,7 +10,7 @@
  */
 import { SitesWorkspace } from "../SitesWorkspace";
 import { IconGlobe } from "../ui/icons";
-import type { WorkspaceModule } from "./contract";
+import type { HubTabModule, WorkspaceModule } from "./contract";
 
 export const sitesWorkspace: WorkspaceModule = {
   domain: "publishing",
@@ -41,4 +41,17 @@ export const sitesWorkspace: WorkspaceModule = {
       canManage={capabilities.includes("events:settings:update")}
     />
   ),
+};
+
+export const portalsHubTab: HubTabModule = {
+  domain: "publishing",
+  hub: "publish",
+  tab: "portals",
+  label: "Portals",
+  order: 20,
+  personas: ["organizer"],
+  legacyPaths: ["/sites"],
+  canAccess: (access) => sitesWorkspace.canAccess?.(access) ?? false,
+  header: sitesWorkspace.header,
+  render: sitesWorkspace.render,
 };

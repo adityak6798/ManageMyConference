@@ -64,14 +64,14 @@ async function restoreSeedPlacement(page: Page) {
 async function openAgenda(page: Page) {
   await page.goto("/");
   await page.getByRole("button", { name: "Continue as organizer" }).click();
-  await page.getByRole("link", { name: /Agenda/ }).click();
+  await page.goto(`/schedule?event=${demoEventId}&tab=agenda&view=room`);
   await expect(page.getByRole("heading", { level: 1, name: "Agenda" })).toBeVisible();
   await expect(page.getByRole("tab", { name: /^Room/ })).toHaveAttribute("aria-selected", "true");
 }
 
 /** Come back to the board from another workspace, already signed in. */
 async function returnToAgenda(page: Page) {
-  await page.goto(`/agenda?event=${demoEventId}&view=room`);
+  await page.goto(`/schedule?event=${demoEventId}&tab=agenda&view=room`);
   await expect(page.getByRole("heading", { level: 1, name: "Agenda" })).toBeVisible();
   await expect(page.getByRole("tab", { name: /^Room/ })).toHaveAttribute("aria-selected", "true");
 }
@@ -237,7 +237,7 @@ test("reaches a conflict from the board, explains it, and blocks publication unt
   // one. It is arranged the way an organizer would: by ticking the speaker onto the second
   // session in Sessions & speakers. Undone at the end of the test.
   const shareSpeaker = async (checked: boolean) => {
-    await page.goto(`/sessions?event=${demoEventId}`);
+    await page.goto(`/schedule?event=${demoEventId}&tab=sessions`);
     await page.getByRole("button", { name: `Edit ${secondSession}` }).click();
     // Scoped to the editor's own fieldset rather than to the page. Sessions & speakers grew a
     // second checkbox per speaker when #189 added portal invitations to the roster below, and an

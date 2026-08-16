@@ -208,6 +208,9 @@ describe("the round the console is working in", () => {
     fireEvent.change(screen.getByLabelText("Max abstracts per reviewer"), {
       target: { value: "3" },
     });
+    expect(
+      screen.getByText(/Distribution stops assigning work when a reviewer reaches this limit/),
+    ).toBeVisible();
     fireEvent.click(screen.getByLabelText("Select every abstract in this view"));
     fireEvent.click(screen.getByRole("button", { name: "Distribute selection" }));
 
@@ -257,9 +260,29 @@ describe("the round the console is working in", () => {
      * withheld by a condition nobody names. It is pressable now, and answers.
      */
     expect(advance).toBeEnabled();
-    expect(screen.getByText(/Start next round: Choose one status tab first/)).toBeVisible();
+    expect(screen.getByText(/To start the next round:/).closest("p")).toHaveTextContent(
+      "Choose one status tab first",
+    );
     fireEvent.click(advance);
     expect(await screen.findByRole("alert")).toHaveTextContent("Choose one status tab first");
+  });
+
+  it("presents evaluator activity without exposing fixture implementation labels", async () => {
+    stubApi((url) =>
+      url.includes("/review/organizer")
+        ? jsonResponse(
+            workspace({
+              aiReport: [{ round: 1, model: "fixture-suggester-v1", state: "offered", count: 2 }],
+            }),
+          )
+        : undefined,
+    );
+    render(<OrganizerReviewWorkspace eventId={eventId} />);
+
+    expect(await screen.findByRole("heading", { name: "AI evaluator report" })).toBeVisible();
+    expect(screen.getByRole("cell", { name: "Demo evaluator" })).toBeVisible();
+    expect(screen.getByRole("cell", { name: "Available to reviewer" })).toBeVisible();
+    expect(screen.queryByText("fixture-suggester-v1")).not.toBeInTheDocument();
   });
 
   it("orders by aggregate in both directions, and sinks the unscored either way", async () => {

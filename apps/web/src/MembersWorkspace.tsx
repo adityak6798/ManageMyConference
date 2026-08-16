@@ -130,7 +130,7 @@ export function MembersWorkspace({
       {feedback}
 
       <Card title="Invite somebody">
-        <form onSubmit={submitInvitation} className="stack">
+        <form onSubmit={submitInvitation} className="member-invite-form">
           <label>
             Email address
             <input
@@ -182,7 +182,7 @@ export function MembersWorkspace({
               to make them a reviewer or a speaker.
             </p>
           ) : null}
-          <button type="submit" disabled={busy}>
+          <button className="member-invite-submit" type="submit" disabled={busy}>
             Send invitation
           </button>
         </form>

@@ -144,6 +144,11 @@
         "reason": "The public CFP client. The public site renders the applicant form and submits through it, which is the one place publishing's UI calls CFP's API."
       },
       {
+        "path": "apps/web/src/api/content.ts",
+        "governing": "ARC-FLOW-001",
+        "reason": "Content's browser HTTP surface. The agenda publication preflight reads session publication readiness through this declared projection so it can name scheduled drafts that the public schedule will omit, without reaching into Content state or storage."
+      },
+      {
         "path": "apps/web/src/api/identity.ts",
         "governing": "ARC-DOM-001",
         "reason": "The browser's identity client \u2014 who this document is, which doors the deployment offers, and the four ways through them \u2014 and the same kind of surface as api/cfp.ts one entry above. Three unrelated roots read it: the console shell, the landing page, and the public CFP, which offers a submitter a way to sign in so their drafts and decisions belong to an account (issue #190). It was already declared its own module rather than living in api/events.ts precisely because the landing page must not import the console's domain client; the public bundle has the same constraint and the same need. It holds no session state and no capability logic \u2014 the httpOnly cookie means only the API can answer either question."
@@ -371,7 +376,8 @@
       ],
       "plans": [
         "PLAN-001",
-        "PLAN-002"
+        "PLAN-002",
+        "PLAN-005"
       ],
       "paths": [
         ".agents/extra-skills/bootstrap-harness",
@@ -416,6 +422,7 @@
         "apps/web/e2e/global-setup.ts",
         "apps/web/e2e/fixtures.ts",
         "apps/web/e2e/quality-global-setup.ts",
+        "apps/web/e2e/capture-product.mjs",
         "docs/demo-runbook.md",
         "apps/web/src/AppShell.tsx",
         "apps/web/src/InstanceMarker.tsx",

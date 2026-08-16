@@ -127,7 +127,18 @@
 }
 
 .inbox-item {
-  align-items: baseline;
+  align-items: center;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--s-3);
+}
+
+.inbox-item-copy {
+  min-width: 0;
+}
+
+.inbox-item-title {
+  align-items: center;
   display: flex;
   flex-wrap: wrap;
   gap: var(--s-2);
@@ -135,8 +146,28 @@
 
 .inbox-item .sub {
   color: var(--muted);
-  flex: 1 1 12rem;
+  display: block;
   font-size: var(--text-xs);
+  margin-top: var(--s-1);
+}
+
+/* Good-news categories should be readable at a glance, not consume a third of the viewport. */
+.inbox-empty .empty,
+.audit-empty .empty {
+  grid-template-columns: auto minmax(0, 1fr);
+  justify-items: start;
+  padding: var(--s-5);
+  text-align: left;
+}
+
+.inbox-empty .empty .glyph,
+.audit-empty .empty .glyph {
+  grid-row: 1 / span 2;
+}
+
+.inbox-empty .empty p,
+.audit-empty .empty p {
+  max-width: none;
 }
 
 /* Dismissed rows stay on the list rather than disappearing: the operator has to be able to see
@@ -148,6 +179,17 @@
 
 .palette-note.is-error {
   color: #a3312a;
+}
+
+/* The shell owns Settings > Event, so its form rhythm lives with the other shell surfaces. */
+.settings-event-form {
+  display: grid;
+  gap: var(--s-4);
+  align-content: start;
+}
+
+.settings-event-form > button {
+  justify-self: start;
 }
 
 /* The overlay is the one surface that must never introduce a sideways scroll: it is centred on
@@ -167,6 +209,18 @@
 
   .palette-field {
     flex-wrap: wrap;
+  }
+
+  .inbox-item {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .inbox-item > button {
+    justify-self: start;
+  }
+
+  .settings-event-form > button {
+    width: 100%;
   }
 }
 

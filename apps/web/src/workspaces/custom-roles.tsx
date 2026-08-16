@@ -9,7 +9,7 @@
  */
 import { CustomRolesWorkspace } from "../CustomRolesWorkspace";
 import { IconShield } from "../ui/icons";
-import type { WorkspaceModule } from "./contract";
+import type { HubTabModule, WorkspaceModule } from "./contract";
 
 export const customRolesWorkspace: WorkspaceModule = {
   domain: "identity-access",
@@ -44,4 +44,17 @@ export const customRolesWorkspace: WorkspaceModule = {
       canManage={capabilities.includes("identity:manage")}
     />
   ),
+};
+
+export const rolesHubTab: HubTabModule = {
+  domain: "identity-access",
+  hub: "settings",
+  tab: "roles",
+  label: "Roles",
+  order: 30,
+  personas: ["organizer"],
+  legacyPaths: ["/roles"],
+  canAccess: (access) => customRolesWorkspace.canAccess?.(access) ?? false,
+  header: customRolesWorkspace.header,
+  render: customRolesWorkspace.render,
 };

@@ -288,6 +288,20 @@
   margin-top: calc(-1 * var(--s-1));
 }
 
+.publishing-live-preview {
+  border-top: 1px solid var(--line);
+  padding-top: var(--s-3);
+}
+.publishing-live-preview summary {
+  color: var(--green-700);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  font-weight: 650;
+}
+.publishing-live-preview[open] summary {
+  margin-bottom: var(--s-3);
+}
+
 /* The snippet is read-only evidence, not an editor: monospace, wrapped, and
    selectable in one keystroke via the focus handler on the control. */
 .publishing-snippet {

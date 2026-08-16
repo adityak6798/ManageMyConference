@@ -13,7 +13,7 @@
   ],
   "journeys": [],
   "acceptance": ["ACC-HARNESS", "ACC-DEMO-SMOKE", "ACC-OPS"],
-  "plans": ["PLAN-001", "PLAN-002"],
+  "plans": ["PLAN-001", "PLAN-002", "PLAN-005"],
   "paths": [
     ".agents/extra-skills/bootstrap-harness",
     ".agents/skills/ship-it",
@@ -57,6 +57,7 @@
     "apps/web/e2e/global-setup.ts",
     "apps/web/e2e/fixtures.ts",
     "apps/web/e2e/quality-global-setup.ts",
+    "apps/web/e2e/capture-product.mjs",
     "docs/demo-runbook.md",
     "apps/web/src/AppShell.tsx",
     "apps/web/src/InstanceMarker.tsx",

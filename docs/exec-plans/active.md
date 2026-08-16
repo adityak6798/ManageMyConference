@@ -2,6 +2,23 @@
 
 Status: canonical | Owner: delivery | Last verified: 2026-08-15
 
+## `PLAN-005` Portal design-language rollout
+
+Status: active; implementation complete on the #237 integration branch, with review and merge pending
+
+Issue #237 coordinates the portal-wide redesign after the shared design language and responsive
+shell merged in PR #241. The implementation was split across three independently owned lanes:
+
+1. #238 rebuilt organizer overview, program, review, sessions, and schedule surfaces;
+2. #239 rebuilt people, communications, publishing, and settings surfaces;
+3. #240 rebuilt the landing page and the reviewer, speaker, attendee, and public-event surfaces.
+
+The final cutover composes those contributions into six job-shaped organizer hubs—Program, People,
+Schedule, Communications, Publish, and Settings—while preserving event query state and redirecting
+legacy workspace URLs to stable hub tabs. Integrations deliberately composes API-client and webhook
+controls into one tab because the user job is shared even though the bounded-context ownership is
+not. Existing reviewer and speaker routes remain direct, role-specific workspaces.
+
 ## `PLAN-004` SessionBoard defect closure
 
 Status: active; implementation is complete in PRs #233 and #236, with the scored evaluator rerun blocked on its model credential

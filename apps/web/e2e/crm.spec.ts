@@ -10,8 +10,8 @@ const ORGANIZATION_ID = "00000000-0000-4000-8000-000000000010";
 const OUTSIDE_ORGANIZATION_ID = "00000000-0000-4000-8000-000000000020";
 const SEEDED_PROSPECT = "50000000-0000-4000-8000-000000000001";
 const SEEDED_CONTACT = "51000000-0000-4000-8000-000000000001";
-const CRM = `/speakers?event=${EVENT_ID}`;
-const DIRECTORY = `/speaker-directory?event=${EVENT_ID}`;
+const CRM = `/people?event=${EVENT_ID}&tab=crm`;
+const DIRECTORY = `/people?event=${EVENT_ID}&tab=directory`;
 
 const signIn = async (page: import("@playwright/test").Page, persona = "organizer") => {
   await page.goto("/");
@@ -33,7 +33,7 @@ test("organizer works the pipeline, adds a prospect, and converts it", async ({ 
   // unauthenticated and the shell bounces to the sign-in surface.
   await expect(page.getByRole("combobox", { name: "Event workspace" })).toBeVisible();
   await page.goto(CRM);
-  await expect(page.getByRole("heading", { name: "Speaker CRM", level: 1 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "CRM", level: 1 })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Prospect pipeline" })).toBeVisible();
 
   // This journey is about the stage-filtered table, which is now one of two views: the board
@@ -514,7 +514,7 @@ test("an organizer moves a card on the board by pointer and by keyboard", async 
   const mine = await ownProspect(page, name);
 
   await page.goto(CRM);
-  await expect(page.getByRole("heading", { name: "Speaker CRM", level: 1 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "CRM", level: 1 })).toBeVisible();
   // The board is the view the workspace opens on, and it draws a column per configured stage.
   await expect(page.locator(".pipeline-board")).toBeVisible();
 

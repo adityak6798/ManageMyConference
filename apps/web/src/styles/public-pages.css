@@ -732,12 +732,55 @@ img.pub-avatar {
 
 /* ------------------------------- forms ------------------------------- */
 
+/* On an open call, event context and deadline stay beside the work they govern. All applicant
+   account state and the form occupy the working column; the layout collapses in reading order. */
+.pub-detail:has(> .pub-form) {
+  width: 100%;
+  max-width: none;
+  display: grid;
+  grid-template-columns: minmax(16rem, 0.65fr) minmax(0, 1.35fr);
+  gap: 0 var(--s-10);
+  align-items: start;
+}
+.pub-detail:has(> .pub-form) > * {
+  grid-column: 2;
+}
+.pub-detail:has(> .pub-form) > .pub-head,
+.pub-detail:has(> .pub-form) > .lede {
+  grid-column: 1;
+}
+.pub-detail:has(> .pub-form) > .pub-head {
+  position: sticky;
+  top: var(--s-5);
+  margin-bottom: var(--s-4);
+}
+.pub-detail:has(> .pub-form) > .lede {
+  margin-top: var(--s-5);
+}
+
 .pub-form {
   margin-top: var(--s-6);
   padding: var(--s-6);
   border: 1px solid var(--line-strong);
   border-radius: var(--r-xl);
   background: var(--surface);
+}
+
+@media (max-width: 900px) {
+  .pub-detail:has(> .pub-form) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .pub-detail:has(> .pub-form) > *,
+  .pub-detail:has(> .pub-form) > .pub-head,
+  .pub-detail:has(> .pub-form) > .lede {
+    grid-column: 1;
+  }
+  .pub-detail:has(> .pub-form) > .pub-head {
+    position: static;
+  }
+  .pub-form {
+    padding: var(--s-5);
+  }
 }
 .pub-cfp-field {
   display: grid;
@@ -767,6 +810,69 @@ img.pub-avatar {
 .pub-form textarea {
   min-height: 120px;
   resize: vertical;
+}
+.pub-form .cfp-participants {
+  display: grid;
+  gap: var(--s-3);
+  margin: var(--s-6) 0;
+  padding: var(--s-5);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-lg);
+  background: var(--surface-2);
+}
+.pub-form .cfp-participants legend {
+  padding: 0 var(--s-2);
+  font-size: var(--text-base);
+  font-weight: 650;
+}
+.pub-form .cfp-participants .hint {
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+}
+.pub-form .cfp-participant {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s-3);
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--line);
+}
+.pub-form .cfp-participant label:last-of-type,
+.pub-form .cfp-participant .button-quiet {
+  grid-column: 1 / -1;
+}
+.pub-form .cfp-participants > button,
+.pub-form .cfp-participant .button-quiet {
+  width: fit-content;
+  padding: 9px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 620;
+  cursor: pointer;
+}
+.pub-form .cfp-participants > button:hover,
+.pub-form .cfp-participant .button-quiet:hover {
+  border-color: var(--green-600);
+  background: var(--green-50);
+}
+.pub-form .cfp-participants > button:focus-visible,
+.pub-form .cfp-participant .button-quiet:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.pub-form .cfp-participants > button:disabled,
+.pub-form .cfp-participant .button-quiet:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+@media (max-width: 600px) {
+  .pub-form .cfp-participant {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 .pub-field-errors {
   margin: var(--s-1) 0 0;
