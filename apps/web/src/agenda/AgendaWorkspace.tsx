@@ -1560,6 +1560,8 @@ export function AgendaWorkspace({
         </button>
       </div>
 
+      {feedback.node}
+
       {isBoardView && days.length > 1 ? (
         <fieldset className="agenda-day-switcher">
           <legend className="agenda-day-switcher-label">Showing one day at a time</legend>
@@ -1608,8 +1610,6 @@ export function AgendaWorkspace({
           The public page includes only sessions marked Published in Sessions.
         </p>
       )}
-
-      {feedback.node}
 
       {carry?.viaKeyboard ? (
         <div className="agenda-carry">
