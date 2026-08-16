@@ -184,13 +184,13 @@ export function AgendaWorkspace({
     // Publication readiness belongs to Content and is read through its public HTTP projection.
     // It is supplementary preflight information: an unavailable Content read must not make the
     // independently owned agenda board unusable.
+    // ERROR-INTENT: React effects cannot await; this optional readiness read is handled below.
     void getContent(eventId)
       .then((loaded) => {
         if (active) setContentSessions(loaded.sessions);
       })
+      // ERROR-INTENT: the permanent publication rule remains visible when preflight is unavailable.
       .catch(() => {
-        // ERROR-INTENT: the agenda remains authoritative and usable when its optional cross-domain
-        // publication-readiness hint cannot load; the permanent rule stays visible in the toolbar.
         if (active) setContentSessions(null);
       });
     return () => {
