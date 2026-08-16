@@ -83,6 +83,39 @@ function stubFetch(reply?: () => Response) {
   return writes;
 }
 
+/** A complete Content projection whose publication field was removed by field policy. */
+function stubRedactedPublicationFetch() {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (method === "GET" && url.endsWith("/content"))
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              sessions: [
+                {
+                  id: "session-opening",
+                  eventId,
+                  proposalId: "proposal-opening",
+                  title: "Opening keynote",
+                  speakerProfileIds: [],
+                },
+              ],
+              speakers: [],
+              tasks: [],
+              assets: [],
+              messages: [],
+            }),
+            { status: 200 },
+          ),
+        );
+      return Promise.resolve(new Response(JSON.stringify({ agenda: board }), { status: 200 }));
+    }),
+  );
+}
+
 /**
  * The resources-panel row for a room or track, by the name it shows. Scoped to the panel
  * because a room name is also a column header on the board itself.
@@ -198,6 +231,19 @@ describe("AgendaWorkspace failure feedback", () => {
     expect(alert).toHaveTextContent("Schedule conflicts must be resolved before publication");
     expect(alert.previousElementSibling).toHaveClass("agenda-toolbar");
     expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("does not invent a public count when field policy hides publication readiness", async () => {
+    stubRedactedPublicationFetch();
+    render(<AgendaWorkspace event={event} onError={onError} />);
+
+    const publish = await screen.findByRole("button", { name: "Publish schedule" });
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+    expect(publish).toHaveAccessibleName("Publish schedule");
+    expect(screen.queryByRole("button", { name: /public/ })).toBeNull();
+    expect(
+      screen.getByText("The public page includes only sessions marked Published in Sessions."),
+    ).toBeInTheDocument();
   });
 
   it("announces a refused placement where the successful one would have announced", async () => {

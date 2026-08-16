@@ -357,6 +357,17 @@ export function AgendaWorkspace({
     scheduledSessionsByDay.set(day, scheduled);
   }
   const scheduledSessionIds = new Set(draft.placements.map(({ sessionId }) => sessionId));
+  const contentSessionById = new Map(
+    (contentSessions ?? []).map((session) => [session.id, session]),
+  );
+  // A successful Content response is not necessarily a complete readiness response. Field-level
+  // access may redact publicationState, and row policy may omit a scheduled session altogether.
+  // In either case a numeric public count would turn "unknown" into a confidently wrong zero.
+  const publicationPreflightAvailable =
+    contentSessions !== null &&
+    [...scheduledSessionIds].every(
+      (sessionId) => contentSessionById.get(sessionId)?.publicationState !== undefined,
+    );
   const withheldSessions = (contentSessions ?? []).filter(
     (session) =>
       scheduledSessionIds.has(session.id) &&
@@ -1532,7 +1543,7 @@ export function AgendaWorkspace({
             void publishAgenda(eventId)
               .then((schedule) => {
                 if (mounted.current) {
-                  const withheld = withheldSessions.length;
+                  const withheld = publicationPreflightAvailable ? withheldSessions.length : 0;
                   feedback.announce(
                     "success",
                     withheld
@@ -1556,7 +1567,9 @@ export function AgendaWorkspace({
           }}
         >
           <IconCheck size={15} />
-          {contentSessions ? `Publish schedule (${publicReadyCount} public)` : "Publish schedule"}
+          {publicationPreflightAvailable
+            ? `Publish schedule (${publicReadyCount} public)`
+            : "Publish schedule"}
         </button>
       </div>
 
@@ -1587,7 +1600,7 @@ export function AgendaWorkspace({
         </fieldset>
       ) : null}
 
-      {withheldSessions.length ? (
+      {publicationPreflightAvailable && withheldSessions.length ? (
         <div className="notice warn">
           <div className="agenda-publication-warning">
             <div>

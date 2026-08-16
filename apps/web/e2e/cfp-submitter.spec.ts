@@ -162,6 +162,13 @@ test("an applicant signs in from the public call, drafts, resumes, submits, and 
   await page.goto(CFP);
   await expect(page.getByRole("heading", { name: "Share your conference story" })).toBeVisible();
   await expect(page.getByText("Open", { exact: true })).toBeVisible();
+  // This is a desktop application form, not a phone-width card floating in an empty canvas.
+  // Keep the applicant workspace broad enough to scan while guarding against horizontal escape.
+  const formBox = await page.locator(".pub-form").boundingBox();
+  expect(formBox?.width).toBeGreaterThan(600);
+  expect(await page.evaluate(() => document.body.scrollWidth)).toBeLessThanOrEqual(
+    page.viewportSize()?.width ?? 1280,
+  );
   // Both doors are offered, and only one of them can keep anything: an anonymous proposal is
   // submittable and afterwards unreachable, which is what the invitation says.
   await expect(page.getByRole("button", { name: "Submit proposal" })).toBeVisible();
