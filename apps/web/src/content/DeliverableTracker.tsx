@@ -16,7 +16,9 @@
  */
 
 import { useMemo, useState } from "react";
+import { type ApiFailure, describeApiFailure } from "../api/config";
 import { addContentComment, downloadDeliverables, remindSpeakerTasks } from "../api/content";
+import { IconTask } from "../ui/icons";
 import { EmptyState, Pill } from "../ui/primitives";
 import {
   assetVersionGroups,
@@ -27,7 +29,6 @@ import {
   type Run,
   shortDate,
   type Workspace,
-  withReference,
 } from "./shared";
 
 type Task = Workspace["tasks"][number];
@@ -70,7 +71,7 @@ export function DeliverableTracker({
   workspace: Workspace;
   busy: boolean;
   run: Run;
-  announce: (tone: "success" | "error", message: string) => void;
+  announce: (tone: "success" | "error", detail: string | ApiFailure) => void;
 }) {
   const [state, setState] = useState<StateFilter>("outstanding");
   const [speakerId, setSpeakerId] = useState("");
@@ -152,7 +153,7 @@ export function DeliverableTracker({
       report = await remindSpeakerTasks(eventId, remindable);
     }).then((result) => {
       if (!result.ok) {
-        announce("error", withReference("Those reminders could not be sent.", result.error));
+        announce("error", describeApiFailure(result.error, "Those reminders could not be sent."));
         return;
       }
       const count = (outcome: string) => report.filter((entry) => entry.outcome === outcome).length;
@@ -226,7 +227,7 @@ export function DeliverableTracker({
       </div>
 
       {visible.length === 0 ? (
-        <EmptyState title="Nothing matches this view">
+        <EmptyState icon={<IconTask size={20} />} title="Nothing matches this view">
           {rows.length
             ? "Choose another filter to see the rest of the requested work."
             : "Assign a task to a speaker and it appears here with whatever they upload against it."}
@@ -249,7 +250,12 @@ export function DeliverableTracker({
              * cannot satisfy in its answer rather than by greying itself out — a control that
              * refuses silently is the shape #206's sweep exists to find.
              */}
-            <button type="button" disabled={busy || remindable.length === 0} onClick={remind}>
+            <button
+              className="primary"
+              type="button"
+              disabled={busy || remindable.length === 0}
+              onClick={remind}
+            >
               {/* The count only once there is one: "Send 0 reminders" reads as an offer to do
                   nothing rather than as "choose somebody first". The count is the *remindable*
                   share of the selection, not the selection — a complete task in it is there to be
@@ -375,7 +381,7 @@ export function DeliverableTracker({
                                 aria-label={`Comment on ${latest.name} for ${speakerName}`}
                                 required
                               />
-                              <button type="submit" disabled={busy}>
+                              <button className="primary" type="submit" disabled={busy}>
                                 Comment
                               </button>
                             </form>

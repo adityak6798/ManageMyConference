@@ -1,5 +1,6 @@
 // @acceptance ACC-SPEAKER
 import { text } from "node:stream/consumers";
+import { switchPersona } from "./controls";
 import { expect, type Page, test } from "./fixtures";
 
 // Both surfaces are event-scoped, so the journey addresses them the way the console
@@ -165,22 +166,27 @@ test("organizer tracks accepted content and speaker completes portal work", asyn
   // Sessions are never created from this workspace: content appears here only because an
   // abstract was accepted in review, which provisions its speaker in the same request.
   await page.goto(TRIAGE);
-  await expect(page.getByRole("heading", { level: 1, name: "Review" })).toBeVisible();
-  // Playwright matches accessible names by substring, and the row link, Accept and Decline
-  // all contain the title, so the decision control is addressed by its own leading word.
-  //
-  // A row whose decision is already recorded no longer offers that same outcome again — the
-  // control that did nothing was removed — so on a second run against a fixture this spec has
-  // already accepted, the abstract is simply confirmed to be accepted and the acceptance step
-  // is skipped. That is what keeps this journey re-runnable (issue #72).
-  // `count()` does not auto-wait, so the row itself is awaited first: counting straight after
-  // the heading appears reads an empty table, silently skips the acceptance, and then fails on
-  // an assertion about a board nothing ever decided.
-  // Scoped to the triage table: the "Recent changes" audit below it lists the same title on
-  // every transition, so an unscoped row lookup grows more ambiguous with each run.
+  await expect(page.getByRole("heading", { level: 1, name: "Submissions" })).toBeVisible();
+  /*
+   * A queue row offers one way in to a decision rather than four outcome buttons — around 240
+   * of them on a sixty-row queue is what forced the table sideways — and the outcomes live in
+   * the drawer, beside the text the organizer is deciding on.
+   *
+   * A row whose decision is already recorded no longer offers that same outcome again — the
+   * control that did nothing was removed — so on a second run against a fixture this spec has
+   * already accepted, the abstract is simply confirmed to be accepted and the acceptance step
+   * is skipped. That is what keeps this journey re-runnable (issue #72).
+   *
+   * `count()` does not auto-wait, so the row itself is awaited first: counting straight after
+   * the heading appears reads an empty table, silently skips the acceptance, and then fails on
+   * an assertion about a board nothing ever decided. Scoped to the triage table: the "Recent
+   * changes" audit below it lists the same title on every transition.
+   */
   const hallwayRow = page.locator(".triage-table").getByRole("row", { name: new RegExp(HALLWAY) });
   await expect(hallwayRow).toBeVisible();
-  const acceptHallway = hallwayRow.getByRole("button", { name: `Accept ${HALLWAY}`, exact: false });
+  await hallwayRow.getByRole("button", { name: new RegExp(`^(Decide|Change) ${HALLWAY}$`) }).click();
+  const abstract = page.getByRole("dialog", { name: HALLWAY });
+  const acceptHallway = abstract.getByRole("button", { name: `Accept ${HALLWAY}`, exact: true });
   if (await acceptHallway.count()) {
     await acceptHallway.click();
     const decision = page.getByRole("region", { name: "Accept this abstract" });
@@ -195,17 +201,22 @@ test("organizer tracks accepted content and speaker completes portal work", asyn
     ).toBe(true);
     await decision.getByRole("button", { name: "Confirm acceptance" }).click();
     await expect(decision.getByRole("status")).toContainText(
-      `“${HALLWAY}” is accepted. It is now a session in Sessions & speakers with Alex Morgan linked as its speaker.`,
+      // The destination is named the way the sidebar names it, so the sentence is a route.
+      `“${HALLWAY}” is accepted. It is now a session under Schedule → Sessions with Alex Morgan linked as its speaker.`,
     );
     // The dialog is modal, so while it is open every other element is out of the accessibility
     // tree and no role query can reach the table behind it. Dismiss it before reading the row.
     await decision.getByRole("button", { name: "Close" }).click();
     await expect(page.locator("dialog.decision-dialog")).toBeHidden();
   }
-  // Either way the board now records the outcome, and only the reversal is still on offer.
+  // Either way the abstract now records the outcome, and only the reversal is still on offer.
+  await expect(abstract.getByText("Accepted", { exact: true }).first()).toBeVisible();
+  await expect(abstract.getByRole("button", { name: /^Decline instead/ })).toBeVisible();
+  await expect(abstract.getByRole("button", { name: `Accept ${HALLWAY}` })).toHaveCount(0);
+  await abstract.getByRole("button", { name: `Close ${HALLWAY}` }).click();
+  await expect(abstract).toBeHidden();
+  // And the row says so too, from the decision column that offers the way back in.
   await expect(hallwayRow.getByText("Accepted", { exact: true }).first()).toBeVisible();
-  await expect(hallwayRow.getByRole("button", { name: /^Decline instead/ })).toBeVisible();
-  await expect(hallwayRow.getByRole("button", { name: /^Accept / })).toHaveCount(0);
 
   await page.goto(SESSIONS);
   await expect(sessions.getByRole("cell", { name: HALLWAY, exact: false }).first()).toBeVisible();
@@ -258,7 +269,7 @@ test("organizer tracks accepted content and speaker completes portal work", asyn
   ).toBeVisible();
 
   // ---- speaker portal ----
-  await page.getByRole("combobox", { name: "Signed-in role" }).selectOption("speaker");
+  await switchPersona(page, "Speaker");
   await expect(page.getByRole("heading", { level: 1, name: "Speaker portal" })).toBeVisible();
   await page.goto(PORTAL);
   await expect(page.getByRole("heading", { name: "Speaker resources" })).toBeVisible();
@@ -352,7 +363,7 @@ test("organizer tracks accepted content and speaker completes portal work", asyn
   // Only an organizer can clear a private upload for publication. Switching identity off
   // the speaker portal lands on the organizer's own home, since /portal is not a route an
   // organizer can reach; navigate to the sessions workspace from there.
-  await page.getByRole("combobox", { name: "Signed-in role" }).selectOption("organizer");
+  await switchPersona(page, "Organizer");
   await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toBeVisible();
   await page.goto(SESSIONS);
   await expect(page.getByRole("heading", { level: 1, name: "Speakers" })).toBeVisible();
@@ -403,13 +414,13 @@ test("organizer tracks accepted content and speaker completes portal work", asyn
   await expect.poll(() => samAvatar.evaluate(decoded)).toBeGreaterThan(0);
 
   // And the portal now tells the speaker the thing that changed: it is public.
-  await page.getByRole("combobox", { name: "Signed-in role" }).selectOption("speaker");
+  await switchPersona(page, "Speaker");
   await expect(page.getByRole("heading", { level: 1, name: "Speaker portal" })).toBeVisible();
   await page.goto(PORTAL);
   await expect(uploads.getByText("It is visible on the published programme.")).toBeVisible();
 
   // ---- withdrawal: unpublishing the file takes the face off the gallery (issue #86) ----
-  await page.getByRole("combobox", { name: "Signed-in role" }).selectOption("organizer");
+  await switchPersona(page, "Organizer");
   await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toBeVisible();
   await page.goto(SESSIONS);
   await uploaded.getByRole("button", { name: /^Make private/ }).click();
@@ -428,7 +439,7 @@ test("organizer tracks accepted content and speaker completes portal work", asyn
   expect(afterDelete.assets.some(({ id }) => id === assetId)).toBe(false);
   expect(afterDelete.speakers.find(({ id }) => id === SAM)?.photoAssetId).toBeUndefined();
 
-  await page.getByRole("combobox", { name: "Signed-in role" }).selectOption("speaker");
+  await switchPersona(page, "Speaker");
   await expect(page.getByRole("heading", { level: 1, name: "Speaker portal" })).toBeVisible();
   await page.goto(PORTAL);
   const calendar = page.getByRole("link", { name: "Download calendar (.ics)" });
@@ -455,7 +466,7 @@ test("organizer tracks accepted content and speaker completes portal work", asyn
   expect(ics).toMatch(/\r\nDTSTAMP:\d{8}T\d{6}Z\r\n/);
 
   // Hand the checklist back so the demo still shows a speaker with outstanding work.
-  await page.getByRole("combobox", { name: "Signed-in role" }).selectOption("organizer");
+  await switchPersona(page, "Organizer");
   await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toBeVisible();
   await restoreOnboardingChecklist(page);
 });
@@ -851,12 +862,12 @@ test("an organizer edits the canonical profile the speaker and public programme 
   await editor.getByRole("button", { name: `Use ${headshot}` }).click();
   await expect(editor.getByRole("status")).toContainText("headshot was selected");
 
-  // The speaker sees both organizer writes in the same controls they use to edit them.
-  const role = page.getByRole("combobox", { name: "Signed-in role" });
-  await role.selectOption("speaker");
-  // The controlled value changes only after the demo-session request and shell reload finish.
-  // Navigating sooner can race that request and let the stale organizer session win the portal load.
-  await expect(role).toHaveValue("speaker");
+  // The speaker sees both organizer writes in the same controls they use to edit them. The
+  // switch is only complete once the demo-session request and the shell reload behind it have
+  // finished; navigating sooner races that request and lets the stale organizer session win the
+  // portal load, which is why the sidebar's own speaker destination is waited for.
+  await switchPersona(page, "Speaker");
+  await expect(page.getByRole("link", { name: /Speaker portal/ })).toBeVisible();
   await page.goto(PORTAL);
   const speakerProfile = page.getByRole("region", { name: "Your public profile" });
   await expect(speakerProfile.getByLabel("Bio")).toHaveValue(bio);

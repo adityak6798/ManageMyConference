@@ -209,7 +209,8 @@ describe("sending a message to speakers from the console", () => {
     const confirmation = await screen.findByRole("group", { name: "Confirm send" });
     // Nothing has been sent yet: the confirmation names the template version and the count.
     expect(sends).toHaveLength(0);
-    expect(confirmation).toHaveTextContent("speaker-welcome");
+    // Named the way a speaker sees it, not by the key storage happens to use.
+    expect(confirmation).toHaveTextContent("You're speaking at Summit");
     expect(confirmation).toHaveTextContent("2 speakers");
     // And what is being approved is the message rather than the template it came from: the
     // placeholder is already filled in, per recipient, by the code that will send it.
@@ -240,7 +241,7 @@ describe("sending a message to speakers from the console", () => {
     const compose = screen.getByRole("region", { name: "Send to speakers" });
     await waitFor(() =>
       expect(within(compose).getByRole("status")).toHaveTextContent(
-        "Queued 2 deliveries for speaker-welcome version 1. The outbox sends them on its next run. 1 speaker had no address and was not sent to.",
+        "Queued 2 deliveries for “You're speaking at Summit”. The outbox sends them on its next run. 1 speaker had no address and was not sent to.",
       ),
     );
     // The outbox beside it re-reads, so the delivery the organizer just created is on screen
@@ -271,30 +272,75 @@ describe("sending a message to speakers from the console", () => {
     expect(message).not.toHaveTextContent("{{speakerName}}");
   });
 
-  it("publishes the next version of a template rather than editing the one already sent", async () => {
+  it("names a new message by its subject, and derives the key writing it no longer asks for", async () => {
     const { created } = harness();
     render(<App />);
-    fireEvent.click(await screen.findByRole("button", { name: "New template" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Write a message" }));
 
-    fireEvent.change(screen.getByLabelText("Template name"), {
-      target: { value: "speaker-welcome" },
+    // Writing an email begins with the sentence a speaker reads, not with a primary key.
+    fireEvent.change(screen.getByLabelText("Subject"), {
+      target: { value: "Schedule correction" },
     });
-    fireEvent.change(screen.getByLabelText("Subject"), { target: { value: "Correction" } });
     fireEvent.change(screen.getByLabelText("Message"), {
       target: { value: "Sorry {{speakerName}}, the previous note was wrong." },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save template version" }));
+    // The key is still real and still what a delivery records, so it is derived and shown.
+    expect(screen.getByLabelText<HTMLInputElement>("Template name")).toHaveValue(
+      "schedule-correction",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Save this message" }));
 
     await waitFor(() => expect(created).toHaveLength(1));
     // The request names no version at all. The panel used to compute one from the list it last
     // read, which is what made two organizers publishing the same key collide; allocation is
     // the server's, next to the constraint that arbitrates it (issue #52's review follow-up).
-    expect(created[0]).toMatchObject({ key: "speaker-welcome", channel: "email" });
+    expect(created[0]).toMatchObject({ key: "schedule-correction", channel: "email" });
     expect(created[0]).not.toHaveProperty("version");
     const compose = screen.getByRole("region", { name: "Send to speakers" });
     await waitFor(() =>
       expect(within(compose).getByRole("status")).toHaveTextContent(
-        "Saved speaker-welcome version 2. Earlier versions stay readable.",
+        "Saved “Schedule correction” as version 1. Earlier versions stay readable.",
+      ),
+    );
+  });
+
+  it("publishes the next version of a template rather than editing the one already sent", async () => {
+    const { created } = harness();
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Write a message" }));
+
+    fireEvent.change(screen.getByLabelText("Subject"), { target: { value: "Correction" } });
+    fireEvent.change(screen.getByLabelText("Message"), {
+      target: { value: "Sorry {{speakerName}}, the previous note was wrong." },
+    });
+    // Overriding the derived key is how a correction becomes the next version of a message
+    // already sent, and the disclosure says so before it is saved.
+    fireEvent.change(screen.getByLabelText("Template name"), {
+      target: { value: "speaker-welcome" },
+    });
+    expect(screen.getByText(/Saving publishes version 2 of this template/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Save this message" }));
+
+    await waitFor(() => expect(created).toHaveLength(1));
+    expect(created[0]).toMatchObject({ key: "speaker-welcome", channel: "email" });
+    expect(created[0]).not.toHaveProperty("version");
+  });
+
+  it("writes a merge token into the message at the caret", async () => {
+    harness();
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Write a message" }));
+    const body = screen.getByLabelText<HTMLTextAreaElement>("Message");
+    fireEvent.change(body, { target: { value: "Hi , welcome." } });
+    body.setSelectionRange(3, 3);
+
+    // The tokens used to be a list to read and retype, and a token typed one character wrong is
+    // a send the renderer refuses rather than a message with a gap in it.
+    fireEvent.click(screen.getByRole("button", { name: /Insert speakerName/ }));
+
+    await waitFor(() =>
+      expect(screen.getByLabelText<HTMLTextAreaElement>("Message")).toHaveValue(
+        "Hi {{speakerName}}, welcome.",
       ),
     );
   });
@@ -313,7 +359,10 @@ describe("sending a message to speakers from the console", () => {
     // The placeholder that could not be filled is named, so the organizer can fix the template
     // rather than guess why nothing sent.
     expect(await screen.findByRole("alert")).toHaveTextContent("{{eventName}}");
+    // The reference is its own selectable value rather than a ULID glued to the end of a
+    // sentence, so it keeps a copy control of its own.
     expect(screen.getByRole("alert")).toHaveTextContent("send-trace");
+    expect(screen.getByRole("button", { name: "Copy the reference" })).toBeInTheDocument();
   });
 
   it("says nothing was sent when every speaker already has this version", async () => {
@@ -332,7 +381,7 @@ describe("sending a message to speakers from the console", () => {
     // promises mail that never goes, to an organizer who pressed Send because they were unsure.
     await waitFor(() =>
       expect(within(compose).getByRole("status")).toHaveTextContent(
-        "Nothing new to send: every reachable speaker already has speaker-welcome version 1. Save a new version to send a correction.",
+        "Nothing new to send: every reachable speaker already has version 1 of “You're speaking at Summit”. Save a new version to send a correction.",
       ),
     );
   });

@@ -21,10 +21,6 @@
   padding: var(--s-4) var(--s-5) 0;
 }
 
-.crm .crm-toolbar-row .toolbar .search {
-  max-width: 100%;
-}
-
 /*
  * Everything the directory renders *after* its table.
  *
@@ -38,17 +34,20 @@
   display: grid;
   gap: var(--s-3);
   padding: var(--s-5);
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--rule);
 }
-/* Each disclosure is its own block, so an open one is separable from the next by eye. */
+/*
+ * Each disclosure is its own block, so an open one is separable from the next by eye — but by a
+ * rule rather than by a frame. Three filled, bordered boxes stacked inside the bordered
+ * directory card was a border inside a border inside a border, and the tools read as three
+ * trapped panels rather than as three things this card can also do.
+ */
 .crm .crm-directory-tools .crm-details {
-  padding: var(--s-3) var(--s-4);
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  background: var(--surface-2);
+  padding: var(--s-2) 0;
+  border-top: 1px solid var(--rule);
 }
-.crm .crm-directory-tools .crm-details[open] {
-  background: var(--surface);
+.crm .crm-directory-tools .crm-details:first-of-type {
+  border-top: 0;
 }
 /* The contents of an open disclosure, which are otherwise a run of unspaced controls. */
 .crm .crm-directory-tools .crm-details[open] > *:not(summary) {
@@ -63,24 +62,19 @@
   margin-top: var(--s-3);
 }
 
+/* Every control on this rail captions itself, so unlike the labelled rails below it the row
+   centres on the control mid-line. (The switch is pushed to the far end of it beside the
+   segmented control's own rules, so that selector stays below this one.) */
+.crm .crm-toolbar-row .toolbar.crm-pipeline-rail {
+  align-items: center;
+}
+
 /* A label sits above its control, so a flex row centred on the box mid-line staggers the two:
    the saved-view select and the save-this-view input landed on different lines and read as
    unrelated. Top alignment puts the labels on one line and the controls on the next. */
 .crm .crm-toolbar-row .toolbar {
   align-items: start;
 }
-/* The save-view form is a labelled input with its own submit, so the button belongs beside
-   the box rather than under it. */
-.crm .crm-toolbar-row .toolbar > form.field {
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: var(--s-2);
-}
-.crm .crm-toolbar-row .toolbar > form.field > label {
-  grid-column: 1 / -1;
-  margin-bottom: -3px;
-}
-
 /* The tab strip is flush with the card edge so it reads as the table's header rail. */
 .crm .crm-toolbar-row .tabs {
   margin: 0 calc(-1 * var(--s-5));
@@ -92,11 +86,12 @@
   border-radius: 0;
 }
 
+/* Inset ground rather than a frame: this form is already inside the pipeline card, and a
+   bordered box inside a bordered card is the one nesting the system does not allow. */
 .crm .crm-create {
   display: grid;
   gap: var(--s-4);
   padding: var(--s-4);
-  border: 1px solid var(--line);
   border-radius: var(--r-md);
   background: var(--surface-2);
 }
@@ -113,14 +108,139 @@
   position: relative;
 }
 
-.crm .crm-skeletons {
-  display: grid;
-  gap: var(--s-2);
+/* The card body is `tight`, so a skeleton standing in for the table brings the padding the
+   table's own cells would have had. */
+.crm .crm-loading {
   padding: var(--s-5);
 }
-.crm .crm-skeletons > div {
+
+/*
+ * The structured criteria.
+ *
+ * `.grid-auto` floors a column at 240px, which in the 725px directory card resolved to two
+ * columns — five criteria in three rows, and the list an organizer came for starting 380px down
+ * the panel. Company, Title, Tags and a custom field key each hold a word; at a 180px floor the
+ * same five fit two rows and the table leads.
+ */
+.crm .crm-filter-grid {
   display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
+  gap: var(--s-3) var(--s-4);
+}
+
+/*
+ * Run the criteria, drop them, or keep them — one row.
+ *
+ * Saving a view has to be its own `<form>`, so it used to sit in a `.toolbar` of its own below
+ * the filter form's buttons: a caption, a box and a press on a line by themselves, reading as
+ * an unrelated fourth thing rather than as the third thing you can do with what you just typed.
+ */
+.crm .crm-filter-actions {
+  display: flex;
+  align-items: flex-end;
   gap: var(--s-2);
+  flex-wrap: wrap;
+  margin-top: var(--s-4);
+}
+.crm .crm-save-view {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--s-2);
+  margin-left: auto;
+  min-width: 260px;
+}
+.crm .crm-save-view > label {
+  grid-column: 1 / -1;
+  margin-bottom: -3px;
+}
+
+/* The criteria actually in force, each with the press that takes it off. */
+.crm .crm-criteria {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+/* `--r-md`, not `--r-full`: the full radius belongs to status pills alone, and a criterion is
+   a control you press to take a filter off rather than a state you read. */
+.crm .crm-criteria > li {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  padding: 2px 2px 2px var(--s-3);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+}
+.crm .crm-criteria strong {
+  color: var(--ink);
+  font-weight: var(--fw-medium);
+}
+
+/*
+ * The selection, stated where it is made.
+ *
+ * It resting quietly until something is selected is the point: an empty bar is a select-all and
+ * nothing else, and a bar with a count in it is a mode the reader is standing in.
+ */
+.crm .crm-bulk {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+  padding: var(--s-2) var(--s-5);
+  border-top: 1px solid var(--rule);
+  color: var(--slate);
+  font-size: var(--text-xs);
+}
+/* No bottom rule: the table header below draws its own, and the two together read as a boxed
+   strip rather than as the top of the list. */
+.crm .crm-bulk.is-active {
+  background: var(--green-soft);
+  border-color: var(--green-line);
+  color: var(--ink-2);
+}
+/* The bar is 12px metadata, so its one caption is too. */
+.crm .crm-bulk-all .choice {
+  font-size: var(--text-xs);
+}
+.crm .crm-bulk-all .choice-text {
+  font-weight: var(--fw-medium);
+}
+/*
+ * The row checkbox is a box and nothing else.
+ *
+ * `Checkbox` lays out as `16px minmax(0, 1fr)` so a caption can sit beside the box. A cell that
+ * ticks one row has no visible caption — its name is for a screen reader — so the caption track
+ * would otherwise reserve the whole column width for nothing.
+ */
+.crm .crm-select-cell .choice {
+  grid-template-columns: 16px;
+}
+.crm .crm-bulk-count {
+  color: var(--ink);
+  font-weight: var(--fw-medium);
+}
+
+/*
+ * The pipeline's cue gutter, and the one state it carries.
+ *
+ * The measure is when the row's next action falls due; overdue is the whole reason the table
+ * view exists ("who is stuck"), so it is stated in the gutter rather than as a pill halfway
+ * across the row. The spine and the 56px track come from `table.data td.gutter` in shell.css —
+ * this adds only the colour, so an overdue row reads as overdue before it is read at all.
+ */
+.crm .crm-table td.gutter.is-overdue .figure {
+  color: var(--danger-fg);
+  font-weight: var(--fw-semibold);
+}
+.crm .crm-table .sub.is-overdue {
+  color: var(--danger-fg);
+  font-weight: var(--fw-medium);
 }
 
 /* A row opens the detail panel, so its name is a button that still reads as the
@@ -131,26 +251,22 @@
   background: none;
   color: var(--ink);
   font-size: var(--text-sm);
-  font-weight: 620;
+  font-weight: var(--fw-medium);
   text-align: left;
 }
 .crm .crm-row-open:hover {
   background: none;
-  color: var(--green-800);
+  color: var(--green-strong);
   text-decoration: underline;
   text-underline-offset: 3px;
 }
 .crm .crm-row-open[aria-current="true"] {
-  color: var(--green-800);
+  color: var(--green-strong);
 }
 
-.crm table.data tr.is-selected {
-  background: var(--green-50);
-  box-shadow: inset 3px 0 0 var(--green-700);
-}
-.crm table.data tr.is-selected:hover {
-  background: var(--green-50);
-}
+/* The selected row's treatment is `table.data tbody tr[aria-selected="true"]` in shell.css. The
+   copy that used to live here was one of the three local variants that made one state look like
+   three, and both CRM tables now set the attribute instead. */
 
 /* The board's layout: one column, so the board gets the page and the detail panel follows it. */
 .crm .crm-stack {
@@ -181,14 +297,16 @@
 }
 .crm .pipeline-board-help {
   margin: 0;
-  color: var(--muted);
+  color: var(--slate);
   font-size: var(--text-xs);
 }
 .crm .pipeline-columns {
   display: grid;
   grid-auto-flow: column;
   grid-auto-columns: minmax(230px, 1fr);
-  gap: var(--s-3);
+  /* No gap: the columns carry their own gutter either side of the spine, and a gap on top of
+     that would put 37px between two stages that are 16px apart from the line. */
+  gap: 0;
   overflow-x: auto;
   padding-bottom: var(--s-2);
   /* The scroll container needs a zero floor or the columns push the page sideways instead. */
@@ -201,51 +319,99 @@
    * container keeps the card's "In Contacted" label where it belongs.
    */
   position: relative;
+
+  /*
+   * A scrolled-away column has to look scrolled away.
+   *
+   * The board is wider than the page at five stages and much wider at eight, and on macOS the
+   * overlay scrollbar is invisible at rest — so "Confirmed" was sliced down its middle by the
+   * card edge with nothing saying there was more. This is `.table-wrap`'s recipe (shell.css)
+   * at board scale: two `local` covers travel with the content and sit exactly on top of two
+   * `scroll` shadows pinned to the container's edges, so the cue appears only on the side that
+   * still has something to reach, and never on a board that fits.
+   */
+  background:
+    linear-gradient(to right, var(--surface) 24px, transparent) left center,
+    linear-gradient(to left, var(--surface) 24px, transparent) right center,
+    linear-gradient(to right, color-mix(in srgb, var(--slate) 75%, transparent), transparent) left
+    center,
+    linear-gradient(to left, color-mix(in srgb, var(--slate) 75%, transparent), transparent) right
+    center;
+  background-repeat: no-repeat;
+  background-size:
+    36px 100%,
+    36px 100%,
+    10px 100%,
+    10px 100%;
+  background-attachment: local, local, scroll, scroll;
 }
+
+/*
+ * A column is a track, not a box.
+ *
+ * It used to be a bordered, filled rectangle holding bordered, filled cards, inside the
+ * bordered pipeline card — three frames deep, and the reader counts frames before reading
+ * names. The spine does the separating instead: the same hairline the cue gutter runs down a
+ * queue, turned to stand between stages. One border depth survives, and it is the card.
+ */
 .crm .pipeline-column {
   display: grid;
   align-content: start;
   gap: var(--s-2);
-  padding: var(--s-3);
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  background: var(--surface-2);
+  padding: 0 var(--s-4);
+  border-left: 1px solid var(--rule);
   min-width: 0;
+}
+.crm .pipeline-column:first-child {
+  border-left: 0;
+  padding-left: 0;
 }
 /* The drop target says so while a card is over it; without this the only feedback is the
    cursor, and a drop that did nothing looks the same as one the column refused. */
 .crm .pipeline-column.is-over {
-  border-color: var(--green-700);
-  background: var(--green-50);
+  border-left-color: var(--green);
+  background: var(--green-soft);
 }
-/* Converted accepts no drops, because converting a prospect is what puts a card there. */
+/* Converted accepts no drops, because converting a prospect is what puts a card there. Its
+   spine is the one line on this board that is not solid. */
 .crm .pipeline-column.is-closed {
-  background: var(--surface);
-  border-style: dashed;
+  border-left-style: dashed;
 }
 .crm .pipeline-column-head {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: baseline;
-  justify-content: space-between;
   gap: var(--s-2);
+  padding-bottom: var(--s-2);
+  border-bottom: 1px solid var(--rule);
 }
 .crm .pipeline-column-head h3 {
   font-size: var(--text-sm);
-  font-weight: 650;
+  font-weight: var(--fw-semibold);
+}
+/*
+ * The count is what the column is about, so it is set as a measure rather than as a grey
+ * afterthought beside a pill that said "Open" on four columns out of five. The category pill
+ * survives only where the category is *not* open, which is the only time it tells anybody
+ * anything; the rest of the time the reader gets a number.
+ */
+.crm .pipeline-count {
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
+}
+.crm .pipeline-column.is-empty .pipeline-count {
+  color: var(--ink-4);
 }
 .crm .pipeline-column-meta {
   display: flex;
   align-items: center;
   gap: var(--s-2);
 }
-.crm .pipeline-count {
-  color: var(--muted);
-  font-size: var(--text-xs);
-  font-variant-numeric: tabular-nums;
-}
 .crm .pipeline-column-empty {
   margin: 0;
-  color: var(--muted);
+  padding-top: var(--s-1);
+  color: var(--slate);
   font-size: var(--text-xs);
 }
 .crm .pipeline-cards {
@@ -261,7 +427,7 @@
   gap: 2px;
   width: 100%;
   padding: var(--s-3);
-  border: 1px solid var(--line);
+  border: 1px solid var(--rule);
   border-radius: var(--r-md);
   background: var(--surface);
   color: var(--ink);
@@ -269,22 +435,31 @@
   cursor: grab;
 }
 .crm .pipeline-card:hover {
-  border-color: var(--line-strong);
+  border-color: var(--rule-strong);
   background: var(--surface);
 }
 .crm .pipeline-card.is-selected {
-  border-color: var(--green-700);
-  box-shadow: inset 3px 0 0 var(--green-700);
+  border-color: var(--green);
+  box-shadow: inset 3px 0 0 var(--green);
 }
 .crm .pipeline-card-name {
   font-size: var(--text-sm);
-  font-weight: 620;
+  font-weight: var(--fw-semibold);
 }
 .crm .pipeline-card-meta,
 .crm .pipeline-card-next {
-  color: var(--muted);
+  color: var(--slate);
   font-size: var(--text-xs);
   overflow-wrap: anywhere;
+}
+/* The card's measure: when its next action falls due, and whether that has already passed. */
+.crm .pipeline-card-due {
+  margin-top: var(--s-1);
+  color: var(--slate);
+}
+.crm .pipeline-card-due.is-overdue {
+  color: var(--danger-fg);
+  font-weight: var(--fw-semibold);
 }
 .crm .pipeline-stranded {
   margin: 0;
@@ -292,15 +467,48 @@
   font-size: var(--text-xs);
 }
 
+/*
+ * One segmented control, not two buttons and a link in a box.
+ *
+ * A bare `<fieldset>` keeps the user agent's own frame, so Board / Table / Configure stages
+ * rendered inside a full-width grey rectangle that read as a panel — a bordered thing inside
+ * the bordered pipeline card, holding two more bordered things. And the selected view said so
+ * only by tinting its own border, which at a metre is no signal at all. The group carries the
+ * one border; the chosen segment is the surface that lifts out of the inset track, and green
+ * marks it the way green marks every other selected rail in the product.
+ */
 .crm .pipeline-views {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: var(--s-2);
-  flex-wrap: wrap;
+  gap: 2px;
+  margin: 0;
+  padding: 2px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
 }
-.crm .pipeline-views .is-active {
-  border-color: var(--green-700);
-  color: var(--green-800);
+.crm .pipeline-views > button {
+  min-height: var(--control-h-sm);
+  border-color: transparent;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--ink-2);
+}
+.crm .pipeline-views > button:hover {
+  background: var(--surface);
+  border-color: transparent;
+  color: var(--ink);
+}
+.crm .pipeline-views > button.is-active {
+  background: var(--surface);
+  border-color: var(--green-line);
+  color: var(--green-strong);
+  font-weight: var(--fw-semibold);
+}
+/* The switch and the settings press sit at the far end of the rail, away from the search box
+   they have nothing to do with. */
+.crm .crm-pipeline-rail > .pipeline-views {
+  margin-left: auto;
 }
 
 /* --------------------------- stage settings ------------------------------ */
@@ -309,25 +517,26 @@
   display: grid;
   gap: var(--s-3);
   padding: var(--s-4) var(--s-5);
-  border-top: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
   background: var(--surface-2);
 }
 .crm .stage-editor-panel h3 {
   font-size: var(--text-sm);
-  font-weight: 650;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--muted);
+  font-weight: var(--fw-semibold);
+  color: var(--slate);
 }
 .crm .stage-editor {
   display: grid;
   gap: var(--s-4);
 }
+/* No gap: rows are separated by a rule rather than each boxed, because the editor panel is
+   already an inset band inside the pipeline card and a frame per stage was the third border
+   depth on the surface. A gap would cut that rule into ticks. */
 .crm .stage-list {
   list-style: none;
   display: grid;
-  gap: var(--s-2);
+  gap: 0;
   margin: 0;
   padding: 0;
 }
@@ -336,14 +545,14 @@
   grid-template-columns: auto minmax(0, 2fr) minmax(0, 2fr) auto;
   align-items: end;
   gap: var(--s-3);
-  padding: var(--s-3);
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  background: var(--surface);
+  padding: var(--s-3) 0;
+}
+.crm .stage-row + .stage-row {
+  border-top: 1px solid var(--rule);
 }
 .crm .stage-position {
   align-self: center;
-  color: var(--muted);
+  color: var(--slate);
   font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
 }
@@ -354,7 +563,7 @@
   flex-wrap: wrap;
 }
 .crm .stage-key {
-  color: var(--muted);
+  color: var(--slate);
   font-size: var(--text-2xs);
 }
 .crm .stage-actions {
@@ -365,20 +574,32 @@
   flex-wrap: wrap;
 }
 .crm .stage-locked {
-  color: var(--muted);
+  color: var(--slate);
   font-size: var(--text-xs);
 }
+/* A rail, not a frame. A full box in `--danger-fg` around a fieldset that already sits inside
+   an inset panel inside a card shouted through three borders; the leading rail is the same
+   idiom the product uses for a selected row, in the one colour that means "this destroys
+   something". */
 .crm .stage-remove {
   display: grid;
   gap: var(--s-3);
+  margin: 0;
   padding: var(--s-4);
-  border: 1px solid var(--danger-fg);
+  border: 0;
   border-radius: var(--r-md);
-  background: var(--surface);
+  background: var(--danger-bg);
+  box-shadow: inset 3px 0 0 var(--danger-fg);
+}
+.crm .stage-remove > legend {
+  padding: 0;
+  color: var(--danger-fg);
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
 }
 .crm .stage-remove h4 {
   font-size: var(--text-sm);
-  font-weight: 650;
+  font-weight: var(--fw-semibold);
 }
 .crm .stage-remove p {
   margin: 0;
@@ -424,6 +645,24 @@
     grid-auto-flow: row;
     grid-template-columns: minmax(0, 1fr);
     overflow-x: visible;
+    /* Nothing scrolls sideways here, so the scrolled-away cue would be a shadow with nothing
+       behind it. */
+    background: none;
+  }
+  /* Stacked, the spine between stages is horizontal: the separator has to follow the flow it
+     is separating, or the first column reads as the only one without a rule. */
+  .crm .pipeline-column,
+  .crm .pipeline-column:first-child {
+    padding: var(--s-3) 0 0;
+    border-left: 0;
+    border-top: 1px solid var(--rule);
+  }
+  .crm .pipeline-column:first-child {
+    border-top: 0;
+    padding-top: 0;
+  }
+  .crm .pipeline-column.is-closed {
+    border-top-style: dashed;
   }
   .crm .stage-editor-panel {
     padding: var(--s-3) var(--s-4);
@@ -439,11 +678,32 @@
 
 /* --------------------------- detail panel -------------------------- */
 
+/*
+ * The inspector: the detail column, and the reason opening a row is now visible.
+ *
+ * Sticky with its own scroll, so choosing the thirtieth prospect fills a panel that is on screen
+ * rather than one that is a screen and a half above the pointer. It also takes focus when it
+ * opens (`crm/inspector.tsx`), and below the width `.split` collapses at it is a Drawer instead —
+ * there is no second column to be sticky in at that point.
+ */
+.crm .crm-inspector {
+  position: sticky;
+  top: calc(var(--topbar-h) + var(--s-4));
+  max-height: calc(100dvh - var(--topbar-h) - var(--s-8));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-radius: var(--r-lg);
+}
+.crm .crm-inspector:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
 /* A long prospect name would otherwise push the Close action onto its own line. */
-.crm .split > .card:nth-child(2) > header {
+.crm .crm-inspector > .card > header {
   flex-wrap: nowrap;
 }
-.crm .split > .card:nth-child(2) > header > div:first-child {
+.crm .crm-inspector > .card > header > div:first-child {
   min-width: 0;
 }
 
@@ -457,10 +717,8 @@
 }
 .crm .crm-detail h3 {
   font-size: var(--text-sm);
-  font-weight: 650;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--muted);
+  font-weight: var(--fw-semibold);
+  color: var(--slate);
 }
 .crm .crm-detail form {
   display: grid;
@@ -470,43 +728,78 @@
   justify-self: start;
 }
 .crm .crm-help {
-  color: var(--muted);
+  color: var(--slate);
   font-size: var(--text-sm);
 }
 
+/* Rows in a list, not a stack of cards. Each entry was a bordered, filled box inside the
+   bordered inspector — and the inspector renders four of these lists, so a contact panel was
+   twenty small frames. One rule between rows says the same thing. */
 .crm .crm-contacts {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
-  gap: var(--s-2);
+  gap: 0;
 }
 .crm .crm-contacts > li {
   display: flex;
   align-items: baseline;
   gap: var(--s-2);
   flex-wrap: wrap;
-  padding: var(--s-2) var(--s-3);
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  background: var(--surface-2);
+  padding: var(--s-2) 0;
   font-size: var(--text-sm);
 }
+.crm .crm-contacts > li + li {
+  border-top: 1px solid var(--rule);
+}
 .crm .crm-contact-name {
-  font-weight: 620;
+  font-weight: var(--fw-semibold);
 }
 .crm .crm-contacts a {
   overflow-wrap: anywhere;
 }
 
+/*
+ * A disclosure, drawn rather than left to the user agent.
+ *
+ * Two defects in one line. The summary was `--green-strong`, and green in this product marks
+ * the primary action, the current nav item, the focus ring and the selected rail — a heading
+ * that merely opens a drawer is none of those, and six of them down a card made the page look
+ * like a list of links. And the twist marker was the platform's own `▶`, which is a different
+ * glyph on every operating system and the last piece of unowned chrome on this surface.
+ */
 .crm .crm-details > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-2) 0;
   cursor: pointer;
-  color: var(--green-800);
+  color: var(--ink);
   font-size: var(--text-sm);
-  font-weight: 620;
+  font-weight: var(--fw-medium);
+  list-style: none;
+}
+.crm .crm-details > summary::-webkit-details-marker {
+  display: none;
+}
+/* The chevron is two borders on a rotated square: no glyph, no font dependency, and it turns
+   with the disclosure rather than being swapped for a second character. */
+.crm .crm-details > summary::before {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid var(--slate);
+  border-bottom: 1.5px solid var(--slate);
+  transform: translateY(-1px) rotate(-45deg);
+  transition: transform 120ms ease;
+}
+.crm .crm-details[open] > summary::before {
+  transform: translateY(-2px) rotate(45deg);
 }
 .crm .crm-details[open] > summary {
-  margin-bottom: var(--s-3);
+  margin-bottom: var(--s-2);
 }
 
 /* ---------------------------- timeline ----------------------------- */
@@ -517,7 +810,7 @@
   padding: 0 0 0 var(--s-4);
   display: grid;
   gap: var(--s-4);
-  border-left: 2px solid var(--line);
+  border-left: 2px solid var(--rule);
 }
 .crm .crm-timeline > li {
   position: relative;
@@ -532,7 +825,7 @@
   height: 8px;
   border-radius: var(--r-full);
   background: var(--surface);
-  border: 2px solid var(--line-strong);
+  border: 2px solid var(--rule-strong);
 }
 .crm .crm-timeline-head {
   display: flex;
@@ -540,23 +833,23 @@
   gap: var(--s-2);
   flex-wrap: wrap;
   margin-bottom: 3px;
-  color: var(--muted);
+  color: var(--slate);
   font-size: var(--text-xs);
-}
-.crm .crm-timeline-head .pill {
-  text-transform: capitalize;
 }
 .crm .crm-timeline p {
   font-size: var(--text-sm);
 }
-.crm .crm-private {
-  padding: 1px 6px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-full);
-  font-size: var(--text-2xs);
-  font-weight: 650;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+/*
+ * A table's own sentence, left where the table starts.
+ *
+ * `<caption>` centres by default, so the one line explaining what a table counts sat centred
+ * over left-aligned columns under a left-aligned heading — three alignments in 80px.
+ */
+.crm table.data > caption {
+  padding-bottom: var(--s-3);
+  color: var(--slate);
+  font-size: var(--text-xs);
+  text-align: left;
 }
 
 /* The shared rule covers inputs and textareas; the owner control is the CRM's only select
@@ -573,10 +866,11 @@
     margin: 0 calc(-1 * var(--s-4));
     padding: 0 var(--s-4);
   }
-  .crm .crm-skeletons {
-    padding: var(--s-4);
-  }
+  .crm .crm-loading,
   .crm .crm-directory-tools {
     padding: var(--s-4);
+  }
+  .crm .crm-bulk {
+    padding-inline: var(--s-4);
   }
 }

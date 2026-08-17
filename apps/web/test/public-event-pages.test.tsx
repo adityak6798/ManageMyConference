@@ -170,6 +170,24 @@ function headingLevels(root: HTMLElement) {
   );
 }
 
+/**
+ * The *visible* text of each group heading on the schedule.
+ *
+ * A day heading is split across the measure column and the heading itself — "Sep 17" in the
+ * rail, "Thursday" beside it — so the two are read back together here. The first span is the
+ * screen-reader label, which carries the whole thing and is asserted separately. A group with
+ * no measure (a track, a room) leaves the rail empty.
+ */
+function dayHeadings(root: HTMLElement) {
+  return [...root.querySelectorAll(".pub-day > h2")].map((node) =>
+    [...node.querySelectorAll("span")]
+      .slice(1)
+      .map((span) => span.textContent)
+      .join(" ")
+      .trim(),
+  );
+}
+
 describe("public speaker gallery", () => {
   it("gives every speaker a headshot or a monogram tile", async () => {
     const { container } = mountAt(`/events/${SLUG}/speakers`);
@@ -179,16 +197,19 @@ describe("public speaker gallery", () => {
     expect(cards).toHaveLength(projection.speakers.length);
     for (const card of cards) expect(card.querySelectorAll(".pub-avatar")).toHaveLength(1);
 
-    // The one speaker with a photoUrl gets the image; the others get initials in the
-    // palette rather than an empty square.
+    // The one speaker with a photoUrl gets the image; the others get their initials on the
+    // shared tile rather than an empty square.
     const photo = container.querySelector<HTMLImageElement>("img.pub-avatar");
     expect(photo?.getAttribute("src")).toBe(PHOTO_URL);
     expect(photo?.getAttribute("alt")).toBe("");
     expect(
       [...container.querySelectorAll("span.pub-avatar")].map((node) => node.textContent),
     ).toEqual(["JB", "AR"]);
+    // One tile treatment, on the neutral ramp. The five hashed `tone-*` grounds are gone: four of
+    // them were the status pairs, so a gallery printed one speaker on the warn ground and another
+    // on the accent's green, colouring identity with the two colours that mean something else.
     for (const monogram of container.querySelectorAll("span.pub-avatar"))
-      expect(monogram.className).toMatch(/tone-\d/);
+      expect(monogram.className).not.toMatch(/tone-/);
     // No image on the page may be unlabelled, headshots included.
     expect(container.querySelectorAll("img:not([alt])")).toHaveLength(0);
   });
@@ -222,7 +243,9 @@ describe("public speaker gallery", () => {
     expect(headline?.textContent).toBe(
       "Professional headline: Community Director at Harbor Collective",
     );
-    expect(headline?.querySelector(".pub-sr")?.textContent).toBe("Professional headline: ");
+    expect(headline?.querySelector(".visually-hidden")?.textContent).toBe(
+      "Professional headline: ",
+    );
     expect(screen.getByText("Ana runs a volunteer-led community conference.")).toBeVisible();
 
     const sessions = within(screen.getByRole("region", { name: "Sessions" }));
@@ -238,7 +261,14 @@ describe("public speaker gallery", () => {
 
   it("renders an unknown speaker slug as a not-found page rather than a blank gallery", async () => {
     mountAt(`/events/${SLUG}/speakers/nobody-here`);
-    await screen.findByRole("heading", { level: 1, name: "Page not found" });
+    await screen.findByRole("heading", { level: 1, name: "That page is not here" });
+    // The projection is in hand, so the dead end keeps the event's own chrome and a way on
+    // rather than leaving the browser's Back button as the only exit.
+    expect(screen.getByRole("navigation", { name: "Event navigation" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "Browse the schedule" })).toHaveAttribute(
+      "href",
+      `/events/${SLUG}/schedule`,
+    );
   });
 
   /*
@@ -294,12 +324,15 @@ describe("public schedule", () => {
     const { container } = mountAt(`/events/${SLUG}/schedule`);
     await screen.findByRole("heading", { level: 1, name: "Plan your time" });
 
-    const days = [...container.querySelectorAll(".pub-day > h2")].map((node) => node.textContent);
-    expect(days).toEqual([
-      "Thursday, September 17",
-      "Friday, September 18",
+    // The date is the day's measure and rides the rail; the weekday is the heading. The whole
+    // label is still what a screen reader hears, because "Thursday" alone would name two
+    // different days of a fortnight-long programme identically.
+    expect(dayHeadings(container)).toEqual([
+      "Sep 17 Thursday",
+      "Sep 18 Friday",
       "Time to be announced",
     ]);
+    expect(screen.getByRole("heading", { name: "Thursday, September 17" })).toBeVisible();
 
     // Slots ascend within a day, and the two 10:00 sessions share one block whose end
     // reaches the later of the two.
@@ -317,7 +350,7 @@ describe("public schedule", () => {
     );
     expect(railTimes).toEqual(["2026-09-17T17:00:00.000Z", "2026-09-17T18:00:00.000Z"]);
     // The dash is decoration; a screen reader hears a word.
-    expect(firstSlot.querySelector(".pub-sr")?.textContent).toBe(" to ");
+    expect(firstSlot.querySelector(".visually-hidden")?.textContent).toBe(" to ");
     expect(firstSlot.querySelector("span[aria-hidden='true']")?.textContent).toBe("–");
   });
 
@@ -356,9 +389,7 @@ describe("public schedule", () => {
 
     fireEvent.click(within(switcher).getByRole("button", { name: "Track" }));
     await waitFor(() =>
-      expect(
-        [...container.querySelectorAll(".pub-day > h2")].map((node) => node.textContent),
-      ).toEqual(["Community", "Experience", "Operations"]),
+      expect(dayHeadings(container)).toEqual(["Community", "Experience", "Operations"]),
     );
     expect(within(switcher).getByRole("button", { name: "Track" })).toHaveAttribute(
       "aria-pressed",
@@ -371,20 +402,19 @@ describe("public schedule", () => {
 
     fireEvent.click(within(switcher).getByRole("button", { name: "Room" }));
     await waitFor(() =>
-      expect(
-        [...container.querySelectorAll(".pub-day > h2")].map((node) => node.textContent),
-      ).toEqual(["Atrium", "Bay Studio", "Cedar Hall", "Room to be announced"]),
+      expect(dayHeadings(container)).toEqual([
+        "Atrium",
+        "Bay Studio",
+        "Cedar Hall",
+        "Room to be announced",
+      ]),
     );
     // A session with no room is still reachable, in a named group that sorts last.
     const unplaced = container.querySelectorAll(".pub-day")[3] as HTMLElement;
     expect(within(unplaced).getByRole("link", { name: "Community office hours" })).toBeVisible();
 
     fireEvent.click(within(switcher).getByRole("button", { name: "List" }));
-    await waitFor(() =>
-      expect(
-        [...container.querySelectorAll(".pub-day > h2")].map((node) => node.textContent),
-      ).toEqual(["Every session in start order"]),
-    );
+    await waitFor(() => expect(dayHeadings(container)).toEqual(["Every session in start order"]));
     expect(
       [...container.querySelectorAll(".pub-session h3")].map((node) => node.textContent),
     ).toEqual([
@@ -489,12 +519,56 @@ describe("public schedule", () => {
     expect(screen.queryByRole("link", { name: "Closing notes" })).toBeNull();
 
     fireEvent.change(screen.getByLabelText("Search sessions"), { target: { value: "" } });
-    fireEvent.change(screen.getByLabelText("Track"), { target: { value: "Experience" } });
-    fireEvent.change(screen.getByLabelText("Format"), { target: { value: "Workshop" } });
-    fireEvent.change(screen.getByLabelText("Location"), { target: { value: "Bay Studio" } });
+    // The three facets are the shared Select now, so they are driven the way a keyboard user
+    // drives one: open, then commit the option.
+    const choose = (field: string, option: string) => {
+      const trigger = screen.getByRole("combobox", { name: field });
+      fireEvent.keyDown(trigger, { key: "ArrowDown" });
+      fireEvent.click(screen.getByRole("option", { name: option }));
+    };
+    choose("Track", "Experience");
+    choose("Format", "Workshop");
+    choose("Location", "Bay Studio");
 
     expect(screen.getByRole("link", { name: "Accessible by default" })).toBeVisible();
     expect(screen.getByRole("status")).toHaveTextContent("Showing 1 of 5 sessions");
+  });
+
+  /*
+   * A filtered programme is the thing people send each other. It used to live in React state
+   * alone: the address bar never changed, so a copied link handed the recipient the whole
+   * programme back and a reload threw the selection away.
+   */
+  it("carries the filters in the address bar, and clears them from one control", async () => {
+    mountAt(`/events/${SLUG}/sessions?track=Operations`);
+    await screen.findByRole("heading", { level: 1, name: "Sessions" });
+
+    // Seeded from the URL, so the link somebody sent opens on what they were looking at.
+    expect(screen.getByRole("status")).toHaveTextContent("Showing 2 of 5 sessions");
+    expect(screen.queryByRole("link", { name: "Accessible by default" })).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Search sessions"), { target: { value: "closing" } });
+    await waitFor(() => expect(window.location.search).toContain("q=closing"));
+    expect(window.location.search).toContain("track=Operations");
+
+    // The empty state used to name a control that did not exist anywhere on the page.
+    fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+    await waitFor(() => expect(window.location.search).toBe(""));
+    expect(screen.getByRole("status")).toHaveTextContent("Showing 5 of 5 sessions");
+    expect(screen.queryByRole("button", { name: "Clear filters" })).toBeNull();
+  });
+
+  it("leaves an embed's own query string alone", async () => {
+    // `track=` is how a host page configures the snippet, so writing a visitor's filter into
+    // this query string would rewrite the host's configuration from inside the frame.
+    mountAt(`/embed/events/${SLUG}/sessions?track=Operations`);
+    await screen.findByRole("heading", { level: 1, name: "Sessions" });
+
+    fireEvent.change(screen.getByLabelText("Search sessions"), { target: { value: "closing" } });
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent("Showing 1 of 5 sessions"),
+    );
+    expect(window.location.search).toBe("?track=Operations");
   });
 });
 
@@ -503,26 +577,29 @@ describe("public landing page", () => {
     const { container } = mountAt(`/events/${SLUG}`);
     await screen.findByRole("heading", { level: 1, name: "Greenroom Demo Summit" });
 
-    const kicker = container.querySelector(".pub-hero .kicker");
-    expect(kicker?.textContent).toBe("September 17–18, 2026 · Harbor Conference Center, Oakland");
-    expect(kicker?.textContent).not.toMatch(/\d{4}-\d{2}-\d{2}/);
+    // When and where are the two facts a visitor came for, so they are stated once, under the
+    // title, with the dates as the measure they are — not as a 12px caption above it.
+    const when = container.querySelector(".pub-hero-when");
+    expect(when?.textContent).toBe("September 17–18, 2026Harbor Conference Center, Oakland");
+    expect(when?.querySelector(".figure")?.textContent).toBe("September 17–18, 2026");
+    expect(when?.textContent).not.toMatch(/\d{4}-\d{2}-\d{2}/);
 
-    // Featured sessions row: the next few placed sessions, in order, with their rooms.
+    /*
+     * One session per day, which is what "at a glance" means on a programme. The first four in
+     * start order showed a visitor four sessions of Thursday morning and nothing at all about
+     * the rest of the conference.
+     */
     const glance = container.querySelector(".pub-glance") as HTMLElement;
     expect([...glance.querySelectorAll("li a")].map((node) => node.textContent)).toEqual([
       "Calm systems for busy event teams",
-      "The hallway track, on purpose",
-      "Accessible by default",
       "Closing notes",
     ]);
     expect(
+      [...glance.querySelectorAll(".pub-glance-when")].map((node) => node.textContent),
+    ).toEqual(["Sep 1710:00 AM", "Sep 189:00 AM"]);
+    expect(
       [...glance.querySelectorAll(".pub-glance-what p")].map((node) => node.textContent),
-    ).toEqual([
-      "Cedar Hall · Operations",
-      "Atrium · Community",
-      "Bay Studio · Experience",
-      "Cedar Hall · Operations",
-    ]);
+    ).toEqual(["Cedar Hall · Operations", "Cedar Hall · Operations"]);
 
     // Speaker strip: the gallery, with the same avatars the /speakers route draws.
     const strip = within(screen.getByRole("region", { name: "Speakers" }));
@@ -530,7 +607,15 @@ describe("public landing page", () => {
     expect(container.querySelectorAll(".pub-section .pub-speaker .pub-avatar")).toHaveLength(3);
 
     expect(container.querySelectorAll("main > section").length).toBeGreaterThanOrEqual(3);
-    expect(container.querySelector(".pub-facts")?.textContent).toContain("5 sessions · 3 speakers");
+    // The fact row states what the hero has not: dates and venue were repeated there verbatim,
+    // two inches below themselves.
+    const facts = container.querySelector(".pub-facts") as HTMLElement;
+    expect([...facts.querySelectorAll("dt")].map((node) => node.textContent)).toEqual([
+      "Time zone",
+      "Sessions",
+      "Speakers",
+    ]);
+    expect(facts.textContent).toContain("America/Los_Angeles (PDT)");
   });
 });
 
@@ -556,9 +641,7 @@ describe("embedded variants", () => {
     const switcher = screen.getByRole("group", { name: "Group the schedule by" });
     fireEvent.click(within(switcher).getByRole("button", { name: "Track" }));
     await waitFor(() =>
-      expect(
-        [...container.querySelectorAll(".pub-day > h2")].map((node) => node.textContent),
-      ).toEqual(["Community", "Experience", "Operations"]),
+      expect(dayHeadings(container)).toEqual(["Community", "Experience", "Operations"]),
     );
   });
 
@@ -680,7 +763,7 @@ describe("what the public surface says about the call for proposals", () => {
     // Still no offer to submit — the call is not taking anything yet.
     expect(within(side).queryByRole("link", { name: "Submit a proposal" })).toBeNull();
 
-    fireEvent.click(within(side).getByRole("link", { name: "Read the CFP" }));
+    fireEvent.click(within(side).getByRole("link", { name: "Read the call" }));
     await screen.findByRole("heading", { level: 1, name: "Share what you learned" });
     expect(container.textContent).toContain("Submissions open");
     expect(container.textContent).not.toContain("Submissions closed.");
@@ -721,7 +804,7 @@ describe("what the public surface says about the call for proposals", () => {
     const { container } = mountAt(`/events/${SLUG}`);
     await screen.findByRole("heading", { level: 1, name: "Greenroom Demo Summit" });
 
-    const cta = await screen.findByRole("link", { name: "Read the CFP" });
+    const cta = await screen.findByRole("link", { name: "Read the call" });
     expect(container.querySelector(".pub-cta-side")?.textContent).toContain("Closed");
     fireEvent.click(cta);
     await screen.findByRole("heading", { level: 1, name: "Share what you learned" });
@@ -833,7 +916,7 @@ describe("what the public surface says about the call for proposals", () => {
     const { container } = mountAt(`/events/${SLUG}`);
     await screen.findByRole("heading", { level: 1, name: "Greenroom Demo Summit" });
 
-    fireEvent.click(await screen.findByRole("link", { name: "Read the CFP" }));
+    fireEvent.click(await screen.findByRole("link", { name: "Read the call" }));
     await screen.findByRole("heading", { level: 1, name: "Share what you learned" });
 
     // The date, stated in the event's zone, even though the form itself is being withheld.
@@ -900,9 +983,174 @@ describe("what the public surface says about the call for proposals", () => {
 
     // Opening the call asks again: one closed while the visitor was reading the schedule
     // must not still be presented as open at the moment they go to submit.
-    fireEvent.click(screen.getByRole("link", { name: "CFP" }));
+    fireEvent.click(screen.getByRole("link", { name: "Call for proposals" }));
     await screen.findByRole("heading", { level: 1, name: "Share what you learned" });
     await waitFor(() => expect(cfpReads()).toBe(2));
+  });
+});
+
+/*
+ * The applicant's side of the call: what the form tells somebody before they write, and what it
+ * leaves them holding afterwards.
+ */
+describe("the public proposal form", () => {
+  const EVENT_ID = projection.event.eventId;
+  const CONFIRMATION = "70000000-0000-4000-8000-0000000000ff";
+
+  /** A published call with a short answer and a long one, the long one capped at 400. */
+  const form = {
+    cfp: {
+      eventId: EVENT_ID,
+      title: "Share what you learned",
+      description: "Submit a practical session for organizers and community builders.",
+      fields: [
+        {
+          id: "proposal-title",
+          type: "short_text",
+          label: "Proposal title",
+          guidance: "One line, as it should appear in the programme.",
+          required: true,
+          options: [],
+        },
+        {
+          id: "abstract",
+          type: "long_text",
+          label: "Abstract",
+          guidance: "",
+          required: false,
+          options: [],
+          maxLength: 400,
+        },
+      ],
+      status: "open",
+      version: 4,
+      publishedAt: "2026-08-01T16:00:00.000Z",
+      publishedStatus: "open",
+      opensAt: null,
+      closesAt: null,
+      effectiveStatus: "open",
+    },
+  };
+
+  let submissions = 0;
+
+  beforeEach(() => {
+    submissions = 0;
+    fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === `/api/public/events/${EVENT_ID}/cfp`)
+        return Promise.resolve(new Response(JSON.stringify(form), { status: 200 }));
+      if (url.endsWith("/submissions") && init?.method === "POST") {
+        submissions += 1;
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              submission: {
+                confirmationId: CONFIRMATION,
+                submittedAt: "2026-08-20T10:00:00.000Z",
+              },
+            }),
+            { status: 201 },
+          ),
+        );
+      }
+      if (url.includes(`/api/public/events/${SLUG}`))
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              projection,
+              publication: {
+                version: 7,
+                publishedAt: null,
+                provenance: {
+                  agendaVersion: 3,
+                  agendaPublishedAt: "2026-08-01T15:00:00.000Z",
+                  cfpVersion: 4,
+                  cfpPublishedAt: "2026-08-01T16:00:00.000Z",
+                  contentDigest: "fnv1a32:12345678",
+                  cause: "source-reconciled",
+                },
+              },
+            }),
+            { status: 200 },
+          ),
+        );
+      // No session: this is the anonymous applicant.
+      return Promise.resolve(new Response("{}", { status: 401 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  it("names the event the call belongs to, beside the form", async () => {
+    const { container } = mountAt(`/events/${SLUG}/cfp`);
+    await screen.findByRole("heading", { level: 1, name: "Share what you learned" });
+
+    // An applicant arrives here on a link somebody sent them; the column beside the form used
+    // to say nothing at all about the conference they would be speaking at.
+    const facts = (await waitFor(() => {
+      const node = container.querySelector(".pub-cfp-facts");
+      expect(node?.textContent).toContain("Greenroom Demo Summit");
+      return node;
+    })) as HTMLElement;
+    expect([...facts.querySelectorAll("dt")].map((node) => node.textContent)).toEqual([
+      "Event",
+      "Dates",
+      "Venue",
+      "Times shown in",
+    ]);
+    expect(facts.textContent).toContain("September 17–18, 2026");
+    expect(facts.textContent).toContain("America/Los_Angeles (PDT)");
+  });
+
+  it("advertises the per-field limit rather than letting the server refuse the proposal", async () => {
+    const { container } = mountAt(`/events/${SLUG}/cfp`);
+    const abstract = (await screen.findByLabelText("Abstract")) as HTMLTextAreaElement;
+
+    // `cfpFieldMaxLength` is documented as the limit the form must advertise, and nothing in
+    // the browser referenced it: a 3,000-character abstract was typed, submitted, and refused.
+    expect(abstract.maxLength).toBe(400);
+    expect(container.querySelector(".pub-field-count")?.textContent).toBe("0 / 400");
+    fireEvent.change(abstract, { target: { value: "x".repeat(350) } });
+    await waitFor(() =>
+      expect(container.querySelector(".pub-field-count")?.textContent).toBe("350 / 400"),
+    );
+    // Within a hundred of the limit, the counter says so rather than only counting.
+    expect(container.querySelector(".pub-field-count")?.className).toContain("is-near");
+  });
+
+  it("marks a required question with a word rather than an asterisk in its label", async () => {
+    mountAt(`/events/${SLUG}/cfp`);
+    const title = await screen.findByLabelText(/Proposal title/);
+
+    // The accessible name is the question, not "Proposal title star"; `required` is what
+    // announces the state, and the visible flag is the sighted half of the same fact.
+    expect(title).toBeRequired();
+    expect(screen.getByText("Required")).toHaveAttribute("aria-hidden", "true");
+    // Guidance is announced with the field rather than left as text beside it.
+    const guidance = document.getElementById("public-cfp-proposal-title-guidance");
+    expect(guidance?.textContent).toBe("One line, as it should appear in the programme.");
+    expect(title.getAttribute("aria-describedby")).toBe("public-cfp-proposal-title-guidance");
+  });
+
+  it("leaves an anonymous submitter holding the confirmation, not a notice the next click erases", async () => {
+    mountAt(`/events/${SLUG}/cfp`);
+    fireEvent.change(await screen.findByLabelText(/Proposal title/), {
+      target: { value: "Calm systems" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Submit proposal" }));
+
+    await screen.findByRole("heading", { level: 2, name: "Proposal received" });
+    expect(submissions).toBe(1);
+    // The reference is the only handle an unowned proposal has, so it is on the page with a
+    // way to take it, rather than in the live region five other actions write to.
+    expect(screen.getByText(CONFIRMATION)).toBeVisible();
+    expect(screen.getByRole("button", { name: "Copy Confirmation reference" })).toBeVisible();
+    // The form is gone rather than sitting there empty, and coming back is deliberate.
+    expect(screen.queryByRole("button", { name: "Submit proposal" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Submit another proposal" }));
+    expect(await screen.findByRole("button", { name: "Submit proposal" })).toBeVisible();
+    expect(screen.queryByText(CONFIRMATION)).toBeNull();
   });
 });
 
@@ -1197,12 +1445,34 @@ describe("390px safety rules in the public stylesheets", () => {
     expect(css).toContain(".pub-viewswitch button:focus-visible");
   });
 
-  it("collapses the day rail and the profile to one column on a phone", () => {
+  it("collapses the measure column and the profile to one column on a phone", () => {
     const css = pageStyles;
     const mobile = css.slice(css.indexOf("@media (max-width: 680px)"));
-    expect(mobile).toContain(".pub-slot {");
+    // Every surface that draws the rail collapses together: 6.5rem of a 390px screen is a
+    // sixth of its width, and one of the three staying gridded is how a phone gets a
+    // horizontal scrollbar.
+    expect(mobile).toContain(".pub-slot,");
+    expect(mobile).toContain(".pub-glance li,");
+    expect(mobile).toContain(".pub-proposal {");
     expect(mobile).toContain("grid-template-columns: minmax(0, 1fr);");
     expect(mobile).toContain(".pub-profile {");
+  });
+
+  /*
+   * The signature these pages are built on: one measure column, one continuous spine. The
+   * spine is a border on the measure cell rather than a rule between rows, which is what keeps
+   * it unbroken as rows change height.
+   */
+  it("draws the measure column against a continuous spine", () => {
+    const css = pageStyles;
+    for (const cell of [".pub-slot-time", ".pub-glance-when", ".pub-proposal-when"]) {
+      const rule = css.slice(css.indexOf(`${cell} {`), css.indexOf("}", css.indexOf(`${cell} {`)));
+      expect(rule, cell).toContain("border-right: var(--cue-spine) solid var(--rule)");
+    }
+    // The rows carry no gap, or the spine would break between every one of them.
+    const slots = css.slice(css.indexOf(".pub-slots {"), css.indexOf(".pub-slot {"));
+    expect(slots).toContain("gap: 0");
+    expect(css).toContain("font-family: var(--font-mono)");
   });
 
   it("keeps the sticky day heading on the site and drops it inside an embed", () => {
@@ -1241,7 +1511,10 @@ describe("an event published before anything is scheduled", () => {
     expect(container.textContent).toContain("Dates to be announced");
     // No dangling separator where the venue would have been.
     expect(container.textContent).not.toContain("· ·");
-    expect(container.querySelector(".kicker")?.textContent).toBe("Dates to be announced");
+    expect(container.querySelector(".pub-hero-when")?.textContent).toBe("Dates to be announced");
+    // An empty summary is not rendered at all: an empty paragraph reserved a line of
+    // hero-sized space under the title.
+    expect(container.querySelector(".pub-hero .lede")).toBeNull();
   });
 
   it("renders a schedule of unscheduled sessions in every view", async () => {

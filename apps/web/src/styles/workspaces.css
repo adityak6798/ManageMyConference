@@ -7,10 +7,7 @@
 
 /* ---------------------------- lists ---------------------------- */
 
-.plain-list,
-.proposal-list,
 .pipeline,
-.delivery-history,
 .session-list {
   list-style: none;
   margin: 0;
@@ -19,9 +16,20 @@
   gap: var(--s-2);
 }
 
+/* No gap. These rows separate with their own hairline, and the 8px they shared with the card
+   lists above floated every rule 8px clear of the row it belonged to — a line between two rows
+   that touched neither of them. */
+.plain-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0;
+}
+
 .plain-list > li {
   padding: var(--s-3) var(--s-5);
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--rule);
 }
 .plain-list > li:last-child {
   border-bottom: 0;
@@ -30,23 +38,17 @@
 .session-list .sub {
   display: block;
   margin-top: 2px;
-  color: var(--muted);
+  color: var(--slate);
   font-size: var(--text-xs);
 }
 
-.proposal-list > li,
-.evaluation-card,
 .pipeline > li,
 .placement,
 .session-list article {
   padding: var(--s-4);
-  border: 1px solid var(--line);
+  border: 1px solid var(--rule);
   border-radius: var(--r-md);
   background: var(--surface);
-}
-.proposal-list input[type="checkbox"],
-.proposal-list input[type="radio"] {
-  width: auto;
 }
 
 /* Definition lists carry submitted proposal answers; the flat UA style made them
@@ -57,13 +59,13 @@
   gap: var(--s-1) var(--s-4);
   margin: var(--s-3) 0 0;
   padding-top: var(--s-3);
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--rule);
   font-size: var(--text-sm);
 }
 .proposal-answers dt {
-  color: var(--muted);
+  color: var(--slate);
   font-size: var(--text-xs);
-  font-weight: 650;
+  font-weight: var(--fw-medium);
 }
 .proposal-answers dd {
   margin: 0;
@@ -72,97 +74,32 @@
 
 /* ---------------------------- rows ----------------------------- */
 
-.section-heading,
-.task-row,
-.metric-row {
+.section-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--s-4);
   flex-wrap: wrap;
 }
-.metric-row {
-  justify-content: flex-start;
-  gap: var(--s-2);
-  margin: var(--s-4) 0;
-}
-.metric-row span {
-  padding: var(--s-1) var(--s-3);
-  border-radius: var(--r-full);
-  background: var(--green-50);
-  color: var(--green-800);
-  font-size: var(--text-xs);
-  font-weight: 620;
-}
-
-.task-row {
-  padding: var(--s-3) 0;
-  border-top: 1px solid var(--line);
-}
-.task-row small {
-  display: block;
-  margin-top: 3px;
-  color: var(--muted);
-}
-
-.content-card {
-  padding: var(--s-4) 0;
-  border-top: 1px solid var(--line);
-}
-.content-card:first-of-type {
-  border-top: 0;
-}
-.content-card h3 {
-  margin: var(--s-1) 0;
-  font-size: var(--text-md);
-}
 
 /* --------------------------- status ---------------------------- */
 
-.status-pill,
-.delivery-state {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 9px;
-  border-radius: var(--r-full);
-  background: var(--neutral-bg);
-  color: var(--neutral-fg);
-  font-size: var(--text-xs);
-  font-weight: 650;
-  text-transform: capitalize;
-  white-space: nowrap;
-}
-.state-queued {
-  background: var(--info-bg);
-  color: var(--info-fg);
-}
-.state-retrying {
-  background: var(--warn-bg);
-  color: var(--warn-fg);
-}
-.state-succeeded {
-  background: var(--ok-bg);
-  color: var(--ok-fg);
-}
-.state-terminal {
-  background: var(--danger-bg);
-  color: var(--danger-fg);
-}
-
+/* A delivery state is a `<Pill>` with a tone now, so the four `.state-*` variants that restated
+   the pill's own tone pairs are gone with `.status-pill` and `.delivery-state`. */
 .outcome,
 .converted {
-  font-weight: 650;
+  font-weight: var(--fw-medium);
 }
 .success {
   color: var(--ok-fg);
-  font-weight: 650;
+  font-weight: var(--fw-medium);
 }
 .empty-text {
-  color: var(--muted);
+  color: var(--slate);
 }
 .error {
   color: var(--danger-fg);
-  font-weight: 620;
+  font-weight: var(--fw-medium);
 }
 
 /* --------------------------- CFP ------------------------------- */
@@ -170,14 +107,14 @@
 .cfp-field {
   margin: var(--s-4) 0;
   padding: var(--s-4);
-  border: 1px solid var(--line);
+  border: 1px solid var(--rule);
   border-radius: var(--r-md);
   background: var(--surface-2);
 }
 .cfp-field small {
   display: block;
   margin: -2px 0 var(--s-2);
-  color: var(--muted);
+  color: var(--slate);
 }
 .field-actions {
   display: flex;
@@ -185,19 +122,14 @@
   margin-top: var(--s-2);
   flex-wrap: wrap;
 }
-.checkbox-label {
-  display: flex;
-  align-items: center;
-  gap: var(--s-2);
-  font-weight: 550;
-}
-.checkbox-label input {
-  width: auto;
-}
+/* `.checkbox-label` stood here: a flex label around a bare `<input type="checkbox">`, and so a
+   caption beside a control the tier had stopped drawing. Every one of its call sites is a shared
+   `<Checkbox>` now — the reviewer-progress reminder picker, the round editor, the suggestion
+   panel — so the rule is gone with them. `tools/check-css-tokens.mjs` did not catch it: the two
+   components still name the class in the comment that records why they left it. */
 
 /* -------------------------- agenda ----------------------------- */
 
-.agenda-heading,
 .placement,
 .session-list article {
   display: flex;
@@ -206,13 +138,12 @@
   gap: var(--s-3);
   flex-wrap: wrap;
 }
-.agenda-grid,
 .session-list {
   display: grid;
   gap: var(--s-2);
 }
 .placement span {
-  color: var(--muted);
+  color: var(--slate);
   font-size: var(--text-sm);
 }
 .placement.conflict,
@@ -226,16 +157,6 @@
   border-radius: var(--r-md);
   color: var(--danger-fg);
 }
-.resource-editor {
-  margin: var(--s-4) 0;
-  padding: var(--s-4);
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-}
-.resource-editor summary {
-  cursor: pointer;
-  font-weight: 650;
-}
 .resource-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
@@ -246,24 +167,10 @@
 
 /* ----------------------- communications ------------------------ */
 
-.delivery-history > li {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--s-3);
-  flex-wrap: wrap;
-  padding: var(--s-3) 0;
-  border-top: 1px solid var(--line);
-}
-.delivery-history > li > div {
-  display: flex;
-  align-items: center;
-  gap: var(--s-3);
-}
 .attempt-history {
   flex-basis: 100%;
   margin: var(--s-1) 0 0 var(--s-5);
-  color: var(--muted);
+  color: var(--slate);
   font-size: var(--text-xs);
 }
 .attempt-history li {
@@ -274,9 +181,6 @@
 
 /* ---------------------------- CRM ------------------------------ */
 
-.crm-toolbar {
-  max-width: 260px;
-}
 .pipeline > li {
   display: flex;
   align-items: center;
@@ -288,7 +192,7 @@
   display: block;
 }
 .pipeline span {
-  color: var(--muted);
+  color: var(--slate);
   font-size: var(--text-sm);
   text-transform: capitalize;
 }
@@ -296,8 +200,7 @@
 /* --------------------------- misc ------------------------------ */
 
 .form-row,
-.persona-actions,
-.review-toolbar {
+.persona-actions {
   display: flex;
   gap: var(--s-2);
   flex-wrap: wrap;
@@ -315,8 +218,8 @@
   width: auto;
   min-height: 0;
   margin-top: var(--s-3);
-  color: var(--green-700);
-  font-weight: 650;
+  color: var(--green);
+  font-weight: var(--fw-medium);
   resize: none;
 }
 
@@ -331,8 +234,5 @@
   .resource-row,
   .proposal-answers {
     grid-template-columns: minmax(0, 1fr);
-  }
-  .crm-toolbar {
-    max-width: none;
   }
 }

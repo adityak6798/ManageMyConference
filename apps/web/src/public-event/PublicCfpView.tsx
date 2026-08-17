@@ -11,6 +11,7 @@
  */
 import {
   cfpConditionMatches,
+  cfpFieldMaxLength,
   type ProposalParticipantInput,
   type ProposalParticipantInvitationDto,
   type SessionDto,
@@ -35,8 +36,11 @@ import {
   startDemoSession,
   describeIdentityFailure,
 } from "../api/identity";
+import { CopyableSecret, Select } from "../ui/fields";
+import { IconCheck } from "../ui/icons";
+import { SUBMITTER_PROPOSAL_STATE_TERMS } from "../ui/vocabulary";
 import { Pill } from "./cards";
-import { fullTimeWithZone } from "./model";
+import { fullTimeWithZone, linkProps, shortDate } from "./model";
 import { ParticipantsEditor } from "../cfp/ParticipantsEditor";
 
 /**
@@ -49,13 +53,14 @@ import { ParticipantsEditor } from "../cfp/ParticipantsEditor";
  */
 type CfpStatus = "open" | "scheduled" | "closed" | "unknown";
 
-/** What a submitter's own proposal is called on the dashboard, per state. */
-const STATE_LABELS: Record<SubmitterProposalDto["state"], string> = {
-  draft: "Draft",
-  under_consideration: "Under consideration",
-  accepted: "Accepted",
-  declined: "Not accepted",
-};
+/**
+ * What a submitter's own proposal is called on the dashboard, and in what tone.
+ *
+ * From the shared vocabulary rather than a local map: the same four states are named in the
+ * organizer's review queue, and two surfaces that disagree about whether `declined` reads
+ * "Declined" or "Not accepted" are two products.
+ */
+const stateTerm = (state: SubmitterProposalDto["state"]) => SUBMITTER_PROPOSAL_STATE_TERMS[state];
 
 /**
  * The demo deployment's way in, and the reason it is offered here at all.
@@ -82,6 +87,7 @@ export function PublicCfpView({
   description,
   timezone,
   schedule,
+  event,
 }: {
   eventId: string;
   liveCfp: CfpFormDto | null;
@@ -100,12 +106,42 @@ export function PublicCfpView({
    * cannot be offered.
    */
   schedule: { opensAt: string | null; closesAt: string | null } | null;
+  /**
+   * The conference this call belongs to.
+   *
+   * An applicant usually reaches this page from a link somebody sent them rather than from the
+   * programme, and the column beside the form named neither the event, nor when it runs, nor
+   * where — the three things anybody decides on before writing an abstract.
+   *
+   * Optional because it is a description of the programme rather than of the call: a caller with
+   * no projection in hand — the form rendered on its own — states what it knows and omits the
+   * rest, instead of printing a row of empty definitions.
+   */
+  event?: {
+    name: string;
+    dates: string;
+    venue: string;
+    /** The zone's short name, when the programme's own week supplies one. */
+    zone: string;
+    /** Where the event's home page is, from wherever this page is being rendered. */
+    href: string;
+  };
 }) {
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [submissionKey, setSubmissionKey] = useState(() => crypto.randomUUID());
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
   const [submitting, setSubmitting] = useState(false);
   const [notice, setNotice] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
+  /**
+   * The confirmation an anonymous submission leaves behind, and the reason it is state rather
+   * than a notice.
+   *
+   * An unowned proposal has no dashboard: the reference is the only trace of it the applicant
+   * will ever hold. It used to go into the shared notice — the same element five other actions
+   * write to — at the same instant the typed abstract was cleared, so pressing anything
+   * afterwards, or reloading to check the form had really emptied, took it away for good.
+   */
+  const [confirmation, setConfirmation] = useState<string | null>(null);
   const [session, setSession] = useState<SessionDto | null>(null);
   const [doors, setDoors] = useState<AuthDoors | null>(null);
   const [proposals, setProposals] = useState<readonly SubmitterProposalDto[]>([]);
@@ -243,14 +279,14 @@ export function PublicCfpView({
     }
   }
 
-  /** Anonymous submission: unchanged, and the only path that produces an unowned proposal. */
+  /** Anonymous submission: the only path that produces a proposal with no owner to come back to. */
   const submitAnonymously = () =>
     guarded(async () => {
-      const confirmation = await submitProposal(eventId, answers, submissionKey, participants);
-      setNotice({
-        tone: "ok",
-        text: `Proposal received. Confirmation: ${confirmation.confirmationId}`,
-      });
+      const received = await submitProposal(eventId, answers, submissionKey, participants);
+      // The reference lands on a panel of its own that stays put; the shared notice says only
+      // that something happened, because the next action is about to overwrite it.
+      setConfirmation(received.confirmationId);
+      setNotice({ tone: "ok", text: "Proposal received. Your confirmation is below." });
       setSubmissionKey(crypto.randomUUID());
       setAnswers({});
       setParticipants([]);
@@ -580,32 +616,77 @@ export function PublicCfpView({
   const formOpen = liveCfp !== null && status === "open";
 
   return (
-    <article className="pub-detail">
-      <div className="pub-head">
-        <p className="kicker">Call for proposals</p>
-        <h1>{title}</h1>
-        <p className="pub-tz">
-          {status === "unknown" ? null : (
-            <Pill tone={status === "open" ? "ok" : "neutral"}>
-              {status === "open" ? "Open" : status === "scheduled" ? "Opening soon" : "Closed"}
-            </Pill>
-          )}
-          {statusLine}
-        </p>
-        {scheduleLine ? <p className="pub-tz pub-cfp-deadline">{scheduleLine}</p> : null}
-      </div>
-      <p className="lede">{description}</p>
-      {unavailable ? (
-        <p className="pub-notice is-error" role="alert">
-          {unavailable}
-        </p>
-      ) : null}
+    /*
+     * Two columns, and the aside spans every row of them.
+     *
+     * The old layout placed each child into the next free cell, so the first row's right-hand
+     * half stayed empty and the form began a whole heading-block below the top of the page —
+     * and `position: sticky` on the heading block did nothing at all, because a grid item's
+     * containing block is its own row and a one-row item has nowhere to travel. Spanning
+     * `1 / -1` is what makes the deadline stay beside the work.
+     */
+    <article className="pub-detail pub-cfp">
+      <aside className="pub-cfp-aside">
+        <div className="pub-head">
+          <h1>{title}</h1>
+          <p className="pub-tz">
+            {status === "unknown" ? null : (
+              <Pill tone={status === "open" ? "ok" : "neutral"}>
+                {status === "open" ? "Open" : status === "scheduled" ? "Opening soon" : "Closed"}
+              </Pill>
+            )}
+            {statusLine}
+          </p>
+          {scheduleLine ? <p className="pub-cfp-deadline">{scheduleLine}</p> : null}
+        </div>
+        <p className="lede">{description}</p>
+        {/*
+          Which conference, when, and where. The column had none of it: an applicant arriving on
+          a link had to leave the form to find out what they were proposing to.
+        */}
+        <dl className="pub-cfp-facts">
+          {event ? (
+            <>
+              <div>
+                <dt>Event</dt>
+                <dd>
+                  <a {...linkProps(event.href)}>{event.name}</a>
+                </dd>
+              </div>
+              <div>
+                <dt>Dates</dt>
+                <dd className="figure">{event.dates}</dd>
+              </div>
+              {event.venue ? (
+                <div>
+                  <dt>Venue</dt>
+                  <dd>{event.venue}</dd>
+                </div>
+              ) : null}
+            </>
+          ) : null}
+          <div>
+            <dt>Times shown in</dt>
+            <dd>
+              {timezone}
+              {event?.zone ? ` (${event.zone})` : ""}
+            </dd>
+          </div>
+        </dl>
+      </aside>
 
-      {signedIn ? (
-        <section className="pub-section" aria-labelledby="pub-my-proposals">
-          <div className="pub-section-head">
-            <h2 id="pub-my-proposals">Your proposals</h2>
-            {/*
+      <div className="pub-cfp-main">
+        {unavailable ? (
+          <p className="pub-notice is-error" role="alert">
+            {unavailable}
+          </p>
+        ) : null}
+
+        {signedIn ? (
+          <section className="pub-section" aria-labelledby="pub-my-proposals">
+            <div className="pub-section-head">
+              <h2 id="pub-my-proposals">Your proposals</h2>
+              {/*
               Disabled while a write is in flight, like every other control on this page.
               Switching which proposal the form is bound to *during* a save rebinds `answers`
               while the resolving save is still about to set `editing` — so the next save sent
@@ -614,299 +695,406 @@ export function PublicCfpView({
               whole new proposal was typed and then written over the previous one as a `PUT`,
               with no create issued at all.
             */}
-            {/*
+              {/*
               Offered whenever there is something on the form to leave, which is not the same as
               "a stored proposal is open". A new proposal that has been typed into is exactly the
               state the switch refusal points *at* this control from, and gating it on `editing`
               meant that refusal named a button the page was not rendering.
             */}
-            {formOpen && (editing !== null || formHasAnswers) ? (
-              <button
-                type="button"
-                className="pub-button"
-                disabled={submitting}
-                onClick={startFresh}
-              >
-                Start another proposal
-              </button>
-            ) : null}
-          </div>
-          {/*
+              {formOpen && (editing !== null || formHasAnswers) ? (
+                <button
+                  type="button"
+                  className="pub-button"
+                  disabled={submitting}
+                  onClick={startFresh}
+                >
+                  Start another proposal
+                </button>
+              ) : null}
+            </div>
+            {/*
             Who this is, and the way out.
             An applicant may well be on a shared or borrowed machine — this page is reached from a
             public link, not from a console somebody signed into on purpose — so the identity their
             proposals are being filed under is named, and leaving is one click rather than a trip
             through the organizer console they cannot open.
           */}
-          <p className="pub-note pub-signed-in">
-            Signed in as {session?.actor.name ?? "your account"}.{" "}
-            <button
-              type="button"
-              className="pub-linklike"
-              disabled={submitting}
-              onClick={() => {
-                // ERROR-INTENT: handlers cannot await; `guarded` renders the failure and the
-                // reload is what re-reads this page's identity from the API.
-                void guarded(
-                  async () => {
-                    await signOut();
-                    window.location.reload();
-                  },
-                  "Signing out did not work. Close the browser to be sure.",
-                  { refreshes: false },
-                );
-              }}
-            >
-              Sign out
-            </button>
-          </p>
-          {invitations.length ? (
-            <section aria-labelledby="participant-invitations-title">
-              <h3 id="participant-invitations-title">Co-presenter invitations</h3>
+            <p className="pub-note pub-signed-in">
+              Signed in as {session?.actor.name ?? "your account"}.{" "}
+              <button
+                type="button"
+                className="pub-linklike"
+                disabled={submitting}
+                onClick={() => {
+                  // ERROR-INTENT: handlers cannot await; `guarded` renders the failure and the
+                  // reload is what re-reads this page's identity from the API.
+                  void guarded(
+                    async () => {
+                      await signOut();
+                      window.location.reload();
+                    },
+                    "Signing out did not work. Close the browser to be sure.",
+                    { refreshes: false },
+                  );
+                }}
+              >
+                Sign out
+              </button>
+            </p>
+            {invitations.length ? (
+              <section aria-labelledby="participant-invitations-title">
+                <h3 id="participant-invitations-title">Co-presenter invitations</h3>
+                {/*
+                No measure column here, deliberately: an invitation carries no figure — no time,
+                no count, nothing to line up — and a gutter filled with a placeholder to keep the
+                rows looking alike would be decoration pretending to be structure.
+              */}
+                <ul className="pub-proposal-list">
+                  {invitations.map((invitation) => (
+                    <li className="pub-invite" key={invitation.participant.id}>
+                      <div>
+                        <p className="pub-proposal-title">
+                          {invitation.proposalTitle ?? "Untitled proposal"}
+                        </p>
+                        <p className="pub-note">
+                          Invited as{" "}
+                          {invitation.participant.role === "moderator"
+                            ? "moderator"
+                            : "co-presenter"}
+                          {invitation.participant.state === "pending"
+                            ? "."
+                            : ` · ${invitation.participant.state}.`}
+                        </p>
+                      </div>
+                      {invitation.participant.state === "pending" ? (
+                        <div className="pub-proposal-side">
+                          {(["accepted", "declined"] as const).map((state) => (
+                            <button
+                              className="pub-button"
+                              disabled={submitting}
+                              key={state}
+                              type="button"
+                              onClick={() => {
+                                // ERROR-INTENT: guarded reports rejection through the shared action feedback.
+                                void guarded(
+                                  async () => {
+                                    await respondToParticipantInvitation(invitation, state);
+                                    await refreshInvitations();
+                                  },
+                                  `The invitation could not be ${state === "accepted" ? "accepted" : "declined"}.`,
+                                );
+                              }}
+                            >
+                              {state === "accepted" ? "Accept invitation" : "Decline invitation"}
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
+            {proposals.length === 0 ? (
+              <p className="pub-note">
+                Nothing yet. Fill in the form below and save it as a draft, or submit it straight
+                away — either way it appears here.
+              </p>
+            ) : (
               <ul className="pub-proposal-list">
-                {invitations.map((invitation) => (
-                  <li className="pub-proposal" key={invitation.participant.id}>
-                    <div>
-                      <p className="pub-proposal-title">
-                        {invitation.proposalTitle ?? "Untitled proposal"}
-                      </p>
+                {proposals.map((proposal) => (
+                  <li key={proposal.id} className="pub-proposal">
+                    {/*
+                    A proposal's row is about when it last moved, so that date takes the measure
+                    column and the full instant stays in the row beneath the title, where it can
+                    be read in the event's zone without being abbreviated.
+                  */}
+                    <div className="pub-proposal-when">
+                      <span className="figure" aria-hidden="true">
+                        {shortDate(proposal.submittedAt ?? proposal.updatedAt, timezone)}
+                      </span>
+                    </div>
+                    <div className="pub-proposal-body">
+                      <p className="pub-proposal-title">{proposal.title ?? "Untitled proposal"}</p>
                       <p className="pub-note">
-                        Invited as{" "}
-                        {invitation.participant.role === "moderator" ? "moderator" : "co-presenter"}
-                        {invitation.participant.state === "pending"
-                          ? "."
-                          : ` · ${invitation.participant.state}.`}
+                        {proposal.submittedAt
+                          ? `Submitted ${inZone(proposal.submittedAt)}`
+                          : `Last saved ${inZone(proposal.updatedAt)}`}
                       </p>
                     </div>
-                    {invitation.participant.state === "pending" ? (
-                      <div className="pub-proposal-side">
-                        {(["accepted", "declined"] as const).map((state) => (
-                          <button
-                            className="pub-button"
-                            disabled={submitting}
-                            key={state}
-                            type="button"
-                            onClick={() => {
-                              // ERROR-INTENT: guarded reports rejection through the shared action feedback.
-                              void guarded(
-                                async () => {
-                                  await respondToParticipantInvitation(invitation, state);
-                                  await refreshInvitations();
-                                },
-                                `The invitation could not be ${state === "accepted" ? "accepted" : "declined"}.`,
-                              );
-                            }}
-                          >
-                            {state === "accepted" ? "Accept invitation" : "Decline invitation"}
-                          </button>
-                        ))}
-                      </div>
-                    ) : null}
+                    <div className="pub-proposal-side">
+                      <Pill tone={stateTerm(proposal.state).tone}>
+                        {stateTerm(proposal.state).label}
+                      </Pill>
+                      {formOpen ? (
+                        <button
+                          type="button"
+                          className="pub-button"
+                          // See `Start another proposal`: rebinding the form mid-write is how one
+                          // proposal's answers end up saved over another's.
+                          disabled={submitting}
+                          onClick={() => openForEditing(proposal)}
+                        >
+                          {proposal.lifecycle === "draft"
+                            ? `Continue ${proposal.title ?? "draft"}`
+                            : `Edit ${proposal.title ?? "proposal"}`}
+                        </button>
+                      ) : null}
+                    </div>
                   </li>
                 ))}
               </ul>
-            </section>
-          ) : null}
-          {proposals.length === 0 ? (
-            <p className="pub-note">
-              Nothing yet. Fill in the form below and save it as a draft, or submit it straight away
-              — either way it appears here.
-            </p>
-          ) : (
-            <ul className="pub-proposal-list">
-              {proposals.map((proposal) => (
-                <li key={proposal.id} className="pub-proposal">
-                  <div>
-                    <p className="pub-proposal-title">{proposal.title ?? "Untitled proposal"}</p>
-                    <p className="pub-note">
-                      {proposal.submittedAt
-                        ? `Submitted ${inZone(proposal.submittedAt)}`
-                        : `Last saved ${inZone(proposal.updatedAt)}`}
-                    </p>
-                  </div>
-                  <div className="pub-proposal-side">
-                    <Pill
-                      tone={
-                        proposal.state === "accepted"
-                          ? "ok"
-                          : proposal.state === "draft"
-                            ? "info"
-                            : "neutral"
-                      }
-                    >
-                      {STATE_LABELS[proposal.state]}
-                    </Pill>
-                    {formOpen ? (
-                      <button
-                        type="button"
-                        className="pub-button"
-                        // See `Start another proposal`: rebinding the form mid-write is how one
-                        // proposal's answers end up saved over another's.
-                        disabled={submitting}
-                        onClick={() => openForEditing(proposal)}
-                      >
-                        {proposal.lifecycle === "draft"
-                          ? `Continue ${proposal.title ?? "draft"}`
-                          : `Edit ${proposal.title ?? "proposal"}`}
-                      </button>
-                    ) : null}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-          {/* Stated rather than left to be discovered: after the deadline the list is a record. */}
-          {!formOpen && proposals.length > 0 ? (
-            <p className="pub-note">
-              The call is no longer open, so these can be read but not changed. A decision appears
-              here as soon as the organizers record one.
-            </p>
-          ) : null}
-        </section>
-      ) : null}
+            )}
+            {/* Stated rather than left to be discovered: after the deadline the list is a record. */}
+            {!formOpen && proposals.length > 0 ? (
+              <p className="pub-note">
+                The call is no longer open, so these can be read but not changed. A decision appears
+                here as soon as the organizers record one.
+              </p>
+            ) : null}
+          </section>
+        ) : null}
 
-      {/*
+        {/*
         The door is offered whenever the call can be *read*, not only while it is open.
         Gating it on `formOpen` left a signed-out applicant on a closed call with neither their
         dashboard nor any way to reach it — and a decision is normally recorded *after* the call
         closes, which makes that the main occasion for coming back at all. The invitation changes
         wording rather than disappearing.
       */}
-      {liveCfp !== null && status !== "unknown" && !signedIn ? (
-        <section className="pub-signin" aria-labelledby="pub-cfp-signin">
-          <h2 id="pub-cfp-signin">
-            {formOpen ? "Keep track of your proposal" : "Already proposed something?"}
-          </h2>
-          <p className="pub-note">
-            {formOpen
-              ? "Sign in and your drafts, revisions and decision stay on this page. You can submit without an account, but an anonymous proposal cannot be edited or followed afterwards."
-              : "Submissions are not open, but signing in shows the proposals on your account and any decision the organizers have recorded."}
-          </p>
-          <div className="pub-signin-doors">
-            {doors?.google ? (
-              /*
-               * `intent=submitter`, which is what stops this button handing somebody a conference.
-               *
-               * A first-time Google identity is otherwise given an organization named after them
-               * and an event called "Your first event" — right for somebody who pressed this on
-               * `/signin`, and an answer to a question nobody asked for somebody who pressed it
-               * here to keep track of a talk proposal. The parameter withholds that and grants
-               * nothing; signing in from `/signin` later still provisions the workspace.
-               */
-              <a className="pub-button" href="/api/auth/google/start?intent=submitter">
-                Continue with Google
-              </a>
-            ) : null}
-            {doors?.demoMode
-              ? DEMO_SUBMITTERS.map((identity) => (
-                  <button
-                    key={identity.persona}
-                    type="button"
-                    className="pub-button"
-                    disabled={submitting}
-                    onClick={() => {
-                      // ERROR-INTENT: handlers cannot await, and a demo sign-in has to re-read
-                      // the page's own identity, so the outcome is rendered by the reload.
-                      void guarded(
-                        async () => {
-                          await startDemoSession(identity.persona);
-                          window.location.reload();
-                        },
-                        "That demo identity could not be used.",
-                        // Signing *in* also reloads, and `signedIn` is still false here anyway.
-                        { refreshes: false },
-                      );
-                    }}
-                  >
-                    Continue as {identity.label}
-                  </button>
-                ))
-              : null}
-            {!doors?.google && !doors?.demoMode ? (
-              <p className="pub-note">
-                This deployment offers no sign-in, so proposals here are anonymous.
-              </p>
-            ) : null}
-          </div>
-        </section>
-      ) : null}
+        {liveCfp !== null && status !== "unknown" && !signedIn ? (
+          <section className="pub-signin" aria-labelledby="pub-cfp-signin">
+            <h2 id="pub-cfp-signin">
+              {formOpen ? "Keep track of your proposal" : "Already proposed something?"}
+            </h2>
+            <p className="pub-note">
+              {formOpen
+                ? "Sign in and your drafts, revisions and decision stay on this page. You can submit without an account, but an anonymous proposal cannot be edited or followed afterwards."
+                : "Submissions are not open, but signing in shows the proposals on your account and any decision the organizers have recorded."}
+            </p>
+            <div className="pub-signin-doors">
+              {doors?.google ? (
+                /*
+                 * `intent=submitter`, which is what stops this button handing somebody a conference.
+                 *
+                 * A first-time Google identity is otherwise given an organization named after them
+                 * and an event called "Your first event" — right for somebody who pressed this on
+                 * `/signin`, and an answer to a question nobody asked for somebody who pressed it
+                 * here to keep track of a talk proposal. The parameter withholds that and grants
+                 * nothing; signing in from `/signin` later still provisions the workspace.
+                 */
+                <a className="pub-button" href="/api/auth/google/start?intent=submitter">
+                  Continue with Google
+                </a>
+              ) : null}
+              {doors?.demoMode
+                ? DEMO_SUBMITTERS.map((identity) => (
+                    <button
+                      key={identity.persona}
+                      type="button"
+                      className="pub-button"
+                      disabled={submitting}
+                      onClick={() => {
+                        // ERROR-INTENT: handlers cannot await, and a demo sign-in has to re-read
+                        // the page's own identity, so the outcome is rendered by the reload.
+                        void guarded(
+                          async () => {
+                            await startDemoSession(identity.persona);
+                            window.location.reload();
+                          },
+                          "That demo identity could not be used.",
+                          // Signing *in* also reloads, and `signedIn` is still false here anyway.
+                          { refreshes: false },
+                        );
+                      }}
+                    >
+                      Continue as {identity.label}
+                    </button>
+                  ))
+                : null}
+              {!doors?.google && !doors?.demoMode ? (
+                <p className="pub-note">
+                  This deployment offers no sign-in, so proposals here are anonymous.
+                </p>
+              ) : null}
+            </div>
+          </section>
+        ) : null}
 
-      {formOpen ? (
-        <form className="pub-form" onSubmit={onFormSubmit}>
-          {/*
+        {/*
+        Where an anonymous proposal lands, and it stays there.
+        The reference is the only handle an unowned proposal has: no dashboard lists it, no email
+        confirms it. It used to be written into the shared notice at the same instant the abstract
+        was cleared, so the next click — including the one that started another proposal — took it
+        away, and reloading to check the submission had gone through lost it for good.
+      */}
+        {formOpen && confirmation ? (
+          <div className="pub-outcome">
+            <span className="pub-outcome-glyph" aria-hidden="true">
+              <IconCheck />
+            </span>
+            <h2>Proposal received</h2>
+            <CopyableSecret
+              label="Confirmation reference"
+              value={confirmation}
+              hint="Keep this. It is the only reference to an anonymous proposal, and the organizers will ask for it if you need to reach them about it."
+            />
+            <p>
+              Nobody signed in, so this proposal cannot be edited or followed from this page. Sign
+              in before submitting the next one if you would rather keep track of it here.
+            </p>
+            <div className="pub-form-actions">
+              <button
+                type="button"
+                className="pub-button"
+                onClick={() => {
+                  setConfirmation(null);
+                  setNotice(null);
+                }}
+              >
+                Submit another proposal
+              </button>
+            </div>
+          </div>
+        ) : formOpen ? (
+          <form className="pub-form" onSubmit={onFormSubmit}>
+            {/*
             Which proposal the form is bound to. Deliberately *not* a live region: the notice at the
             bottom is the one, and two of them competing means a screen reader announces whichever
             React happened to update second. Opening a proposal for editing announces itself
             through that notice instead.
           */}
-          {editing ? (
-            <p className="pub-note">
-              Editing {editing.title ?? "your proposal"} ·{" "}
-              {editing.lifecycle === "draft" ? "draft" : "already submitted"}
-            </p>
-          ) : null}
-          {(liveCfp?.fields ?? [])
-            .filter((field) => cfpConditionMatches(field.visibleWhen, answers))
-            .map((field) => {
-              const errors = fieldErrors[`answers.${field.id}`] ?? [];
-              const errorId = `public-cfp-${field.id}-error`;
-              const shared = {
-                id: `public-cfp-${field.id}`,
-                required: field.required,
-                "aria-invalid": errors.length > 0,
-                "aria-describedby": errors.length ? errorId : undefined,
-                value: answers[field.id] ?? "",
-                onChange: (event: { target: { value: string } }) =>
+            {editing ? (
+              <p className="pub-note">
+                Editing {editing.title ?? "your proposal"} ·{" "}
+                {editing.lifecycle === "draft" ? "draft" : "already submitted"}
+              </p>
+            ) : null}
+            {(liveCfp?.fields ?? [])
+              .filter((field) => cfpConditionMatches(field.visibleWhen, answers))
+              .map((field) => {
+                const errors = fieldErrors[`answers.${field.id}`] ?? [];
+                const id = `public-cfp-${field.id}`;
+                const errorId = `${id}-error`;
+                const guidanceId = `${id}-guidance`;
+                const value = answers[field.id] ?? "";
+                /*
+                 * The limit the contract already knows.
+                 *
+                 * `cfpFieldMaxLength` is documented as "the limit the form builder must advertise
+                 * and the validator must enforce", and only the second half was true here: an
+                 * applicant wrote a 3,000-character abstract into a 2,000-character field and
+                 * found out when the server refused the whole proposal, with the text still only
+                 * in the textarea.
+                 */
+                const limit = cfpFieldMaxLength(field);
+                const remaining = limit - value.length;
+                const setAnswer = (next: string) =>
                   setAnswers((current) => {
-                    const updated = { ...current, [field.id]: event.target.value };
+                    const updated = { ...current, [field.id]: next };
                     for (const candidate of liveCfp?.fields ?? [])
                       if (!cfpConditionMatches(candidate.visibleWhen, updated))
                         delete updated[candidate.id];
                     return updated;
-                  }),
-              };
-              return (
-                <div className="pub-cfp-field" key={field.id}>
-                  <label htmlFor={shared.id}>
+                  });
+                // Guidance is part of what the field is asking for, so it is announced with the
+                // field rather than left as text a screen reader passes on the way past.
+                const describedBy =
+                  [field.guidance ? guidanceId : "", errors.length ? errorId : ""]
+                    .filter(Boolean)
+                    .join(" ") || undefined;
+                const shared = {
+                  id,
+                  required: field.required,
+                  maxLength: limit,
+                  "aria-invalid": errors.length > 0,
+                  "aria-describedby": describedBy,
+                  className: "control",
+                  value,
+                  onChange: (event: { target: { value: string } }) => setAnswer(event.target.value),
+                };
+                /*
+                 * "Required" as its own word, not an asterisk inside the label — a screen reader
+                 * read "Abstract star". The native `required` attribute is what announces the
+                 * state, so this is only the sighted half of the same fact.
+                 */
+                const caption = (
+                  <>
                     {field.label}
-                    {field.required ? " *" : ""}
-                  </label>
-                  {field.guidance ? <small>{field.guidance}</small> : null}
-                  {field.type === "long_text" ? (
-                    <textarea {...shared} />
-                  ) : field.type === "select" ? (
-                    <select {...shared}>
-                      <option value="">Choose an option</option>
-                      {(
-                        field.choices ??
-                        field.options.map((label) => ({ id: label, label, active: true }))
-                      )
-                        .filter(({ active }) => active)
-                        .map((option) => (
-                          <option key={option.id} value={option.id}>
-                            {option.label}
-                          </option>
+                    {field.required ? (
+                      <span className="pub-req" aria-hidden="true">
+                        Required
+                      </span>
+                    ) : null}
+                  </>
+                );
+                return (
+                  <div className="pub-form-field" key={field.id}>
+                    {/* The select brings its own label, hint and error from the shared control:
+                      a second one pointing at the same id would name it twice. */}
+                    {field.type === "select" ? (
+                      <Select
+                        id={id}
+                        label={caption}
+                        required={field.required}
+                        value={value || null}
+                        onChange={setAnswer}
+                        placeholder="Choose an option"
+                        hint={field.guidance || undefined}
+                        error={errors.length ? errors : undefined}
+                        options={(
+                          field.choices ??
+                          field.options.map((label) => ({ id: label, label, active: true }))
+                        )
+                          .filter(({ active }) => active)
+                          .map((option) => ({ value: option.id, label: option.label }))}
+                      />
+                    ) : (
+                      <>
+                        <label htmlFor={id}>{caption}</label>
+                        {field.guidance ? (
+                          <p className="pub-hint" id={guidanceId}>
+                            {field.guidance}
+                          </p>
+                        ) : null}
+                        {field.type === "long_text" ? (
+                          <textarea {...shared} />
+                        ) : (
+                          <input {...shared} type={field.type === "email" ? "email" : "text"} />
+                        )}
+                      </>
+                    )}
+                    {/*
+                    Shown on the long answers, where the limit is a real constraint on what
+                    somebody is writing. Not a live region: announcing a number on every
+                    keystroke would bury the guidance this field just gave.
+                  */}
+                    {field.type === "long_text" ? (
+                      <p
+                        className={`pub-field-count figure${
+                          remaining === 0 ? " is-full" : remaining <= 100 ? " is-near" : ""
+                        }`}
+                        aria-hidden="true"
+                      >
+                        {value.length} / {limit}
+                      </p>
+                    ) : null}
+                    {errors.length && field.type !== "select" ? (
+                      <ul id={errorId} className="pub-field-errors">
+                        {errors.map((message) => (
+                          <li key={message}>{message}</li>
                         ))}
-                    </select>
-                  ) : (
-                    <input {...shared} type={field.type === "email" ? "email" : "text"} />
-                  )}
-                  {errors.length ? (
-                    <ul id={errorId} className="pub-field-errors">
-                      {errors.map((message) => (
-                        <li key={message}>{message}</li>
-                      ))}
-                    </ul>
-                  ) : null}
-                </div>
-              );
-            })}
-          <ParticipantsEditor
-            participants={participants}
-            onChange={setParticipants}
-            disabled={submitting}
-          />
-          {/*
+                      </ul>
+                    ) : null}
+                  </div>
+                );
+              })}
+            <ParticipantsEditor
+              participants={participants}
+              onChange={setParticipants}
+              disabled={submitting}
+            />
+            {/*
             Two shapes, decided by what is on the form rather than by what the API would accept.
 
             A proposal that has already been submitted cannot be submitted again — the service
@@ -914,73 +1102,78 @@ export function PublicCfpView({
             is an error message. Editing one offers a save and nothing else; everything unsubmitted
             offers both, with the submit as the primary action.
           */}
-          <div className="pub-form-actions">
-            {editing?.lifecycle === "submitted" ? (
-              <button
-                className="primary"
-                type="button"
-                disabled={submitting}
-                onClick={() => {
-                  // ERROR-INTENT: handlers cannot await; saveDraft renders its own outcome.
-                  void saveDraft();
-                }}
-              >
-                {submitting ? "Saving…" : "Save changes"}
-              </button>
-            ) : (
-              <>
-                <button className="primary" type="submit" disabled={submitting}>
-                  {submitting ? "Submitting…" : "Submit proposal"}
+            <div className="pub-form-actions">
+              {editing?.lifecycle === "submitted" ? (
+                <button
+                  className="primary"
+                  type="button"
+                  disabled={submitting}
+                  onClick={() => {
+                    // ERROR-INTENT: handlers cannot await; saveDraft renders its own outcome.
+                    void saveDraft();
+                  }}
+                >
+                  {submitting ? "Saving…" : "Save changes"}
                 </button>
-                {/*
+              ) : (
+                <>
+                  <button className="primary" type="submit" disabled={submitting}>
+                    {submitting ? "Submitting…" : "Submit proposal"}
+                  </button>
+                  {/*
                   A draft needs an owner, so this control exists only for a signed-in applicant.
                   Offering it to everybody and refusing on press would be a button that lies.
                 */}
-                {signedIn ? (
-                  <button
-                    type="button"
-                    className="pub-button"
-                    disabled={submitting}
-                    onClick={() => {
-                      // ERROR-INTENT: handlers cannot await; saveDraft renders its own outcome.
-                      void saveDraft();
-                    }}
-                  >
-                    Save draft
-                  </button>
-                ) : null}
-              </>
-            )}
-          </div>
-        </form>
-      ) : status === "unknown" ? null : (
-        <p className="pub-notice" role="status">
-          {status === "scheduled"
-            ? "This call is not open for submissions yet. The form appears here when it opens."
-            : "This call is closed and is no longer accepting submissions."}
-        </p>
-      )}
-      {/*
+                  {signedIn ? (
+                    <button
+                      type="button"
+                      className="pub-button"
+                      disabled={submitting}
+                      onClick={() => {
+                        // ERROR-INTENT: handlers cannot await; saveDraft renders its own outcome.
+                        void saveDraft();
+                      }}
+                    >
+                      Save draft
+                    </button>
+                  ) : null}
+                </>
+              )}
+            </div>
+          </form>
+        ) : status === "unknown" ? null : (
+          <p className="pub-notice" role="status">
+            {status === "scheduled"
+              ? "This call is not open for submissions yet. The form appears here when it opens."
+              : "This call is closed and is no longer accepting submissions."}
+          </p>
+        )}
+        {/*
         One element, always mounted, whose class and text change — the pattern `ui/primitives.tsx`
         documents, for the reason it gives there: a live region swapped in at the moment its first
         message arrives is commonly missed by assistive technology, and this notice is now the only
         spoken outcome of five different actions.
       */}
-      <p
-        className={
-          notice ? (notice.tone === "error" ? "pub-notice is-error" : "pub-notice") : "pub-sr"
-        }
-        role={notice?.tone === "error" ? "alert" : "status"}
-        aria-live={notice?.tone === "error" ? undefined : "polite"}
-      >
-        {/*
+        <p
+          className={
+            notice
+              ? notice.tone === "error"
+                ? "pub-notice is-error"
+                : "pub-notice"
+              : "visually-hidden"
+          }
+          role={notice?.tone === "error" ? "alert" : "status"}
+          aria-live={notice?.tone === "error" ? undefined : "polite"}
+        >
+          {/*
           No blanket prefix. This served one action — an anonymous submission — when it took a
           "Not submitted — " prefix, and now serves five, where the prefix was at best irrelevant
           and at worst self-contradicting: "Not submitted — This proposal has already been
           submitted." `report` names the action in the message instead.
         */}
-        {notice?.text ?? ""}
-      </p>
+          {notice?.text ?? ""}
+        </p>
+      </div>
     </article>
   );
 }

@@ -214,6 +214,63 @@ describe("the organization-wide speaker directory", () => {
     expect(screen.getByLabelText<HTMLInputElement>("Company").value).toBe("");
   });
 
+  /*
+   * Free text searches as it is typed; the structured criteria keep their Apply. A directory is
+   * the surface people arrive at knowing a name, and typing one and then hunting for a button is
+   * the thing the pipeline beside it already got right.
+   */
+  it("searches as the name is typed, without an Apply press", async () => {
+    const { seen } = stubApi(directoryRoutes([contact()]));
+    mount();
+    await screen.findByRole("button", { name: "Dr. Ada Rivera" });
+    const before = seen.length;
+
+    fireEvent.change(screen.getByLabelText("Search directory"), { target: { value: "Rivera" } });
+    // Nothing yet: a request per keystroke is what the debounce exists to prevent.
+    expect(seen.length).toBe(before);
+    await waitFor(() =>
+      expect(seen.some((request) => request.includes("search=Rivera"))).toBe(true),
+    );
+  });
+
+  it("shows the criteria in force as chips, and takes one off without clearing the rest", async () => {
+    const { seen } = stubApi(
+      directoryRoutes([contact()], { company: "Northwind Access", title: "Principal Engineer" }),
+    );
+    mount();
+    await screen.findByRole("button", { name: "Dr. Ada Rivera" });
+
+    const chips = await screen.findByRole("list", { name: "Filters in force" });
+    expect(within(chips).getByText("Northwind Access")).toBeTruthy();
+    fireEvent.click(within(chips).getByRole("button", { name: "Remove the Company filter" }));
+
+    // The other criterion is still asked for: removing a chip narrows the question rather than
+    // resetting it, which is what "Clear filters" is for.
+    await waitFor(() =>
+      expect(
+        seen.some(
+          (request) =>
+            request.includes("title=Principal+Engineer") && !request.includes("company="),
+        ),
+      ).toBe(true),
+    );
+  });
+
+  it("reports the selection where it is made, and clears it from there", async () => {
+    stubApi(directoryRoutes([contact(), morgan()]));
+    mount();
+    await screen.findByRole("button", { name: "Dr. Ada Rivera" });
+
+    fireEvent.click(screen.getByLabelText("Select every contact in this list"));
+    expect(screen.getByText("2", { selector: ".crm-bulk-count .figure" })).toBeTruthy();
+    // The outreach action is promoted into the bar, rather than living in a disclosure hundreds
+    // of pixels below the rows that were ticked — and there is still exactly one of it.
+    expect(screen.getByRole("button", { name: "Preview outreach" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear selection" }));
+    expect(screen.queryByText("2", { selector: ".crm-bulk-count .figure" })).toBeNull();
+  });
+
   it("reopens a saved view by its identity, and saves the current filters as a new one", async () => {
     const { seen, sent } = stubApi((url, method) => {
       if (url.includes("/crm/segments") && method === "POST")
@@ -223,7 +280,12 @@ describe("the organization-wide speaker directory", () => {
     mount();
     await screen.findByRole("button", { name: "Dr. Ada Rivera" });
 
-    fireEvent.change(screen.getByLabelText("Saved views"), { target: { value: segmentId } });
+    // A listbox trigger, not a select: opening it is not choosing, and choosing takes a
+    // deliberate press. The control this replaced applied a whole stored filter set on every
+    // value change, which for a keyboard user arrowing a closed list is one request per press.
+    const savedViews = screen.getByRole("combobox", { name: "Saved views" });
+    fireEvent.keyDown(savedViews, { key: "ArrowDown" });
+    fireEvent.click(screen.getByRole("option", { name: "Keynote shortlist" }));
     // Reopening sends the segment's id, so the server resolves the stored definition rather than
     // trusting a client-rebuilt copy of it.
     await waitFor(() =>
@@ -359,10 +421,10 @@ describe("the organization-wide speaker directory", () => {
     mount();
 
     // The rule needs event-to-organization data the browser does not hold, so the workspace
-    // shows what the server said instead of guessing that the list is simply empty.
-    expect(
-      await screen.findByRole("heading", { name: "The speaker directory could not be loaded" }),
-    ).toBeTruthy();
+    // shows what the server said instead of guessing that the list is simply empty. It is the
+    // shared `LoadFailure` now, which is a notice carrying a retry rather than an empty state.
+    expect(await screen.findByText("The speaker directory could not be loaded")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
     // The refusal and its correlation id, so a user can quote something the log can be found by.
     expect(screen.getByText(/Your account cannot perform this action/)).toBeTruthy();
     expect(screen.getByText(/correlation-1/)).toBeTruthy();

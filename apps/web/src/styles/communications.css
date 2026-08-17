@@ -1,8 +1,12 @@
 /*
- * Communications outbox.
+ * Communications.
  *
- * Scoped under .comms so these rules extend the shared delivery-state pills and the
- * data table without depending on which stylesheet the bundler injects first.
+ * Two jobs share this surface: writing a message and watching what happened to it. Both are page
+ * regions rather than cards now — a heading and space — so what is left here is the rhythm of the
+ * composer's own parts and the delivery table's restack.
+ *
+ * Scoped under .comms so these rules extend the shared pills and the data table without depending
+ * on which stylesheet the bundler injects first.
  */
 
 /* minmax(0, 1fr) stops the wide delivery table from stretching the page: without it
@@ -10,52 +14,18 @@
 .comms {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: var(--s-5);
+  gap: var(--s-8);
 }
 
 .comms .comms-toolbar {
   display: grid;
   gap: var(--s-3);
-  padding: var(--s-4) var(--s-5) 0;
-}
-.comms .comms-toolbar .tabs {
-  margin: 0 calc(-1 * var(--s-5));
-  padding: 0 var(--s-5);
+  margin-bottom: var(--s-3);
 }
 /* .tab inherits the shared button radius, which bows the selected underline into a
    rounded box. Straighten it here until the primitive resets it. */
 .comms .comms-toolbar .tab {
   border-radius: 0;
-}
-
-.comms .comms-skeletons {
-  display: grid;
-  gap: var(--s-2);
-  padding: var(--s-5);
-}
-.comms .comms-skeletons > div {
-  display: grid;
-  gap: var(--s-2);
-}
-
-/* What the skeleton becomes when the history cannot be read: the reason, then the retry.
-   The card is `tight`, so this block carries the padding the rows would have had. */
-.comms .comms-failure {
-  display: grid;
-  gap: var(--s-3);
-  padding: var(--s-5) var(--s-5) 0;
-}
-.comms .comms-failure .empty {
-  padding-top: var(--s-6);
-}
-
-/* The state pill gains room for its icon; the icon is what distinguishes the four
-   states when colour is unavailable. */
-.comms .delivery-state {
-  gap: 5px;
-}
-.comms .delivery-state svg {
-  flex: none;
 }
 
 /* .visually-hidden is position:absolute, so inside an unpositioned scroll container it
@@ -68,38 +38,59 @@
   text-transform: capitalize;
 }
 .comms .comms-muted {
-  color: var(--muted);
+  color: var(--slate);
 }
+/* The provider's refusal is a sentence, not a measure. It was set in the mono face, which is
+   this product's type for figures — so a phrase of English arrived looking like a code. */
 .comms .comms-error {
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
+  color: var(--ink-2);
   overflow-wrap: anywhere;
 }
 
-/* Attempt counts are a disclosure control, so they stay right-aligned with the
-   numbers above and below them rather than looking like a row action. */
-.comms .comms-expand {
+/*
+ * The attempt count in the cue gutter.
+ *
+ * It is the row's measure and its disclosure at once: the figure is what the row is about, and
+ * pressing it opens the attempts behind it. No padding of its own, so the figure lands on the
+ * same right edge as the plain "0" in a delivery nothing has tried yet.
+ */
+.comms td.gutter .comms-expand {
   display: inline-flex;
+  align-items: center;
   gap: var(--s-1);
-  padding: 2px 6px;
+  min-height: 0;
+  padding: 0;
   color: var(--ink-2);
-  font-variant-numeric: tabular-nums;
-  font-weight: 620;
+}
+.comms td.gutter .comms-expand:hover {
+  background: none;
+  color: var(--ink);
 }
 .comms .comms-chevron {
-  color: var(--muted);
+  display: inline-flex;
+  color: var(--slate);
 }
 
 .comms table.data tr.is-open {
   background: var(--surface-2);
 }
+/*
+ * The attempt history spans every column, so the gutter's spine would stop at the row that opens
+ * it. The line is painted back across this panel and its content starts where the row content
+ * above it starts — the spine runs the length of the table rather than the length of a row.
+ */
 .comms .comms-attempts-row td {
   padding-top: 0;
-  background: var(--surface-2);
+  padding-left: calc(var(--cue-w) + var(--cue-gap));
+  background-color: var(--surface-2);
+  background-image: linear-gradient(var(--rule), var(--rule));
+  background-size: var(--cue-spine) 100%;
+  background-position: calc(var(--cue-w) - var(--cue-spine)) 0;
+  background-repeat: no-repeat;
 }
 /* The rows already say "Attempt N", so the ordered-list markers would number them twice. */
 .comms .comms-attempts-row .attempt-history {
-  margin: 0 0 0 var(--s-4);
+  margin: 0;
   padding-left: 0;
   list-style: none;
 }
@@ -109,7 +100,7 @@
 }
 .comms .comms-attempts-row .attempt-history .sub {
   display: block;
-  color: var(--ink-4);
+  color: var(--slate);
 }
 
 /*
@@ -138,13 +129,11 @@
   .comms .comms-table tbody {
     display: grid;
     gap: var(--s-3);
-    padding: var(--s-3);
+    padding: var(--s-3) 0;
   }
   .comms .comms-table tr {
-    padding: var(--s-3);
-    border: 1px solid var(--line);
-    border-radius: var(--r-md);
-    background: var(--surface);
+    padding: var(--s-3) 0;
+    border-bottom: 1px solid var(--rule);
   }
   .comms .comms-table td[data-label] {
     display: grid;
@@ -157,13 +146,21 @@
   }
   .comms .comms-table td[data-label]::before {
     content: attr(data-label);
-    color: var(--muted);
+    color: var(--slate);
     font-size: var(--text-xs);
-    font-weight: 650;
+    font-weight: var(--fw-medium);
   }
   /* A cell's secondary line is part of its value, not a second label. */
   .comms .comms-table td[data-label] > .sub {
     grid-column: 2;
+  }
+  /* There is no column to run a spine down once the rows are cards, so the gutter becomes a
+     labelled line like every other cell rather than a 56px stub with a hairline beside it. */
+  .comms .comms-table td.gutter {
+    width: 100%;
+    padding-right: 0;
+    border-right: 0;
+    text-align: left;
   }
   .comms .comms-table tr.comms-attempts-row {
     padding: 0;
@@ -173,6 +170,8 @@
   .comms .comms-table tr.comms-attempts-row > td {
     display: block;
     padding: 0;
+    /* No gutter column at this width, so no spine to continue through the panel. */
+    background-image: none;
   }
   .comms .comms-table button {
     white-space: normal;
@@ -180,38 +179,30 @@
 }
 
 .comms .comms-more {
-  padding: var(--s-4) var(--s-5);
-  border-top: 1px solid var(--line);
+  margin-top: var(--s-4);
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--rule);
 }
 
-/* Compose. The panel sits above the outbox because the send is what fills it. */
+/*
+ * Compose. The panel sits above the outbox because the send is what fills it.
+ *
+ * It sets to a measure, and the outbox under it does not: a form and a message preview are read
+ * left to right like the sentence introducing them, while a delivery table is scanned in columns
+ * and wants every pixel. At the console's full width the subject picker, the roster and the
+ * preview of a speaker's email were all 1150px wide — a paragraph set to twice the width anybody
+ * reads one at.
+ */
+.comms .comms-compose-region {
+  max-width: var(--measure);
+}
 .comms .comms-compose {
   display: grid;
   gap: var(--s-4);
 }
-.comms .comms-compose label,
-.comms .comms-compose-form label {
-  display: grid;
-  gap: var(--s-2);
-  font-size: var(--text-sm);
-  font-weight: 500;
-}
 .comms .comms-compose-form {
   display: grid;
   gap: var(--s-4);
-}
-.comms .comms-compose-form textarea {
-  font-family: inherit;
-  resize: vertical;
-}
-.comms .comms-compose-empty {
-  margin: 0;
-  color: var(--ink-3);
-}
-.comms .comms-compose-failure {
-  display: grid;
-  gap: var(--s-3);
-  justify-items: start;
 }
 .comms .comms-compose button.primary,
 .comms .comms-confirm button {
@@ -221,22 +212,38 @@
   justify-self: start;
 }
 
+/*
+ * The storage name, behind a disclosure.
+ *
+ * It is the thing an organizer needs about once a year and used to be the first control on the
+ * form, so writing an email began by naming a primary key.
+ */
+.comms .comms-compose-details > summary {
+  color: var(--slate);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-medium);
+}
+.comms .comms-compose-details-body {
+  margin-top: var(--s-3);
+}
+
 /* Both the template preview and the message a delivery actually sent. Same treatment on
    purpose: what the organizer approves and what the speaker received should look alike. */
 .comms .comms-preview,
 .comms .comms-sent-message {
   padding: var(--s-3) var(--s-4);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-2);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-md);
   background: var(--surface-2);
 }
 .comms .comms-sent-message {
-  margin: var(--s-3) 0 var(--s-3) var(--s-4);
-  background: var(--surface-1);
+  margin: var(--s-3) 0;
+  background: var(--surface);
 }
 .comms .comms-preview-subject {
   margin: 0 0 var(--s-2);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   font-size: var(--text-sm);
 }
 .comms .comms-preview-body {
@@ -250,10 +257,14 @@
 .comms .comms-unreachable {
   display: flex;
   gap: var(--s-2);
-  align-items: baseline;
+  align-items: flex-start;
   margin: 0;
   font-size: var(--text-sm);
-  color: var(--ink-3);
+  color: var(--slate);
+}
+.comms .comms-unreachable svg {
+  flex: none;
+  color: var(--warn-fg);
 }
 /* A fieldset for the grouping semantics, reset to behave like the panel it looks like:
    browsers give it a default border, margin and min-inline-size: min-content, the last of
@@ -264,8 +275,8 @@
   margin: 0;
   min-inline-size: 0;
   padding: var(--s-4);
-  border: 1px solid var(--line-strong, var(--line));
-  border-radius: var(--radius-2);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-md);
   background: var(--surface-2);
 }
 .comms .comms-confirm p {
@@ -279,34 +290,44 @@
 }
 
 /*
- * The merge-field vocabulary, printed from what the server sends rather than from a copy.
+ * The merge vocabulary, printed from what the server sends rather than from a copy — and every
+ * token is a control that writes itself into the message at the caret. It used to be a list to
+ * read, remember and retype, and a token typed one character wrong is a refused send.
  *
  * `minmax(0, auto)` on the token column with `overflow-wrap` under it: a token is one unbroken
  * word in a monospace face, and at 390px an auto column that refuses to shrink is exactly how a
  * form starts scrolling sideways.
  */
+/* The sentence introducing the placeholder vocabulary is a `.hint`, and the control tier now
+   declares a bare `.hint` rather than only `.field .hint` — so the copy that used to be scoped
+   here is gone with the two other surfaces that had each restated it. */
+
 .comms .comms-merge {
   display: grid;
   gap: var(--s-2);
 }
 .comms .comms-merge-list {
   display: grid;
-  gap: var(--s-1);
+  gap: var(--s-2);
   margin: 0;
   font-size: var(--text-xs);
 }
 .comms .comms-merge-list > div {
   display: grid;
   grid-template-columns: minmax(0, auto) minmax(0, 1fr);
-  gap: var(--s-1) var(--s-2);
+  gap: var(--s-1) var(--s-3);
+  align-items: center;
 }
-.comms .comms-merge-list dt code {
-  font-family: var(--font-mono);
+.comms .comms-merge-insert {
+  justify-self: start;
+  max-width: 100%;
+}
+.comms .comms-merge-insert code {
   overflow-wrap: anywhere;
 }
 .comms .comms-merge-list dd {
   margin: 0;
-  color: var(--muted);
+  color: var(--slate);
 }
 
 /*
@@ -322,7 +343,7 @@
   margin: 0;
   min-inline-size: 0;
   padding: var(--s-3);
-  border: 1px solid var(--line);
+  border: 1px solid var(--rule);
   border-radius: var(--r-md);
   background: var(--surface-2);
 }
@@ -336,11 +357,13 @@
 /* `min-width: 0` because a flex item defaults to min-content, and a search field that refuses
    to be narrower than its placeholder pushes the buttons past the card edge. */
 .comms .comms-audience-search {
+  display: grid;
   flex: 1 1 13rem;
   min-width: 0;
   gap: var(--s-1);
   color: var(--ink-2);
   font-size: var(--text-xs);
+  font-weight: var(--fw-medium);
 }
 .comms .comms-audience-bulk {
   display: flex;
@@ -359,6 +382,10 @@
  * An event with sixty speakers would otherwise push the outbox — the thing the send fills — off
  * the bottom of the console. Capped here because the box holds its own focusable controls, so a
  * keyboard user can reach every row without the container needing a tab stop of its own.
+ *
+ * No border of its own. The fieldset around it already spends this panel's one border depth, and
+ * a bordered list inside a bordered box put two frames around one roster. The white ground on the
+ * fieldset's tint is what separates the names from the search above them.
  */
 .comms .comms-audience-list {
   display: grid;
@@ -367,19 +394,21 @@
   margin: 0;
   padding: 0;
   overflow-y: auto;
-  border: 1px solid var(--line);
   border-radius: var(--r-sm);
-  background: var(--surface);
+  /* The 1px grid gap is the rule between two names: the rows paint themselves, so what shows
+     through the gap is this ground. */
+  background: var(--rule);
   list-style: none;
 }
-/* Overrides `.comms .comms-compose label`, which stacks a label above its control: this label
-   is a row, and the tick belongs beside the name it names. */
-.comms .comms-compose .comms-audience-row {
+/* This label is a row: the tick belongs beside the name it names. */
+.comms .comms-audience-row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: 2px var(--s-2);
   padding: var(--s-2) var(--s-3);
-  font-weight: 500;
+  background: var(--surface);
+  font-size: var(--text-sm);
+  font-weight: var(--fw-medium);
   cursor: pointer;
 }
 .comms .comms-audience-row:hover {
@@ -392,14 +421,14 @@
 }
 .comms .comms-audience-address {
   grid-column: 2;
-  color: var(--muted);
+  color: var(--slate);
   font-size: var(--text-xs);
-  font-weight: 400;
+  font-weight: var(--fw-regular);
   overflow-wrap: anywhere;
 }
 .comms .comms-audience-empty {
   margin: 0;
-  color: var(--ink-3);
+  color: var(--slate);
   font-size: var(--text-sm);
 }
 
@@ -418,7 +447,7 @@
   margin: 0;
   color: var(--ink-2);
   font-size: var(--text-sm);
-  font-weight: 650;
+  font-weight: var(--fw-semibold);
 }
 .comms .comms-previews-scroll {
   display: grid;
@@ -443,32 +472,21 @@
   font-size: var(--text-xs);
 }
 .comms .comms-preview-name {
-  font-weight: 650;
+  font-weight: var(--fw-semibold);
 }
 .comms .comms-preview-address {
-  color: var(--muted);
+  color: var(--slate);
   overflow-wrap: anywhere;
 }
 /* Says which of the two this is. The template still carries its placeholders, and an organizer
    who reads it as the message approves a sentence nobody receives. */
 .comms .comms-preview-kind {
   margin: 0 0 var(--s-2);
-  color: var(--muted);
+  color: var(--slate);
   font-size: var(--text-xs);
 }
 
 @media (max-width: 700px) {
-  .comms .comms-toolbar {
-    padding: var(--s-3) var(--s-4) 0;
-  }
-  .comms .comms-toolbar .tabs {
-    margin: 0 calc(-1 * var(--s-4));
-    padding: 0 var(--s-4);
-  }
-  .comms .comms-skeletons,
-  .comms .comms-more {
-    padding: var(--s-4);
-  }
   /* At phone width the two bulk controls get the row to themselves; sharing it with the search
      field left them at their min-content width, which is a two-line button. */
   .comms .comms-audience-head {

@@ -4,16 +4,16 @@
  * Owned by the `publishing` domain. @spec PRD-PUB-001
  */
 import { PublishingWorkspace } from "../PublishingWorkspace";
-import { IconGlobe } from "../ui/icons";
+import { IconBroadcast } from "../ui/icons";
 import type { HubTabModule, WorkspaceModule } from "./contract";
 
 export const publishingWorkspace: WorkspaceModule = {
   domain: "publishing",
   path: "/publishing",
   label: "Publishing",
-  group: "Audience",
+  group: "reach",
   order: 7,
-  icon: <IconGlobe size={16} />,
+  icon: <IconBroadcast />,
   personas: ["organizer"],
   canAccess: ({ capabilities }) => capabilities.includes("events:settings:read"),
   header: () => ({

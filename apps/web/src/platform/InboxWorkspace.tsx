@@ -19,10 +19,19 @@
  */
 import type { InboxItemDto, InboxResponseDto } from "@greenroom/contracts";
 import { useCallback, useEffect, useState } from "react";
-import { ResponseContractError } from "../api/config";
-import { dismissInboxItem, getInbox, PlatformApiError, restoreInboxItem } from "../api/platform";
+import { type ApiFailure, describeApiFailure } from "../api/config";
+import { dismissInboxItem, getInbox, restoreInboxItem } from "../api/platform";
 import { useLinkProps } from "../router";
-import { Card, EmptyState, Notice, Pill, useActionFeedback } from "../ui/primitives";
+import { IconInbox } from "../ui/icons";
+import {
+  Card,
+  EmptyState,
+  LoadFailure,
+  Notice,
+  Pill,
+  SkeletonRows,
+  useActionFeedback,
+} from "../ui/primitives";
 
 type CategoryKey = keyof InboxResponseDto["categories"];
 
@@ -57,13 +66,6 @@ const CATEGORY_EMPTY: Readonly<Record<CategoryKey, string>> = {
   publication: "The public page matches what you have composed.",
 };
 
-function describeFailure(reason: unknown): string {
-  if (reason instanceof PlatformApiError)
-    return `${reason.envelope.error.message} Reference: ${reason.envelope.error.correlationId}`;
-  if (reason instanceof ResponseContractError) return reason.message;
-  return "The inbox could not be read. Please retry.";
-}
-
 function priorityTone(priority: InboxItemDto["priority"]) {
   if (priority === "high") return "danger" as const;
   return "neutral" as const;
@@ -82,9 +84,11 @@ const formatDueDate = (instant: string) =>
 export function InboxWorkspace({ eventId }: { eventId: string }) {
   /** The last answer that arrived, kept across a failed refresh rather than blanked. */
   const [answer, setAnswer] = useState<InboxResponseDto | null>(null);
-  const [loadFailure, setLoadFailure] = useState<string | null>(null);
+  const [loadFailure, setLoadFailure] = useState<ApiFailure | null>(null);
   const [loading, setLoading] = useState(true);
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  /** The refusal a row's own Dismiss or Restore came back with, kept on that row. */
+  const [rowFailure, setRowFailure] = useState<{ key: string; failure: ApiFailure } | null>(null);
   const feedback = useActionFeedback();
   const linkProps = useLinkProps();
 
@@ -95,7 +99,7 @@ export function InboxWorkspace({ eventId }: { eventId: string }) {
     } catch (reason: unknown) {
       // ERROR-INTENT: rendered rather than discarded — the message goes above the categories,
       // and the last answer stays on screen so a failed refresh does not blank a working page.
-      setLoadFailure(describeFailure(reason));
+      setLoadFailure(describeApiFailure(reason, "The inbox could not be read."));
     } finally {
       setLoading(false);
     }
@@ -108,6 +112,7 @@ export function InboxWorkspace({ eventId }: { eventId: string }) {
 
   async function setDismissed(item: InboxItemDto, dismissed: boolean) {
     setBusyKey(item.key);
+    setRowFailure(null);
     try {
       if (dismissed) await dismissInboxItem(eventId, item.key);
       else await restoreInboxItem(eventId, item.key);
@@ -115,9 +120,14 @@ export function InboxWorkspace({ eventId }: { eventId: string }) {
       feedback.announce("success", dismissed ? "Dismissed." : "Restored.");
     } catch (reason: unknown) {
       // The list is re-read either way, so a refusal leaves the row in the state the server
-      // actually holds rather than in the one the click implied.
+      // actually holds rather than in the one the click implied — and the refusal itself stays
+      // on that row rather than at the head of a page of six categories, which is where the
+      // reader would have had to go looking for the answer to a press they made further down.
       await load();
-      feedback.announce("error", describeFailure(reason));
+      setRowFailure({
+        key: item.key,
+        failure: describeApiFailure(reason, "That item could not be updated."),
+      });
     } finally {
       setBusyKey(null);
     }
@@ -126,9 +136,7 @@ export function InboxWorkspace({ eventId }: { eventId: string }) {
   if (loading && !answer)
     return (
       <Card>
-        <p className="palette-announce" aria-live="polite">
-          Reading everything waiting on this event…
-        </p>
+        <SkeletonRows rows={4} label="Reading everything waiting on this event" />
       </Card>
     );
 
@@ -144,11 +152,21 @@ export function InboxWorkspace({ eventId }: { eventId: string }) {
 
   return (
     <>
-      {feedback.node}
+      {/*
+        The retry belongs with the explanation. This used to be a bare sentence with no control
+        on it at all, so a reader whose inbox had not answered had nothing to do but reload the
+        whole console.
+      */}
+      {loadFailure ? (
+        <LoadFailure
+          what="the inbox"
+          error={loadFailure.message}
+          reference={loadFailure.reference}
+          onRetry={load}
+        />
+      ) : null}
 
-      {loadFailure ? <Notice tone="error">{loadFailure}</Notice> : null}
-
-      <p className="palette-announce" aria-live="polite">
+      <p className="hint" aria-live="polite">
         {answer
           ? `${open} ${open === 1 ? "item is" : "items are"} waiting on this event.`
           : "The inbox could not be read."}
@@ -173,11 +191,15 @@ export function InboxWorkspace({ eventId }: { eventId: string }) {
                     Every other category below is complete.
                   </Notice>
                 ) : category.items.length === 0 ? (
-                  <div className="inbox-empty">
-                    <EmptyState title="Nothing waiting">{CATEGORY_EMPTY[key]}</EmptyState>
-                  </div>
+                  /* Terse on purpose. Four of six categories are routinely clear, and given the
+                     full centred empty state that was two thirds of the page spent on cards
+                     saying there is nothing in them. A category with nothing waiting is a
+                     confirmation, so it is one line under its own heading. */
+                  <EmptyState icon={<IconInbox size={20} />} title="Nothing waiting" terse>
+                    {CATEGORY_EMPTY[key]}
+                  </EmptyState>
                 ) : (
-                  <ul className="plain-list">
+                  <ul className="plain-list inbox-list">
                     {category.items.map((item) => (
                       <li
                         key={item.key}
@@ -187,7 +209,9 @@ export function InboxWorkspace({ eventId }: { eventId: string }) {
                       >
                         <div className="inbox-item-copy">
                           <div className="inbox-item-title">
-                            <a {...linkProps(item.href)}>{item.title}</a>
+                            <a className="row-link" {...linkProps(item.href)}>
+                              {item.title}
+                            </a>
                             <Pill tone={priorityTone(item.priority)}>
                               {priorityLabel(item.priority)}
                             </Pill>
@@ -220,6 +244,16 @@ export function InboxWorkspace({ eventId }: { eventId: string }) {
                         >
                           {item.status === "dismissed" ? "Restore" : "Dismiss"}
                         </button>
+                        {/* The answer to a press, beside the press. It used to be at the head
+                            of a page of six categories, which for a row near the foot meant the
+                            reader had to go and look for it. */}
+                        {rowFailure?.key === item.key ? (
+                          <div className="inbox-item-failure">
+                            <Notice tone="error" reference={rowFailure.failure.reference}>
+                              {rowFailure.failure.message}
+                            </Notice>
+                          </div>
+                        ) : null}
                       </li>
                     ))}
                   </ul>
@@ -228,6 +262,13 @@ export function InboxWorkspace({ eventId }: { eventId: string }) {
             );
           })
         : null}
+
+      {/*
+        One live region for the whole surface, always mounted, and no longer the first thing on
+        the page. It announces the successes only: a refusal is rendered on the row that caused
+        it, where its own `alert` role announces it once.
+      */}
+      {feedback.node}
     </>
   );
 }

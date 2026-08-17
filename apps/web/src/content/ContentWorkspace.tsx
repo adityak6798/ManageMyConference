@@ -11,75 +11,15 @@
  */
 
 import { useCallback, useState } from "react";
-import { ContentApiError, getContent } from "../api/content";
+import { describeApiFailure } from "../api/config";
+import { getContent } from "../api/content";
 import "../styles/content.css";
 import { IconWarning } from "../ui/icons";
-import { Card, EmptyState, Notice, useLoad } from "../ui/primitives";
+import { Card, EmptyState, LoadFailure, SkeletonPage, useLoad } from "../ui/primitives";
 
 import { OrganizerView } from "./OrganizerContent";
 import { SpeakerView } from "./SpeakerContent";
-import { type Props, type Run, withReference } from "./shared";
-
-function LoadingWorkspace() {
-  return (
-    <div className="content-workspace">
-      <div className="grid-auto" aria-hidden="true">
-        {[0, 1, 2].map((index) => (
-          <div className="stat" key={index}>
-            <div className="skeleton" style={{ height: 14, width: "60%" }} />
-            <div className="skeleton" style={{ height: 30, width: "35%", marginTop: 8 }} />
-          </div>
-        ))}
-      </div>
-      <div className="card" aria-hidden="true">
-        <div className="card-body">
-          <div className="skeleton" style={{ height: 18, width: "40%" }} />
-          <div className="skeleton" style={{ height: 120, marginTop: 12 }} />
-        </div>
-      </div>
-      <p className="visually-hidden" role="status">
-        Loading the sessions and speakers workspace.
-      </p>
-    </div>
-  );
-}
-
-/**
- * What the skeleton becomes when the workspace cannot be read.
- *
- * This is the only failure with nowhere else to go: there is no table to put an announcement
- * beside and no control that caused it. So it takes the workspace's own place, says which read
- * failed, carries the correlation id, and offers the one action that can still help.
- */
-function LoadFailure({
-  message,
-  speaker,
-  onRetry,
-}: {
-  message: string;
-  speaker: boolean;
-  onRetry: () => void;
-}) {
-  return (
-    <div className="content-workspace">
-      <Card>
-        <Notice tone="error">{message}</Notice>
-        <EmptyState
-          title={speaker ? "Your portal could not be loaded" : "This workspace could not be loaded"}
-          icon={<IconWarning size={20} />}
-          action={
-            <button type="button" className="secondary" onClick={onRetry}>
-              Try again
-            </button>
-          }
-        >
-          Nothing on the event has changed. Try again, and quote the reference above if it keeps
-          failing.
-        </EmptyState>
-      </Card>
-    </div>
-  );
-}
+import type { Props, Run } from "./shared";
 
 // @spec PRD-SPK-001 PRD-SPK-002 PRD-CNT-001
 export function ContentWorkspace({
@@ -90,17 +30,14 @@ export function ContentWorkspace({
 }: Props & { sessionsOnly?: boolean }) {
   const [busy, setBusy] = useState(false);
   const describeLoadFailure = useCallback(
-    (reason: unknown) =>
-      withReference(
-        reason instanceof ContentApiError ? reason.message : "This workspace could not be loaded.",
-        reason,
-      ),
+    (reason: unknown) => describeApiFailure(reason, "This workspace could not be loaded."),
     [],
   );
   const fetchWorkspace = useCallback((id: string) => getContent(id), []);
   const {
     data: workspace,
     error: loadFailure,
+    reference,
     reload,
   } = useLoad(eventId, fetchWorkspace, describeLoadFailure);
 
@@ -111,28 +48,43 @@ export function ContentWorkspace({
       await reload();
       return { ok: true };
     } catch (error) {
-      // ERROR-INTENT: the rejection is handed back to the caller, which announces it next to
-      // the control that triggered it — with the correlation id, via withReference — and
-      // renders any field-level detail the server attached against the input that caused it.
+      // ERROR-INTENT: the rejection is handed back to the caller, which announces it next to the
+      // control that triggered it — as a sentence and a correlation reference, through
+      // `describeApiFailure` — and renders any field-level detail the server attached against the
+      // input that caused it.
       return { ok: false, error };
     } finally {
       setBusy(false);
     }
   };
 
+  /*
+   * The one failure with nowhere else to go: no table to put an announcement beside, no control
+   * that caused it. `LoadFailure` is the shared shape for exactly that — a title naming the read,
+   * the server's sentence, the reference as a copyable value, and the retry. This file declared a
+   * second component of the same name over `Notice` + `EmptyState`, which shadowed the primitive
+   * and printed the reference glued to the end of the sentence.
+   */
   if (loadFailure)
     return (
-      <LoadFailure
-        message={loadFailure}
-        speaker={role === "speaker"}
-        onRetry={() => {
-          // ERROR-INTENT: useLoad renders the retry failure in this workspace.
-          void reload().catch(() => undefined);
-        }}
-      />
+      <div className="content-workspace">
+        <LoadFailure
+          what={role === "speaker" ? "your portal" : "this workspace"}
+          error={loadFailure}
+          reference={reference}
+          onRetry={reload}
+        >
+          {loadFailure} Nothing on the event has changed.
+        </LoadFailure>
+      </div>
     );
 
-  if (!workspace) return <LoadingWorkspace />;
+  if (!workspace)
+    return (
+      <div className="content-workspace">
+        <SkeletonPage label="Loading the sessions and speakers workspace." />
+      </div>
+    );
 
   if (role === "organizer")
     return (

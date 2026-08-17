@@ -15,20 +15,21 @@ const eventId = "00000000-0000-4000-8000-000000000001";
 const LA = "America/Los_Angeles";
 const proposalsPath = `/api/events/${eventId}/cfp/proposals`;
 
+/** Named, so a case that needs the published form's one question does not index into it. */
+const titleField = {
+  id: "title",
+  type: "short_text" as const,
+  label: "Proposal title",
+  guidance: "",
+  required: true,
+  options: [],
+};
+
 const liveCfp = {
   eventId,
   title: "Share what you learned",
   description: "Submit a practical session.",
-  fields: [
-    {
-      id: "title",
-      type: "short_text" as const,
-      label: "Proposal title",
-      guidance: "",
-      required: true,
-      options: [],
-    },
-  ],
+  fields: [titleField],
   routing: [],
   status: "open" as const,
   version: 3,
@@ -251,7 +252,7 @@ describe("the signed-in applicant's proposals", () => {
         proposal({ id: "50000000-0000-4000-8000-00000000000a", title: "Alpha" }),
         proposal({ id: "50000000-0000-4000-8000-00000000000b", title: "Beta" }),
       ],
-      write: (url, init) =>
+      write: (_url, init) =>
         init.method === "PUT"
           ? new Promise((resolve) => {
               releaseSave = () => resolve(new Response(JSON.stringify({ proposal: proposal() })));
@@ -293,7 +294,7 @@ describe("the signed-in applicant's proposals", () => {
           answers: { title: "Kept", retired: "Answer to a question that no longer exists" },
         }),
       ],
-      write: (url, init) =>
+      write: (_url, init) =>
         init.method === "PUT"
           ? jsonResponse({ proposal: proposal({ answers: { title: "Kept" }, revision: 2 }) })
           : undefined,
@@ -431,7 +432,7 @@ describe("the signed-in applicant's proposals", () => {
         },
       ],
       proposals: [proposal({ answers: { title: "Talk", detail: "Written while it was shown" } })],
-      write: (url, init) =>
+      write: (_url, init) =>
         init.method === "PUT" ? jsonResponse({ proposal: proposal({ revision: 2 }) }) : undefined,
     });
 
@@ -464,7 +465,7 @@ describe("the signed-in applicant's proposals", () => {
     const listed = [proposal({ revision: 2, title: "Moved on elsewhere" })];
     const test = mount({
       proposals: listed,
-      write: (url, init) =>
+      write: (_url, init) =>
         init.method === "PUT"
           ? refuseNextSave
             ? jsonResponse(
@@ -857,7 +858,6 @@ describe("the signed-in applicant's proposals", () => {
   });
 
   it("does not invent unsaved changes from answers removed by a refreshed form", async () => {
-    const titleField = liveCfp.fields[0]!;
     const abstractField = {
       id: "abstract",
       type: "long_text" as const,

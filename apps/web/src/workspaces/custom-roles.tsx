@@ -15,10 +15,10 @@ export const customRolesWorkspace: WorkspaceModule = {
   domain: "identity-access",
   path: "/roles",
   label: "Roles and access",
-  group: "Audience",
+  group: "reach",
   /** Beside Members (5.7), before communications (6). */
   order: 5.8,
-  icon: <IconShield size={16} />,
+  icon: <IconShield />,
   personas: ["organizer"],
   /**
    * The same two conditions the members surface checks, and the same one it cannot.

@@ -12,7 +12,7 @@
  * @spec PRD-OPS-004
  */
 import { ReportsWorkspace } from "../ReportsWorkspace";
-import { IconTask } from "../ui/icons";
+import { IconReport } from "../ui/icons";
 import type { HubTabModule, WorkspaceModule } from "./contract";
 
 export const reportsWorkspace: WorkspaceModule = {
@@ -22,17 +22,24 @@ export const reportsWorkspace: WorkspaceModule = {
   group: "home",
   /** After the inbox and before the audit timeline, which is where an operator looks next. */
   order: 9.5,
-  icon: <IconTask size={16} />,
+  icon: <IconReport />,
   personas: ["organizer", "reviewer"],
   canAccess: ({ capabilities }) => capabilities.includes("events:read"),
   header: () => ({
     title: "Reports",
     subtitle: "Build, save, export, and securely share a view of your event data.",
   }),
+  /*
+   * The event's zone, not the reader's. A schedule fires in the event's timezone — the empty
+   * state has always said so — while the create button sent `Intl…resolvedOptions().timeZone`,
+   * so an organizer in Berlin scheduling a Pacific event created one nine hours off what the
+   * screen promised.
+   */
   render: ({ event, capabilities }) => (
     <ReportsWorkspace
       key={event.id}
       eventId={event.id}
+      timezone={event.timezone}
       canReadPii={capabilities.includes("reports:pii")}
     />
   ),

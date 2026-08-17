@@ -1,0 +1,810 @@
+/*
+ * The control tier.
+ *
+ * Every interactive control in the product is drawn here, at one height, one radius, one
+ * border and one focus ring. Before this file the console shipped 73 native `<select>`s, 21
+ * native date inputs, native checkboxes and radios, and no `appearance` reset anywhere, so a
+ * single toolbar could hold four controls at three different heights, each drawn by a
+ * different operating system. That is the largest reason the console read as a 2010s admin
+ * panel: not the colour, the chrome.
+ *
+ * Two rules run through all of it.
+ *
+ *  - One border depth. A bordered control never contains another bordered box. The popovers
+ *    below carry the hairline; their rows carry a tint and a rail instead of a border.
+ *  - Elevation floats, hairlines sit. Only the popovers here take a shadow, because only they
+ *    leave the page. Everything anchored to the page gets `--rule` / `--rule-strong`.
+ *
+ * The measure figures — a timezone id, a slot range, a copied secret, a score — set in
+ * `--font-mono` at 12–13px with tabular figures. With no display face in the stack, the mono
+ * face is where the product's character lives, so it is a first-class UI role rather than a
+ * code-only fallback.
+ *
+ * Loaded by `ui/fields.tsx` and `ui/menu.tsx` themselves, the way `public-event/*` loads its
+ * own sheet, so any surface that renders a control gets the styling with it.
+ */
+
+@import "./tokens.css";
+
+/* ===================== native reset ========================== */
+
+/*
+ * `appearance` is reset for every native control that survives the migration — a date input a
+ * surface has not converted yet, a `<select>` inside a workspace this phase did not reach.
+ * Without it those controls keep the platform's own chrome: a 20px system chevron on Windows,
+ * a rounded pill on Safari, a different height on every one of them.
+ *
+ * The two sheets overlap on exactly one property — `min-height` — and both take it from
+ * `--control-h`, so cascade order cannot change the answer. Everything else here is a property
+ * `shell.css` does not declare, and anything that has to win outright is on `.control` below,
+ * where a class always beats an element selector.
+ */
+input,
+select,
+textarea {
+  appearance: none;
+  -webkit-appearance: none;
+  color-scheme: light;
+}
+
+/* Height belongs to every control except the textarea, which is sized by its content, and the
+   box controls, which are drawn by `.choice` below. */
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="hidden"]),
+select:not([multiple]) {
+  min-height: var(--control-h);
+}
+
+/*
+ * A box that nobody has converted yet is still a box, not a hole.
+ *
+ * The `appearance: none` above strips the platform's own control off every input, and the only
+ * box this tier draws is `.choice-box` — which `<Checkbox>` and `<Radio>` render *beside* a
+ * visually-hidden input. A hand-rolled `<input type="checkbox">` therefore matched nothing that
+ * paints, and rendered as an invisible ~13px gap: no box, no tick, no green. Nothing on the
+ * screen said the control was there, let alone what it was set to.
+ *
+ * It reached thirteen controls across eight files — the agenda's unscheduled rail (whose
+ * select-all also drives `indeterminate`), the deliverable tracker, the session and resource
+ * editors, the speaker roster, the message composer, the public consent form, and the two
+ * "Starting configuration" radios on the create-event page, which is among the first screens a
+ * new organizer sees. Two separate surface reviews found it independently and each could only
+ * convert the call sites in its own files, which is how a defect this size survives a pass.
+ *
+ * So the fallback is drawn here, once, in the same measurements `.choice-box` uses — 16px, the
+ * `--r-sm` corner, the `--rule-strong` hairline, `--green` when set — and with the same tick
+ * path `CheckGlyph` draws, so a converted and an unconverted checkbox are indistinguishable on a
+ * screen that has both. It is a floor, not a replacement: `<Checkbox>` still captions itself,
+ * wires its own hint and gives the box a real hit target, and remains what a surface should
+ * reach for. `.choice-input` is excluded because that input is deliberately invisible.
+ *
+ * The tick and dash are inline SVG, so their stroke cannot be a `var()`. Both are `#ffffff`,
+ * mirroring the `--surface` that `.choice-box` gives its glyph through `color`.
+ */
+input[type="checkbox"]:not(.choice-input),
+input[type="radio"]:not(.choice-input) {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface) center center / 12px 12px no-repeat;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease;
+}
+input[type="radio"]:not(.choice-input) {
+  border-radius: var(--r-full);
+}
+input[type="checkbox"]:not(.choice-input):hover:not(:disabled),
+input[type="radio"]:not(.choice-input):hover:not(:disabled) {
+  border-color: var(--slate);
+}
+input[type="checkbox"]:not(.choice-input):checked,
+input[type="checkbox"]:not(.choice-input):indeterminate,
+input[type="radio"]:not(.choice-input):checked {
+  border-color: var(--green);
+  background-color: var(--green);
+}
+input[type="checkbox"]:not(.choice-input):checked {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%23ffffff' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m2 6.3 2.6 2.6L10 3.5'/%3E%3C/svg%3E");
+}
+/* A select-all with some of its rows chosen — the agenda rail drives this on a bare input. */
+input[type="checkbox"]:not(.choice-input):indeterminate {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%23ffffff' stroke-width='1.9' stroke-linecap='round'%3E%3Cpath d='M3 6h6'/%3E%3C/svg%3E");
+}
+input[type="radio"]:not(.choice-input):checked {
+  background-image: radial-gradient(circle at center, var(--surface) 0 3px, transparent 3px);
+}
+input[type="checkbox"]:not(.choice-input):focus-visible,
+input[type="radio"]:not(.choice-input):focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+input[type="checkbox"]:not(.choice-input):disabled,
+input[type="radio"]:not(.choice-input):disabled {
+  border-color: var(--rule);
+  background-color: var(--surface-2);
+  cursor: not-allowed;
+}
+input[type="checkbox"]:not(.choice-input):disabled:checked,
+input[type="radio"]:not(.choice-input):disabled:checked {
+  border-color: var(--ink-4);
+  background-color: var(--ink-4);
+}
+
+/*
+ * The system chevron a `select` loses to `appearance: none` is drawn back as a token-coloured
+ * caret, so a native select still reads as a select until its surface converts.
+ *
+ * `:not([multiple])` is doing specificity work as well as excluding list boxes: shell.css sets
+ * `padding` on a bare `select`, and a bare selector here would win or lose on sheet order,
+ * which is not something either file should have to know about the other.
+ */
+select:not([multiple]) {
+  padding-right: var(--s-8);
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--slate) 50%),
+    linear-gradient(135deg, var(--slate) 50%, transparent 50%);
+  background-position:
+    right var(--s-4) center,
+    right calc(var(--s-4) - 4px) center;
+  background-size:
+    4px 4px,
+    4px 4px;
+  background-repeat: no-repeat;
+}
+
+/* ======================== the control ======================== */
+
+/*
+ * The shared shell: a trigger button, a text input, a date field, a read-only secret. Applied
+ * by the components in `ui/fields.tsx`, and available to any surface that still renders a
+ * native control of its own.
+ */
+.control {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  width: 100%;
+  min-height: var(--control-h);
+  padding: 0 var(--s-3);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+  text-align: left;
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+/* An input lays out its own text; a flex container around a replaced element is at best
+   ignored and at worst mis-measured, so the shared shell drops back to a block for them. */
+input.control,
+textarea.control {
+  display: block;
+}
+
+/* A control that opens something is a button, and shell.css's `:where(button)` reset hands it
+   `font: inherit` — which would set a trigger inside a bold heading or a `<label>` in bold. The
+   value a select shows is data, so it is stated at the regular weight the input beside it uses. */
+button.control {
+  font-weight: var(--fw-regular);
+}
+button.control:hover:not(:disabled) {
+  border-color: var(--slate);
+}
+
+.control.is-sm {
+  min-height: var(--control-h-sm);
+  padding: 0 var(--s-2);
+  font-size: var(--text-xs);
+}
+
+/* The second selector is the date field: the ring belongs to the drawn shell, because the
+   input that actually takes focus inside it is invisible. */
+.control:focus-visible,
+.control:has(:focus-visible) {
+  outline: none;
+  border-color: var(--focus);
+  box-shadow: var(--focus-ring);
+}
+
+.control[aria-invalid="true"],
+.control.is-invalid {
+  border-color: var(--danger-fg);
+}
+
+/*
+ * Disabled reads as disabled, not as broken. A blanket `opacity: 0.55` — which is what the
+ * console did — dims the border and the text together and lands the label at roughly 2.4:1
+ * against the page, so a disabled field looks like a rendering failure. Instead the ground
+ * goes inset, the border goes back to a hairline, and only the value dims.
+ */
+.control:disabled,
+.control[aria-disabled="true"],
+.control.is-disabled {
+  background: var(--surface-2);
+  border-color: var(--rule);
+  color: var(--ink-4);
+  cursor: not-allowed;
+}
+
+/* A square control that carries a glyph and nothing else. */
+.control-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-h);
+  height: var(--control-h);
+  padding: 0;
+  flex: none;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.control-icon:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+.control-icon.is-sm {
+  width: var(--control-h-sm);
+  height: var(--control-h-sm);
+}
+
+/* ========================= the field ========================= */
+
+/*
+ * The whole scaffolding lives here, not only the caption. It used to be split — the caption in
+ * this file and `.field`, `.field .hint` and `.field .error-text` in shell.css — so a surface
+ * that loaded the control tier without the console shell got styled controls inside unstyled
+ * field scaffolding. That is not hypothetical: the public event, CFP, portal and report routes
+ * load neither `styles.css` nor shell.css, and each had to restate the three rules to get a
+ * caption, its guidance and its error to sit at all.
+ *
+ * `.field > label` is the element selector for the twenty-six hand-rolled forms that write their
+ * own `<label>`; `.field-label` is the class `<Field>` applies, because a composite control — a
+ * select trigger, a radiogroup — captions itself with a `<span>` that no `label` selector reaches.
+ */
+/*
+ * `align-content: start` is what keeps one control height across a row of fields.
+ *
+ * A `.field` is a grid, and inside `.grid-auto` — or any `align-items: stretch` grid, which is
+ * every field row in the console — it is also a *stretched grid item*. Without this, the leftover
+ * height of a taller sibling is handed to the field's own control row and the input grows with
+ * it: on the speaker directory's filters "Custom field" drew a 50px box beside a 34px "Tags",
+ * because Tags carries a hint line and Custom field does not. Nothing about the control changed;
+ * it was inheriting its neighbour's hint.
+ *
+ * The correction was found and first fixed as `.crm .field`, but a field row with uneven hints is
+ * not a CRM shape — it is the default shape of every filter and settings row in the product — so
+ * it belongs to `.field` itself. The field packs to the top and lets the row be taller than it is.
+ */
+.field {
+  display: grid;
+  align-content: start;
+  gap: 5px;
+}
+.field > label,
+.field-label {
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  font-weight: var(--fw-medium);
+}
+/*
+ * A hint is a hint wherever it is written, not only inside a field.
+ *
+ * This was `.field .hint`, so the eighty-odd `<p className="hint">`s that explain a *region* — the
+ * placeholder vocabulary above the message composer, "Personal columns are masked…" over a report,
+ * the two counts above the directory's disclosures — matched no rule at all and rendered as
+ * full-ink body copy, louder than the thing they qualify. Three workspace sheets had each noticed
+ * it separately and restated these same two declarations scoped to themselves (`.comms .hint`,
+ * `.reports .hint`, `.content-workspace .hint`); the other surfaces just shipped the defect.
+ *
+ * Declared bare here because the control tier is what a hint belongs to and is what every surface
+ * loads — including the public routes, which load no console stylesheet at all. A surface that
+ * genuinely wants a louder line says so at its own specificity (`.card > header .hint` sets
+ * `--text-sm`), which is a statement rather than an accident of which sheet imported first.
+ */
+.hint {
+  color: var(--slate);
+  font-size: var(--text-xs);
+}
+.field .error-text {
+  color: var(--danger-fg);
+  font-size: var(--text-xs);
+  font-weight: var(--fw-medium);
+}
+
+/* ==================== select and combobox ==================== */
+
+/*
+ * `min-width: 0`, because a picker has to be allowed to be narrower than its widest option.
+ *
+ * The trigger's value already truncates — `.select-value` below is `nowrap` with an ellipsis —
+ * but truncation never happened: this wrapper is a grid item of `.field`, its automatic minimum
+ * size is its own min-content width, and that is the *untruncated* label. So the control grew
+ * past whatever column it was given and overflowed it. In the topbar's event chip that was not
+ * cosmetic: at 390px a 150px chip held a 182px trigger, which covered the Search button and made
+ * it unclickable on a phone. Every Select and Combobox in a constrained column had the same bug.
+ */
+.select {
+  position: relative;
+  min-width: 0;
+}
+
+.select-trigger {
+  justify-content: space-between;
+}
+.select-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/*
+ * `--slate`, not `--ink-4`, and the token comment says why: `--ink-4` is for placeholders and
+ * disabled glyphs "which must never carry text a reader has to read".
+ *
+ * A select-only combobox's placeholder is the only thing the control says until something is
+ * chosen — "Choose an option" on the public call for proposals is the whole visible content of
+ * two required questions. At `--ink-4` it measured 2.81:1 on white, which axe reports as a
+ * serious contrast violation on the one surface an anonymous applicant has to fill in.
+ */
+.select-value.is-placeholder {
+  color: var(--slate);
+}
+.select-chevron {
+  flex: none;
+  color: var(--slate);
+  transition: transform 120ms ease;
+}
+.select-trigger[aria-expanded="true"] .select-chevron {
+  transform: rotate(180deg);
+}
+
+.select-popover {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + var(--s-1));
+  left: 0;
+  min-width: 100%;
+  max-width: min(420px, 90vw);
+  max-height: 288px;
+  overflow-y: auto;
+  padding: var(--s-1);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
+}
+
+/*
+ * An option carries no border of its own — the popover already spent the one border depth
+ * this tier allows. The active row is marked the way a queue row is marked: a tint plus a
+ * 2px green rail on its leading edge, the same device as the cue gutter's active spine.
+ */
+.select-option {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--s-2);
+  padding: 6px var(--s-2);
+  border-left: var(--cue-spine-active) solid transparent;
+  border-radius: var(--r-sm);
+  color: var(--ink);
+  cursor: pointer;
+}
+.select-option.is-active {
+  background: var(--surface-2);
+  border-left-color: var(--green);
+}
+.select-option[aria-selected="true"] {
+  font-weight: var(--fw-medium);
+}
+.select-option[aria-disabled="true"] {
+  color: var(--ink-4);
+  cursor: not-allowed;
+}
+.select-option-mark {
+  color: var(--green);
+}
+.select-option-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The second line of an option is metadata: what the choice means, or the measure that
+   distinguishes it from the option above. */
+.select-option-hint {
+  grid-column: 2;
+  color: var(--slate);
+  font-size: var(--text-xs);
+  font-weight: var(--fw-regular);
+}
+.select-option-hint.figure {
+  font-family: var(--font-mono);
+  letter-spacing: var(--tracking-figure);
+}
+.select-empty {
+  padding: var(--s-3) var(--s-2);
+  color: var(--slate);
+  font-size: var(--text-sm);
+}
+/* A long list says how long it is, so a filter that narrows 400 zones to 3 is visibly a
+   filter rather than a broken list. */
+.select-count {
+  padding: var(--s-1) var(--s-2) var(--s-2);
+  color: var(--slate);
+}
+
+.combobox-input {
+  cursor: text;
+}
+/* Same rule as `.select-value.is-placeholder` above: this line is the instruction for a control
+   whose list is 400 entries long, so it is read rather than glanced past. */
+.combobox-input::placeholder {
+  color: var(--slate);
+}
+
+/* ========================== choices ========================== */
+
+/*
+ * The box is drawn, the input is real. The native control keeps every behaviour worth having
+ * — label click target, space to toggle, form participation, `indeterminate`, the screen
+ * reader's own checkbox semantics — and is clipped rather than replaced, so what is drawn
+ * below can never disagree with what is submitted.
+ */
+/* The field is the box, its text, and — outside the label, so it stays a description rather
+   than part of the control's name — the hint, indented to the text column. */
+.choice-field {
+  display: grid;
+  gap: var(--s-1);
+}
+.choice {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: var(--s-2);
+  align-items: start;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+/*
+ * The real input, transparent and exactly over the box that is drawn for it.
+ *
+ * It used to take the visually-hidden recipe — `position: absolute` with a 1px clip — and that is
+ * wrong for a *control*: with no positioned ancestor the input's own box is laid out against the
+ * initial containing block, so it left the label entirely. Measured on the abstracts table, the
+ * checkbox for a row sat at y = −21, above the top of the document: `elementFromPoint` over it
+ * returned null, so nothing could aim at the control itself. The tick still worked because
+ * clicking the `<label>` forwards to it — every pointer path that targets the input's own box did
+ * not, and neither did the browser suite, which waited for a click target that was off screen.
+ *
+ * Staying in the flow, stacked in the same grid cell as `.choice-box`, keeps the input's box and
+ * the drawn box the same box. `opacity: 0` rather than a clip, because a control still has to be
+ * hit-testable; `z-index` puts it over the drawn square so the press lands on the input itself.
+ */
+.choice-input {
+  grid-area: 1 / 1;
+  z-index: 1;
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  padding: 0;
+  opacity: 0;
+  cursor: inherit;
+}
+.choice-box {
+  display: grid;
+  grid-area: 1 / 1;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--surface);
+  transition:
+    background 120ms ease,
+    border-color 120ms ease;
+}
+.choice-box.is-radio {
+  border-radius: var(--r-full);
+}
+.choice:hover .choice-box {
+  border-color: var(--slate);
+}
+.choice-input:checked + .choice-box,
+.choice-input:indeterminate + .choice-box {
+  background: var(--green);
+  border-color: var(--green);
+}
+.choice-input:focus-visible + .choice-box {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.choice-glyph {
+  visibility: hidden;
+}
+.choice-input:checked + .choice-box .choice-glyph,
+.choice-input:indeterminate + .choice-box .choice-glyph {
+  visibility: visible;
+}
+/* Placed rather than auto-flowed: the input and the box it draws now share cell 1, and an
+   auto-placed caption would land on top of them both. */
+.choice-text {
+  grid-column: 2;
+  color: var(--ink);
+}
+.choice-hint {
+  padding-left: calc(16px + var(--s-2));
+  color: var(--slate);
+  font-size: var(--text-xs);
+}
+.choice.is-disabled {
+  color: var(--ink-4);
+  cursor: not-allowed;
+}
+.choice.is-disabled .choice-text {
+  color: var(--ink-4);
+}
+.choice.is-disabled .choice-box {
+  background: var(--surface-2);
+  border-color: var(--rule);
+}
+.choice.is-disabled .choice-input:checked + .choice-box {
+  background: var(--ink-4);
+  border-color: var(--ink-4);
+}
+
+/* A stack of choices reads as one answer to one question. */
+.choice-group {
+  display: grid;
+  gap: var(--s-2);
+}
+.choice-group.is-inline {
+  grid-auto-flow: column;
+  justify-content: start;
+  gap: var(--s-4);
+}
+
+/* ====================== date and time ======================== */
+
+/*
+ * The native picker is kept and made invisible rather than rebuilt. It is the source of truth
+ * for the value, it carries the label, it opens the platform's own calendar — including the
+ * one on a phone — and it is what a test types into. What it is not allowed to do is draw
+ * itself: `datetime-local` renders as a different width, a different height and a different
+ * separator on every browser, which is why 21 of them made the forms look assembled.
+ */
+.datetime {
+  position: relative;
+  justify-content: space-between;
+}
+.datetime-native {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding: 0 var(--s-3);
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: transparent;
+  font: inherit;
+  opacity: 0;
+  cursor: pointer;
+}
+.datetime-native:focus-visible {
+  outline: none;
+}
+.datetime-display {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.datetime-value {
+  color: var(--ink);
+}
+.datetime-value.is-empty {
+  color: var(--ink-4);
+}
+/* The zone is a measure, not a caption: it is the difference between 09:45 in two cities. */
+.datetime-zone {
+  color: var(--slate);
+}
+.datetime-glyph {
+  flex: none;
+  color: var(--slate);
+}
+
+/* ========================== secret =========================== */
+
+.secret {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+.secret-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 0 var(--s-3);
+  min-height: var(--control-h);
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  color: var(--ink);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+.secret-copy {
+  flex: none;
+}
+.secret-status {
+  color: var(--slate);
+  font-size: var(--text-xs);
+}
+.secret-status.is-manual {
+  color: var(--warn-fg);
+}
+/* The manual path is a real input because a value the clipboard refused still has to be
+   selectable with a keyboard: focusing it selects the whole value. */
+.secret-manual {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  letter-spacing: var(--tracking-figure);
+}
+
+/* ===================== segmented control ===================== */
+
+/*
+ * Bounded choice, shown in full. A five-point score or a three-way view switcher inside a
+ * `<select>` hides four of the five answers behind a click and costs a popover to read; laid
+ * out flat it is one tab stop, one arrow key, and the whole range visible at a glance.
+ */
+.segmented {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+.segmented-option {
+  min-height: var(--control-h-sm);
+  padding: 0 var(--s-3);
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+}
+.segmented-option:hover:not([aria-checked="true"]):not(:disabled) {
+  background: var(--surface);
+  color: var(--ink);
+}
+.segmented-option[aria-checked="true"] {
+  background: var(--green);
+  color: var(--surface);
+}
+.segmented-option:disabled {
+  color: var(--ink-4);
+  cursor: not-allowed;
+}
+.segmented-option.is-numeric {
+  min-width: 34px;
+  padding: 0 var(--s-2);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tracking-figure);
+  text-align: center;
+}
+/* Clearing is an action on the group, not a sixth score, so it sits outside the track. */
+.segmented-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+}
+.segmented-clear {
+  min-height: var(--control-h-sm);
+  padding: 0 var(--s-2);
+  border: 0;
+  background: none;
+  color: var(--slate);
+  font-size: var(--text-xs);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+}
+.segmented-clear:hover {
+  color: var(--ink);
+}
+
+/* =========================== menu ============================ */
+
+.menu {
+  position: relative;
+  display: inline-flex;
+}
+.menu-popover {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + var(--s-1));
+  left: 0;
+  min-width: 200px;
+  max-width: 320px;
+  padding: var(--s-1);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
+}
+.menu-popover.is-end {
+  left: auto;
+  right: 0;
+}
+.menu-item {
+  display: block;
+  width: 100%;
+  min-height: var(--control-h-sm);
+  padding: var(--s-1) var(--s-2);
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-weight: var(--fw-regular);
+  text-align: left;
+  cursor: pointer;
+}
+.menu-item:hover:not(:disabled),
+.menu-item:focus-visible {
+  background: var(--surface-2);
+}
+/* The ring is pulled inside the row rather than removed: the popover's own 4px of padding is
+   not enough for an offset outline, and a focused menu item with only a tint is a focus
+   indicator that disappears the moment the pointer hovers a different row. */
+.menu-item:focus-visible {
+  outline-offset: -2px;
+}
+.menu-item:disabled {
+  color: var(--ink-4);
+  cursor: not-allowed;
+}
+/* Destructive items are named in danger ink rather than given a red ground: a red block in a
+   menu reads as an error message that has already happened. */
+.menu-item.is-danger {
+  color: var(--danger-fg);
+}
+.menu-item.is-danger:hover:not(:disabled),
+.menu-item.is-danger:focus-visible {
+  background: var(--danger-bg);
+}
+.menu-item-hint {
+  display: block;
+  color: var(--slate);
+  font-size: var(--text-xs);
+}
+.menu-separator {
+  height: 1px;
+  margin: var(--s-1) 0;
+  border: 0;
+  background: var(--rule);
+}

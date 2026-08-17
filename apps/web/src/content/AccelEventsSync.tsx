@@ -156,12 +156,17 @@ export function AccelEventsSync({
           : "This integration has never been applied."}
       </p>
       <div className="row-actions">
-        <button type="button" onClick={() => sync(false)} disabled={busy}>
+        <button className="secondary" type="button" onClick={() => sync(false)} disabled={busy}>
           Preview registrations
         </button>
         {/* Apply is offered only after a preview: nothing writes to the roster from a surface
             the organizer has not first seen the consequences on. */}
-        <button type="button" onClick={() => sync(true)} disabled={busy || !report}>
+        <button
+          className="primary"
+          type="button"
+          onClick={() => sync(true)}
+          disabled={busy || !report}
+        >
           Import registrants
         </button>
       </div>

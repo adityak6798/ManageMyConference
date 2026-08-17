@@ -20,6 +20,7 @@
 
 import type { PipelineStageDto, ProspectDto } from "@greenroom/contracts";
 import { useEffect, useMemo, useState } from "react";
+import { IconDashboard } from "../ui/icons";
 import { EmptyState, Pill } from "../ui/primitives";
 
 /** The tone each semantic category is drawn in, so a board reads as a funnel at a glance. */
@@ -45,11 +46,16 @@ const CATEGORY_LABEL: Record<PipelineStageDto["category"], string> = {
  */
 const CONVERTED = "converted";
 
+/** The due date as a measure: short, and the same face the rest of the product sets figures in. */
+const dueDate = (instant: string) =>
+  new Date(instant).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+
 export function PipelineBoard({
   stages,
   prospects,
   selectedId,
   busy,
+  overdueIds,
   onOpen,
   onMove,
 }: {
@@ -57,6 +63,15 @@ export function PipelineBoard({
   prospects: readonly ProspectDto[];
   selectedId: string;
   busy: boolean;
+  /**
+   * Which prospects have a next action that has already passed.
+   *
+   * Passed in rather than recomputed here: the workspace above already derives it for the
+   * "Overdue next actions" tile, and a second copy of the rule — a converted speaker is never
+   * overdue — would be a second chance to disagree with the server's own filter. It is the tile
+   * this board answers, so the board has to be able to say which cards it counted.
+   */
+  overdueIds: ReadonlySet<string>;
   onOpen: (prospect: ProspectDto) => void;
   /** Answers with what to announce, so the board does not own the wording of a refusal. */
   onMove: (prospect: ProspectDto, toStage: PipelineStageDto) => void;
@@ -141,16 +156,17 @@ export function PipelineBoard({
 
   if (!stages.length)
     return (
-      <EmptyState title="This board has no stages yet">
+      <EmptyState icon={<IconDashboard size={20} />} title="This board has no stages yet">
         Add a stage to start sourcing speakers for this event.
       </EmptyState>
     );
 
   return (
     <div className="pipeline-board">
+      {/* One sentence about the gesture. The second half of this used to explain that Converted
+          cannot be moved into, which is a fact about one column and now lives in that column. */}
       <p className="pipeline-board-help" id="pipeline-board-help">
-        Drag a card to another stage, or focus one and use the arrow keys. Converted is reached by
-        converting a prospect, not by moving one.
+        Drag a card to another stage, or focus one and use the arrow keys.
       </p>
       <div className="pipeline-columns">
         {stages.map((stage) => {
@@ -159,7 +175,7 @@ export function PipelineBoard({
           return (
             <section
               key={stage.key}
-              className={`pipeline-column${over === stage.key ? " is-over" : ""}${accepts ? "" : " is-closed"}`}
+              className={`pipeline-column${over === stage.key ? " is-over" : ""}${accepts ? "" : " is-closed"}${cards.length ? "" : " is-empty"}`}
               aria-labelledby={`pipeline-stage-${stage.key}`}
               onDragOver={(event) => {
                 if (!accepts || !dragging) return;
@@ -178,11 +194,24 @@ export function PipelineBoard({
                 setDragging(null);
               }}
             >
+              {/*
+                The count leads, because how many people stand in a stage is what the column is
+                about. The category pill used to sit beside it saying "Open" on four columns out
+                of five, which told a reader nothing and pushed the one figure that did into a
+                grey afterthought — so it is drawn only where the category is *not* the default,
+                and the word is still announced for a reader who cannot see the funnel.
+              */}
               <header className="pipeline-column-head">
                 <h3 id={`pipeline-stage-${stage.key}`}>{stage.label}</h3>
                 <span className="pipeline-column-meta">
-                  <Pill tone={CATEGORY_TONE[stage.category]}>{CATEGORY_LABEL[stage.category]}</Pill>
-                  <span className="pipeline-count">{cards.length}</span>
+                  {stage.category === "open" ? (
+                    <span className="visually-hidden">{CATEGORY_LABEL[stage.category]}</span>
+                  ) : (
+                    <Pill tone={CATEGORY_TONE[stage.category]}>
+                      {CATEGORY_LABEL[stage.category]}
+                    </Pill>
+                  )}
+                  <span className="pipeline-count figure">{cards.length}</span>
                 </span>
               </header>
               {cards.length ? (
@@ -220,6 +249,27 @@ export function PipelineBoard({
                         {prospect.nextAction ? (
                           <span className="pipeline-card-next">{prospect.nextAction}</span>
                         ) : null}
+                        {/*
+                          The one thing the board could not previously say.
+
+                          "Overdue next actions: 2 — chase these first" sits in a tile above a
+                          board that drew every card identically, so the tile named a number and
+                          then left an organizer to find which two it meant. The date the action
+                          is due is the figure this card is about, and an overdue one states it
+                          in the danger tone rather than only in grey.
+                        */}
+                        {prospect.nextActionAt ? (
+                          <span
+                            className={
+                              overdueIds.has(prospect.id)
+                                ? "pipeline-card-due figure is-overdue"
+                                : "pipeline-card-due figure"
+                            }
+                          >
+                            {overdueIds.has(prospect.id) ? "Overdue " : "Due "}
+                            {dueDate(prospect.nextActionAt)}
+                          </span>
+                        ) : null}
                         {/* The stage is on the card as well as above the column: a screen
                             reader reaching a card by heading or by list does not necessarily
                             have the column header in earshot. */}
@@ -229,7 +279,9 @@ export function PipelineBoard({
                   ))}
                 </ul>
               ) : (
-                <p className="pipeline-column-empty">Nobody here yet</p>
+                <p className="pipeline-column-empty">
+                  {accepts ? "Nobody here yet" : "Reached by converting a prospect"}
+                </p>
               )}
             </section>
           );

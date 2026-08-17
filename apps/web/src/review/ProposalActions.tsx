@@ -54,7 +54,12 @@ export function ProposalActions({
               </option>
             ))}
           </select>
-          <button type="button" disabled={busy || !status} onClick={() => onTransition(status)}>
+          <button
+            className="primary"
+            type="button"
+            disabled={busy || !status}
+            onClick={() => onTransition(status)}
+          >
             Move
           </button>
         </div>

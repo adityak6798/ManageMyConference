@@ -9,6 +9,7 @@
 
 import { type FormEvent, useRef, useState } from "react";
 import { ContentApiError, deleteSpeakerResource, saveSpeakerResource } from "../api/content";
+import { IconForm } from "../ui/icons";
 import { EmptyState, Notice, Pill, useActionFeedback } from "../ui/primitives";
 import type { Run, Workspace } from "./shared";
 
@@ -99,7 +100,7 @@ function ResourceForm({
         Visible to speakers
       </label>
       <div className="row-actions resource-form-wide">
-        <button type="submit" disabled={busy}>
+        <button className="primary" type="submit" disabled={busy}>
           {editing ? "Save changes" : "Create resource"}
         </button>
         <button type="button" className="secondary" onClick={onCancel}>
@@ -293,7 +294,7 @@ export function ResourceEditor({
           })}
         </ul>
       ) : (
-        <EmptyState title="No resources yet">
+        <EmptyState icon={<IconForm size={20} />} title="No resources yet">
           Create the first portal guide with the button above.
         </EmptyState>
       )}

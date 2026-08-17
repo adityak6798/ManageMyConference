@@ -14,6 +14,7 @@
 
 import type { UpdateSpeakerProfileInput } from "@greenroom/contracts";
 import { type FormEvent, useMemo, useRef, useState } from "react";
+import { type ApiFailure, describeApiFailure } from "../api/config";
 import {
   addContentComment,
   clearSpeakerProfilePhoto,
@@ -58,8 +59,20 @@ import {
   shortDate,
   shortDateTime,
   type Workspace,
-  withReference,
 } from "./shared";
+
+/**
+ * A refused photo choice, preferring the server's field-level answer to its envelope sentence.
+ *
+ * A validation refusal answers with a generic message and the useful part attached to the field,
+ * which is the half that names the file this speaker has to pick differently. The reference is the
+ * envelope's either way, so whichever sentence is shown stays quotable.
+ */
+function photoFailure(reason: unknown): ApiFailure {
+  const failure = describeApiFailure(reason, "That file could not be used as your profile photo.");
+  const detail = contentFieldErrors(reason).assetId?.[0];
+  return detail ? { message: detail, reference: failure.reference } : failure;
+}
 
 type ProfileDraft = {
   name: string;
@@ -182,7 +195,7 @@ export function SpeakerView({
         result.ok ? "success" : "error",
         result.ok
           ? `“${title}” marked complete.`
-          : withReference("That task could not be completed.", result.error),
+          : describeApiFailure(result.error, "That task could not be completed."),
       ),
     );
   }
@@ -226,7 +239,7 @@ export function SpeakerView({
         result.ok ? "success" : "error",
         result.ok
           ? "Profile saved. Organizers see this version."
-          : withReference("Your profile could not be saved.", result.error),
+          : describeApiFailure(result.error, "Your profile could not be saved."),
       );
     });
   }
@@ -252,11 +265,7 @@ export function SpeakerView({
           ? asset
             ? `“${asset.name}” is now your profile photo. ${photoVisibility(asset)}`
             : "Your profile photo has been removed. The programme shows your initials."
-          : withReference(
-              contentFieldErrors(result.error).assetId?.[0] ??
-                "That file could not be used as your profile photo.",
-              result.error,
-            ),
+          : photoFailure(result.error),
       ),
     );
   }
@@ -299,7 +308,7 @@ export function SpeakerView({
         result.ok ? "success" : "error",
         result.ok
           ? `${file.name} uploaded privately.`
-          : withReference("That file could not be uploaded.", result.error),
+          : describeApiFailure(result.error, "That file could not be uploaded."),
       );
     });
   }
@@ -412,7 +421,9 @@ export function SpeakerView({
                             focus that triggered it is not thrown back to the body. */}
                         <button
                           type="button"
-                          className={task.status === "complete" ? "secondary small" : "small"}
+                          className={
+                            task.status === "complete" ? "secondary small" : "primary small"
+                          }
                           aria-disabled={busy || task.status === "complete"}
                           onClick={() => {
                             if (task.status === "complete") return;
@@ -538,7 +549,7 @@ export function SpeakerView({
               ))}
             </fieldset>
             <div className="profile-form-actions profile-form-wide">
-              <button type="submit" aria-disabled={busy}>
+              <button className="primary" type="submit" aria-disabled={busy}>
                 {busy ? "Saving…" : "Save profile"}
               </button>
               {profileDirty ? <span className="hint">Unsaved changes</span> : null}
@@ -601,7 +612,7 @@ export function SpeakerView({
                     : "A general upload is not tied to any request."}
               </p>
             </div>
-            <button type="submit" aria-disabled={busy}>
+            <button className="primary" type="submit" aria-disabled={busy}>
               {busy ? "Uploading…" : "Upload asset"}
             </button>
           </form>

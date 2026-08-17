@@ -1,5 +1,5 @@
 // @acceptance ACC-IDENTITY-EVENTS
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../src/App";
 import { clearOrganizerOverviewCache } from "../src/api/overview";
@@ -106,6 +106,19 @@ function publicationSettingsResponse() {
   return jsonResponse({ publication: overview.publication.data });
 }
 
+/**
+ * Everything about who is signed in now lives behind one control.
+ *
+ * Five topbar controls became Search, one contextual action, and this — which is also the only
+ * place the deployment badge and, on a demo deployment, the role picker are offered.
+ */
+function openAccountMenu() {
+  fireEvent.click(screen.getByRole("button", { name: /^Account and access/ }));
+}
+
+/** The event chip: a select-only combobox whose trigger shows the event it is pointed at. */
+const eventChip = () => screen.getByRole("combobox", { name: "Event workspace" });
+
 async function fillNewEvent(name = "New Summit") {
   fireEvent.change(await screen.findByLabelText("Event name"), { target: { value: name } });
   fireEvent.change(screen.getByLabelText("Public address"), {
@@ -165,16 +178,21 @@ describe("App", () => {
     vi.stubGlobal("fetch", stub("session"));
     render(<App />);
     expect(await screen.findByRole("heading", { level: 1, name: "Overview" })).toBeInTheDocument();
+    openAccountMenu();
     expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
+    // A real session cannot become another persona: the request behind that control answers 404
+    // whenever demo mode is off, so the control is not offered rather than offered and refusing.
+    expect(screen.queryByRole("combobox", { name: "Demo role" })).toBeNull();
 
     cleanup();
     vi.stubGlobal("fetch", stub("demo"));
     render(<App />);
     expect(await screen.findByRole("heading", { level: 1, name: "Overview" })).toBeInTheDocument();
+    openAccountMenu();
     // Switching changes the active demo identity; signing out clears the demo cookie and returns
     // to the landing page. They are separate, deliberate exits and both must stay reachable.
     expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: "Signed-in role" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Demo role" })).toBeInTheDocument();
   });
 
   /**
@@ -206,6 +224,7 @@ describe("App", () => {
     vi.stubGlobal("fetch", stub("session"));
     render(<App />);
     expect(await screen.findByRole("heading", { level: 1, name: "Overview" })).toBeInTheDocument();
+    openAccountMenu();
     fireEvent.click(screen.getByRole("button", { name: "Sign out everywhere" }));
     await waitFor(() => expect(assign).toHaveBeenCalledWith("/"));
     expect(calls).toContain("POST /api/auth/sessions/revoke-all");
@@ -218,6 +237,7 @@ describe("App", () => {
     vi.stubGlobal("fetch", stub("demo"));
     render(<App />);
     expect(await screen.findByRole("heading", { level: 1, name: "Overview" })).toBeInTheDocument();
+    openAccountMenu();
     expect(screen.queryByRole("button", { name: "Sign out everywhere" })).toBeNull();
   });
 
@@ -233,22 +253,132 @@ describe("App", () => {
     render(<App />);
 
     expect(await screen.findByRole("heading", { level: 1, name: "Overview" })).toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: "Event workspace" })).toHaveValue(eventId);
+    // The chip names the event at every width, which is the whole reason it left the sidebar.
+    expect(eventChip()).toHaveTextContent(event.name);
+    expect(screen.getByText(event.timezone)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Schedule" })).toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: "Signed-in role" })).toHaveValue("organizer");
+    openAccountMenu();
     expect(screen.getByText("Local instance")).toBeInTheDocument();
     // The console remains the product, not a walkthrough of seeded identities. Only the
     // environment marker names a deployment as a demo (issue #146 supersedes issue #35 here).
     expect((document.body.textContent ?? "").toLowerCase()).not.toContain("demo");
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    // Three reads for the console, and one for what is waiting on the event — the counts the
+    // sidebar badges have always been declared for and never been given.
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
     expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual(
       expect.arrayContaining([
         "/api/session",
         "/api/events/assigned",
         `/api/events/${eventId}/overview`,
+        `/api/events/${eventId}/inbox`,
       ]),
     );
+  });
+
+  /**
+   * A legacy path mounts its destination once, not twice.
+   *
+   * `/cfp` still resolves through `workspaceForPath`, so the console used to mount CfpWorkspace,
+   * fire its reads, and only then run the effect that navigates to `/program?tab=forms` — which
+   * mounted the whole thing again. One guard covers every caller, the API-minted inbox and
+   * search hrefs included, without the API having to change.
+   */
+  it("does not mount a legacy path's workspace on the way to its hub URL", async () => {
+    window.history.replaceState(null, "", "/cfp");
+    const cfpReads: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/cfp")) cfpReads.push(url);
+        if (url.endsWith("/api/session"))
+          return jsonResponse({
+            ...organizerSession,
+            eventAccess: [
+              { eventId, role: "organizer", capabilities: ["events:read", "content:manage"] },
+            ],
+          });
+        if (url.endsWith(`/api/events/${eventId}/cfp`))
+          return jsonResponse({ cfp: null, routing: [] }, 404);
+        const workspace = workspaceBody(url);
+        if (workspace) return jsonResponse(workspace);
+        return jsonResponse({ events: [event] });
+      }),
+    );
+    render(<App />);
+
+    await waitFor(() => expect(window.location.pathname).toBe("/program"));
+    expect(window.location.search).toContain("tab=forms");
+    // Each of the CFP workspace's reads was issued once. Two of anything here is the remount.
+    expect(new Set(cfpReads).size).toBe(cfpReads.length);
+  });
+
+  /**
+   * The badge beside a nav item was declared, rendered and styled, and no caller had ever
+   * supplied one — so from anywhere but the Overview nothing told an organizer that proposals
+   * were waiting on them.
+   */
+  it("says what is waiting beside the destination that can act on it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/api/session")) return jsonResponse(organizerSession);
+        if (url.endsWith(`/api/events/${eventId}/inbox`))
+          return jsonResponse({
+            derivedAt: "2026-08-21T12:00:00.000Z",
+            categories: {
+              reviews: {
+                state: "ok",
+                items: [
+                  {
+                    key: "review:1",
+                    category: "reviews",
+                    title: "Evaluate a proposal",
+                    priority: "normal",
+                    status: "open",
+                    href: `/abstracts?event=${eventId}`,
+                  },
+                ],
+              },
+              speakerWork: { state: "ok", items: [] },
+              programme: { state: "ok", items: [] },
+              deliveries: { state: "ok", items: [] },
+              publication: { state: "ok", items: [] },
+              configuration: { state: "ok", items: [] },
+            },
+          });
+        const workspace = workspaceBody(url);
+        if (workspace) return jsonResponse(workspace);
+        return jsonResponse({ events: [event] });
+      }),
+    );
+    render(<App />);
+
+    const inbox = await screen.findByRole("link", { name: /^Inbox/ });
+    await waitFor(() => expect(inbox).toHaveTextContent("1"));
+    expect(inbox).toHaveAccessibleName(/1 waiting/);
+    // Zero is not a count worth drawing: a nav item permanently reading 0 asks to be ignored.
+    expect(screen.getByRole("link", { name: "Schedule" })).toHaveAccessibleName("Schedule");
+  });
+
+  /**
+   * The first frame is the console, drawn empty — not a chromeless `<main>` holding one
+   * sentence, which made the application arrive twice.
+   */
+  it("paints the real shell on first load, with the wait announced and not drawn", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<Response>(() => undefined)),
+    );
+    const { container } = render(<App />);
+
+    expect(container.querySelector(".app")).not.toBeNull();
+    expect(container.querySelector(".sidebar .brandmark")).not.toBeNull();
+    const announcement = screen.getByRole("status", { name: "" });
+    expect(announcement).toHaveTextContent("Loading your workspace");
+    expect(announcement).toHaveClass("visually-hidden");
   });
 
   it("does not mount communications for a selected event where the actor is not organizer", async () => {
@@ -294,7 +424,10 @@ describe("App", () => {
     );
     render(<App />);
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Reference: trace-123");
+    const refusal = await screen.findByRole("alert");
+    expect(refusal).toHaveTextContent("Sign in to continue.");
+    // The reference is a value the reader can select, not a ULID glued to the end of a sentence.
+    expect(within(refusal).getByText("trace-123")).toBeInTheDocument();
     expect(
       screen.getByRole("heading", { name: "Demo mode: choose a workspace role" }),
     ).toBeInTheDocument();
@@ -369,7 +502,7 @@ describe("App", () => {
     );
     render(<App />);
 
-    await screen.findByText("Reference: initial-trace", { exact: false });
+    expect(within(await screen.findByRole("alert")).getByText("initial-trace")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Continue as reviewer" }));
 
     await screen.findByRole("link", { name: /Review assignments/ });
@@ -392,7 +525,9 @@ describe("App", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<App />);
 
-    await screen.findByRole("combobox", { name: "Signed-in role" });
+    // An attendee identity gets a page, not a console with every block of chrome disabled.
+    await screen.findByRole("heading", { name: "This account has no organizer workspace" });
+    expect(screen.queryByRole("navigation", { name: "Workspace navigation" })).toBeNull();
     expect(fetchMock).toHaveBeenCalledWith("/api/events/assigned");
     expect(fetchMock).not.toHaveBeenCalledWith("/api/events");
   });
@@ -419,12 +554,12 @@ describe("App", () => {
 
     // The deliberate action sits beside the event switcher, not hidden below unrelated settings.
     fireEvent.click(await screen.findByRole("link", { name: "Create another event" }));
+    // A real destination, not an inert `#create-event` anchor on the settings page.
+    await waitFor(() => expect(window.location.pathname).toBe("/events/new"));
     await fillNewEvent();
     fireEvent.click(screen.getByRole("button", { name: "Create event" }));
 
-    await waitFor(() =>
-      expect(screen.getByRole("combobox", { name: "Event workspace" })).toHaveValue(created.id),
-    );
+    await waitFor(() => expect(eventChip()).toHaveTextContent(created.name));
     const createCall = fetchMock.mock.calls.find(([, options]) => options?.method === "POST");
     expect(JSON.parse(String(createCall?.[1]?.body))).toMatchObject({
       organizationId,
@@ -502,6 +637,8 @@ describe("App", () => {
     render(<App />);
 
     fireEvent.click(await screen.findByRole("link", { name: "Create another event" }));
+    // A real destination, not an inert `#create-event` anchor on the settings page.
+    await waitFor(() => expect(window.location.pathname).toBe("/events/new"));
     await fillNewEvent("Templated");
     fireEvent.click(screen.getByLabelText("Apply a selected template"));
     await waitFor(() => expect(screen.getByLabelText("Template")).toHaveValue(template.id));
@@ -541,17 +678,25 @@ describe("App", () => {
     render(<App />);
 
     fireEvent.click(await screen.findByRole("link", { name: "Settings" }));
-    fireEvent.change(await screen.findByLabelText("Current event name"), {
+    // Settings > Event is the registered hub tab now. The shell used to keep a second copy of
+    // this form of its own — without the success announcement, and without telling the rest of
+    // the console the name had changed, which is why saving looked like it had done nothing.
+    fireEvent.change(await screen.findByLabelText("Event name"), {
       target: { value: updated.name },
     });
-    fireEvent.change(screen.getByLabelText("Event timezone"), {
-      target: { value: updated.timezone },
-    });
+    // The timezone field is a filtering combobox rather than a `<select>`: typing narrows the
+    // ~400 zones and Enter takes the match, so a value change is two events, not one.
+    const timezone = screen.getByLabelText("Event timezone");
+    fireEvent.change(timezone, { target: { value: updated.timezone } });
+    fireEvent.keyDown(timezone, { key: "Enter" });
     fireEvent.click(screen.getByRole("button", { name: "Save event settings" }));
 
+    expect(await screen.findByText("Event settings saved.")).toBeInTheDocument();
+    // The page header, and the chip in the topbar, both read the shell's event list.
     await waitFor(() =>
       expect(screen.getByText(`${updated.name} · ${updated.timezone}`)).toBeVisible(),
     );
+    expect(eventChip()).toHaveTextContent(updated.name);
     const patchCall = fetchMock.mock.calls.find(([, options]) => options?.method === "PATCH");
     expect(JSON.parse(String(patchCall?.[1]?.body))).toEqual({
       name: updated.name,
@@ -582,13 +727,13 @@ describe("App", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<App />);
 
-    fireEvent.click(await screen.findByRole("link", { name: "Settings" }));
+    fireEvent.click(await screen.findByRole("link", { name: "Create another event" }));
     await waitFor(() => expect(window.location.search).toBe(`?event=${eventId}`));
     await fillNewEvent();
     fireEvent.click(screen.getByRole("button", { name: "Create event" }));
 
     await waitFor(() => expect(window.location.search).toBe(`?event=${created.id}`));
     // …on the route the organizer was already on, not back at the shell root.
-    expect(window.location.pathname).toBe("/settings");
+    expect(window.location.pathname).toBe("/events/new");
   });
 });

@@ -1,6 +1,15 @@
 import type { ProposalParticipantInput } from "@greenroom/contracts";
+import { Field, Select } from "../ui/fields";
 
-/** Structured co-presenters owned by the proposal, never encoded in an answer or biography. */
+/**
+ * Structured co-presenters owned by the proposal, never encoded in an answer or biography.
+ *
+ * The three controls go through the shared field and control tier rather than bare native
+ * elements. This editor is rendered inside both the console's applicant form and the public
+ * call for proposals, and on the public page it was the one group whose inputs arrived as
+ * browser defaults beside five controls wearing the product's own shell — which the public
+ * stylesheet had to answer by redrawing the whole control shell by element selector.
+ */
 export function ParticipantsEditor({
   participants,
   onChange,
@@ -25,37 +34,41 @@ export function ParticipantsEditor({
       </p>
       {participants.map((participant, index) => (
         <div className="cfp-participant" key={participant.id}>
-          <label>
-            Name
-            <input
-              required
-              value={participant.name}
-              onChange={(event) => update(participant.id, { name: event.target.value })}
-            />
-          </label>
-          <label>
-            Email
-            <input
-              required
-              type="email"
-              value={participant.email}
-              onChange={(event) => update(participant.id, { email: event.target.value })}
-            />
-          </label>
-          <label>
-            Role
-            <select
-              value={participant.role}
-              onChange={(event) =>
-                update(participant.id, {
-                  role: event.target.value as ProposalParticipantInput["role"],
-                })
-              }
-            >
-              <option value="co_speaker">Co-speaker / co-presenter</option>
-              <option value="moderator">Moderator</option>
-            </select>
-          </label>
+          <Field label="Name" required>
+            {(control) => (
+              <input
+                {...control}
+                className="control"
+                value={participant.name}
+                onChange={(event) => update(participant.id, { name: event.target.value })}
+              />
+            )}
+          </Field>
+          <Field label="Email" required>
+            {(control) => (
+              <input
+                {...control}
+                className="control"
+                type="email"
+                value={participant.email}
+                onChange={(event) => update(participant.id, { email: event.target.value })}
+              />
+            )}
+          </Field>
+          <Select
+            className="cfp-participant-role"
+            label="Role"
+            value={participant.role}
+            onChange={(value) =>
+              update(participant.id, {
+                role: value as ProposalParticipantInput["role"],
+              })
+            }
+            options={[
+              { value: "co_speaker", label: "Co-speaker / co-presenter" },
+              { value: "moderator", label: "Moderator" },
+            ]}
+          />
           <button
             type="button"
             className="button-quiet"
@@ -66,6 +79,7 @@ export function ParticipantsEditor({
         </div>
       ))}
       <button
+        className="secondary"
         type="button"
         disabled={disabled || participants.length >= 8}
         onClick={() =>

@@ -164,9 +164,29 @@
         "reason": "The design system. Eight domains' workspaces render through the same Card, Notice, EmptyState and PageHeader, which is what makes the console read as one product."
       },
       {
+        "path": "apps/web/src/router.ts",
+        "governing": "ARC-DOM-001",
+        "reason": "The console's single client-side router. `useLinkProps` is the one way a surface renders an in-app destination that still survives a middle click, and `navigate` is the one way it moves the reader; a domain that grew its own would take the console back to full page loads on half its links. It is deliberately presentation-only \u2014 a path in, history out \u2014 and holds no domain rule."
+      },
+      {
         "path": "apps/web/src/ui/icons.tsx",
         "governing": "ARC-DOM-001",
         "reason": "The design system's icon set, imported by every workspace module and by the shell's navigation."
+      },
+      {
+        "path": "apps/web/src/ui/fields.tsx",
+        "governing": "ARC-DOM-001",
+        "reason": "The design system's control tier. Every domain that asks a user for a value \u2014 a choice, a date, a flag, a score \u2014 renders it through the same Field, Select, Combobox, Checkbox and DateTimeField, which is what holds one height, one focus ring and one set of keyboard rules across pickers that were 73 separate native selects."
+      },
+      {
+        "path": "apps/web/src/ui/menu.tsx",
+        "governing": "ARC-DOM-001",
+        "reason": "The design system's action menu, imported by any workspace with a row of commands. It is separate from fields.tsx because a menu runs actions and holds no value, and that distinction is what stops a surface reaching for a select when it wants a menu."
+      },
+      {
+        "path": "apps/web/src/ui/vocabulary.ts",
+        "governing": "ARC-DOM-001",
+        "reason": "The design system's shared label vocabulary: how the product names a status, a delivery state, a dataset and a capability. It is deliberately presentation-only and holds no domain rule \u2014 every domain reads its own state from its own client and asks this module only what to call it, which is what stops the same delivery being 'terminal' in the outbox and 'Failed' in the webhook history, and what keeps a permission from ever reaching a reader as a raw scope token."
       },
       {
         "path": "apps/api/src/transport/http/runtime.ts",
@@ -437,6 +457,12 @@
         "apps/web/src/ui/primitives.tsx",
         "apps/web/e2e/event-scoped-loading.spec.ts",
         "apps/web/src/ui/icons.tsx",
+        "apps/web/src/ui/fields.tsx",
+        "apps/web/src/ui/menu.tsx",
+        "apps/web/src/ui/vocabulary.ts",
+        "apps/web/test/ui-controls.test.tsx",
+        "apps/web/test/tokens.test.ts",
+        "apps/web/test/vocabulary.test.ts",
         "apps/api/test/seed-state.integration.test.ts",
         "apps/web/src/workspaces/contract.ts",
         "apps/web/src/workspaces/registry.tsx",
@@ -1083,6 +1109,7 @@
         "apps/api/test/d1-site-repository.integration.test.ts",
         "apps/web/src/SitesWorkspace.tsx",
         "apps/web/src/PublicSiteApp.tsx",
+        "apps/web/test/public-portal.test.tsx",
         "apps/web/src/workspaces/sites.tsx",
         "apps/web/src/api/sites.ts",
         "apps/api/migrations/1805_publication_embeds.sql",

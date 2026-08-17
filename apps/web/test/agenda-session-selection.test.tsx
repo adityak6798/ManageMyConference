@@ -317,10 +317,12 @@ describe("choosing which sessions an assisted pass seats", () => {
     );
     render(<AgendaWorkspace event={event} onError={onError} />);
 
-    // Pick the placed card up and drop it, which is the move the API then refuses.
+    // Pick the placed card up and drop it, which is the move the API then refuses. The drop
+    // target is the cell itself — the element that owns the drop handlers — rather than a
+    // button drawn inside part of it.
     const card = await screen.findByRole("button", { name: /Opening keynote\. Main stage/ });
     fireEvent.click(card);
-    fireEvent.click(screen.getByRole("button", { name: /^Place .* in Main stage/ }));
+    fireEvent.click(screen.getByRole("gridcell", { name: /^Place .* in Main stage/ }));
     // Meanwhile the operator has moved to the search box.
     const search = screen.getByRole("searchbox") as HTMLElement;
     search.focus();
@@ -480,7 +482,8 @@ describe("choosing which sessions an assisted pass seats", () => {
     // Adding a slot is a board change like any other, and it is the change that most obviously
     // disproves "every room and time slot is already taken" — but it is the one board-changing
     // path that does not run through `act`, so it has to drop the verdicts itself.
-    fireEvent.click(screen.getByRole("button", { name: "Add timeslot" }));
+    fireEvent.click(screen.getByRole("button", { name: "Rooms and times" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Add timeslot" }));
 
     await waitFor(() => expect(screen.queryByText(NO_ROOM)).toBeNull());
   });

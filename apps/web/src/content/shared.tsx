@@ -11,7 +11,6 @@
  */
 
 import type { ContentWorkspaceDto } from "@greenroom/contracts";
-import { ContentApiError } from "../api/content";
 import "../styles/content.css";
 import { IconClock } from "../ui/icons";
 import { Pill } from "../ui/primitives";
@@ -64,18 +63,13 @@ function photoVisibility(asset: SpeakerAsset) {
 type RunResult = { ok: true } | { ok: false; error: unknown };
 type Run = (action: () => Promise<unknown>) => Promise<RunResult>;
 
-/**
- * A refusal, phrased for the person who has to act on it, with the id it is logged under.
- *
- * The failure of an action is announced beside the control that caused it — this workspace no
- * longer hands anything to a page-level surface — so the correlation id has to travel with the
- * sentence, or the operator has nothing to quote when they ask for help.
+/*
+ * `withReference` used to live here: it glued "Reference: 01JD…" onto the end of a refusal, in
+ * twenty-odd places, and the identifier arrived as the tail of a paragraph nobody can select it
+ * out of. `describeApiFailure` answers with the sentence and the reference as two values, and
+ * `useActionFeedback.announce`, `Notice` and `LoadFailure` all take the pair — so the reference
+ * now sets as a copyable measure on its own line wherever this workspace reports a failure.
  */
-function withReference(sentence: string, error: unknown) {
-  return error instanceof ContentApiError
-    ? `${sentence} Reference: ${error.envelope.error.correlationId}`
-    : sentence;
-}
 
 /** One paragraph per message, tied to its control through aria-describedby. */
 function FieldErrors({ id, messages }: { id: string; messages: readonly string[] | undefined }) {
@@ -432,5 +426,4 @@ export {
   sessionDraft,
   shortDate,
   shortDateTime,
-  withReference,
 };

@@ -183,6 +183,19 @@ const dayLabel = (value: string, timezone: string) =>
     day: "numeric",
   });
 
+/**
+ * The two halves of a day heading.
+ *
+ * The date is a measure and takes the measure column; the weekday is the day's name and takes
+ * the heading. Printing "Sep 17" beside "Thursday, September 17" would be the same fact twice,
+ * which is exactly what a measure column is supposed to remove rather than add.
+ */
+const weekdayLabel = (value: string, timezone: string) =>
+  formatInstant(value, { timeZone: timezone, weekday: "long" });
+
+const shortDate = (value: string, timezone: string) =>
+  formatInstant(value, { timeZone: timezone, month: "short", day: "numeric" });
+
 const fullTime = (value: string, timezone: string) =>
   formatInstant(value, {
     timeZone: timezone,
@@ -267,6 +280,79 @@ const surname = (name: string) => {
 const bySurname = (left: { name: string }, right: { name: string }) =>
   surname(left.name).localeCompare(surname(right.name)) || left.name.localeCompare(right.name);
 
+/* --------------------------- filters in the URL ------------------------ */
+
+/**
+ * The filters an attendee has applied, carried in the address bar.
+ *
+ * A filtered programme is the thing people send each other — "here are the accessibility
+ * sessions" — and it was unshareable and unreloadable: every control lived in React state
+ * alone, so a copied URL handed the recipient the whole programme and a reload threw the
+ * selection away. The keys are the ones a reader would guess, and anything else in the query
+ * string (an itinerary's `plan`, an embed's own options) is left untouched.
+ */
+interface PublicFilters {
+  readonly q: string;
+  readonly track: string;
+  readonly format: string;
+  readonly room: string;
+  readonly view: ScheduleView;
+}
+
+const FILTER_DEFAULTS: PublicFilters = {
+  q: "",
+  track: "all",
+  format: "all",
+  room: "all",
+  view: "day",
+};
+
+/**
+ * `embedded` is not a convenience here. A host page configures an embed through this same query
+ * string and `track=` is one of its options, so writing a visitor's filter into it would rewrite
+ * the host's configuration; inside a frame the filters stay in memory.
+ */
+function readFilters(embedded: boolean, search = window.location.search): PublicFilters {
+  if (embedded) return FILTER_DEFAULTS;
+  const parameters = new URLSearchParams(search);
+  const view = parameters.get("view") ?? "";
+  return {
+    q: parameters.get("q") ?? "",
+    track: parameters.get("track") || "all",
+    format: parameters.get("format") || "all",
+    room: parameters.get("room") || "all",
+    view: SCHEDULE_VIEWS.some((candidate) => candidate.id === view)
+      ? (view as ScheduleView)
+      : "day",
+  };
+}
+
+/** Replace rather than push: a filter keystroke is not a place in the visitor's history. */
+function writeFilters(filters: PublicFilters) {
+  const url = new URL(window.location.href);
+  const values: Record<string, string> = {
+    q: filters.q.trim(),
+    track: filters.track === "all" ? "" : filters.track,
+    format: filters.format === "all" ? "" : filters.format,
+    room: filters.room === "all" ? "" : filters.room,
+    view: filters.view === FILTER_DEFAULTS.view ? "" : filters.view,
+  };
+  let changed = false;
+  for (const [key, value] of Object.entries(values)) {
+    const current = url.searchParams.get(key);
+    if (value) {
+      if (current !== value) {
+        url.searchParams.set(key, value);
+        changed = true;
+      }
+    } else if (current !== null) {
+      url.searchParams.delete(key);
+      changed = true;
+    }
+  }
+  if (changed) window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+}
+
 /* ---------------------------- embed options ---------------------------- */
 
 /**
@@ -317,7 +403,15 @@ function parseEmbedOptions(search: string): EmbedOptions {
 
 /* ------------------------------ pieces ------------------------------- */
 
-export type { EmbedOptions, PublicSession, PublicSpeaker, Route, ScheduleView, View };
+export type {
+  EmbedOptions,
+  PublicFilters,
+  PublicSession,
+  PublicSpeaker,
+  Route,
+  ScheduleView,
+  View,
+};
 export {
   bySurname,
   CFP_AWARE_VIEWS,
@@ -332,10 +426,15 @@ export {
   formatInstant,
   fullTime,
   linkProps,
+  FILTER_DEFAULTS,
   parseEmbedOptions,
   parseRoute,
+  readFilters,
   SCHEDULE_VIEWS,
   SECTIONS,
+  shortDate,
   usePublicRoute,
+  weekdayLabel,
+  writeFilters,
   zoneAbbreviation,
 };

@@ -27,14 +27,15 @@ import type { SpeakerTaskTemplateDto } from "@greenroom/contracts";
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import {
   assignSpeakerChecklist,
-  ContentApiError,
   createSpeakerTaskTemplate,
   deleteSpeakerTaskTemplate,
   listSpeakerTaskTemplates,
   updateSpeakerTaskTemplate,
 } from "../api/content";
-import { EmptyState, Notice, Pill, useActionFeedback } from "../ui/primitives";
-import { plural, type Run, type Workspace, withReference } from "./shared";
+import { type ApiFailure, describeApiFailure } from "../api/config";
+import { IconTask } from "../ui/icons";
+import { EmptyState, LoadFailure, Pill, useActionFeedback } from "../ui/primitives";
+import { plural, type Run, type Workspace } from "./shared";
 
 /**
  * A due date expressed as a distance, in the words an organizer used to say it.
@@ -134,7 +135,7 @@ function ChecklistForm({
         />
       </div>
       <div className="row-actions checklist-form-wide">
-        <button type="submit" disabled={busy}>
+        <button className="primary" type="submit" disabled={busy}>
           {editing ? "Save line" : "Add line"}
         </button>
         <button type="button" className="secondary" onClick={onCancel}>
@@ -159,7 +160,7 @@ export function ChecklistEditor({
   const feedback = useActionFeedback();
   const [entries, setEntries] = useState<SpeakerTaskTemplateDto[] | null>(null);
   /** A checklist this panel could not read, said here rather than left as an empty list. */
-  const [loadFailure, setLoadFailure] = useState<string | null>(null);
+  const [loadFailure, setLoadFailure] = useState<ApiFailure | null>(null);
   // One editor at a time: "new", a line's id, or nothing open.
   const [open, setOpen] = useState<string | null>(null);
   const [selectedSpeakers, setSelectedSpeakers] = useState<string[]>([]);
@@ -173,14 +174,7 @@ export function ChecklistEditor({
     } catch (reason) {
       // ERROR-INTENT: rendered in place of the roster rather than discarded. An empty list and a
       // list that could not be read look identical, and only one of them means "declare a line".
-      setLoadFailure(
-        withReference(
-          reason instanceof ContentApiError
-            ? reason.message
-            : "The speaker checklist could not be read.",
-          reason,
-        ),
-      );
+      setLoadFailure(describeApiFailure(reason, "The speaker checklist could not be read."));
     }
   }, [eventId]);
 
@@ -223,14 +217,7 @@ export function ChecklistEditor({
   function announce(result: { ok: true } | { ok: false; error: unknown }, success: string) {
     feedback.announce(
       result.ok ? "success" : "error",
-      result.ok
-        ? success
-        : withReference(
-            result.error instanceof ContentApiError
-              ? result.error.message
-              : "That change could not be saved.",
-            result.error,
-          ),
+      result.ok ? success : describeApiFailure(result.error, "That change could not be saved."),
     );
   }
 
@@ -289,17 +276,12 @@ export function ChecklistEditor({
   if (loadFailure)
     return (
       <div className="checklist-manager">
-        <Notice tone="error">{loadFailure}</Notice>
-        <button
-          type="button"
-          className="secondary small"
-          onClick={() => {
-            // ERROR-INTENT: handlers cannot await; load renders both of its outcomes.
-            void load();
-          }}
-        >
-          Try again
-        </button>
+        <LoadFailure
+          what="the speaker checklist"
+          error={loadFailure.message}
+          reference={loadFailure.reference}
+          onRetry={load}
+        />
       </div>
     );
 
@@ -403,7 +385,7 @@ export function ChecklistEditor({
       ) : (
         // What an organizer should do, not a report that something is missing. A new event has
         // no checklist because nobody has written one yet, which is the normal state.
-        <EmptyState title="No checklist yet">
+        <EmptyState icon={<IconTask size={20} />} title="No checklist yet">
           A checklist is what every speaker at this event is asked for — a bio, a headshot, slides —
           written once here instead of retyped per person per year. Add the first line above, then
           assign it to the speakers who need it.
@@ -431,6 +413,7 @@ export function ChecklistEditor({
         </label>
         <div className="row-actions">
           <button
+            className="primary"
             type="button"
             disabled={busy || !selectedSpeakers.length || !lines.length}
             onClick={assign}

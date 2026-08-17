@@ -1,103 +1,175 @@
 /*
  * Call for proposals composer.
  *
- * Two panes: the editor on the left, the public form on the right. The right pane
- * borrows the public surface's warm-paper token set (`public-state` in tokens.css)
- * so the organizer is comparing against the real thing, not a console-flavoured
- * approximation. Nothing here defines a colour or a size of its own.
+ * Three panes: a rail of the form's parts, the list of what is in the selected part, and the
+ * inspector holding the one item being edited. The preview is a drawer rather than a fourth
+ * column — it is what an organizer checks, not what they work in.
+ *
+ * The preview wears `public-state`, the same class the live public surfaces do, so it inherits
+ * their type and their `--accent` derivation rather than a console-flavoured approximation.
+ * There is no second palette to borrow any more — one cool ramp runs through the whole product,
+ * and a public page differentiates by measure, rhythm and the event's own accent. Nothing here
+ * defines a colour or a size of its own.
  */
 
-/* ========================= publication bar ========================= */
+/* ========================= the status bar ========================= */
 
-.cfp-status {
+/*
+ * One bar for the whole publication story, pinned under the hub tabs.
+ *
+ * It replaces a Publication card, a Submission window card and up to two standing notices —
+ * 480–560px of chrome above a form nobody could see, restating the draft-versus-live
+ * relationship three times in three voices. What is left is the state, one measure, the action,
+ * and an overflow menu for the things done once a season.
+ */
+.cfp-statusbar {
+  position: sticky;
+  top: var(--topbar-h);
+  z-index: 10;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: var(--s-4);
   flex-wrap: wrap;
-  padding: var(--s-4) var(--s-5);
+  padding: var(--s-2) var(--s-4);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-lg);
+  background: var(--surface);
 }
 
-.cfp-status-state {
-  display: grid;
-  gap: var(--s-2);
-  min-width: 0;
-}
-
-.cfp-pills {
+.cfp-statusbar-state,
+.cfp-statusbar-actions {
   display: flex;
   align-items: center;
   gap: var(--s-2);
   flex-wrap: wrap;
+  min-width: 0;
 }
 
-.cfp-status-meta {
-  color: var(--muted);
-  font-size: var(--text-xs);
+.cfp-version {
+  color: var(--slate);
 }
 
-.cfp-actions {
-  justify-content: flex-end;
-}
-
-/* Feedback lands here — directly under the buttons that produce it. The audit found
-   the old confirmation ~750px further down the page, which is to say off screen. */
-.cfp-status-foot {
-  display: grid;
-  gap: var(--s-2);
-  padding: 0 var(--s-5) var(--s-4);
-}
-
-.cfp-link {
-  color: var(--muted);
-  font-size: var(--text-xs);
-  overflow-wrap: anywhere;
-}
-.cfp-link code {
-  font-family: var(--font-mono);
-  font-size: var(--text-2xs);
-  color: var(--ink-2);
-}
-
-.cfp-loading {
-  display: grid;
-  gap: var(--s-3);
-}
-
-.cfp-recovery-hint {
-  margin-top: var(--s-3);
-  color: var(--muted);
-  font-size: var(--text-sm);
+.cfp-statusline {
   max-width: var(--measure);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+.cfp-statusline strong {
+  color: var(--ink);
+  font-weight: var(--fw-semibold);
 }
 
-.cfp-field-type-list {
-  list-style: none;
-  margin: var(--s-4) 0 0;
-  padding: 0;
+/* Feedback lands here — under the buttons that produce it. The audit found the old
+   confirmation ~750px further down the page, which is to say off screen. */
+.cfp-feedback {
   display: grid;
   gap: var(--s-2);
+  justify-items: start;
 }
-.cfp-field-type-list button {
-  width: 100%;
-  min-height: 3.5rem;
+
+/* ======================= the type picker ========================= */
+
+/* Four types, side by side. A search box over four options costs a keystroke to reach what is
+   already on screen, and that is what it replaced. */
+.cfp-type-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s-3);
+  margin-top: var(--s-4);
+}
+.cfp-type-card {
   display: grid;
   justify-items: start;
+  align-content: start;
   gap: var(--s-1);
+  min-height: 4.5rem;
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--ink);
   text-align: left;
 }
-.cfp-field-type-list span {
-  color: var(--muted);
+.cfp-type-card:hover {
+  border-color: var(--green);
+  background: var(--green-soft);
+}
+.cfp-type-card strong {
+  font-weight: var(--fw-semibold);
+}
+.cfp-type-card span {
+  color: var(--slate);
   font-size: var(--text-xs);
 }
 
-/* ============================ two panes ============================ */
+/* =========================== three panes =========================== */
 
+/*
+ * A rail of parts, the list of what is in the selected part, and the editor for the one item
+ * being changed. Every question used to render its full editor inline — a ten-question form was
+ * roughly 4,000px of permanently open controls.
+ */
 .cfp-composer {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 460px);
+  grid-template-columns: minmax(0, 200px) minmax(0, 1fr) minmax(0, 320px);
   gap: var(--s-5);
   align-items: start;
+
+  /*
+   * The composer takes the rest of the screen.
+   *
+   * It was sized by its contents, so a six-question form ended around 760px of a 900px viewport
+   * and the last 140px was empty canvas under three floating panes — the page looked unfinished
+   * rather than short. A form builder's list is a working surface: it should reach the bottom of
+   * the window and scroll in place.
+   *
+   * The subtrahend is the chrome above it on the Program hub — topbar, the page body's top
+   * padding, the page header, the hub tabs, the status bar and status line, and the gaps between
+   * them. Deliberately generous: overshooting would invent a scrollbar on a page that had none,
+   * while undershooting only leaves the gap this rule is closing.
+   */
+  min-height: calc(100dvh - 380px);
+}
+/* Routing rules are their own editor, so that section has no inspector to fill. */
+.cfp-composer.is-wide {
+  grid-template-columns: minmax(0, 200px) minmax(0, 1fr);
+}
+
+.cfp-rail {
+  display: grid;
+  gap: 2px;
+  align-content: start;
+  position: sticky;
+  top: calc(var(--topbar-h) + var(--s-12));
+}
+.cfp-rail-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+  min-height: var(--control-h);
+  padding: 0 var(--s-3);
+  border-radius: var(--r-md);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  font-weight: var(--fw-medium);
+  text-align: left;
+}
+.cfp-rail-item:hover {
+  background: var(--surface-2);
+}
+.cfp-rail-item[aria-current="true"] {
+  background: var(--green-soft);
+  box-shadow: inset 2px 0 0 var(--green);
+  color: var(--green-strong);
+  font-weight: var(--fw-semibold);
+}
+.cfp-rail-item .figure {
+  color: var(--slate);
+}
+.cfp-rail-item[aria-current="true"] .figure {
+  color: var(--green-strong);
 }
 
 .cfp-pane {
@@ -107,10 +179,71 @@
   min-width: 0;
 }
 
-/* The preview follows the organizer down a long field list. */
-.cfp-pane-preview {
+/* The questions pane fills the composer and hands its height to the card, whose body — the list
+   itself — is the only thing that scrolls. `min-height: 0` at both levels because a grid item's
+   automatic minimum is its content, which is what stops an inner scroll container from ever
+   being shorter than the list inside it. */
+.cfp-pane.is-fill {
+  align-self: stretch;
+  align-content: stretch;
+  min-height: 0;
+}
+.cfp-pane.is-fill > .card {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  /* The body scrolls to the card's own edge, so the rounded corner has to clip it. */
+  overflow: hidden;
+}
+.cfp-pane.is-fill > .card > .card-body {
+  overflow-y: auto;
+}
+
+/* The inspector follows the organizer down a long list, because the row being edited is at
+   the top of it. */
+.cfp-inspector {
   position: sticky;
-  top: calc(var(--topbar-h) + var(--s-4));
+  top: calc(var(--topbar-h) + var(--s-12));
+  display: grid;
+  gap: var(--s-4);
+  align-content: start;
+  min-width: 0;
+  padding: var(--s-4);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+}
+/* The question's own name is the heading; its position is the measure beside it, set in the same
+   mono face the row carries in the list, so the two are visibly one selection. */
+.cfp-inspector-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  min-width: 0;
+  font-size: var(--text-base);
+}
+.cfp-inspector-index {
+  flex: none;
+  color: var(--slate);
+}
+.cfp-inspector-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cfp-inspector-actions {
+  padding-top: var(--s-3);
+  border-top: 1px solid var(--rule);
+}
+/* Destructive, and quiet about it until the pointer is on it. */
+.cfp-remove-question {
+  color: var(--slate);
+}
+.cfp-remove-question:hover:not(:disabled),
+.cfp-remove-question:focus-visible {
+  background: var(--danger-bg);
+  color: var(--danger-fg);
 }
 
 .cfp-details {
@@ -118,76 +251,138 @@
   gap: var(--s-4);
 }
 
-/* ========================= question cards ========================= */
+/* ========================= the question list ========================= */
 
-.cfp-general-errors {
-  display: grid;
-  gap: var(--s-2);
-  padding: var(--s-4) var(--s-5) 0;
+/*
+ * A row per question, and the row is its shape rather than its editor: the position it is
+ * answered in sits in the cue gutter, the label is the way into the inspector, and the grip is
+ * how the order is changed. Two Move buttons per row were 2n controls for one gesture.
+ */
+.cfp-questions .gutter-row {
+  position: relative;
+  min-height: 44px;
 }
-
-.cfp-questions {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: 0;
-  counter-reset: none;
-}
-
-.cfp-question {
-  display: grid;
-  gap: var(--s-3);
-  padding: var(--s-4) var(--s-5);
-  border-bottom: 1px solid var(--line);
-}
-.cfp-question:last-child {
-  border-bottom: 0;
-}
-.cfp-question:hover {
-  background: var(--surface-2);
-}
-
-.cfp-question-head {
+.cfp-q-title {
   display: flex;
   align-items: center;
   gap: var(--s-2);
-  flex-wrap: wrap;
   min-width: 0;
 }
-
-.cfp-question-index {
+.cfp-grip {
   display: grid;
   place-items: center;
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   flex: none;
-  border-radius: var(--r-full);
-  background: var(--neutral-bg);
-  color: var(--neutral-fg);
-  font-size: var(--text-2xs);
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
+  border-radius: var(--r-sm);
+  color: var(--ink-4);
+  cursor: grab;
 }
-
-.cfp-question-name {
-  flex: 1 1 160px;
+.cfp-grip:hover {
+  background: var(--surface-2);
+  color: var(--slate);
+}
+.cfp-q-name {
   min-width: 0;
-  color: var(--ink);
+  color: var(--ink-2);
   font-size: var(--text-sm);
-  font-weight: 650;
+  font-weight: var(--fw-medium);
+  text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-.cfp-question-body {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 190px);
-  gap: var(--s-3);
+.cfp-q-name[aria-current="true"] {
+  color: var(--ink);
+  font-weight: var(--fw-semibold);
 }
-.cfp-question-body .cfp-span {
-  grid-column: 1 / -1;
+.cfp-q-name:hover {
+  text-decoration: underline;
+}
+/* A question whose saved state the server refused. The mark is on the row so the failure is
+   findable from the list, and the sentence itself is in the inspector with the control. */
+.cfp-q-invalid {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--r-full);
+  background: var(--danger-bg);
+  color: var(--danger-fg);
+  font-size: var(--text-2xs);
+  font-weight: var(--fw-bold);
+}
+/* A required question carries a dot rather than a second pill: it is a flag, not a name. */
+.cfp-required-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-full);
+  background: var(--warn-fg);
+}
+
+/*
+ * The flags a row can carry, in declared columns.
+ *
+ * They were three items in a flex row, so the pill's position depended on which flags its
+ * neighbours happened to have: a row with a required dot sat 14px left of a row without one and
+ * the list's right edge was ragged across six rows. Three fixed tracks — validity, type,
+ * required — and each flag names its own, so a column stays a column when a row leaves it empty.
+ * The middle track is sized for the longest name in FIELD_TYPES ("Single select"), and the pill
+ * hangs from its right edge so the types line up as a column of measures rather than of labels.
+ */
+.cfp-q-flags {
+  display: grid;
+  grid-template-columns: 18px 7rem 6px;
+  align-items: center;
+  gap: var(--s-2);
+}
+.cfp-q-flags > .cfp-q-invalid {
+  grid-column: 1;
+}
+.cfp-q-flags > .pill {
+  grid-column: 2;
+  justify-self: end;
+}
+.cfp-q-flags > .cfp-required-dot {
+  grid-column: 3;
+}
+/* The drop target is the whole row, because a 16px grip is not something to aim at twice. It
+   exists only while a drag is in flight — a permanent overlay would swallow the row's clicks. */
+.cfp-drop {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+/* -------------------------- routing rules -------------------------- */
+
+/*
+ * Routing rules have their own class. They used to wear `.cfp-question`, whose grid stretches
+ * its last child across the row — so the Remove button rendered 460px wide.
+ */
+.cfp-rules {
+  list-style: none;
+  display: grid;
+  gap: var(--s-4);
+  margin: 0;
+  padding: 0;
+}
+.cfp-rule {
+  display: grid;
+  gap: var(--s-3);
+  justify-items: start;
+  padding: var(--s-4);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-md);
+}
+.cfp-rule-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+  gap: var(--s-3);
+  width: 100%;
+}
+.cfp-rule-remove {
+  justify-self: start;
 }
 
 .cfp-choice-editor {
@@ -205,12 +400,12 @@
 .cfp-choice-marker {
   width: 14px;
   height: 14px;
-  border: 1.5px solid var(--line-strong);
+  border: 1.5px solid var(--rule-strong);
   border-radius: var(--r-full);
 }
 
 .cfp-choice-remove {
-  color: var(--muted);
+  color: var(--slate);
 }
 
 .cfp-choice-add {
@@ -221,7 +416,7 @@
 .cfp-choice-field > .field-label {
   color: var(--ink-2);
   font-size: var(--text-sm);
-  font-weight: 650;
+  font-weight: var(--fw-medium);
 }
 
 .cfp-window-rule,
@@ -232,101 +427,56 @@
   line-height: 1.55;
 }
 
-.cfp-window-controls {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(220px, 1fr)) auto auto;
-  align-items: end;
-  gap: var(--s-3);
-  margin-top: var(--s-4);
-}
-
-.cfp-window-controls .field {
-  min-width: 0;
-}
-
-.cfp-window-controls button {
-  white-space: nowrap;
+.cfp-window-rule {
+  font-size: var(--text-sm);
 }
 
 .cfp-window-state {
-  margin-top: var(--s-3);
-  font-weight: 620;
+  font-weight: var(--fw-medium);
 }
 
-.cfp-question-error {
-  margin: 0;
-}
-
-.cfp-question-foot {
-  display: flex;
-  align-items: center;
+/* The condition is one question's own rule, so it sits under a hairline rather than in a box:
+   one border depth, and the inspector already has the outer one. */
+.cfp-condition {
+  display: grid;
   gap: var(--s-3);
-  flex-wrap: wrap;
+  padding-top: var(--s-3);
+  border-top: 1px solid var(--rule);
+}
+.cfp-condition-fields {
+  display: grid;
+  gap: var(--s-3);
 }
 
-.cfp-check {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--s-2);
-  color: var(--ink-2);
-  font-size: var(--text-sm);
-  font-weight: 620;
-}
-.cfp-check input {
-  width: auto;
-}
-
-/* The field ID is the key submitted answers are stored under, so it is worth showing —
-   but generated IDs are long, and letting one wrap would push the row's actions onto a
-   second line. Truncated here, with the full value on the element's title. */
-.cfp-code {
-  max-width: 20ch;
-  overflow: hidden;
-  color: var(--muted);
-  font-family: var(--font-mono);
-  font-size: var(--text-2xs);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.cfp-question-actions {
-  display: flex;
-  gap: var(--s-2);
-  margin-left: auto;
-  flex-wrap: wrap;
-}
-.cfp-remove {
-  color: var(--danger-fg);
-}
-.cfp-remove:hover:not(:disabled) {
-  background: var(--danger-bg);
-}
+/* `.cfp-check` used to be here: a flex label around a bare `<input type="checkbox">`, which the
+   control tier's `appearance: none` left with no box drawn at all. Both call sites now render
+   the shared `<Checkbox>`, which draws one. */
 
 /* ======================== the public form ========================= */
 
 .cfp-preview-tabs {
-  padding: 0 var(--s-4);
+  margin-bottom: var(--s-3);
 }
 
+/* Inside the drawer now: the preview is what an organizer checks, not what they work in, and
+   as a permanent 460px column it took half the page away from the form being composed. */
 .cfp-preview-panel {
-  padding: var(--s-4);
-  max-height: min(72vh, 900px);
   overflow-y: auto;
 }
 .cfp-preview-panel:focus-visible {
   outline-offset: -2px;
 }
 
-/* `public-state` carries the warm-paper token swap, which is exactly what the preview
-   wants — but public-event.css also hangs page-level layout (a 640px column centred
-   12vh down) on the same class, and that stylesheet ships in the console bundle too.
-   The two-class selector keeps the palette and drops the page furniture regardless of
+/* `public-state` carries the public type and the `--accent` derivation, which is what the
+   preview wants — but public-event.css also hangs page-level layout (a 640px column centred
+   12vh down) on the same class, and that stylesheet ships in the console bundle too. The
+   two-class selector keeps the public treatment and drops the page furniture regardless of
    which stylesheet the bundler happens to emit last. */
 .cfp-preview.public-state {
   max-width: none;
   margin: 0;
   padding: var(--s-5);
-  border: 1px solid var(--line);
+  border: 1px solid var(--rule);
   border-radius: var(--r-lg);
   background: var(--surface);
   color: var(--ink);
@@ -334,19 +484,17 @@
 }
 
 .cfp-preview-kicker {
-  color: var(--clay-600);
+  color: var(--slate);
   font-size: var(--text-2xs);
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-weight: var(--fw-medium);
 }
 
 .cfp-preview-title {
   margin-top: var(--s-1);
   font-family: var(--font-display);
   font-size: var(--text-xl);
-  font-weight: 600;
-  letter-spacing: -0.02em;
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--tracking-tight);
   line-height: var(--leading-tight);
 }
 
@@ -360,8 +508,8 @@
 .cfp-preview-status {
   margin-top: var(--s-3);
   padding-top: var(--s-3);
-  border-top: 1px solid var(--line);
-  color: var(--muted);
+  border-top: 1px solid var(--rule);
+  color: var(--slate);
   font-size: var(--text-xs);
 }
 
@@ -392,10 +540,10 @@
   justify-self: start;
   padding: 8px 14px;
   border-radius: var(--r-md);
-  background: var(--green-700);
-  color: #fff;
+  background: var(--green);
+  color: var(--surface);
   font-size: var(--text-sm);
-  font-weight: 620;
+  font-weight: var(--fw-medium);
 }
 
 .cfp-answer {
@@ -406,10 +554,10 @@
 .cfp-answer > label {
   color: var(--ink);
   font-size: var(--text-sm);
-  font-weight: 620;
+  font-weight: var(--fw-medium);
 }
 .cfp-answer-guidance {
-  color: var(--muted);
+  color: var(--slate);
   font-size: var(--text-xs);
 }
 .cfp-required-mark {
@@ -430,24 +578,45 @@
 
 /* ========================== responsive ============================ */
 
+/* Narrow enough and the inspector cannot hold a form: it goes under the list rather than
+   squeezing both. The rail stays, because it is how the sections are reached at all. */
 @media (max-width: 1180px) {
-  .cfp-composer {
-    grid-template-columns: minmax(0, 1fr);
+  .cfp-composer,
+  .cfp-composer.is-wide {
+    grid-template-columns: minmax(0, 160px) minmax(0, 1fr);
   }
-  .cfp-pane-preview {
+  .cfp-inspector {
     position: static;
-  }
-  .cfp-preview-panel {
-    max-height: none;
+    grid-column: 2;
   }
 }
 
 @media (max-width: 700px) {
-  .cfp-window-controls {
-    grid-template-columns: 1fr;
+  .cfp-composer,
+  .cfp-composer.is-wide {
+    grid-template-columns: minmax(0, 1fr);
+    /* Stacked, the panes are already taller than the screen, and a viewport floor under the
+       first of them would only push the inspector off the bottom of it. */
+    min-height: 0;
   }
-  .cfp-window-controls button {
-    width: 100%;
+  .cfp-pane.is-fill,
+  .cfp-pane.is-fill > .card {
+    min-height: 0;
+    overflow: visible;
+  }
+  .cfp-pane.is-fill > .card > .card-body {
+    overflow-y: visible;
+  }
+  .cfp-rail {
+    position: static;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+  }
+  .cfp-inspector {
+    grid-column: 1;
+  }
+  .cfp-type-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
   .cfp-choice-row {
     grid-template-columns: 18px minmax(0, 1fr);
@@ -456,17 +625,7 @@
     grid-column: 2;
     justify-self: start;
   }
-  .cfp-question-body {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .cfp-status,
-  .cfp-actions {
-    justify-content: flex-start;
-  }
-  .cfp-actions {
-    width: 100%;
-  }
-  .cfp-question-actions {
-    margin-left: 0;
+  .cfp-statusbar {
+    align-items: flex-start;
   }
 }

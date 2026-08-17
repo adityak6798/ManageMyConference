@@ -79,6 +79,21 @@ function renderRepublish(liveState: "open" | "closed") {
   render(<CfpWorkspace eventId={eventId} organizer timezone="America/Los_Angeles" />);
 }
 
+/** The composer opens on Questions; the form's own title is on the Form details part. */
+async function openFormDetails() {
+  fireEvent.click(await screen.findByRole("button", { name: /^Form details/ }));
+}
+
+/**
+ * Open the status bar's overflow menu.
+ *
+ * Closing and reopening a live call happens once a season, so it is in the menu rather than
+ * taking a permanent place in the bar beside Save draft and Publish.
+ */
+function openMoreActions() {
+  fireEvent.click(screen.getByRole("button", { name: "More call for proposals actions" }));
+}
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -88,6 +103,7 @@ describe("publishing a call that is closed", () => {
   it("says the call is still closed, and names the control that would reopen it", async () => {
     renderRepublish("closed");
 
+    await openFormDetails();
     fireEvent.change(await screen.findByLabelText("Form title"), {
       target: { value: "Call for proposals 2027" },
     });
@@ -98,16 +114,18 @@ describe("publishing a call that is closed", () => {
     expect(
       await screen.findByText(/Published\. The call remains closed to new submissions/),
     ).toBeInTheDocument();
-    // Named, not described: "Reopen live CFP" is the label on the button beside this message,
-    // so the sentence does not send anyone hunting for a control by another name.
-    expect(screen.getByRole("button", { name: "Reopen live CFP" })).toBeInTheDocument();
     // And the state the announcement describes is the state on screen.
     expect(screen.getByText("Published · closed")).toBeInTheDocument();
+    // Named, not described: "Reopen live CFP" is the label the control actually carries, so the
+    // sentence does not send anyone hunting for a control by another name.
+    openMoreActions();
+    expect(screen.getByRole("menuitem", { name: /Reopen live CFP/ })).toBeInTheDocument();
   });
 
   it("still reports a republished open call as reaching applicants", async () => {
     renderRepublish("open");
 
+    await openFormDetails();
     fireEvent.change(await screen.findByLabelText("Form title"), {
       target: { value: "Call for proposals 2027" },
     });
@@ -120,6 +138,7 @@ describe("publishing a call that is closed", () => {
       await screen.findByText("Published. Applicants now see this version of the form."),
     ).toBeInTheDocument();
     expect(screen.queryByText(/remains closed/)).toBeNull();
-    expect(screen.getByRole("button", { name: "Close live CFP" })).toBeInTheDocument();
+    openMoreActions();
+    expect(screen.getByRole("menuitem", { name: /Close live CFP/ })).toBeInTheDocument();
   });
 });

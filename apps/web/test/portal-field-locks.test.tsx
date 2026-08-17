@@ -61,7 +61,9 @@ it("saves the whole lock set, not the field that changed", async () => {
   const biography = await screen.findByRole("combobox", { name: "Biography" });
   expect((biography as HTMLSelectElement).value).toBe("lock");
 
-  fireEvent.change(screen.getByRole("combobox", { name: "Photo Url" }), {
+  // "Photo URL", not "Photo Url": these captions are sentence case like every other label in
+  // the product, and an initialism split out of a camelCase field name goes up rather than down.
+  fireEvent.change(screen.getByRole("combobox", { name: "Photo URL" }), {
     target: { value: "hide" },
   });
   fireEvent.click(screen.getByRole("button", { name: "Save portal locks" }));

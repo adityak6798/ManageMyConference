@@ -173,7 +173,7 @@ export function SessionEditor({
         )}
       </fieldset>
       <div className="session-editor-actions session-editor-wide">
-        <button type="submit" aria-disabled={busy}>
+        <button className="primary" type="submit" aria-disabled={busy}>
           {busy ? "Saving…" : "Save session"}
         </button>
         <button type="button" className="secondary" onClick={onClose}>

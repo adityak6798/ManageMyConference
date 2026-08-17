@@ -25,7 +25,6 @@ import type {
 } from "@greenroom/contracts";
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  CrmApiError,
   commitImport,
   createContact,
   createCrmCampaign,
@@ -46,9 +45,21 @@ import {
   sendOutreach,
   updateContact,
 } from "./api/crm";
+import { type ApiFailure, describeApiFailure } from "./api/config";
+import { Inspector } from "./crm/inspector";
 import "./styles/crm.css";
-import { IconCheck, IconPlus, IconSend, IconSpeakers, IconWarning } from "./ui/icons";
-import { Card, EmptyState, Notice, Pill, Stat, useActionFeedback } from "./ui/primitives";
+import { Checkbox, Select } from "./ui/fields";
+import { IconCheck, IconClose, IconPlus, IconSend, IconSpeakers } from "./ui/icons";
+import {
+  Card,
+  EmptyState,
+  LoadFailure,
+  Pill,
+  SkeletonRows,
+  Stat,
+  Toolbar,
+  useActionFeedback,
+} from "./ui/primitives";
 
 type Dashboard = Awaited<ReturnType<typeof getContactDashboard>>;
 type ImportPreview = Awaited<ReturnType<typeof previewImport>> & {
@@ -107,6 +118,44 @@ function fromFilters(filters: ContactFiltersDto): FilterForm {
   };
 }
 
+/** What each criterion is called on screen, so an active one can be shown and taken off again. */
+const CRITERION_LABELS: Record<keyof FilterForm, string> = {
+  search: "Search",
+  company: "Company",
+  title: "Title",
+  tags: "Tags",
+  fieldKey: "Custom field",
+  fieldValue: "Custom field value",
+};
+
+/**
+ * The criteria actually in force, read from the server's echo rather than from the controls.
+ *
+ * The form holds what somebody has typed; this is what the list in front of them was filtered
+ * by, which is the only thing worth showing as a removable chip.
+ */
+function activeCriteria(
+  filters: ContactFiltersDto,
+): { key: keyof FilterForm; label: string; value: string }[] {
+  const active: { key: keyof FilterForm; label: string; value: string }[] = [];
+  const add = (key: keyof FilterForm, value: string | undefined) => {
+    if (value) active.push({ key, label: CRITERION_LABELS[key], value });
+  };
+  add("search", filters.search);
+  add("company", filters.company);
+  add("title", filters.title);
+  add("tags", filters.tags?.length ? filters.tags.join(", ") : undefined);
+  add("fieldKey", filters.fieldKey);
+  add("fieldValue", filters.fieldValue);
+  return active;
+}
+
+/** The same criteria with one taken off, so removing a chip is a filter rather than a reset. */
+function withoutCriterion(filters: ContactFiltersDto, key: keyof FilterForm): ContactFiltersDto {
+  const { [key]: _removed, ...rest } = filters as Record<string, unknown>;
+  return rest as ContactFiltersDto;
+}
+
 const stampedTime = (instant: string) =>
   new Date(instant).toLocaleString("en-US", {
     month: "short",
@@ -115,10 +164,15 @@ const stampedTime = (instant: string) =>
     minute: "2-digit",
   });
 
-function readCrmError(reason: unknown, fallback: string) {
-  if (reason instanceof CrmApiError) return `${reason.message} Reference: ${reason.correlationId}`;
-  return reason instanceof Error ? reason.message : fallback;
-}
+/*
+ * The reference travels beside the sentence, never inside it.
+ *
+ * This used to answer "…could not be saved. Reference: 01JD…", which buries the one value the
+ * reader is asked to quote in the one part of the message nobody reads character by character.
+ * `Notice`, `LoadFailure` and `useActionFeedback` all take an `ApiFailure` and render its
+ * reference as a selectable measure with its own copy control.
+ */
+const readCrmError = (reason: unknown, fallback: string) => describeApiFailure(reason, fallback);
 
 // @spec PRD-CRM-001
 export function CrmDirectoryWorkspace({
@@ -138,7 +192,7 @@ export function CrmDirectoryWorkspace({
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [owners, setOwners] = useState<ProspectOwnerDto[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<ApiFailure | null>(null);
   const [busy, setBusy] = useState(false);
 
   const [form, setForm] = useState<FilterForm>(EMPTY_FILTERS);
@@ -172,6 +226,16 @@ export function CrmDirectoryWorkspace({
   const directoryFeedback = useActionFeedback();
   const detailFeedback = useActionFeedback();
 
+  /** The debounce, and the search the last request actually carried, so it is asked once. */
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const requestedSearch = useRef("");
+  useEffect(
+    () => () => {
+      if (searchTimer.current) clearTimeout(searchTimer.current);
+    },
+    [],
+  );
+
   const reload = useCallback(
     async (filters: ContactFiltersDto, savedView: string) => {
       const sequence = ++loadSequence.current;
@@ -201,7 +265,7 @@ export function CrmDirectoryWorkspace({
 
   useEffect(() => {
     let active = true;
-    setError("");
+    setError(null);
     setLoading(true);
     setSelectedId("");
     setChosen([]);
@@ -216,6 +280,9 @@ export function CrmDirectoryWorkspace({
     setApplied({});
     setSegmentId("");
     setSegmentName("");
+    // The pending search belongs to the organization that was open when it was typed.
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    requestedSearch.current = "";
     // ERROR-INTENT: React effects cannot await; both outcomes are rendered below.
     void reload({}, "")
       .catch((reason: unknown) => {
@@ -233,6 +300,51 @@ export function CrmDirectoryWorkspace({
   const selected = contacts.find(({ id }) => id === selectedId);
   const activeSegment = segments.find(({ id }) => id === segmentId);
   const filtered = Object.keys(applied).length > 0;
+  const criteria = activeCriteria(applied);
+  const allChosen = contacts.length > 0 && chosen.length === contacts.length;
+
+  /*
+   * The free-text box searches as it is typed; Apply belongs to the structured criteria beside it.
+   *
+   * Typing a name and then hunting for a button is the pipeline's answer to the same question,
+   * and this surface is the one people arrive at knowing a name. The structured criteria keep
+   * their explicit Apply because company, title, tags and a custom field are composed into one
+   * question before it is asked, and re-asking it on every keystroke of a six-part form would be
+   * six requests describing something nobody meant.
+   *
+   * A search leaves any open saved view, the same way Apply does: a view is a stored definition,
+   * and a list that is "the keynote shortlist, but only the Riveras" is neither.
+   */
+  const searchAs = (typed: string) => {
+    setForm((current) => ({ ...current, search: typed }));
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    searchTimer.current = setTimeout(() => {
+      const trimmed = typed.trim();
+      if (trimmed === requestedSearch.current) return;
+      requestedSearch.current = trimmed;
+      setSegmentId("");
+      // ERROR-INTENT: guard owns rejection handling and visible feedback.
+      void guard(async () => {
+        await reload(
+          { ...withoutCriterion(applied, "search"), ...(trimmed ? { search: trimmed } : {}) },
+          "",
+        );
+        return trimmed ? `Showing contacts matching “${trimmed}”.` : "Search cleared.";
+      }, directoryFeedback);
+    }, 300);
+  };
+
+  /** Taking one chip off is a narrower question, not a reset back to everybody. */
+  async function removeCriterion(key: keyof FilterForm) {
+    const next = withoutCriterion(applied, key);
+    setForm(fromFilters(next));
+    if (key === "search") requestedSearch.current = "";
+    setSegmentId("");
+    await guard(async () => {
+      await reload(next, "");
+      return `${CRITERION_LABELS[key]} filter removed.`;
+    }, directoryFeedback);
+  }
 
   const timeline = useMemo(
     () =>
@@ -256,6 +368,7 @@ export function CrmDirectoryWorkspace({
   async function applyFilters(formEvent: FormEvent) {
     formEvent.preventDefault();
     setSegmentId("");
+    requestedSearch.current = form.search.trim();
     await guard(async () => {
       await reload(toFilters(form), "");
       return "Directory filtered.";
@@ -265,6 +378,8 @@ export function CrmDirectoryWorkspace({
   async function clearFilters() {
     setForm(EMPTY_FILTERS);
     setSegmentId("");
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    requestedSearch.current = "";
     await guard(async () => {
       await reload({}, "");
       return "Filters cleared. Showing every contact.";
@@ -276,6 +391,8 @@ export function CrmDirectoryWorkspace({
     const saved = segments.find((segment) => segment.id === id);
     // A saved view reopens from its stored definition, so the controls show what it selects.
     setForm(saved ? fromFilters(saved.filters) : EMPTY_FILTERS);
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    requestedSearch.current = saved?.filters.search?.trim() ?? "";
     await guard(async () => {
       await reload(saved ? saved.filters : {}, id);
       return saved ? `Opened the saved view "${saved.name}".` : "Showing every contact.";
@@ -474,16 +591,59 @@ export function CrmDirectoryWorkspace({
     }, directoryFeedback);
   }
 
+  /**
+   * Preview and send, defined once and rendered in exactly one place.
+   *
+   * With a selection they belong in the bar that reports it; with none they stay in the
+   * disclosure that explains what "everybody in the list" means. Two copies would have been two
+   * controls with one accessible name, which is a worse answer than either.
+   */
+  const outreachActions = (
+    <>
+      <button
+        type="button"
+        className="secondary"
+        disabled={busy}
+        onClick={() => {
+          // ERROR-INTENT: handlers cannot await; the preview announces both outcomes.
+          void runOutreachPreview();
+        }}
+      >
+        Preview outreach
+      </button>
+      {outreach ? (
+        <button
+          className="primary"
+          type="button"
+          disabled={busy}
+          onClick={() => {
+            // ERROR-INTENT: handlers cannot await; runOutreach announces both outcomes.
+            void runOutreach();
+          }}
+        >
+          <IconSend size={15} />
+          Send to {outreach.recipients.length}
+        </button>
+      ) : null}
+    </>
+  );
+
   if (error)
     return (
-      <Card>
-        <EmptyState
-          title="The speaker directory could not be loaded"
-          icon={<IconWarning size={20} />}
-        >
-          {error}
-        </EmptyState>
-      </Card>
+      <LoadFailure
+        what="the speaker directory"
+        error={error.message}
+        reference={error.reference}
+        onRetry={() => {
+          setError(null);
+          setLoading(true);
+          return reload(applied, segmentId)
+            .catch((reason: unknown) =>
+              setError(readCrmError(reason, "Could not load the speaker directory.")),
+            )
+            .finally(() => setLoading(false));
+        }}
+      />
     );
 
   return (
@@ -515,10 +675,28 @@ export function CrmDirectoryWorkspace({
       </dl>
 
       <div className="split">
+        {/*
+          The panel is named for what it holds, not for the page it sits on. It used to repeat
+          the page title above it word for word and then restate the subtitle underneath —
+          "Speaker directory / Everybody this organization knows, across all of its events."
+          directly beneath "Speaker directory / Every speaker this organization knows, across all
+          of its events." — so the first thing a reader saw twice was the one thing they already
+          knew. The hint now carries what the list in front of them actually is.
+        */}
         <Card
           labelledBy="crm-directory"
-          title="Speaker directory"
-          hint="Everybody this organization knows, across all of its events."
+          title="Contacts"
+          hint={
+            loading
+              ? undefined
+              : `${contacts.length} contact${contacts.length === 1 ? "" : "s"} ${
+                  activeSegment
+                    ? `in the saved view “${activeSegment.name}”`
+                    : criteria.length
+                      ? "match the criteria below"
+                      : "in this organization"
+                }`
+          }
           actions={
             <button
               type="button"
@@ -579,7 +757,7 @@ export function CrmDirectoryWorkspace({
                   </div>
                 </div>
                 <div className="crm-form-actions">
-                  <button type="submit" disabled={busy}>
+                  <button className="primary" type="submit" disabled={busy}>
                     Add contact
                   </button>
                   <button type="button" className="secondary" onClick={() => setComposing(false)}>
@@ -591,20 +769,48 @@ export function CrmDirectoryWorkspace({
 
             {directoryFeedback.node}
 
-            <form onSubmit={applyFilters} aria-label="Directory filters">
-              <div className="grid-auto">
-                <div className="field">
-                  <label htmlFor="crm-directory-search">Search directory</label>
-                  <input
-                    id="crm-directory-search"
-                    type="search"
-                    value={form.search}
-                    onChange={(changeEvent) =>
-                      setForm({ ...form, search: changeEvent.target.value })
-                    }
-                    placeholder="Name, email, or a merged address"
-                  />
-                </div>
+            {/* Search, the open view, and the selection: the three things that decide what the
+                table below is showing, in one rail above it. */}
+            <Toolbar label="Directory search and views">
+              <div className="field search">
+                <label htmlFor="crm-directory-search">Search directory</label>
+                <input
+                  className="control"
+                  id="crm-directory-search"
+                  type="search"
+                  value={form.search}
+                  onChange={(changeEvent) => searchAs(changeEvent.target.value)}
+                  placeholder="Name, email, or a merged address"
+                />
+              </div>
+              {/*
+                A listbox trigger, not a select. The control this replaces applied a whole stored
+                filter set the instant its value changed — so a keyboard user arrowing through a
+                closed list ran one request per press, each one replacing what was on screen.
+              */}
+              <Select
+                label="Saved views"
+                value={segmentId}
+                onChange={(id) => {
+                  // ERROR-INTENT: handlers cannot await; openSegment announces both outcomes.
+                  void openSegment(id);
+                }}
+                options={[
+                  { value: "", label: "All contacts" },
+                  ...segments.map((segment) => ({ value: segment.id, label: segment.name })),
+                ]}
+              />
+            </Toolbar>
+
+            {/*
+              Its own grid rather than `.grid-auto`.
+              `.grid-auto` floors a column at 240px, which in a 725px card body resolves to two
+              columns — so five criteria became three rows and the table an organizer came for
+              started 380px down the panel. These are short controls; four of the five hold a
+              word. At a 180px floor the same five fit two rows, and the list leads.
+            */}
+            <form id="crm-directory-filters" onSubmit={applyFilters} aria-label="Directory filters">
+              <div className="crm-filter-grid">
                 <div className="field">
                   <label htmlFor="crm-directory-company">Company</label>
                   <input
@@ -657,46 +863,38 @@ export function CrmDirectoryWorkspace({
                   />
                 </div>
               </div>
-              <div className="crm-form-actions">
-                <button type="submit" disabled={busy}>
-                  Apply filters
-                </button>
-                <button
-                  type="button"
-                  className="secondary"
-                  disabled={busy}
-                  onClick={() => {
-                    // ERROR-INTENT: handlers cannot await; clearFilters announces both outcomes.
-                    void clearFilters();
-                  }}
-                >
-                  Clear filters
-                </button>
-              </div>
             </form>
 
-            <div className="toolbar">
-              <div className="field">
-                <label htmlFor="crm-directory-segment">Saved views</label>
-                <select
-                  id="crm-directory-segment"
-                  value={segmentId}
-                  onChange={(changeEvent) => {
-                    // ERROR-INTENT: handlers cannot await; openSegment announces both outcomes.
-                    void openSegment(changeEvent.target.value);
-                  }}
-                >
-                  <option value="">All contacts</option>
-                  {segments.map((segment) => (
-                    <option key={segment.id} value={segment.id}>
-                      {segment.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <form onSubmit={saveSegment} className="field">
+            {/*
+              One row for everything you do with the criteria above: run them, drop them, or keep
+              them. Saving a view is its own `<form>` — a name and a submit cannot be nested
+              inside the filter form — so Apply reaches its form by `form=` and the three land on
+              one line instead of on three.
+            */}
+            <div className="crm-filter-actions">
+              <button
+                className="primary"
+                type="submit"
+                form="crm-directory-filters"
+                disabled={busy}
+              >
+                Apply filters
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                disabled={busy}
+                onClick={() => {
+                  // ERROR-INTENT: handlers cannot await; clearFilters announces both outcomes.
+                  void clearFilters();
+                }}
+              >
+                Clear filters
+              </button>
+              <form onSubmit={saveSegment} className="field crm-save-view">
                 <label htmlFor="crm-directory-segment-name">Save this view as</label>
                 <input
+                  className="control"
                   id="crm-directory-segment-name"
                   value={segmentName}
                   onChange={(changeEvent) => setSegmentName(changeEvent.target.value)}
@@ -708,18 +906,37 @@ export function CrmDirectoryWorkspace({
                 </button>
               </form>
             </div>
+
+            {/* What is actually in force, and one press to take any of it off. A filter you
+                cannot see is a filter you argue with. */}
+            {criteria.length ? (
+              <ul className="crm-criteria" aria-label="Filters in force">
+                {criteria.map((criterion) => (
+                  <li key={criterion.key}>
+                    <span>
+                      {criterion.label}: <strong>{criterion.value}</strong>
+                    </span>
+                    <button
+                      type="button"
+                      className="ghost small"
+                      disabled={busy}
+                      onClick={() => {
+                        // ERROR-INTENT: removeCriterion announces both outcomes.
+                        void removeCriterion(criterion.key);
+                      }}
+                    >
+                      <IconClose size={16} />
+                      <span className="visually-hidden">Remove the {criterion.label} filter</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
           </div>
 
           {loading ? (
-            <div className="crm-skeletons">
-              <div aria-hidden="true">
-                {[0, 1, 2].map((index) => (
-                  <div key={index} className="skeleton" style={{ height: 44 }} />
-                ))}
-              </div>
-              <p className="visually-hidden" role="status">
-                Loading the speaker directory.
-              </p>
+            <div className="crm-loading">
+              <SkeletonRows rows={4} label="Loading the speaker directory" />
             </div>
           ) : contacts.length === 0 ? (
             <EmptyState
@@ -738,7 +955,7 @@ export function CrmDirectoryWorkspace({
                     Clear filters
                   </button>
                 ) : (
-                  <button type="button" onClick={() => setComposing(true)}>
+                  <button className="primary" type="button" onClick={() => setComposing(true)}>
                     <IconPlus size={15} />
                     New contact
                   </button>
@@ -750,78 +967,134 @@ export function CrmDirectoryWorkspace({
                 : "Add somebody, or import a spreadsheet, to start the organization's speaker database."}
             </EmptyState>
           ) : (
-            <div className="table-wrap">
-              <table className="data crm-table">
-                <thead>
-                  <tr>
-                    <th scope="col">
-                      <span className="visually-hidden">Select for outreach</span>
-                    </th>
-                    <th scope="col">Contact</th>
-                    <th scope="col">Company</th>
-                    <th scope="col">Tags</th>
-                    <th scope="col">Events</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {contacts.map((contact) => (
-                    <tr
-                      key={contact.id}
-                      className={contact.id === selectedId ? "is-selected" : undefined}
-                    >
-                      <td>
-                        <input
-                          type="checkbox"
-                          aria-label={`Select ${contact.name} for outreach`}
-                          checked={chosen.includes(contact.id)}
-                          onChange={(changeEvent) =>
-                            setChosen((current) =>
-                              changeEvent.target.checked
-                                ? [...current, contact.id]
-                                : current.filter((id) => id !== contact.id),
-                            )
-                          }
-                        />
-                      </td>
-                      <td className="primary-cell">
-                        <button
-                          type="button"
-                          className="ghost crm-row-open"
-                          aria-current={contact.id === selectedId ? "true" : undefined}
-                          onClick={() => open(contact)}
-                        >
-                          {contact.name}
-                        </button>
-                        <span className="sub">{contact.email}</span>
-                      </td>
-                      <td>
-                        {contact.company ?? "—"}
-                        {contact.title ? <span className="sub">{contact.title}</span> : null}
-                      </td>
-                      <td>
-                        {contact.tags?.length
-                          ? contact.tags.map((tag) => (
-                              <Pill key={tag} tone="info">
-                                {tag}
-                              </Pill>
-                            ))
-                          : "—"}
-                      </td>
-                      <td>
-                        {contact.events.length}
-                        {contact.events.some(({ speakerId }) => speakerId) ? (
-                          <span className="sub">Speaker linked</span>
-                        ) : null}
-                      </td>
+            <>
+              {/*
+                The selection, where the selection is made. It used to be reported only inside a
+                collapsed disclosure hundreds of pixels below the table, so ticking eleven rows
+                and then sending was an act of faith. The bar says how many, offers the way out,
+                and carries the outreach actions themselves once there is something to act on.
+              */}
+              <div className={chosen.length ? "crm-bulk is-active" : "crm-bulk"}>
+                {/*
+                  The shared box, not a bare `<input type="checkbox">`. The control tier resets
+                  `appearance` on every input so the product draws its own controls, which left a
+                  raw checkbox as a 13px empty square — the select-all on this bar and the tick on
+                  every row below rendered as faint dots with no box, no tick and no green.
+                */}
+                <Checkbox
+                  className="crm-bulk-all"
+                  label="Select every contact in this list"
+                  checked={allChosen}
+                  indeterminate={chosen.length > 0 && !allChosen}
+                  onChange={(checked) => setChosen(checked ? contacts.map(({ id }) => id) : [])}
+                />
+                {chosen.length ? (
+                  <>
+                    <span className="crm-bulk-count">
+                      <span className="figure">{chosen.length}</span> selected
+                    </span>
+                    <button type="button" className="ghost small" onClick={() => setChosen([])}>
+                      Clear selection
+                    </button>
+                    {outreachActions}
+                  </>
+                ) : null}
+              </div>
+              <div className="table-wrap">
+                <table className="data crm-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">
+                        <span className="visually-hidden">Select for outreach</span>
+                      </th>
+                      <th scope="col">Contact</th>
+                      <th scope="col">Company</th>
+                      <th scope="col">Tags</th>
+                      <th scope="col" className="num">
+                        Events
+                      </th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {contacts.map((contact) => (
+                      /* `aria-selected` is the shared table system's one selection treatment;
+                         this workspace's local `.is-selected` said the same thing differently. */
+                      <tr
+                        key={contact.id}
+                        aria-selected={contact.id === selectedId ? true : undefined}
+                      >
+                        <td className="crm-select-cell" data-label="Selected">
+                          <Checkbox
+                            label={
+                              <span className="visually-hidden">
+                                Select {contact.name} for outreach
+                              </span>
+                            }
+                            checked={chosen.includes(contact.id)}
+                            onChange={(checked) =>
+                              setChosen((current) =>
+                                checked
+                                  ? [...current, contact.id]
+                                  : current.filter((id) => id !== contact.id),
+                              )
+                            }
+                          />
+                        </td>
+                        <td className="primary-cell" data-label="Contact">
+                          <button
+                            type="button"
+                            className="ghost crm-row-open"
+                            aria-current={contact.id === selectedId ? "true" : undefined}
+                            onClick={() => open(contact)}
+                          >
+                            {contact.name}
+                          </button>
+                          <span className="sub">{contact.email}</span>
+                        </td>
+                        <td data-label="Company">
+                          {contact.company ?? "—"}
+                          {contact.title ? <span className="sub">{contact.title}</span> : null}
+                        </td>
+                        <td data-label="Tags">
+                          {contact.tags?.length
+                            ? contact.tags.map((tag) => (
+                                <Pill key={tag} tone="info">
+                                  {tag}
+                                </Pill>
+                              ))
+                            : "—"}
+                        </td>
+                        <td className="num" data-label="Events">
+                          <span className="figure">{contact.events.length}</span>
+                          {contact.events.some(({ speakerId }) => speakerId) ? (
+                            <span className="sub">Speaker linked</span>
+                          ) : null}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
 
           <section className="crm-directory-tools" aria-labelledby="crm-directory-tools">
             <h3 id="crm-directory-tools">Directory tools</h3>
+            {/*
+              What these tools have already produced, stated where they are.
+
+              It was a blue `info` banner pinned to the bottom of the page — a tone this product
+              reserves for something a reader has to act on, spent on two standing counts — and
+              it read "1 saved view are available", because the verb was outside the pluralised
+              span. Both figures now sit above the two disclosures that made them.
+            */}
+            {dashboard && !loading ? (
+              <p className="hint">
+                {dashboard.imported} contact{dashboard.imported === 1 ? " has" : "s have"} arrived
+                by import. {dashboard.segments} saved view
+                {dashboard.segments === 1 ? " is" : "s are"} available.
+              </p>
+            ) : null}
 
             <details className="crm-details">
               <summary>Import contacts from a spreadsheet</summary>
@@ -890,6 +1163,7 @@ export function CrmDirectoryWorkspace({
                     </p>
                   ))}
                   <button
+                    className="primary"
                     type="button"
                     disabled={busy}
                     onClick={() => {
@@ -969,32 +1243,15 @@ export function CrmDirectoryWorkspace({
                   Delivery is recorded against {eventName}.
                 </p>
               </div>
-              <div className="crm-form-actions">
-                <button
-                  type="button"
-                  className="secondary"
-                  disabled={busy}
-                  onClick={() => {
-                    // ERROR-INTENT: handlers cannot await; the preview announces both outcomes.
-                    void runOutreachPreview();
-                  }}
-                >
-                  Preview outreach
-                </button>
-                {outreach ? (
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => {
-                      // ERROR-INTENT: handlers cannot await; runOutreach announces both outcomes.
-                      void runOutreach();
-                    }}
-                  >
-                    <IconSend size={15} />
-                    Send to {outreach.recipients.length}
-                  </button>
-                ) : null}
-              </div>
+              {/* The same two controls the selection bar carries, rendered here only when there
+                  is no selection for the bar to act on — one Preview, one Send, one place. */}
+              {chosen.length ? (
+                <p className="hint">
+                  The preview and send controls are with your selection, above the table.
+                </p>
+              ) : (
+                <div className="crm-form-actions">{outreachActions}</div>
+              )}
               {outreach ? (
                 <ul className="crm-contacts">
                   {outreach.recipients.map((recipient) => (
@@ -1077,17 +1334,18 @@ export function CrmDirectoryWorkspace({
           </section>
         </Card>
 
-        {selected ? (
-          <Card
-            labelledBy="crm-contact-detail"
-            title={selected.name}
-            hint={selected.company ?? "No company recorded"}
-            actions={
-              <button type="button" className="ghost" onClick={() => setSelectedId("")}>
-                Close
-              </button>
-            }
-          >
+        {/* Opening a contact moves focus into the panel and the panel stays in view: a sticky
+            column with its own scroll, and a drawer once the split has collapsed. */}
+        <Inspector
+          open={Boolean(selected)}
+          focusKey={selectedId}
+          labelledBy="crm-contact-detail"
+          title={selected ? selected.name : "Contact profile"}
+          {...(selected ? { hint: selected.company ?? "No company recorded" } : {})}
+          closeLabel="Close contact"
+          onClose={() => setSelectedId("")}
+        >
+          {selected ? (
             <div className="crm-detail">
               {detailFeedback.node}
 
@@ -1142,7 +1400,7 @@ export function CrmDirectoryWorkspace({
                       maxLength={1000}
                     />
                   </div>
-                  <button type="submit" disabled={busy}>
+                  <button className="primary" type="submit" disabled={busy}>
                     Save profile
                   </button>
                 </form>
@@ -1181,17 +1439,12 @@ export function CrmDirectoryWorkspace({
                   </select>
                   <p className="hint">Only organizers and reviewers on that event can own it.</p>
                 </div>
-                <div className="field">
-                  <label htmlFor="crm-contact-convert">
-                    <input
-                      id="crm-contact-convert"
-                      type="checkbox"
-                      checked={convertOnPush}
-                      onChange={(changeEvent) => setConvertOnPush(changeEvent.target.checked)}
-                    />
-                    Convert to a speaker straight away
-                  </label>
-                </div>
+                <Checkbox
+                  id="crm-contact-convert"
+                  label="Convert to a speaker straight away"
+                  checked={convertOnPush}
+                  onChange={setConvertOnPush}
+                />
                 <button
                   type="button"
                   className="secondary"
@@ -1228,49 +1481,54 @@ export function CrmDirectoryWorkspace({
                 )}
               </section>
             </div>
-          </Card>
-        ) : (
-          <Card labelledBy="crm-contact-empty" title="Contact profile">
+          ) : (
             <EmptyState title="Select a contact" icon={<IconSpeakers size={20} />}>
               Open a name from the directory to see its notes, custom fields, event history across
               the organization, and the action that sources it into an event.
             </EmptyState>
-          </Card>
-        )}
+          )}
+        </Inspector>
       </div>
 
+      {/*
+        The one table on this surface that is nothing but a measure and its name, so it is the
+        one that takes the cue gutter: the count leads in the 56px monospace column, the company
+        follows the spine. It used to be a company column with the figure pushed to the far right
+        edge of a 1150px card — the two halves of one fact a page apart — under a `<caption>`,
+        which centres by default and so sat centred over left-aligned columns beneath a
+        left-aligned heading. The sentence is the card's hint now, where the other cards keep
+        theirs.
+      */}
       {dashboard && dashboard.topCompanies.length > 0 ? (
-        <Card labelledBy="crm-directory-metrics" title="Where this organization's speakers work">
+        <Card
+          labelledBy="crm-directory-metrics"
+          title="Where this organization's speakers work"
+          hint="Counted over the contacts stored above."
+        >
           <table className="data">
-            <caption>Counted over the contacts stored above.</caption>
+            <caption className="visually-hidden">Contacts held per company, largest first</caption>
             <thead>
               <tr>
-                <th scope="col">Company</th>
-                <th scope="col" className="num">
+                <th scope="col" className="gutter">
                   Contacts
                 </th>
+                <th scope="col">Company</th>
               </tr>
             </thead>
             <tbody>
               {dashboard.topCompanies.map((row) => (
                 <tr key={row.company}>
-                  <td>{row.company}</td>
-                  <td className="num">{row.contacts}</td>
+                  <td className="gutter" data-label="Contacts">
+                    <span className="figure">{row.contacts}</span>
+                  </td>
+                  <td className="primary-cell" data-label="Company">
+                    {row.company}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </Card>
-      ) : null}
-
-      {dashboard && !loading ? (
-        <Notice tone="info">
-          <span>
-            {dashboard.imported} contact{dashboard.imported === 1 ? "" : "s"} arrived by import, and{" "}
-            {dashboard.segments} saved view
-            {dashboard.segments === 1 ? "" : "s"} are available.
-          </span>
-        </Notice>
       ) : null}
     </div>
   );

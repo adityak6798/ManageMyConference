@@ -1,4 +1,5 @@
 // @acceptance ACC-CRM
+import { chooseOption } from "./controls";
 import { expect, test } from "./fixtures";
 
 const EVENT_ID = "00000000-0000-4000-8000-000000000001";
@@ -81,7 +82,9 @@ test("organizer works the pipeline, adds a prospect, and converts it", async ({ 
   // Open the detail panel and move the prospect along its pipeline.
   await pipeline.getByRole("button", { name }).click();
   await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
-  await page.getByLabel("Stage", { exact: true }).selectOption("engaged");
+  // The stage picker is the shared listbox now: a native select drew the operating system's own
+  // chevron at its own height beside inputs the product draws.
+  await chooseOption(page, page.getByLabel("Stage", { exact: true }), "Engaged");
   // A reviewer on this event is assignable; the assignment grants them no CRM access.
   await page.getByLabel("Owner", { exact: true }).selectOption({ label: "Ravi Reviewer" });
   await page.getByLabel("Next action", { exact: true }).fill("Confirm session outline");
@@ -253,13 +256,13 @@ test("the directory holds one contact across two events, filters, and saves a vi
   await expect(page.getByRole("button", { name: "Morgan Chen" })).toBeVisible();
 
   // A saved view reopens from its stored definition and its criteria come back into the form.
-  await page.getByLabel("Saved views").selectOption({ label: "Design shortlist" });
+  await chooseOption(page, page.getByLabel("Saved views"), "Design shortlist");
   await expect(page.getByLabel("Tags")).toHaveValue("design");
   await expect(page.getByRole("button", { name: "Priya Raman" }).first()).toBeVisible();
   await expect(page.getByRole("button", { name: "Dr. Ada Rivera" })).toHaveCount(0);
 
   const view = `Keynote ${Date.now()}`;
-  await page.getByLabel("Saved views").selectOption({ label: "All contacts" });
+  await chooseOption(page, page.getByLabel("Saved views"), "All contacts");
   await page.getByLabel("Company").fill("Northwind Access");
   await page.getByLabel("Save this view as").fill(view);
   await page.getByRole("button", { name: "Save this view" }).click();
@@ -609,7 +612,7 @@ test("a stage cannot take its prospects with it when it goes", async ({ page }) 
   const row = page.locator(".stage-row").filter({ hasText: stageLabel });
   await row.getByRole("button", { name: /^Remove/ }).click();
   await expect(page.getByText("stand here and must move somewhere")).toBeVisible();
-  await page.getByLabel("Move them to").selectOption("contacted");
+  await chooseOption(page, page.getByLabel("Move them to"), "Contacted");
   await page.getByRole("button", { name: "Remove and move them" }).click();
   await expect(
     page.getByRole("status").filter({ hasText: /removed\. Anybody standing there is now in/ }),

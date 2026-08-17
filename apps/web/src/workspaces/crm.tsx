@@ -10,16 +10,18 @@
  */
 import { CrmDirectoryWorkspace } from "../CrmDirectoryWorkspace";
 import { CrmWorkspace } from "../CrmWorkspace";
-import { IconSpeakers } from "../ui/icons";
+import { IconPipeline, IconSpeakers } from "../ui/icons";
 import type { HubTabModule, WorkspaceModule } from "./contract";
 
 export const crmWorkspace: WorkspaceModule = {
   domain: "crm",
   path: "/speakers",
   label: "Speaker CRM",
-  group: "Audience",
+  group: "reach",
   order: 5,
-  icon: <IconSpeakers size={16} />,
+  /* The CRM is the pipeline the speaker moves through; the directory beside it is the people.
+     One glyph for both made two destinations look like one. */
+  icon: <IconPipeline />,
   personas: ["organizer"],
   canAccess: ({ capabilities }) => capabilities.includes("crm:manage"),
   header: () => ({
@@ -36,7 +38,7 @@ export const crmDirectoryWorkspace: WorkspaceModule = {
   domain: "crm",
   path: "/speaker-directory",
   label: "Speaker directory",
-  group: "Audience",
+  group: "reach",
   /**
    * Fractional, so the directory sits directly under the pipeline it feeds without renumbering
    * `communications` (order 6). Sidebar position is sorted, not indexed, and renumbering another
@@ -44,7 +46,7 @@ export const crmDirectoryWorkspace: WorkspaceModule = {
    * conflict over a line neither change meant anything by.
    */
   order: 5.5,
-  icon: <IconSpeakers size={16} />,
+  icon: <IconSpeakers />,
   personas: ["organizer"],
   /**
    * Two conditions the browser can check, and one it deliberately cannot.

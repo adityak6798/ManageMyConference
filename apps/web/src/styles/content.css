@@ -63,7 +63,7 @@
 .content-toolbar {
   justify-content: space-between;
   padding: var(--s-3) var(--s-5);
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--rule);
 }
 .content-toolbar .field {
   flex: 1 1 200px;
@@ -74,7 +74,7 @@
   min-width: 0;
 }
 .content-toolbar .hint {
-  color: var(--muted);
+  color: var(--slate);
   font-size: var(--text-xs);
 }
 
@@ -83,12 +83,8 @@
   padding: var(--s-3) var(--s-5) 0;
 }
 
-/* Scoped so this workspace's inline hints match .field .hint without redefining a
-   shared class other surfaces also style. */
-.content-workspace .hint {
-  color: var(--muted);
-  font-size: var(--text-xs);
-}
+/* This workspace's inline hints used to be scoped here to match `.field .hint`; the control tier
+   declares a bare `.hint` now, which is where the shape always belonged. */
 
 /* --------------------------- inline session editor ------------------------ */
 
@@ -105,7 +101,7 @@
   gap: var(--s-4);
   grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
   padding: var(--s-5);
-  border-left: 3px solid var(--green-700);
+  border-left: 3px solid var(--green);
 }
 .session-editor-wide {
   grid-column: 1 / -1;
@@ -123,7 +119,7 @@
   grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
   margin: 0;
   padding: var(--s-3) var(--s-4);
-  border: 1px solid var(--line);
+  border: 1px solid var(--rule);
   border-radius: var(--r-md);
   background: var(--surface);
 }
@@ -131,7 +127,7 @@
   padding: 0 var(--s-1);
   color: var(--ink-2);
   font-size: var(--text-sm);
-  font-weight: 620;
+  font-weight: var(--fw-semibold);
 }
 .speaker-checks .check-label {
   display: flex;
@@ -144,7 +140,7 @@
 }
 .speaker-checks .check-label small {
   display: block;
-  color: var(--muted);
+  color: var(--slate);
   font-size: var(--text-xs);
 }
 
@@ -158,7 +154,7 @@
   display: grid;
   gap: var(--s-3);
   padding-top: var(--s-4);
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--rule);
 }
 .outreach-form button {
   justify-self: start;
@@ -172,7 +168,7 @@
   justify-content: space-between;
   gap: var(--s-5);
   padding-bottom: var(--s-5);
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--rule);
 }
 .speaker-portal-heading h2 {
   margin-top: var(--s-1);
@@ -180,20 +176,18 @@
 }
 .speaker-portal-heading > div > p:last-child {
   margin-top: var(--s-2);
-  color: var(--muted);
+  color: var(--slate);
 }
 .speaker-portal-eyebrow {
-  color: var(--green-700);
+  color: var(--slate);
   font-size: var(--text-xs);
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-weight: var(--fw-medium);
 }
 .speaker-resources {
   display: grid;
   gap: var(--s-4);
   padding-top: var(--s-4);
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--rule);
 }
 
 .profile-form {
@@ -219,7 +213,7 @@
   grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
   margin: 0;
   padding: var(--s-4);
-  border: 1px solid var(--line);
+  border: 1px solid var(--rule);
   border-radius: var(--r-md);
   background: var(--surface-2);
 }
@@ -227,7 +221,7 @@
   padding: 0 var(--s-2);
   color: var(--ink-2);
   font-size: var(--text-sm);
-  font-weight: 620;
+  font-weight: var(--fw-semibold);
 }
 .profile-social > .hint {
   grid-column: 1 / -1;
@@ -242,7 +236,7 @@
   grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
   margin: 0 0 var(--s-4);
   padding: var(--s-3) var(--s-4);
-  border: 1px solid var(--line);
+  border: 1px solid var(--rule);
   border-radius: var(--r-md);
   background: var(--surface-2);
 }
@@ -250,11 +244,9 @@
   grid-column: 1 / -1;
 }
 .speaker-entered dt {
-  color: var(--muted);
+  color: var(--slate);
   font-size: var(--text-xs);
-  font-weight: 650;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-weight: var(--fw-medium);
 }
 .speaker-entered dd {
   margin: 2px 0 0;
@@ -302,7 +294,7 @@
   align-items: center;
   gap: var(--s-2) var(--s-3);
   padding: var(--s-3);
-  border: 1px solid var(--line);
+  border: 1px solid var(--rule);
   border-radius: var(--r-md);
   background: var(--surface-2);
   font-size: var(--text-sm);
@@ -319,7 +311,7 @@
 }
 .upload-name .sub {
   display: block;
-  color: var(--muted);
+  color: var(--slate);
   font-size: var(--text-xs);
 }
 .upload-actions {
@@ -343,9 +335,9 @@
 .upload-history > summary,
 .asset-history > summary {
   cursor: pointer;
-  color: var(--green-800);
+  color: var(--green-strong);
   font-size: var(--text-xs);
-  font-weight: 620;
+  font-weight: var(--fw-medium);
 }
 .upload-history ul,
 .asset-history ul {
@@ -354,7 +346,7 @@
   gap: var(--s-1);
   margin: var(--s-2) 0 0;
   padding: 0 0 0 var(--s-3);
-  border-left: 2px solid var(--line);
+  border-left: 2px solid var(--rule);
 }
 .upload-history li,
 .asset-history li {
@@ -365,7 +357,7 @@
 }
 .upload-history .sub,
 .asset-history .sub {
-  color: var(--muted);
+  color: var(--slate);
 }
 
 /*
@@ -379,7 +371,7 @@
   gap: var(--s-3);
   margin-top: var(--s-4);
   padding: var(--s-3);
-  border: 1px solid var(--line);
+  border: 1px solid var(--rule);
   border-radius: var(--r-md);
   background: var(--surface-2);
 }
@@ -393,7 +385,7 @@
   flex: none;
   border-radius: var(--r-md);
   object-fit: cover;
-  border: 1px solid var(--line);
+  border: 1px solid var(--rule);
 }
 
 /* Two reversible decisions on one row, wrapping rather than crushing the cell. */
@@ -432,20 +424,15 @@
 }
 
 /* The Schedule hub owns accepted-session presentation, not speaker profiles, tasks, files, or
-   outreach. The underlying projection and mutation lifecycle stay shared; this mode only narrows
-   the organizer surface exported for final hub composition. */
-.content-workspace.sessions-only > .grid-auto > :not(:first-child),
-.content-workspace.sessions-only > .split > :not(:first-child),
-.content-workspace.sessions-only > .split > .content-stack > :not(:first-child),
-.content-workspace.sessions-only > .tool-stack {
-  display: none;
-}
-.content-workspace.sessions-only > .split {
+   outreach. It is a branch in the JSX now rather than four `display: none` rules: the panels it
+   narrows away used to stay mounted, fetch, and run their effects behind the hidden pane. All
+   that is left of it is the one-column layout the branch produces. */
+.split.is-single {
   grid-template-columns: minmax(0, 1fr);
 }
 
 .tool-panel {
-  border: 1px solid var(--line);
+  border: 1px solid var(--rule);
   border-radius: var(--r-lg);
   background: var(--surface);
   min-width: 0;
@@ -481,7 +468,7 @@
   background: var(--surface-2);
 }
 .tool-panel > summary:focus-visible {
-  outline: 2px solid var(--green-700);
+  outline: 2px solid var(--green);
   outline-offset: -2px;
 }
 .tool-heading {
@@ -492,10 +479,10 @@
 .tool-heading h3 {
   margin: 0;
   font-size: var(--text-sm);
-  font-weight: 650;
+  font-weight: var(--fw-semibold);
 }
 .tool-panel[open] > summary {
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--rule);
   border-end-start-radius: 0;
   border-end-end-radius: 0;
 }
@@ -505,6 +492,38 @@
   align-content: start;
   padding: var(--s-5);
   min-width: 0;
+}
+
+/*
+ * One border depth.
+ *
+ * Speaker workflow holds three more disclosures — share links, bio remix, collaborators — and
+ * each drew the same 1px box on the same surface inside the box it was already in, so the panel
+ * read as a card sitting in an identical card. The nested ones keep the disclosure and lose the
+ * container: a heading, a rule above it, and the space around it are the structure.
+ */
+.tool-body .tool-panel {
+  border: 0;
+  border-radius: 0;
+  background: none;
+  border-top: 1px solid var(--rule);
+}
+.tool-body .tool-panel > summary {
+  padding: var(--s-3) 0;
+  border-radius: 0;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
+}
+.tool-body .tool-panel > summary:hover {
+  background: none;
+  color: var(--green-strong);
+}
+.tool-body .tool-panel[open] > summary {
+  border-bottom: 0;
+}
+.tool-body .tool-panel > .tool-body {
+  padding: 0 0 var(--s-4);
 }
 
 /* One editor at a time, so these are single forms rather than a grid of them.
@@ -537,7 +556,7 @@
   gap: var(--s-3);
   flex-wrap: wrap;
   padding: var(--s-3);
-  border: 1px solid var(--line);
+  border: 1px solid var(--rule);
   border-radius: var(--r-md);
   background: var(--surface-2);
   font-size: var(--text-sm);
@@ -546,25 +565,25 @@
 .resource-list .resource-entry-name {
   flex: 1 1 200px;
   min-width: 0;
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
 }
 .checklist-list .checklist-entry-name .sub,
 .resource-list .resource-entry-name .sub {
   display: block;
-  color: var(--muted);
+  color: var(--slate);
   font-size: var(--text-xs);
-  font-weight: 500;
+  font-weight: var(--fw-medium);
 }
-/* `display: grid` has to be declared here. `.form-stack` has no rule in any stylesheet, so
-   without this the track definition below and `.resource-form-wide`'s `grid-column` were both
-   inert and the fields never paired into columns. */
+/* `.form-stack` (shell.css) is a single column; these two forms pair their fields into
+   columns, so they declare their own grid. Both are needed: without `display: grid` here the
+   track definition below and `.resource-form-wide`'s `grid-column` were inert. */
 .resource-form,
 .checklist-form {
   display: grid;
   gap: var(--s-4);
   grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
   padding: var(--s-4);
-  border: 1px solid var(--line);
+  border: 1px solid var(--rule);
   border-radius: var(--r-md);
   background: var(--surface-2);
 }
@@ -579,13 +598,56 @@
   display: grid;
   gap: var(--s-3);
   padding-top: var(--s-4);
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--rule);
 }
 
 .workflow-picker {
   display: grid;
   gap: var(--s-3);
   grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
+}
+
+/*
+ * A list of things an organizer edits in place, as rows rather than as a textarea.
+ *
+ * Progress columns and profile collaborators were both pipe-delimited text — `identifier|Name|
+ * status`, `user-id|edit` — parsed on submit, so the format had to be explained in a hint and a
+ * mistyped separator dropped a whole entry without saying so. Rows separate with a hairline
+ * rather than each becoming a bordered card: this list already sits inside a bordered panel.
+ */
+.editable-rows {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.editable-row {
+  display: flex;
+  align-items: end;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+  padding: var(--s-3) 0;
+  min-width: 0;
+}
+.editable-row + .editable-row {
+  border-top: 1px solid var(--rule);
+}
+.editable-field {
+  display: grid;
+  gap: var(--s-1);
+  flex: 1 1 140px;
+  min-width: 0;
+  color: var(--slate);
+  font-size: var(--text-xs);
+  font-weight: var(--fw-medium);
+}
+.editable-name {
+  flex: 1 1 160px;
+  min-width: 0;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
 }
 
 /* ------------------------ requested work tracker -------------------------- */
@@ -604,7 +666,7 @@
 .deliverable-count {
   align-self: center;
   margin: 0;
-  color: var(--muted);
+  color: var(--slate);
   font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
 }
@@ -620,13 +682,14 @@
   gap: var(--s-2);
   color: var(--ink-2);
   font-size: var(--text-sm);
-  font-weight: 620;
+  font-weight: var(--fw-medium);
   white-space: nowrap;
 }
-.deliverable-select-all input[type="checkbox"] {
-  width: auto;
-  min-width: 0;
-}
+/* The two select-alls used to undo shell.css's control sizing with `width: auto; min-width: 0`
+   on the bare input. The control tier draws the box itself now — 16px, `flex: none`, the same
+   measurements `.choice-box` uses — and those overrides tied at its specificity, so which one
+   won came down to whether a lazily-imported module had pulled controls.css in yet. They are
+   gone; the box is sized in one place. */
 /* The roster's own action bar, above the table it acts on. Same shape as the deliverable
    tracker's, because it is the same job — tick rows, press one bounded action, read a per-row
    report — and two selection surfaces that behaved differently would be two things to learn. */
@@ -646,12 +709,8 @@
   gap: var(--s-2);
   color: var(--ink-2);
   font-size: var(--text-sm);
-  font-weight: 620;
+  font-weight: var(--fw-medium);
   white-space: nowrap;
-}
-.roster-select-all input[type="checkbox"] {
-  width: auto;
-  min-width: 0;
 }
 /* `width: 1%` is the table idiom for "shrink to content"; it is scoped to the table layout
    here so it cannot leak into the card layout below, which is what collapsed the triage
@@ -665,7 +724,7 @@
 }
 .deliverable-table .sub {
   display: block;
-  color: var(--muted);
+  color: var(--slate);
   font-size: var(--text-xs);
 }
 
@@ -687,7 +746,7 @@
   }
   .deliverable-table tr {
     padding: var(--s-3);
-    border: 1px solid var(--line);
+    border: 1px solid var(--rule);
     border-radius: var(--r-md);
     background: var(--surface);
   }
@@ -703,9 +762,9 @@
   }
   .deliverable-table td::before {
     content: attr(data-label);
-    color: var(--muted);
+    color: var(--slate);
     font-size: var(--text-xs);
-    font-weight: 650;
+    font-weight: var(--fw-medium);
   }
   .deliverable-table td.select-cell input[type="checkbox"],
   .roster-table td.select-cell input[type="checkbox"] {
@@ -743,20 +802,24 @@
   .content-workspace .content-table thead {
     display: none;
   }
-  .content-workspace .content-table tbody {
-    display: grid;
-    gap: var(--s-3);
-    padding: var(--s-3);
-  }
+  /* A row is separated by a rule, not boxed — the same recipe `table.data` now uses in the shell,
+     restated here only because these selectors outrank it. Each `tr` used to take a border and a
+     radius of its own inside the bordered card this table sits in, which is a box inside a box,
+     and the gap between them turned a dense list of sessions into a stack of floating cards. */
   .content-workspace .content-table tr {
-    padding: var(--s-3);
-    border: 1px solid var(--line);
-    border-radius: var(--r-md);
-    background: var(--surface);
+    padding: var(--s-3) var(--s-4);
+    border: 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  .content-workspace .content-table tbody > tr:last-child {
+    border-bottom: 0;
   }
   .content-workspace .content-table td[data-label] {
     display: grid;
     grid-template-columns: minmax(5.5rem, 7rem) minmax(0, 1fr);
+    /* A value takes the width it needs. Stretched, a status pill grew into a 190px slab of tinted
+       ground with one word at the left of it, and read as a filled row rather than as a pill. */
+    justify-items: start;
     gap: var(--s-2);
     padding: var(--s-2) 0;
     border: 0;
@@ -765,9 +828,9 @@
   }
   .content-workspace .content-table td[data-label]::before {
     content: attr(data-label);
-    color: var(--muted);
+    color: var(--slate);
     font-size: var(--text-xs);
-    font-weight: 650;
+    font-weight: var(--fw-medium);
   }
   /* A cell's secondary line is part of its value. `::before` fills column 1 and the cell's own
      children auto-flow after it, so a `.sub` span landed in column 1 of the next row — directly

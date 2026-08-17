@@ -49,6 +49,7 @@
     "apps/api/test/d1-site-repository.integration.test.ts",
     "apps/web/src/SitesWorkspace.tsx",
     "apps/web/src/PublicSiteApp.tsx",
+    "apps/web/test/public-portal.test.tsx",
     "apps/web/src/workspaces/sites.tsx",
     "apps/web/src/api/sites.ts",
     "apps/api/migrations/1805_publication_embeds.sql",

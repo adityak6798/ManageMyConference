@@ -1,4 +1,5 @@
 // @acceptance ACC-CFP
+import { chooseMenuItem, chooseOption } from "./controls";
 import { expect, test } from "./fixtures";
 
 const EVENT_ID = "00000000-0000-4000-8000-000000000001";
@@ -87,12 +88,14 @@ test("organizer composes, sees draft diverge from the live form, publishes, and 
   await expect(page.getByRole("heading", { level: 1, name: "Forms" })).toBeVisible();
   await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
   await expect(page.getByText("Published · open")).toBeVisible();
-  await expect(page.getByText("Live copy matches")).toBeVisible();
+  // One statement of how the draft stands to what applicants are being served, in words. It
+  // replaced a pair of pills, a standing notice and a second notice restating both.
+  await expect(page.getByText("Applicants are being served this exact version.")).toBeVisible();
   await expect(page.getByRole("button", { name: /^Publish/ })).toHaveCount(0);
 
-  // The public submission URL is offered as a copyable link, not left to be guessed.
-  await expect(page.getByText(`/events/greenroom-demo-summit/cfp`)).toBeVisible();
-  await page.getByRole("button", { name: "Copy public link" }).click();
+  // The public submission URL is offered as a copyable link, not left to be guessed. It is a
+  // once-a-season action, so it sits in the status bar's overflow menu with the others.
+  await chooseMenuItem(page, "More call for proposals actions", "Copy public link");
   await expect(page.getByRole("status")).toContainText("Public link copied");
   expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(
     /\/events\/greenroom-demo-summit\/cfp$/,
@@ -104,26 +107,44 @@ test("organizer composes, sees draft diverge from the live form, publishes, and 
     .getByRole("dialog", { name: "Add a question" })
     .getByRole("button", { name: /Single select/ })
     .click();
-  const added = page.locator(".cfp-question").last();
-  await added.getByLabel("Field type").selectOption("select");
-  await added.getByLabel("Question label").fill("Experience level");
-  await added.getByLabel("Guidance").fill("Choose the closest match");
-  await added.getByLabel("Option 1").fill("New");
-  await added.getByRole("button", { name: "Add option" }).click();
-  await added.getByLabel("Option 2").fill("Experienced");
-  await added.getByLabel("Required").check();
-  // Appended last, then moved one place up: fourth of the five questions on the form.
-  await page.getByRole("button", { name: "Move Experience level up" }).click();
-  await expect(page.locator(".cfp-question-name").nth(3)).toHaveText("Experience level");
+  /*
+   * One question is edited at a time, in the inspector beside the list.
+   *
+   * Every question used to render its full editor inline and permanently open — a ten-question
+   * form was roughly 4,000px of controls — so the type is chosen when the question is created
+   * and the rest is edited where the list says which question is selected.
+   */
+  const editor = page.getByRole("complementary", { name: "Selected question" });
+  await expect(editor.getByLabel("Field type")).toHaveValue("select");
+  await editor.getByLabel("Question label").fill("Experience level");
+  await editor.getByLabel("Guidance").fill("Choose the closest match");
+  await editor.getByLabel("Option 1").fill("New");
+  await editor.getByRole("button", { name: "Add option" }).click();
+  await editor.getByLabel("Option 2").fill("Experienced");
+  await editor.getByLabel("Required", { exact: true }).check();
+  // Appended last, then moved one place up: fourth of the five questions on the form. Reordering
+  // is the grip, or Ctrl/Cmd+Arrow on the question itself — a keyboard path that does not need a
+  // pair of Move buttons on every row.
+  await page
+    .getByRole("button", { name: "Experience level", exact: true })
+    .press("ControlOrMeta+ArrowUp");
+  await expect(page.locator(".cfp-q-name").nth(3)).toHaveText("Experience level");
 
-  // Editing a live form has to say so before the organizer discovers it from a
-  // confused applicant. The draft preview updates immediately; the live one does not.
+  /*
+   * Editing a live form has to say so before the organizer discovers it from a confused
+   * applicant. The draft preview updates immediately; the live one does not.
+   *
+   * The preview is what the organizer *checks*, not what they work in, so it opens on demand
+   * rather than holding a permanent 460px column beside the editor.
+   */
   await expect(page.getByText("Unsaved edits")).toBeVisible();
   await expect(page.getByText(/You are editing a form that is live/)).toBeVisible();
-  await expect(page.locator(".cfp-preview").getByText("Experience level")).toBeVisible();
-  await page.getByRole("tab", { name: "Live form" }).click();
-  await expect(page.locator(".cfp-preview").getByText("Experience level")).toHaveCount(0);
-  await page.getByRole("tab", { name: "Draft preview" }).click();
+  const preview = page.getByRole("dialog", { name: "Public form" });
+  await page.getByRole("button", { name: "Preview" }).click();
+  await expect(preview.locator(".cfp-preview").getByText("Experience level")).toBeVisible();
+  await preview.getByRole("tab", { name: "Live form" }).click();
+  await expect(preview.locator(".cfp-preview").getByText("Experience level")).toHaveCount(0);
+  await preview.getByRole("button", { name: "Close Public form" }).click();
 
   // ---- saving announces itself, beside the button that caused it --------------
   const saveDraft = page.getByRole("button", { name: "Save draft" });
@@ -138,21 +159,29 @@ test("organizer composes, sees draft diverge from the live form, publishes, and 
   // A saved draft is still not what the public is being served, and says so.
   await expect(page.getByText("Draft ahead of live")).toBeVisible();
   await expect(page.getByText(/saved draft is ahead of the live form/)).toBeVisible();
-  await page.getByRole("tab", { name: "Live form" }).click();
-  await expect(page.locator(".cfp-preview").getByText("Experience level")).toHaveCount(0);
+  await page.getByRole("button", { name: "Preview" }).click();
+  await preview.getByRole("tab", { name: "Live form" }).click();
+  await expect(preview.locator(".cfp-preview").getByText("Experience level")).toHaveCount(0);
+  await preview.getByRole("button", { name: "Close Public form" }).click();
 
   // ---- publishing closes the gap ---------------------------------------------
   await page.getByRole("button", { name: "Publish changes" }).click();
   await expect(page.getByRole("status")).toContainText("Applicants now see this version");
-  await expect(page.getByText("Live copy matches")).toBeVisible();
-  await expect(page.locator(".cfp-preview").getByText("Experience level")).toBeVisible();
+  await expect(page.getByText("Applicants are being served this exact version.")).toBeVisible();
+  await page.getByRole("button", { name: "Preview" }).click();
+  await preview.getByRole("tab", { name: "Live form" }).click();
+  await expect(preview.locator(".cfp-preview").getByText("Experience level")).toBeVisible();
+  await preview.getByRole("button", { name: "Close Public form" }).click();
 
   // ---- open/closed transitions keep unrelated editor state ---------------------
+  // The composer opens on Questions, which is where the work is; the title, description and
+  // window live under Form details.
+  await page.getByRole("button", { name: "Form details" }).click();
   await page.getByLabel("Description").fill("A replacement draft description");
-  await page.getByRole("button", { name: "Close live CFP" }).click();
+  await chooseMenuItem(page, "More call for proposals actions", "Close live CFP");
   await expect(page.getByText("Published · closed")).toBeVisible();
   await expect(page.getByLabel("Description")).toHaveValue("A replacement draft description");
-  await page.getByRole("button", { name: "Reopen live CFP" }).click();
+  await chooseMenuItem(page, "More call for proposals actions", "Reopen live CFP");
   await expect(page.getByText("Published · open")).toBeVisible();
 
   // ---- 390px: the composer stacks rather than scrolling sideways ---------------
@@ -172,9 +201,14 @@ test("organizer composes, sees draft diverge from the live form, publishes, and 
   await page.getByLabel("Proposal title").fill("Idempotent conference workflows");
   await page.getByLabel("Abstract").fill("A practical session about reliable submissions.");
   await page.getByLabel("Contact email").fill("speaker@example.com");
-  await page.getByLabel("Experience level").selectOption("Experienced");
+  await chooseOption(page, page.getByLabel("Experience level"), "Experienced");
   await page.getByRole("button", { name: "Submit proposal" }).click();
-  await expect(page.getByRole("status")).toContainText(/Confirmation: [0-9a-f-]{36}/);
+  // This browser is signed in, so the proposal is owned and the page keeps it on a dashboard:
+  // the confirmation is announced rather than parked in the anonymous reference panel. Filtered,
+  // because the page mounts its live region before it has anything to say.
+  await expect(
+    page.getByRole("status").filter({ hasText: /Confirmation: [0-9a-f-]{36}/ }),
+  ).toBeVisible();
   await page.reload();
   await expect(page.getByRole("heading", { name: "Share your conference story" })).toBeVisible();
 });
@@ -199,10 +233,11 @@ test("a call for proposals that cannot be read blocks editing instead of offerin
   );
   await page.goto(CFP);
 
-  await expect(
-    page.getByRole("heading", { name: "The call for proposals could not be opened" }),
-  ).toBeVisible();
-  await expect(page.getByRole("alert")).toContainText("could not read");
+  // A read that did not come back is a notice with the one control that can change that, not a
+  // page heading: the surface is still the composer, and it is refusing to open a blank form.
+  const refusal = page.getByRole("alert");
+  await expect(refusal).toContainText("The call for proposals could not be loaded");
+  await expect(refusal).toContainText("could not read");
   await expect(page.getByRole("button", { name: "Save draft" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Try again" })).toBeVisible();
 
@@ -218,6 +253,9 @@ test("a stale organizer draft is refused and can safely reload the winning edit"
   await page.getByRole("button", { name: "Continue as organizer" }).click();
   await expect(page.getByRole("combobox", { name: "Event workspace" })).toBeVisible();
   await page.goto(CFP);
+  // The composer opens on Questions — where the work is — so the title lives one press away
+  // under Form details rather than at the top of a single scrolling form.
+  await page.getByRole("button", { name: "Form details" }).click();
   await expect(page.getByLabel("Form title")).toBeVisible();
 
   const loaded = await page.request.get(`/api/events/${EVENT_ID}/cfp`);

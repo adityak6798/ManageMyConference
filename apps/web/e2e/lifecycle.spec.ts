@@ -17,6 +17,7 @@
  *
  * `TST-006` recorded this scenario as outstanding until it landed.
  */
+import { chooseOption, chooseSegment, confirmInDrawer, switchPersona } from "./controls";
 import { expect, type Page, test } from "./fixtures";
 
 // One applicant address per spec file; see the note in `00-seed-state.spec.ts`.
@@ -47,21 +48,20 @@ async function becomeOrganizer(page: Page) {
  * session cookie arrives with those headers.
  */
 async function switchRole(page: Page, persona: "organizer" | "reviewer") {
-  const role = page.getByRole("combobox", { name: "Signed-in role" });
   const switched = page.waitForResponse(
     (response) =>
       response.url().includes("/api/demo-session") && response.request().method() === "POST",
   );
-  await role.selectOption(persona);
+  await switchPersona(page, persona === "organizer" ? "Organizer" : "Reviewer");
   expect((await switched).ok(), "the persona switch was refused").toBe(true);
-  // The select is rendered from the session, so its value is the shell agreeing.
-  await expect(role).toHaveValue(persona);
+  // The account control is rendered from the session, so its reappearance is the shell agreeing.
+  await expect(page.getByRole("button", { name: /^Account and access for / })).toBeVisible();
 }
 
 /** Narrow triage to the one abstract this run filed; the table is a growing fixture. */
 async function findInTriage(page: Page, title: string) {
   await page.goto(TRIAGE);
-  await expect(page.getByRole("heading", { level: 1, name: "Review" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Submissions" })).toBeVisible();
   await page.getByLabel("Search abstracts").fill(title);
   await expect(page.getByRole("table").first().getByRole("row", { name: title })).toBeVisible();
 }
@@ -102,20 +102,24 @@ test("carries one proposal from the public form to the published site", async ({
   await page.getByLabel("Contact email").fill(email);
   // `cfp.spec.ts` publishes an extra required question before this spec runs; the seed
   // does not ship it, so it is answered only when the live form asks for it.
-  if (await page.getByLabel("Experience level").count())
-    await page.getByLabel("Experience level").selectOption("Experienced");
+  const experience = page.getByLabel("Experience level");
+  if (await experience.count()) await chooseOption(page, experience, "Experienced");
   const filed = page.waitForResponse(
     (response) => response.url().includes("/submissions") && response.request().method() === "POST",
   );
   await page.getByRole("button", { name: "Submit proposal" }).click();
   expect((await filed).status()).toBe(201);
-  await expect(page.getByRole("status")).toContainText(/Confirmation: [0-9a-f-]{36}/);
+  // The reference is the only handle an anonymous proposal has, so it now outlives the sentence
+  // that announced it: a panel keeps it where the next click cannot clear it.
+  await expect(page.getByText("Proposal received. Your confirmation is below.")).toBeVisible();
+  await expect(page.getByText(/^[0-9a-f-]{36}$/)).toBeVisible();
 
   // ---- 2. it reaches organizer triage, and gets a reviewer ------------------
   await becomeOrganizer(page);
   await findInTriage(page, title);
   await page.getByRole("button", { name: title, exact: true }).click();
-  const detail = page.getByRole("region", { name: title });
+  // A decision is a modal question, so the abstract is read and acted on in a dialog.
+  const detail = page.getByRole("dialog", { name: title });
   // The organizer sees who filed it; the reviewer never will.
   await expect(detail).toContainText(email);
   await detail.getByLabel("Assign this abstract to").selectOption({ label: "Ravi Reviewer" });
@@ -124,6 +128,8 @@ test("carries one proposal from the public form to the published site", async ({
   await expect(
     page.getByRole("status").filter({ hasText: "Ravi Reviewer is now reviewing" }),
   ).toBeVisible();
+  await detail.getByRole("button", { name: `Close ${title}` }).click();
+  await expect(detail).toBeHidden();
 
   // ---- 3. the reviewer scores it --------------------------------------------
   await switchRole(page, "reviewer");
@@ -133,8 +139,9 @@ test("carries one proposal from the public form to the published site", async ({
   // Blind review: the queue must not carry the address the organizer just read.
   await expect(page.getByText(email)).toHaveCount(0);
   const evaluation = page.getByRole("region", { name: "Your evaluation" });
-  await evaluation.getByLabel("Relevance").selectOption("3");
-  await evaluation.getByLabel("Recommended format").selectOption("Talk");
+  // The 1–5 scale is a segmented control: the whole range is on screen, so a score is pressed.
+  await chooseSegment(evaluation.getByLabel("Relevance"), "3");
+  await chooseSegment(evaluation.getByLabel("Recommended format"), "Talk");
   await evaluation.getByLabel("Reviewer feedback").fill("A strong fit for the audience.");
   await evaluation.getByRole("button", { name: "Complete evaluation" }).click();
   await expect(page.getByRole("status").filter({ hasText: "Evaluation completed" })).toBeVisible();
@@ -145,13 +152,19 @@ test("carries one proposal from the public form to the published site", async ({
   const row = page.getByRole("table").first().getByRole("row", { name: title });
   // The score the reviewer just entered is what the organizer decides on.
   await expect(row).toContainText("3");
-  await page.getByRole("button", { name: `Accept ${title}` }).click();
+  // The outcomes live beside the text they are about, one press in from the queue's decision
+  // column — a row used to carry four of them, around 240 on a sixty-row queue.
+  await row.getByRole("button", { name: new RegExp(`^(Decide|Change) ${title}$`) }).click();
+  const abstract = page.getByRole("dialog", { name: title });
+  await abstract.getByRole("button", { name: `Accept ${title}`, exact: true }).click();
   const decision = page.getByRole("region", { name: "Accept this abstract" });
   await expect(decision).toContainText(`links ${speaker} (${email})`);
   await decision.getByRole("button", { name: "Confirm acceptance" }).click();
   await expect(decision.getByRole("status")).toContainText(
-    `“${title}” is accepted. It is now a session in Sessions & speakers with ${speaker} linked as its speaker.`,
+    `“${title}” is accepted. It is now a session under Schedule → Sessions with ${speaker} linked as its speaker.`,
   );
+  await decision.getByRole("button", { name: "Close" }).click();
+  await abstract.getByRole("button", { name: `Close ${title}` }).click();
 
   await page.goto(SESSIONS);
   const sessions = page.getByRole("region", { name: "Accepted sessions" });
@@ -176,18 +189,23 @@ test("carries one proposal from the public form to the published site", async ({
   const card = page.getByRole("button", { name: new RegExp(`${title}\\. Not scheduled`) });
   await card.focus();
   await card.press("Enter");
-  await expect(page.getByRole("status")).toContainText("Holding");
+  await expect(page.getByRole("status").filter({ hasText: "Holding" })).toBeVisible();
   // Pick-up lands on the first cell; the arrows walk to the free one.
   await page.keyboard.press("ArrowRight");
   await page.keyboard.press("ArrowDown");
-  const target = page.getByRole("button", { name: /Place .* in Workshop lab at 10:00–11:00/ });
+  // The drop target is the whole board cell, which is a `gridcell` in ARIA terms.
+  const target = page.getByRole("gridcell", { name: /Place .* in Workshop lab at 10:00–11:00/ });
   await expect(target).toBeFocused();
   await target.press("Enter");
-  await expect(page.getByRole("status")).toContainText(
-    `“${title}” placed in Workshop lab at 10:00–11:00.`,
-  );
+  await expect(
+    page.getByRole("status").filter({ hasText: `“${title}” placed in Workshop lab at 10:00–11:00.` }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Publish schedule" }).click();
-  await expect(page.getByRole("status")).toContainText(/Published version \d+/);
+  // Publication is irreversible, so the board asks first and previews what becomes public.
+  await confirmInDrawer(page, "Publish the schedule", "Publish schedule");
+  await expect(
+    page.getByRole("status").filter({ hasText: /Published version \d+/ }),
+  ).toBeVisible();
 
   // ---- 7. and the site is published -----------------------------------------
   await publishSite(page);
@@ -223,9 +241,14 @@ test("carries one proposal from the public form to the published site", async ({
     .getByRole("row", { name: new RegExp(title) })
     .getByRole("button", { name: "Unschedule" })
     .click();
-  await expect(page.getByRole("status")).toContainText("moved back to Unscheduled");
+  await expect(
+    page.getByRole("status").filter({ hasText: "moved back to Unscheduled" }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Publish schedule" }).click();
-  await expect(page.getByRole("status")).toContainText(/Published version \d+/);
+  await confirmInDrawer(page, "Publish the schedule", "Publish schedule");
+  await expect(
+    page.getByRole("status").filter({ hasText: /Published version \d+/ }),
+  ).toBeVisible();
 
   await setReadiness(page, title, "draft");
   await publishSite(page);

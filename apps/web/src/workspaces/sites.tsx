@@ -16,10 +16,10 @@ export const sitesWorkspace: WorkspaceModule = {
   domain: "publishing",
   path: "/sites",
   label: "Portals",
-  group: "Audience",
+  group: "reach",
   /** Immediately after Publishing (7), which is the surface an organizer reaches for first. */
   order: 7.1,
-  icon: <IconGlobe size={16} />,
+  icon: <IconGlobe />,
   personas: ["organizer"],
   canAccess: ({ capabilities, session }) =>
     capabilities.includes("events:settings:read") && (session?.organizations.length ?? 0) > 0,

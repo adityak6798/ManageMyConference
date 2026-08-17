@@ -1,5 +1,6 @@
 // @acceptance ACC-AGENDA
-import { expect, type Page, test } from "./fixtures";
+import { confirmInDrawer, switchEvent } from "./controls";
+import { expect, type Locator, type Page, test } from "./fixtures";
 
 const demoEventId = "00000000-0000-4000-8000-000000000001";
 const openingSession = "20000000-0000-4000-8000-000000000001";
@@ -76,15 +77,50 @@ async function returnToAgenda(page: Page) {
   await expect(page.getByRole("tab", { name: /^Room/ })).toHaveAttribute("aria-selected", "true");
 }
 
+/**
+ * A board cell, which is a `gridcell` rather than a button.
+ *
+ * The drop target is the whole `<td>` — an inner strip meant the drag-over highlight reported the
+ * wrong area — and a focusable board cell is a WAI-ARIA gridcell, so the arrow keys walk the grid
+ * at rest and not only while something is being carried.
+ */
+function cell(page: Page, name: RegExp): Locator {
+  return page.getByRole("gridcell", { name });
+}
+
+/**
+ * The board's own answer to a press.
+ *
+ * While the draft has conflicts the standing summary is a second polite region on this page, so
+ * an unscoped `getByRole("status")` is ambiguous exactly when the board has most to say. The
+ * announcement is picked out by what it is announcing.
+ */
+function announced(page: Page, text: string | RegExp): Locator {
+  return page.getByRole("status").filter({ hasText: text }).first();
+}
+
+/**
+ * Assert the draft is publishable, from the view that owns the answer.
+ *
+ * The board bar used to carry "No conflicts. This draft is ready to publish." at zero conflicts.
+ * The Conflicts tab's own count says that at no vertical cost, so the sentence lives in the
+ * Conflicts view's empty state now — which is where an organizer goes to check.
+ */
+async function expectNoConflicts(page: Page, returnTo: RegExp): Promise<void> {
+  await page.getByRole("tab", { name: /^Conflicts/ }).click();
+  await expect(page.getByRole("heading", { name: "No conflicts" })).toBeVisible();
+  await expect(page.getByText("This draft can be published.")).toBeVisible();
+  await page.getByRole("tab", { name: returnTo }).click();
+}
+
 /** Publish the current draft and read back the version the organizer is told about. */
 async function publishAndReadVersion(page: Page): Promise<number> {
+  // Publication is irreversible, so the board asks first and previews what will become public.
   await page.getByRole("button", { name: "Publish schedule" }).click();
-  const announced = page
-    .getByRole("status")
-    .filter({ hasText: /Published version \d+/ })
-    .first();
-  await expect(announced).toBeVisible();
-  const version = /Published version (\d+)/.exec(await announced.innerText())?.[1];
+  await confirmInDrawer(page, "Publish the schedule", "Publish schedule");
+  const published = announced(page, /Published version \d+/);
+  await expect(published).toBeVisible();
+  const version = /Published version (\d+)/.exec(await published.innerText())?.[1];
   expect(version, "the publish announcement must name a version").toBeTruthy();
   return Number(version);
 }
@@ -113,7 +149,7 @@ test("schedules a session with the keyboard alone", async ({ page }) => {
     .getByRole("row", { name: /Designing the calm conference/ })
     .getByRole("button", { name: "Unschedule" })
     .click();
-  await expect(page.getByRole("status")).toContainText("moved back to Unscheduled");
+  await expect(announced(page, "moved back to Unscheduled")).toBeVisible();
   const unscheduledRail = page.getByRole("region", { name: "Unscheduled" });
   await expect(unscheduledRail).toBeVisible();
   // Unscheduling removes a row and changes the panel's height, so compare both boxes from the
@@ -128,19 +164,17 @@ test("schedules a session with the keyboard alone", async ({ page }) => {
   const card = page.getByRole("button", { name: /Designing the calm conference\. Not scheduled/ });
   await card.focus();
   await card.press("Enter");
-  await expect(page.getByRole("status")).toContainText("Holding");
+  await expect(announced(page, "Holding")).toBeVisible();
 
   // Pick-up moves focus onto the first cell; the arrow keys walk the grid from there.
   // The cell names are the event's local times: the seeded slots are 16:00Z and 17:00Z,
   // and the demo event is America/Los_Angeles.
-  const firstCell = page.getByRole("button", { name: /Place .* in Main stage at 09:00–10:00/ });
+  const firstCell = cell(page, /Place .* in Main stage at 09:00–10:00/);
   await expect(firstCell).toBeFocused();
   await page.keyboard.press("ArrowRight");
-  await expect(
-    page.getByRole("button", { name: /Place .* in Workshop lab at 09:00–10:00/ }),
-  ).toBeFocused();
+  await expect(cell(page, /Place .* in Workshop lab at 09:00–10:00/)).toBeFocused();
   await page.keyboard.press("ArrowDown");
-  const target = page.getByRole("button", { name: /Place .* in Workshop lab at 10:00–11:00/ });
+  const target = cell(page, /Place .* in Workshop lab at 10:00–11:00/);
   await expect(target).toBeFocused();
   await page.keyboard.press("Enter");
 
@@ -155,9 +189,9 @@ test("schedules a session with the keyboard alone", async ({ page }) => {
 
   // Escape releases a held session without changing the board.
   await placed.press("Enter");
-  await expect(page.getByRole("status")).toContainText("Holding");
+  await expect(announced(page, "Holding")).toBeVisible();
   await page.keyboard.press("Escape");
-  await expect(page.getByRole("status")).toContainText("was not moved");
+  await expect(announced(page, "was not moved")).toBeVisible();
   await expect(placed).toBeVisible();
 });
 
@@ -256,7 +290,7 @@ test("reaches a conflict from the board, explains it, and blocks publication unt
   };
 
   await openAgenda(page);
-  await expect(page.getByText("No conflicts. This draft is ready to publish.")).toBeVisible();
+  await expectNoConflicts(page, /^Room/);
   const publish = page.getByRole("button", { name: "Publish schedule" });
   await expect(publish).toBeEnabled();
   const before = await publishAndReadVersion(page);
@@ -276,14 +310,12 @@ test("reaches a conflict from the board, explains it, and blocks publication unt
   const card = page.getByRole("button", { name: new RegExp(`${secondSession}\\. Not scheduled`) });
   await card.focus();
   await card.press("Enter");
-  const occupied = page.getByRole("button", {
-    name: /Place .* in Main stage at 09:00–10:00\. Already holds 1 session/,
-  });
+  const occupied = cell(page, /Place .* in Main stage at 09:00–10:00\. Holds 1 session/);
   await expect(occupied).toBeFocused();
   await occupied.press("Enter");
   // The placement is accepted and the conflict it created is announced with it, rather
   // than being left for the organizer to notice.
-  await expect(page.getByRole("status")).toContainText("it now has 2 conflicts");
+  await expect(announced(page, "it now has 2 conflicts")).toBeVisible();
 
   await expect(page.getByText("Room double-booked", { exact: false }).first()).toBeVisible();
   await expect(page.getByText("Speaker double-booked", { exact: false }).first()).toBeVisible();
@@ -316,15 +348,15 @@ test("reaches a conflict from the board, explains it, and blocks publication unt
   await page
     .getByLabel(`Room assignment ${secondPlacement}`)
     .selectOption({ label: "Workshop lab" });
-  await expect(page.getByRole("status")).toContainText("moved to a new room");
+  await expect(announced(page, "moved to a new room")).toBeVisible();
   await expect(page.getByText("Room double-booked", { exact: false })).toHaveCount(0);
   await expect(page.getByText("Speaker double-booked", { exact: false }).first()).toBeVisible();
   await expect(publish).toBeDisabled();
 
   // Moving the time settles the rest.
   await page.getByLabel(`Time assignment ${secondPlacement}`).selectOption({ index: 1 });
-  await expect(page.getByRole("status")).toContainText("moved to a new time");
-  await expect(page.getByText("No conflicts. This draft is ready to publish.")).toBeVisible();
+  await expect(announced(page, "moved to a new time")).toBeVisible();
+  await expectNoConflicts(page, /^List/);
   await expect(publish).toBeEnabled();
 
   // ---- publication resumes, and advances ------------------------------------
@@ -338,7 +370,7 @@ test("reaches a conflict from the board, explains it, and blocks publication unt
     .getByRole("row", { name: new RegExp(secondSession) })
     .getByRole("button", { name: "Unschedule" })
     .click();
-  await expect(page.getByRole("status")).toContainText("moved back to Unscheduled");
+  await expect(announced(page, "moved back to Unscheduled")).toBeVisible();
   expect(await publishAndReadVersion(page)).toBe(before + 2);
 
   await shareSpeaker(false);
@@ -355,16 +387,20 @@ test("adds a room and a track, reassigns a placement onto them, and clears up af
   page,
 }) => {
   await openAgenda(page);
-  await page.getByText("Manage rooms, tracks, and times").click();
+  await page.getByRole("button", { name: "Rooms and times" }).click();
+  const resources = page.getByRole("dialog", { name: "Rooms, tracks and times" });
 
-  // The editor names what it appends after the count it already has, so on the seeded
-  // board these are always the third of each.
-  await page.getByRole("button", { name: "Add room" }).click();
+  // Named on creation. The editor used to mint "Room 3" and leave renaming to a prompt, so a
+  // room could only be named by creating it wrong first.
+  await resources.getByRole("textbox", { name: "New room name" }).fill("Room 3");
+  await resources.getByRole("button", { name: "Add room" }).click();
   await expect(page.getByRole("status")).toContainText("Room added.");
-  await expect(page.locator(".resource-row").filter({ hasText: "Room 3" })).toBeVisible();
-  await page.getByRole("button", { name: "Add track" }).click();
+  await expect(resources.getByRole("form", { name: "Room Room 3" })).toBeVisible();
+  await resources.getByRole("textbox", { name: "New track name" }).fill("Track 3");
+  await resources.getByRole("button", { name: "Add track" }).click();
   await expect(page.getByRole("status")).toContainText("Track added.");
-  await expect(page.locator(".resource-row").filter({ hasText: "Track 3" })).toBeVisible();
+  await expect(resources.getByRole("form", { name: "Track Track 3" })).toBeVisible();
+  await resources.getByRole("button", { name: "Done" }).click();
 
   // A new room is a new column on the board, and a new track is offerable to a placement.
   await page.getByRole("tab", { name: /^Room/ }).click();
@@ -374,7 +410,7 @@ test("adds a room and a track, reassigns a placement onto them, and clears up af
   await page.getByLabel(`Track assignment ${openingPlacement}`).selectOption({ label: "Track 3" });
   await expect(page.getByRole("status")).toContainText("moved to a new track");
   await page.getByLabel(`Room assignment ${openingPlacement}`).selectOption({ label: "Room 3" });
-  await expect(page.getByRole("status")).toContainText("moved to a new room");
+  await expect(announced(page, "moved to a new room")).toBeVisible();
 
   // Saved, not merely rendered: a full reload asks the API again, and the Track view is
   // built from the placement's own track rather than from the select that changed it.
@@ -390,25 +426,32 @@ test("adds a room and a track, reassigns a placement onto them, and clears up af
   // A room or track still holding a placement cannot be removed, so the placement moves
   // home first. That refusal is the editor's own guard and is asserted on the way past.
   await page.getByRole("tab", { name: /^List/ }).click();
-  await page.getByText("Manage rooms, tracks, and times").click();
-  const roomRow = page.locator(".resource-row").filter({ hasText: "Room 3" });
+  await page.getByRole("button", { name: "Rooms and times" }).click();
+  // The row is a named form holding an editable name, so it is found by that name rather than by
+  // text: an `<input value="Room 3">` contributes no text content for a filter to match.
+  const roomRow = page.getByRole("form", { name: "Room Room 3" });
   await roomRow.getByRole("button", { name: "Remove" }).click();
   await expect(page.getByRole("alert")).toContainText("Remove affected placements");
   await expect(roomRow).toBeVisible();
 
+  // The placement selects are behind the drawer, so it closes before they are used and opens
+  // again for the removal that the move has now made possible.
+  await page.getByRole("dialog", { name: "Rooms, tracks and times" }).getByRole("button", {
+    name: "Done",
+  }).click();
   await page
     .getByLabel(`Room assignment ${openingPlacement}`)
     .selectOption({ label: "Main stage" });
-  await expect(page.getByRole("status")).toContainText("moved to a new room");
+  await expect(announced(page, "moved to a new room")).toBeVisible();
   await page.getByLabel(`Track assignment ${openingPlacement}`).selectOption({ label: "Platform" });
   await expect(page.getByRole("status")).toContainText("moved to a new track");
 
+  await page.getByRole("button", { name: "Rooms and times" }).click();
   await roomRow.getByRole("button", { name: "Remove" }).click();
   await expect(page.getByRole("status")).toContainText("Room removed.");
   await expect(roomRow).toHaveCount(0);
   await page
-    .locator(".resource-row")
-    .filter({ hasText: "Track 3" })
+    .getByRole("form", { name: "Track Track 3" })
     .getByRole("button", { name: "Remove" })
     .click();
   await expect(page.getByRole("status")).toContainText("Track removed.");
@@ -442,12 +485,11 @@ test("renders slot times on the event's clock, not UTC", async ({ page }) => {
 
   // Switching to an event with no agenda now renders the explicit, read-only empty state.
   // Issue #70 deliberately removed the old read-time provisioning this assertion relied on.
-  const switcher = page.getByRole("combobox", { name: "Event workspace" });
-  await switcher.selectOption({ label: "Greenroom Workshop Day" });
+  await switchEvent(page, "Greenroom Workshop Day");
   await expect(page.getByText("No agenda yet — create the first room and track")).toBeVisible();
 
   // Hand the shared fixture back the event the rest of this file works on.
-  await switcher.selectOption({ label: "Greenroom Demo Summit" });
+  await switchEvent(page, "Greenroom Demo Summit");
   await expect(
     page.getByText("Times are shown in America/Los_Angeles (PDT)").first(),
   ).toBeVisible();
@@ -494,17 +536,11 @@ test("generates a conflict-free draft in one action and keeps it editable", asyn
   const scheduledBefore = await page.getByText(/\d+ of \d+ scheduled/).innerText();
   await page.getByRole("button", { name: "Generate draft" }).click();
 
-  const announced = page
-    .getByRole("status")
-    .filter({ hasText: /Placed \d+ session/ })
-    .first();
-  await expect(announced).toBeVisible();
+  await expect(announced(page, /Placed \d+ session/)).toBeVisible();
   await expect(page.getByText(/\d+ of \d+ scheduled/)).not.toHaveText(scheduledBefore);
 
   // A generated draft is publishable, which is the whole promise: no room or speaker clash.
-  await page.getByRole("tab", { name: /^Conflicts/ }).click();
-  await expect(page.getByText("No conflicts. This draft is ready to publish.")).toBeVisible();
-  await page.getByRole("tab", { name: /^Room/ }).click();
+  await expectNoConflicts(page, /^Room/);
 
   // It survives a reload, so it is real draft state rather than something held on screen.
   await returnToAgenda(page);
@@ -518,7 +554,7 @@ test("generates a conflict-free draft in one action and keeps it editable", asyn
     .getByRole("row", { name: new RegExp(secondSession) })
     .getByRole("button", { name: "Unschedule" })
     .click();
-  await expect(page.getByRole("status")).toContainText("moved back to Unscheduled");
+  await expect(announced(page, "moved back to Unscheduled")).toBeVisible();
 });
 
 /*
@@ -539,12 +575,12 @@ test("places only the sessions ticked in the rail, chosen with the keyboard", as
     .getByRole("row", { name: /Designing the calm conference/ })
     .getByRole("button", { name: "Unschedule" })
     .click();
-  await expect(page.getByRole("status")).toContainText("moved back to Unscheduled");
+  await expect(announced(page, "moved back to Unscheduled")).toBeVisible();
   await page
     .getByRole("row", { name: new RegExp(secondSession) })
     .getByRole("button", { name: "Unschedule" })
     .click();
-  await expect(page.getByRole("status")).toContainText("moved back to Unscheduled");
+  await expect(announced(page, "moved back to Unscheduled")).toBeVisible();
   await page.getByRole("tab", { name: /^Room/ }).click();
   const scheduledBefore = await page.getByText(/\d+ of \d+ scheduled/).innerText();
 
@@ -619,10 +655,10 @@ test("places only the sessions ticked in the rail, chosen with the keyboard", as
   await page
     .getByLabel(`Room assignment ${assistedSecondPlacement}`)
     .selectOption({ label: "Workshop lab" });
-  await expect(page.getByRole("status")).toContainText("moved to a new room");
+  await expect(announced(page, "moved to a new room")).toBeVisible();
   await page
     .getByRole("row", { name: new RegExp(secondSession) })
     .getByRole("button", { name: "Unschedule" })
     .click();
-  await expect(page.getByRole("status")).toContainText("moved back to Unscheduled");
+  await expect(announced(page, "moved back to Unscheduled")).toBeVisible();
 });

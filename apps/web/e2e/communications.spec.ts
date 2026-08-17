@@ -100,29 +100,48 @@ async function findDeliveryRow(page: Page, recipient: string): Promise<Locator> 
  */
 const runKey = () => `e2e-send-${Date.now()}`;
 
+/**
+ * Write one message, save it, and report the storage key the subject derived.
+ *
+ * The composer is arranged around the sentence a speaker reads in their inbox: the subject is the
+ * first field and it is what names the template. Writing one used to begin by asking for a primary
+ * key. The key is still real — a delivery records it, and saving the same key again publishes the
+ * next version of it — so it is derived, shown under Details, and read back from there here. That
+ * read is also the assertion that the derivation happened: this spec addresses deliveries by the
+ * idempotency key the broadcast composes from it.
+ */
+async function writeMessage(page: Page, subject: string, body: string): Promise<string> {
+  const compose = page.getByRole("region", { name: "Send to speakers" });
+  await compose.getByRole("button", { name: "Write a message" }).click();
+  await compose.getByLabel("Subject").fill(subject);
+  await compose.getByRole("textbox", { name: "Message" }).fill(body);
+  // The storage name lives behind a disclosure, where somebody who needs it can find it.
+  await compose.getByText("Details", { exact: true }).click();
+  const key = await compose.getByLabel("Template name").inputValue();
+  expect(key, "the subject must derive a storage key").not.toBe("");
+  await compose.getByRole("button", { name: "Save this message" }).click();
+  await expect(compose.getByRole("status")).toContainText(`Saved “${subject}” as version`);
+  return key;
+}
+
 test("an organizer composes a message, sends it to the speakers, and it is delivered", async ({
   page,
 }) => {
   await openOutbox(page);
-  const key = runKey();
+  const subject = `Your session is confirmed ${runKey()}`;
 
-  await page.getByRole("button", { name: "New template" }).click();
-  await page.getByLabel("Template name").fill(key);
-  await page.getByLabel("Subject").fill("Your session is confirmed");
-  await page
-    .getByLabel("Message")
-    .fill("Hi {{speakerName}}, your session is confirmed. Bring water.");
-  await page.getByRole("button", { name: "Save template version" }).click();
+  await writeMessage(page, subject, "Hi {{speakerName}}, your session is confirmed. Bring water.");
 
   // The panel says how many people the send will reach before it will send to anybody, and the
   // count is the server's own resolution of the event's speakers rather than a number typed here.
   const send = page.getByRole("button", { name: /^Send to \d+ speakers?$/ });
   await expect(send).toBeVisible();
   await send.click();
-  await expect(page.getByRole("group", { name: "Confirm send" })).toContainText(key);
+  // The confirmation names what a speaker will see rather than the storage key it is filed under.
+  await expect(page.getByRole("group", { name: "Confirm send" })).toContainText(subject);
   await page.getByRole("button", { name: /^Yes, send to \d+ speakers?$/ }).click();
 
-  await expect(page.getByText(/Queued \d+ deliveries?|Queued 1 delivery/)).toBeVisible();
+  await expect(page.getByText(/Queued \d+ deliver(?:y|ies) for/)).toBeVisible();
 
   // The delivery exists and carries the message a human receives, with the placeholder filled
   // in. This is the assertion that fails if rendering ever stops interpolating.
@@ -156,8 +175,18 @@ test("an organizer composes a message, sends it to the speakers, and it is deliv
    */
   const templateId = after[0]?.delivery.templateId ?? "";
   expect(templateId, "the delivery should name the template it rendered from").not.toBe("");
-  const sent = page.getByRole("table").locator("tbody tr").filter({ hasText: templateId });
-  await expect(sent.locator(".delivery-state.state-succeeded")).toBeVisible();
+  /*
+   * The Template column prints the message rather than the row key — everything in
+   * `template-speaker-task-v1` is already on screen beside it — and keeps the key on the cell's
+   * `title`, which is the handle the product documents for matching a row against storage. That
+   * is what this locates by, since the identifier is what makes the row unambiguous.
+   */
+  const sent = page
+    .getByRole("table")
+    .locator("tbody tr")
+    .filter({ has: page.locator(`td[title="${templateId}"]`) });
+  // The state is a tone-carrying pill named the way an operator reads it, not a class name.
+  await expect(sent.getByText("Delivered", { exact: true })).toBeVisible();
 
   // The message is readable where the delivery is, not only in the database.
   await sent
@@ -220,7 +249,9 @@ test("an organizer recovers a delivery the provider refused, by clicking Retry",
   expect((await refreshed).ok(), "refreshing the outbox failed").toBe(true);
 
   const row = await findDeliveryRow(page, recipient);
-  await expect(row.locator(".delivery-state.state-terminal")).toBeVisible();
+  // "Stopped", because that is what the state means for somebody deciding whether to act; the
+  // class the delivery table used to carry was rendered by nothing.
+  await expect(row.getByText("Stopped", { exact: true })).toBeVisible();
   await expect(row).toContainText("Provider rejected the delivery");
 
   // Clicked, not merely present. The previous version of this spec asserted the button existed
@@ -251,16 +282,15 @@ test("an organizer recovers a delivery the provider refused, by clicking Retry",
 
 test("a queued delivery is not recoverable, and the route says so", async ({ page }) => {
   await openOutbox(page);
-  const key = runKey();
 
-  await page.getByRole("button", { name: "New template" }).click();
-  await page.getByLabel("Template name").fill(key);
-  await page.getByLabel("Subject").fill("Not yet sent");
-  await page.getByLabel("Message").fill("Hi {{speakerName}}, this one stays queued.");
-  await page.getByRole("button", { name: "Save template version" }).click();
+  await writeMessage(
+    page,
+    `Not yet sent ${runKey()}`,
+    "Hi {{speakerName}}, this one stays queued.",
+  );
   await page.getByRole("button", { name: /^Send to \d+ speakers?$/ }).click();
   await page.getByRole("button", { name: /^Yes, send to \d+ speakers?$/ }).click();
-  await expect(page.getByText(/Queued \d+ deliveries?|Queued 1 delivery/)).toBeVisible();
+  await expect(page.getByText(/Queued \d+ deliver(?:y|ies) for/)).toBeVisible();
 
   const queued = (await outbox(page)).find(({ delivery }) =>
     delivery.renderedBody?.includes("this one stays queued."),
@@ -367,24 +397,30 @@ test("an organizer resolves each speaker's own message, and history keeps exactl
   ).fields.map(({ token }) => token);
   expect([...documented].sort()).toEqual(["eventName", "speakerEmail", "speakerName"]);
 
-  await compose.getByRole("button", { name: "New template" }).click();
+  await compose.getByRole("button", { name: "Write a message" }).click();
   // The composer prints the same vocabulary, because an author who cannot see the list writes a
-  // template that cannot be sent — the renderer refuses a placeholder with no value.
+  // template that cannot be sent — the renderer refuses a placeholder with no value. Each token
+  // is a control that inserts itself at the caret: reading a list and retyping the braces is how
+  // an author produces the one typo the renderer refuses.
   for (const token of documented)
-    await expect(compose.locator(".comms-merge-list")).toContainText(`{{${token}}}`);
+    await expect(compose.getByRole("button", { name: new RegExp(`^Insert ${token} — `) })).toBeVisible();
 
-  await compose.getByLabel("Template name").fill(key);
-  await compose.getByLabel("Subject").fill(`${key} · {{eventName}} needs you, {{speakerName}}`);
+  const templateSubject = `${key} · {{eventName}} needs you, {{speakerName}}`;
+  await compose.getByLabel("Subject").fill(templateSubject);
   await compose
-    .getByLabel("Message")
+    .getByRole("textbox", { name: "Message" })
     .fill(
       `Hi {{speakerName}},\n\nThis copy of ${key} is going to {{speakerEmail}} about {{eventName}}.`,
     );
-  await compose.getByRole("button", { name: "Save template version" }).click();
+  // The storage key is derived from the subject and shown under Details; this run's subject is
+  // already unique, so what is read here is the identity the delivery will record.
+  await compose.getByText("Details", { exact: true }).click();
+  const storageKey = await compose.getByLabel("Template name").inputValue();
+  await compose.getByRole("button", { name: "Save this message" }).click();
   // Version 1 of a key nobody has published before: the announcement names what was written, and
   // the panel selects it, so what follows is about this run's own template and no other.
-  await expect(compose.getByRole("status")).toContainText(`Saved ${key} version 1`);
-  await expect(page.locator("#template-select")).toHaveValue(key);
+  await expect(compose.getByRole("status")).toContainText(`Saved “${templateSubject}” as version 1`);
+  await expect(compose.getByRole("combobox", { name: "Message" })).toContainText(templateSubject);
 
   // Who the server says this event can reach. The picker is asserted against this rather than
   // against a count typed here: the number an organizer approves has to be the server's own.
@@ -457,12 +493,13 @@ test("an organizer resolves each speaker's own message, and history keeps exactl
   expect(subject).toContain("Greenroom Demo Summit");
   expect(subject).toContain(target?.name ?? "");
 
-  // Only now is there something to confirm, and it names the version as well as the count.
+  // Only now is there something to confirm, and it names the message and the count.
   const confirm = compose.getByRole("group", { name: "Confirm send" });
-  await expect(confirm).toContainText(`${key}`);
-  await expect(confirm).toContainText("version 1");
+  await expect(confirm).toContainText(templateSubject);
   await confirm.getByRole("button", { name: /^Yes, send to 1 speaker$/ }).click();
-  await expect(compose.getByRole("status")).toContainText(`Queued 1 delivery for ${key} version 1`);
+  await expect(compose.getByRole("status")).toContainText(
+    `Queued 1 delivery for “${templateSubject}”`,
+  );
   // The speaker with no address is reported by the send itself, not only by the panel beforehand.
   await expect(compose.getByRole("status")).toContainText(
     `${unreachable.length} ${unreachable.length === 1 ? "speaker" : "speakers"} had no address`,
@@ -476,7 +513,8 @@ test("an organizer resolves each speaker's own message, and history keeps exactl
    */
   const stored = await findDeliveries(
     page,
-    (idempotencyKey) => idempotencyKey === `broadcast:${key}:v1:${EVENT_ID}:${target?.userId}`,
+    (idempotencyKey) =>
+      idempotencyKey === `broadcast:${storageKey}:v1:${EVENT_ID}:${target?.userId}`,
   );
   expect(stored, "the confirmed send should have stored one delivery").toHaveLength(1);
   expect(stored[0]?.renderedSubject).toBe(subject);
@@ -486,7 +524,9 @@ test("an organizer resolves each speaker's own message, and history keeps exactl
   expect(stored[0]?.state).toBe("queued");
   // Nobody else was written to. The selection was one speaker, so the audience the organizer
   // approved is the audience that got a row.
-  expect(await findDeliveries(page, (id) => id.startsWith(`broadcast:${key}:`))).toHaveLength(1);
+  expect(await findDeliveries(page, (id) => id.startsWith(`broadcast:${storageKey}:`))).toHaveLength(
+    1,
+  );
 
   /*
    * A template the payload cannot fill, refused on the screen showing the message.
@@ -496,14 +536,13 @@ test("an organizer resolves each speaker's own message, and history keeps exactl
    * The refusal has to land here, naming the placeholder, rather than after the first delivery is
    * queued: half a sentence in somebody's inbox cannot be taken back.
    */
-  const unfillable = `${key}-unfillable`;
-  await compose.getByRole("button", { name: "New template" }).click();
-  await compose.getByLabel("Template name").fill(unfillable);
-  await compose.getByLabel("Subject").fill("About your session");
-  await compose.getByLabel("Message").fill("Hi {{speakerName}}, your talk is {{sessionTitle}}.");
-  await compose.getByRole("button", { name: "Save template version" }).click();
-  await expect(compose.getByRole("status")).toContainText(`Saved ${unfillable} version 1`);
-  await expect(page.locator("#template-select")).toHaveValue(unfillable);
+  const unfillable = `About your session ${key}`;
+  const unfillableKey = await writeMessage(
+    page,
+    unfillable,
+    "Hi {{speakerName}}, your talk is {{sessionTitle}}.",
+  );
+  await expect(compose.getByRole("combobox", { name: "Message" })).toContainText(unfillable);
 
   await compose.getByRole("button", { name: /^Send to 1 speaker$/ }).click();
   const refusal = compose.getByRole("alert");
@@ -514,7 +553,7 @@ test("an organizer resolves each speaker's own message, and history keeps exactl
   await expect(compose.locator(".comms-previews")).toHaveCount(0);
   await expect(compose.getByRole("group", { name: "Confirm send" })).toHaveCount(0);
   expect(
-    await findDeliveries(page, (id) => id.startsWith(`broadcast:${unfillable}:`)),
+    await findDeliveries(page, (id) => id.startsWith(`broadcast:${unfillableKey}:`)),
     "a refused preview must not have queued anything",
   ).toHaveLength(0);
 });

@@ -175,7 +175,7 @@ describe("the pipeline select", () => {
     expect(screen.getByRole("tab", { name: /^Accepted/ })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Typed boundaries at scale" }));
-    const detail = screen.getByRole("region", { name: "Typed boundaries at scale" });
+    const detail = screen.getByRole("dialog", { name: "Typed boundaries at scale" });
     const row = await screen.findByLabelText("Move this abstract to");
     expect(optionsOf(row)).toEqual(["Choose a status", "Submitted", "Under review"]);
     // This abstract's own status is `accepted`, which the select seeds from — and which is not
@@ -259,7 +259,8 @@ describe("deciding a whole selection", () => {
 
     const status = await screen.findByText(/2 abstracts are accepted/);
     expect(status).toHaveAttribute("role", "status");
-    expect(status).toHaveTextContent("Each is now a session in Sessions & speakers");
+    // Named for a destination that exists: the hub cutover replaced "Sessions & speakers".
+    expect(status).toHaveTextContent("Each is now a session under Schedule → Sessions");
     // Both rows now carry the recorded outcome, not just a green status pill.
     await waitFor(() => expect(document.querySelectorAll(".decision-cell .pill")).toHaveLength(2));
   });
@@ -326,9 +327,9 @@ describe("the confirmation after the decision has landed", () => {
     });
     render(<OrganizerReviewWorkspace eventId={eventId} />);
 
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Accept Typed boundaries at scale" }),
-    );
+    // The outcomes live in the abstract's own drawer, beside the text being decided on.
+    fireEvent.click(await screen.findByRole("button", { name: "Typed boundaries at scale" }));
+    fireEvent.click(screen.getByRole("button", { name: "Accept Typed boundaries at scale" }));
     fireEvent.click(screen.getByRole("button", { name: "Confirm acceptance" }));
 
     await screen.findByText(/is accepted\. It is now a session/);
@@ -458,7 +459,7 @@ describe("the locked evaluation plan", () => {
       target: { value: "seed-reviewer" },
     });
     fireEvent.click(
-      within(screen.getByRole("region", { name: "Typed boundaries at scale" })).getByRole(
+      within(screen.getByRole("dialog", { name: "Typed boundaries at scale" })).getByRole(
         "button",
         { name: "Assign" },
       ),
@@ -558,7 +559,12 @@ describe("the reviewer's queue", () => {
     expect(
       await screen.findByRole("heading", { name: "Typed boundaries at scale" }),
     ).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText("Audience fit"), { target: { value: "4" } });
+    // One press on the scale, which is the whole interaction now.
+    fireEvent.click(
+      within(screen.getByRole("radiogroup", { name: "Audience fit" })).getByRole("radio", {
+        name: "4",
+      }),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Complete evaluation" }));
 
     await waitFor(() => expect(sent.some(({ url }) => url.endsWith("/evaluation"))).toBe(true));
@@ -577,6 +583,43 @@ describe("the reviewer's queue", () => {
       }),
     );
     expect(await screen.findByRole("heading", { name: "Hallway track" })).toBeInTheDocument();
+  });
+
+  it("offers the next abstract instead of ending in a full stop", async () => {
+    stubApi((url) => (url.endsWith("/review/assignments") ? jsonResponse(queue(true)) : undefined));
+    render(<ReviewerWorkspace eventId={eventId} />);
+
+    // Open the one that is already finished. Its card is the completed state, which used to say
+    // "Evaluation submitted." and stop, leaving the reviewer to find their own way onward.
+    const list = await screen.findByRole("list", { name: "Abstracts assigned to you" });
+    fireEvent.click(within(list).getByRole("button", { name: /Typed boundaries at scale/ }));
+    await screen.findByText(/Evaluation submitted\./);
+    const next = screen.getByRole("button", { name: "Next: Hallway track" });
+    fireEvent.click(next);
+    expect(await screen.findByRole("heading", { name: "Hallway track" })).toBeInTheDocument();
+  });
+
+  it("takes one tab stop and moves through the queue with the arrow keys", async () => {
+    stubApi((url) =>
+      url.endsWith("/review/assignments") ? jsonResponse(queue(false)) : undefined,
+    );
+    render(<ReviewerWorkspace eventId={eventId} />);
+
+    const list = await screen.findByRole("list", { name: "Abstracts assigned to you" });
+    const [first, second] = within(list).getAllByRole("button");
+    if (!first || !second) throw new Error("the queue has fewer rows than the fixture");
+    // Roving tabindex: the queue is one stop, and the arrows move inside it.
+    expect(first).toHaveAttribute("tabindex", "0");
+    expect(second).toHaveAttribute("tabindex", "-1");
+
+    first.focus();
+    fireEvent.keyDown(first, { key: "ArrowDown" });
+    expect(second).toHaveFocus();
+    expect(second).toHaveAttribute("tabindex", "0");
+    // Moving is not choosing. Loading an abstract on arrow-down would replace the one the
+    // reviewer is reading, which is the defect the no-auto-jump rule already exists to prevent.
+    expect(screen.getByRole("heading", { name: "Typed boundaries at scale" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Hallway track" })).toBeNull();
   });
 });
 

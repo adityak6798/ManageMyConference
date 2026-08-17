@@ -7,11 +7,14 @@
  * with no error anywhere (#206).
  *
  * The list comes from the browser's own zone database through `Intl.supportedValuesOf`, so it
- * cannot go stale against a bundled copy and costs no bytes. Where that is unavailable the field
- * falls back to the same `<select>` over `FALLBACK_ZONES` below — a shorter list, never a
- * different control. (An earlier version of this comment described the fallback as a text box
- * with a `datalist` that the organizer could type into. No such path exists, and it is corrected
- * rather than deleted because a reader told about a degraded typing path will go looking for it.)
+ * cannot go stale against a bundled copy and costs no bytes. Where that is unavailable the
+ * field falls back to `FALLBACK_ZONES` below — a shorter list, never a different control.
+ *
+ * It is a filtering `Combobox` rather than a `<select>`, because roughly 400 options is the
+ * one list length a native select is worst at: the popup is a single unsearchable column, and
+ * the only way to reach `Europe/Madrid` is to know it sorts after `Europe/Madeira`. Typing
+ * "mad" now narrows the list to what matches, in the same control, and the zones are no longer
+ * grouped by area — an area heading was structure standing in for a search box.
  *
  * The API is deliberately more permissive than this list. `resolveTimezone` in the contracts
  * package accepts anything the runtime can resolve, including fixed offsets such as `+05:30`,
@@ -21,6 +24,7 @@
  * option, so opening the form never silently rewrites the event's zone to whatever sorts first.
  */
 import { useMemo } from "react";
+import { Combobox, type SelectOption } from "../ui/fields";
 
 /**
  * Enough to keep the field useful on an engine with no zone enumeration.
@@ -85,9 +89,6 @@ function offsetLabel(zone: string, at: Date): string {
   }
 }
 
-/** `America/Los_Angeles` → `America`, so a 400-entry list is navigable by region. */
-const areaOf = (zone: string) => (zone.includes("/") ? zone.slice(0, zone.indexOf("/")) : "Other");
-
 export function TimezoneField({
   id,
   value,
@@ -106,57 +107,31 @@ export function TimezoneField({
   hint?: string;
 }) {
   const now = useMemo(() => new Date(), []);
-  const groups = useMemo(() => {
+  const options = useMemo<SelectOption[]>(() => {
     const zones = supportedTimezones();
     // An event stored before this control existed may hold a legacy alias — `US/Pacific`,
     // `Asia/Calcutta` — that the canonical list does not carry. Dropping it would silently
     // reselect the first option and rewrite the event's timezone on the next save.
     const all = zones.includes(value) || !value ? zones : [value, ...zones];
-    const byArea = new Map<string, string[]>();
-    for (const zone of all) {
-      const area = areaOf(zone);
-      const bucket = byArea.get(area);
-      if (bucket) bucket.push(zone);
-      else byArea.set(area, [zone]);
-    }
-    return [...byArea.entries()].sort(([left], [right]) => left.localeCompare(right));
-  }, [value]);
+    // The offset is the measure that separates two zones with similar names, so it is the
+    // option's second line rather than part of its label: filtering on "+05:30" finds every
+    // zone at that offset, and the label stays the id that gets stored.
+    return all.map((zone) => ({ value: zone, label: zone, hint: offsetLabel(zone, now) }));
+  }, [now, value]);
 
-  const errorId = `${id}-error`;
   return (
-    <div className="field">
-      <label htmlFor={id}>{label}</label>
-      <select
-        id={id}
-        value={value}
-        disabled={disabled}
-        required
-        aria-invalid={errors.length ? true : undefined}
-        aria-describedby={errors.length ? errorId : `${id}-hint`}
-        onChange={(changeEvent) => onChange(changeEvent.target.value)}
-      >
-        {groups.map(([area, zones]) => (
-          <optgroup key={area} label={area}>
-            {zones.map((zone) => {
-              const offset = offsetLabel(zone, now);
-              return (
-                <option key={zone} value={zone}>
-                  {offset ? `${zone} · ${offset}` : zone}
-                </option>
-              );
-            })}
-          </optgroup>
-        ))}
-      </select>
-      {errors.length ? (
-        <p className="error-text" id={errorId}>
-          {errors.join(" ")}
-        </p>
-      ) : (
-        <p className="hint" id={`${id}-hint`}>
-          {hint}
-        </p>
-      )}
-    </div>
+    <Combobox
+      id={id}
+      label={label}
+      hint={hint}
+      value={value}
+      onChange={onChange}
+      options={options}
+      error={errors}
+      disabled={disabled}
+      required
+      placeholder="Search zones, cities or offsets…"
+      emptyLabel="No zone matches that. Try a city, a region, or an offset such as +05:30."
+    />
   );
 }

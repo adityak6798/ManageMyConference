@@ -106,6 +106,19 @@ afterEach(() => {
 });
 
 describe("assigning a prospect owner", () => {
+  /*
+   * Opening a prospect used to set state and nothing else: the detail was the second column of a
+   * non-sticky split, so choosing a card thirty rows down produced no visible change at all.
+   * Selection becomes focus, which is the part a test can hold on to.
+   */
+  it("moves focus into the detail panel when a prospect is opened", async () => {
+    stubApi((url) => pipeline([prospect()])(url));
+    render(<CrmWorkspace eventId={eventId} ownerId="seed-organizer" />);
+
+    await openProspect("Dr. Ada Rivera");
+    await waitFor(() => expect(document.activeElement).toHaveClass("crm-inspector"));
+  });
+
   it("offers the event's staff by name and posts the identity that was chosen", async () => {
     const sent = stubApi((url) => {
       if (url.endsWith(`/prospects/${prospectId}`))
@@ -168,8 +181,11 @@ describe("assigning a prospect owner", () => {
       await screen.findByText("Choose an organizer or reviewer assigned to this event."),
     ).toBeInTheDocument();
     expect(screen.getByLabelText("Owner", { exact: true })).toHaveAttribute("aria-invalid", "true");
-    // The workspace's existing announcement still carries the correlation id for support.
-    expect(screen.getByRole("alert")).toHaveTextContent("Reference: trace-67");
+    // The correlation id is still on screen for support, and it is now a value rather than the
+    // tail of the sentence: its own line, in the measure face, with a control that copies it.
+    expect(screen.getByRole("alert")).toHaveTextContent("Choose an owner who works on this event.");
+    expect(screen.getByText("trace-67")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Copy the reference" })).toBeInTheDocument();
 
     // Correcting the control clears its error rather than leaving a stale refusal on screen.
     fireEvent.change(screen.getByLabelText("Owner", { exact: true }), {
@@ -214,9 +230,11 @@ describe("assigning a prospect owner", () => {
 
     await openProspect("Dr. Ada Rivera");
     expect(screen.getByText(/No activity recorded yet/)).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText("Stage", { exact: true }), {
-      target: { value: "engaged" },
-    });
+    // Stage is the shared listbox, so choosing is a press on an option rather than a change
+    // event on a native element. The owner control beside it is still native, deliberately:
+    // it carries the server's field-level refusal.
+    fireEvent.keyDown(screen.getByRole("combobox", { name: "Stage" }), { key: "ArrowDown" });
+    fireEvent.click(screen.getByRole("option", { name: "Engaged" }));
     fireEvent.change(screen.getByLabelText("Private note"), {
       target: { value: "Available after 2pm" },
     });
@@ -234,7 +252,9 @@ describe("assigning a prospect owner", () => {
       await screen.findByRole("region", { name: "Activity timeline" }),
     ).getAllByRole("listitem");
     expect(timeline).toHaveLength(2);
-    expect(within(timeline[0] as HTMLElement).getByText("stage change")).toBeInTheDocument();
+    // The kind is written out rather than printed as its wire token with the hyphen swapped for
+    // a space, which is a title-cased enum rather than a name.
+    expect(within(timeline[0] as HTMLElement).getByText("Moved stage")).toBeInTheDocument();
     expect(within(timeline[0] as HTMLElement).getByText("contacted → engaged")).toBeInTheDocument();
   });
 });

@@ -21,6 +21,9 @@ import { expect, test } from "./fixtures";
 async function openMembers(page: import("@playwright/test").Page) {
   await page.goto("/");
   await page.getByRole("button", { name: "Continue as organizer" }).click();
+  // The click posts the demo session; navigating before its cookie lands loads Settings
+  // unauthenticated and the shell bounces to the sign-in surface. The switcher is the shell.
+  await expect(page.getByRole("combobox", { name: "Event workspace" })).toBeVisible();
   await page.goto("/settings?tab=team");
   await expect(page.getByRole("heading", { level: 1, name: "Members" })).toBeVisible();
 }
@@ -37,8 +40,9 @@ test("shows the organization's members, its invitations, and its identity activi
   await expect(page.getByRole("heading", { name: "Recent identity activity" })).toBeVisible();
 
   // The seeded organizer is a member of the seeded organization, so the table is not empty and
-  // the read genuinely reached D1.
-  await expect(page.getByRole("cell", { name: "Olivia Organizer" })).toBeVisible();
+  // the read genuinely reached D1. Exact, because the row's Actions cell is named after the same
+  // person — "Grant a role to Olivia Organizer" — and a substring match resolves to both.
+  await expect(page.getByRole("cell", { name: "Olivia Organizer", exact: true })).toBeVisible();
 });
 
 /**
@@ -59,8 +63,10 @@ test("refuses a demo persona's membership write, and says so on the screen", asy
   await expect(refusal).toBeVisible();
   await expect(refusal).toContainText("not allowed on this deployment");
   // And the refusal carries the correlation reference every console failure carries, so a report
-  // of it can be turned back into the log line.
-  await expect(refusal).toContainText("Reference:");
+  // of it can be turned back into the log line. It sits beside the sentence rather than inside it:
+  // an identifier read character by character is a value to quote, not news to announce, so it is
+  // asserted through the control that puts it on the clipboard.
+  await expect(page.getByRole("button", { name: "Copy the reference" })).toBeVisible();
 
   // Nothing was created: the outstanding-invitations section still shows its empty state.
   await expect(page.getByText("No invitations are outstanding")).toBeVisible();

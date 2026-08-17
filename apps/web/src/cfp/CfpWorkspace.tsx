@@ -15,7 +15,7 @@
  *    states, in words, which one applicants can see.
  */
 
-import { type CfpChoice, type CfpField, type CfpRoutingRule } from "@greenroom/contracts";
+import type { CfpChoice, CfpField, CfpRoutingRule } from "@greenroom/contracts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CfpApiError,
@@ -27,8 +27,30 @@ import {
   saveCfpWindow,
 } from "../api/cfp";
 import "../styles/cfp.css";
-import { IconCheck, IconForm, IconGlobe, IconLink, IconPlus, IconWarning } from "../ui/icons";
-import { Card, Drawer, EmptyState, Notice, Pill, Tabs, useActionFeedback } from "../ui/primitives";
+import { Checkbox, DateTimeField, Field } from "../ui/fields";
+import {
+  IconForm,
+  IconGlobe,
+  IconGrip,
+  IconMore,
+  IconPlus,
+  IconTrash,
+  IconWarning,
+} from "../ui/icons";
+import { Menu } from "../ui/menu";
+import {
+  Card,
+  Drawer,
+  EmptyState,
+  GutterList,
+  GutterRow,
+  LoadFailure,
+  Notice,
+  Pill,
+  SkeletonForm,
+  Tabs,
+  useActionFeedback,
+} from "../ui/primitives";
 import { ApplicantCfpForm } from "./ApplicantCfpForm";
 import { PublicFormPreview } from "./controls";
 import {
@@ -38,13 +60,13 @@ import {
   FIELD_TYPES,
   formatDate,
   fromZonedInput,
-  zonedInputExists,
   isNotFound,
   loadPublicSubmissionUrl,
   shape,
   starter,
   toZonedInput,
   typeLabel,
+  zonedInputExists,
 } from "./model";
 
 function ChoiceListEditor({
@@ -168,7 +190,19 @@ export function CfpWorkspace({
   const [title, setTitle] = useState(DEFAULT_TITLE);
   const [description, setDescription] = useState("");
   const [addingQuestion, setAddingQuestion] = useState(false);
-  const [questionTypeSearch, setQuestionTypeSearch] = useState("");
+  /*
+   * Which part of the form is being composed, and which item inside it.
+   *
+   * Every question used to render its whole editor inline — label, type, guidance, options and
+   * the conditional-visibility block, all permanently open — so a ten-question form was about
+   * 4,000px of controls with no way to see the form's shape. The list is the shape; the
+   * inspector is the one question being edited.
+   */
+  const [section, setSection] = useState<"details" | "questions" | "routing">("questions");
+  const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  /** The row a pointer drag started on; ordering is committed on drop. */
+  const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
   const [routing, setRouting] = useState<CfpRoutingRule[]>([]);
   const [routingStatuses, setRoutingStatuses] = useState<readonly { key: string; label: string }[]>(
     [],
@@ -368,9 +402,18 @@ export function CfpWorkspace({
     [],
   );
 
+  /**
+   * Reorder one question.
+   *
+   * Kept as the model operation it always was, and now driven two ways: a drag handle for the
+   * pointer, and Ctrl+Arrow on the focused row for the keyboard. Two Move buttons on every row
+   * were 2n controls for an operation that is one gesture, and they read as part of the question
+   * rather than as a way to arrange the form.
+   */
   const moveField = useCallback(
     (index: number, delta: number) =>
       setFields((current) => {
+        if (index + delta < 0 || index + delta >= current.length) return current;
         const next = [...current];
         const [moved] = next.splice(index, 1);
         if (moved) next.splice(index + delta, 0, moved);
@@ -567,40 +610,23 @@ export function CfpWorkspace({
   if (loadingCfp)
     return (
       <Card>
-        <div className="cfp-loading" aria-hidden="true">
-          <div className="skeleton" style={{ height: 18, width: "38%" }} />
-          <div className="skeleton" style={{ height: 92, width: "100%" }} />
-          <div className="skeleton" style={{ height: 92, width: "100%" }} />
-        </div>
-        <p className="visually-hidden" role="status">
-          Loading the call for proposals.
-        </p>
+        <SkeletonForm fields={4} label="Loading the call for proposals" />
       </Card>
     );
 
   if (loadFailure)
     return (
-      <Card
-        labelledBy="cfp-unavailable"
-        title="The call for proposals could not be opened"
-        actions={
-          <button
-            type="button"
-            onClick={() => {
-              // ERROR-INTENT: handlers cannot await; loadForm renders both outcomes.
-              void loadForm();
-            }}
-          >
-            Try again
-          </button>
-        }
+      <LoadFailure
+        what="the call for proposals"
+        error={loadFailure}
+        onRetry={() => {
+          // ERROR-INTENT: handlers cannot await; loadForm renders both outcomes.
+          void loadForm();
+        }}
       >
-        <Notice tone="error">{loadFailure}</Notice>
-        <p className="cfp-recovery-hint">
-          Editing stays disabled until the form loads, so retrying cannot overwrite questions this
-          workspace never managed to read.
-        </p>
-      </Card>
+        {loadFailure} Editing stays disabled until the form loads, so retrying cannot overwrite
+        questions this workspace never managed to read.
+      </LoadFailure>
     );
 
   if (!organizer && !form)
@@ -625,924 +651,1083 @@ export function CfpWorkspace({
         ? "Submissions closed."
         : "Not published — applicants cannot reach this form yet.";
 
+  /*
+   * What the reader is actually looking at, said once.
+   *
+   * The composer used to state the draft-versus-live relationship three times — a pair of pills,
+   * a standing notice, and a second notice under it — and none of the three was allowed to
+   * mention the case that matters most: a form marked "Published · open" that no applicant can
+   * reach, because the event has no public page for it to live on.
+   */
+  const publication = !liveStatus
+    ? { tone: "neutral" as const, label: "Draft" }
+    : liveStatus === "open"
+      ? { tone: "ok" as const, label: "Published · open" }
+      : { tone: "neutral" as const, label: "Published · closed" };
+  /*
+   * Published is not the same as reachable, and the status card used to conflate them: it
+   * reported "Published · open" for a form applicants had no address to reach. The publication
+   * state stays what it is; the missing address is a second fact, said as one.
+   */
+  const unreachable = Boolean(liveStatus) && !absoluteUrl;
+
+  /** The one statement of how the draft stands to what applicants are being served. */
+  const draftLine = dirty
+    ? liveStatus
+      ? "You are editing a form that is live. Applicants keep filling in the published version — these edits reach them only when you publish."
+      : "Unsaved edits. Save the draft, then publish to open the public submission page."
+    : divergesFromLive
+      ? "The saved draft is ahead of the live form. Publish to apply the change."
+      : liveStatus
+        ? "Applicants are being served this exact version."
+        : "Nothing is published yet. Build the questions, then publish to open the public submission page.";
+
+  const selectedField = fields.find(({ id }) => id === selectedFieldId) ?? fields[0] ?? null;
+  const selectedIndex = selectedField ? fields.indexOf(selectedField) : -1;
+  const questionErrorsAt = (index: number) =>
+    Object.entries(errors)
+      .filter(([key]) => key.startsWith(`fields.${index}.`))
+      .flatMap(([, messages]) => messages);
+
+  /** Commit a pointer drag: the dragged row lands where it was dropped. */
+  const dropOn = (index: number) => {
+    if (draggingIndex === null || draggingIndex === index) return;
+    moveField(draggingIndex, index - draggingIndex);
+    setDraggingIndex(null);
+  };
+
   return (
     <>
-      <Card labelledBy="cfp-publication" title="Publication" tight>
-        <div className="cfp-status">
-          <div className="cfp-status-state">
-            <div className="cfp-pills">
-              {liveStatus === "open" ? (
-                <Pill tone="ok">
-                  <span className="dot" />
-                  Published · open
-                </Pill>
-              ) : liveStatus === "closed" ? (
-                <Pill tone="neutral">
-                  <span className="dot" />
-                  Published · closed
-                </Pill>
-              ) : (
-                <Pill tone="warn">
-                  <IconWarning size={12} />
-                  Not published
-                </Pill>
-              )}
-              {dirty ? (
-                <Pill tone="warn">Unsaved edits</Pill>
-              ) : divergesFromLive ? (
-                <Pill tone="warn">Draft ahead of live</Pill>
-              ) : liveStatus ? (
-                <Pill tone="ok">
-                  <IconCheck size={12} />
-                  Live copy matches
-                </Pill>
-              ) : (
-                <Pill tone="neutral">Draft</Pill>
-              )}
-            </div>
-            <p className="cfp-status-meta">
-              {form ? `Draft version ${form.version}` : "Never saved"}
-              {form?.publishedAt ? ` · live since ${formatDate(form.publishedAt)}` : ""}
-              {` · ${fields.length} question${fields.length === 1 ? "" : "s"}`}
-            </p>
-          </div>
-
-          <div className="toolbar cfp-actions">
-            <button
-              type="button"
-              className="secondary"
-              disabled={!absoluteUrl}
-              aria-describedby={absoluteUrl ? undefined : "cfp-link-hint"}
-              onClick={() => {
-                // ERROR-INTENT: handlers cannot await; copyPublicLink announces both outcomes.
-                void copyPublicLink();
-              }}
-            >
-              <IconLink size={15} />
-              Copy public link
-            </button>
-            {/* Only offered once something is published — sending an organizer to a
-                page that has no form yet reads as a broken link, not an empty state. */}
-            {absoluteUrl && liveStatus ? (
-              <a className="btn secondary" href={absoluteUrl} target="_blank" rel="noreferrer">
-                <IconGlobe size={15} />
-                Open public form
-              </a>
-            ) : null}
-            {liveStatus ? (
-              <button
-                type="button"
-                className="secondary"
-                disabled={busy !== null}
-                onClick={() => {
-                  // ERROR-INTENT: handlers cannot await; transition announces both outcomes.
-                  void transition(liveStatus === "open" ? "close" : "reopen");
-                }}
-              >
-                {liveStatus === "open" ? "Close live CFP" : "Reopen live CFP"}
-              </button>
-            ) : null}
-            <button
-              type="button"
-              className="secondary"
-              disabled={busy !== null}
-              onClick={() => {
-                // ERROR-INTENT: handlers cannot await; persist announces both outcomes.
-                void persist();
-              }}
-            >
-              {busy === "save" ? "Saving…" : "Save draft"}
-            </button>
-            {!form || dirty || form.status === "draft" ? (
-              <button
-                type="button"
-                disabled={busy !== null}
-                onClick={() => {
-                  // ERROR-INTENT: handlers cannot await; publish announces both outcomes.
-                  void publish();
-                }}
-              >
-                {busy === "publish"
-                  ? "Publishing…"
-                  : liveStatus
-                    ? "Publish changes"
-                    : "Publish CFP"}
-              </button>
-            ) : null}
-          </div>
-        </div>
-
-        <div className="cfp-status-foot">
-          {feedback.node}
-          {draftConflict ? (
-            <button
-              type="button"
-              className="secondary"
-              onClick={() => {
-                // ERROR-INTENT: loadForm renders and announces its own recovery outcome.
-                void loadForm(true);
-              }}
-            >
-              Reload latest draft
-            </button>
-          ) : null}
-          {absoluteUrl ? (
-            <p className="cfp-link">
-              Public submission URL: <code>{absoluteUrl}</code>
-            </p>
-          ) : (
-            <p className="cfp-link" id="cfp-link-hint">
-              The public link appears once this event has a published page.
-            </p>
-          )}
-        </div>
-      </Card>
-
       {/*
-        The scheduled window, and the precedence rule stated where the controls are.
-        Live state, like open and closed: saving it takes effect at once and publishes no form
-        edits. It is a separate card rather than a field of the composer for exactly that reason.
+        One bar for the whole publication story, and it stays under the hub tabs while the
+        organizer works down a long form.
+
+        It replaces 480–560px of chrome: a Publication card carrying five buttons and two rows of
+        pills, a Submission window card, and up to two standing notices restating each other.
+        What is left is the state, the version and question count as one measure, the action, and
+        an overflow menu for the things done once a season.
       */}
-      <Card labelledBy="cfp-window" title="Submission window">
-        <p className="cfp-window-rule">
-          Both gates have to allow a submission. The schedule cannot open a call you have closed,
-          and <strong>Reopen live CFP</strong> cannot open one whose deadline has passed — move or
-          clear the deadline to take submissions again. Times are {timezone}, the event&rsquo;s own
-          timezone.
-        </p>
-        <div className="form-row cfp-window-controls">
-          <div className="field">
-            <label htmlFor="cfp-opens-at">Opens</label>
-            <input
-              id="cfp-opens-at"
-              type="datetime-local"
-              value={opensAtInput}
-              onChange={(event) => setOpensAtInput(event.target.value)}
-            />
-          </div>
-          <div className="field">
-            <label htmlFor="cfp-closes-at">Deadline</label>
-            <input
-              id="cfp-closes-at"
-              type="datetime-local"
-              value={closesAtInput}
-              onChange={(event) => setClosesAtInput(event.target.value)}
-            />
-          </div>
+      <div className="cfp-statusbar">
+        <div className="cfp-statusbar-state">
+          <Pill tone={publication.tone}>{publication.label}</Pill>
+          {unreachable ? (
+            <Pill tone="warn">
+              <IconWarning size={12} />
+              No public address
+            </Pill>
+          ) : null}
+          {dirty ? (
+            <Pill tone="warn">Unsaved edits</Pill>
+          ) : divergesFromLive ? (
+            <Pill tone="warn">Draft ahead of live</Pill>
+          ) : null}
+          {/* Version, size and age as one measure: what this draft is, in mono, once. */}
+          <span className="figure cfp-version">
+            v{form?.version ?? 0} · {fields.length} question{fields.length === 1 ? "" : "s"}
+            {form?.publishedAt ? ` · live since ${formatDate(form.publishedAt)}` : ""}
+          </span>
+        </div>
+        <div className="cfp-statusbar-actions">
+          <button type="button" className="secondary" onClick={() => setPreviewOpen(true)}>
+            Preview
+          </button>
           <button
             type="button"
             className="secondary"
             disabled={busy !== null}
             onClick={() => {
-              /*
-               * A wall time that does not exist is refused rather than shifted.
-               *
-               * On a spring-forward date the local clock jumps an hour, so a deadline typed inside
-               * the gap — 02:30 where 02:00–02:59 never happens — converts to the instant *before*
-               * it and the organizer's deadline silently moves an hour earlier. Saving it is worse
-               * than refusing it, because the announced deadline is then a time nobody chose.
-               */
-              const missing = [
-                ["Opens", opensAtInput] as const,
-                ["Deadline", closesAtInput] as const,
-              ].filter(([, value]) => !zonedInputExists(value, timezone));
-              if (missing.length > 0) {
-                announce(
-                  "error",
-                  `${missing.map(([label]) => label).join(" and ")} ${
-                    missing.length > 1 ? "name times that do not" : "names a time that does not"
-                  } exist in ${timezone}: the clock skips that hour when daylight saving begins. Choose a time before or after it.`,
-                );
-                return;
-              }
-              // ERROR-INTENT: handlers cannot await; persistWindow announces both outcomes.
-              void persistWindow({
-                opensAt: fromZonedInput(opensAtInput, timezone),
-                closesAt: fromZonedInput(closesAtInput, timezone),
-              });
+              // ERROR-INTENT: handlers cannot await; persist announces both outcomes.
+              void persist();
             }}
           >
-            {busy === "window" ? "Saving…" : "Save window"}
+            {busy === "save" ? "Saving…" : "Save draft"}
           </button>
-          {form?.opensAt || form?.closesAt ? (
+          {!form || dirty || form.status === "draft" ? (
             <button
+              className="primary"
               type="button"
-              className="secondary"
               disabled={busy !== null}
               onClick={() => {
-                // ERROR-INTENT: handlers cannot await; persistWindow announces both outcomes.
-                void persistWindow({ opensAt: null, closesAt: null });
+                // ERROR-INTENT: handlers cannot await; publish announces both outcomes.
+                void publish();
               }}
             >
-              Clear window
+              {busy === "publish" ? "Publishing…" : liveStatus ? "Publish changes" : "Publish CFP"}
             </button>
           ) : null}
+          <Menu
+            label="More call for proposals actions"
+            align="end"
+            trigger={<IconMore size={16} />}
+            items={[
+              {
+                id: "copy",
+                label: "Copy public link",
+                ...(absoluteUrl
+                  ? { hint: absoluteUrl }
+                  : {
+                      hint: "The public link appears once this event has a published page.",
+                      disabled: true,
+                    }),
+                onSelect: () => {
+                  // ERROR-INTENT: handlers cannot await; copyPublicLink announces both outcomes.
+                  void copyPublicLink();
+                },
+              },
+              {
+                id: "open",
+                label: "Open public form",
+                // Sending an organizer to a page that has no form yet reads as a broken link.
+                disabled: !absoluteUrl || !liveStatus,
+                onSelect: () => {
+                  if (absoluteUrl) window.open(absoluteUrl, "_blank", "noreferrer");
+                },
+              },
+              { id: "sep", separator: true },
+              ...(liveStatus
+                ? [
+                    {
+                      id: "state",
+                      label: liveStatus === "open" ? "Close live CFP" : "Reopen live CFP",
+                      hint:
+                        liveStatus === "open"
+                          ? "Stops new submissions; the form stays published."
+                          : "Takes new submissions again, unless the deadline has passed.",
+                      disabled: busy !== null,
+                      onSelect: () => {
+                        // ERROR-INTENT: handlers cannot await; transition announces both outcomes.
+                        void transition(liveStatus === "open" ? "close" : "reopen");
+                      },
+                    },
+                  ]
+                : []),
+            ]}
+          />
         </div>
-        {/*
-          The one sentence that is not derivable from the two inputs: what applicants get right
-          now. Taken from the server's own answer, because a composer that decided from the
-          operator's clock would report an open call minutes after the deadline it published.
+      </div>
 
-          Not a live region. This workspace has exactly one — `useActionFeedback`'s, beside the
-          toolbar — and saving the window announces through it; a second would mean a screen reader
-          gets whichever of the two React updated last.
-        */}
-        <p className="cfp-window-state">
-          {effective === "open"
-            ? "Applicants can submit now."
-            : effective === "scheduled"
-              ? "Applicants see the opening date and no form."
-              : effective === "closed"
-                ? deadlinePassed
-                  ? "The deadline has passed, so applicants cannot submit even though the call is marked open."
-                  : "Applicants cannot submit."
-                : "Nothing is published, so applicants cannot reach this form at all."}
-        </p>
-      </Card>
+      <p className="cfp-statusline">
+        {unreachable ? (
+          <>
+            <strong>
+              This form is published, but the event has no public page yet, so nobody can reach it.
+              Publish the event under Publish → Publishing.
+            </strong>{" "}
+          </>
+        ) : null}
+        {draftLine}
+      </p>
 
-      {liveStatus && dirty ? (
-        <Notice tone="warn">
-          <IconWarning size={15} />
-          <span>
-            You are editing a form that is live. Applicants keep filling in the published version —
-            these edits reach them only when you publish.
-          </span>
-        </Notice>
-      ) : liveStatus && divergesFromLive ? (
-        <Notice tone="warn">
-          <IconWarning size={15} />
-          <span>
-            The saved draft is ahead of the live form. Compare them under <strong>Live form</strong>{" "}
-            on the right, then publish to apply the change.
-          </span>
-        </Notice>
-      ) : liveStatus ? (
-        <Notice tone="info">
-          <IconCheck size={15} />
-          <span>
-            This form is live. Saving an edit creates a new draft and never takes the public form
-            offline — the published version keeps serving until you publish again.
-          </span>
-        </Notice>
-      ) : (
-        <Notice tone="info">
-          <IconForm size={15} />
-          <span>
-            Nothing is published yet. Build the questions, then publish to open the public
-            submission page.
-          </span>
-        </Notice>
-      )}
+      <div className="cfp-feedback">
+        {feedback.node}
+        {draftConflict ? (
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => {
+              // ERROR-INTENT: loadForm renders and announces its own recovery outcome.
+              void loadForm(true);
+            }}
+          >
+            Reload latest draft
+          </button>
+        ) : null}
+      </div>
 
       {liveProblem ? <Notice tone="error">{liveProblem}</Notice> : null}
+      {generalFieldErrors.map((error) => (
+        <Notice tone="error" key={error}>
+          {error}
+        </Notice>
+      ))}
 
-      <div className="cfp-composer">
-        <div className="cfp-pane">
-          <Card labelledBy="cfp-details" title="Form details">
-            <div className="cfp-details">
-              <div className="field">
-                <label htmlFor="cfp-title">Form title</label>
-                <input
+      {/*
+        Three panes: what part of the form, which item in it, and the one item's editor.
+
+        Every question used to render its full editor inline, permanently open — a ten-question
+        form was roughly 4,000px of controls, which is the clearest violation in the console of
+        "progressive disclosure, not permanent disclosure".
+      */}
+      <div className={section === "routing" ? "cfp-composer is-wide" : "cfp-composer"}>
+        <nav className="cfp-rail" aria-label="Parts of this form">
+          {(
+            [
+              { id: "details", label: "Form details", count: null },
+              { id: "questions", label: "Questions", count: fields.length },
+              { id: "routing", label: "Routing", count: routing.length },
+            ] as const
+          ).map((entry) => (
+            <button
+              key={entry.id}
+              type="button"
+              className="cfp-rail-item"
+              aria-current={section === entry.id ? "true" : undefined}
+              onClick={() => setSection(entry.id)}
+            >
+              <span>{entry.label}</span>
+              {entry.count === null ? null : <span className="figure">{entry.count}</span>}
+            </button>
+          ))}
+        </nav>
+
+        {section === "details" ? (
+          <div className="cfp-pane cfp-list">
+            <Card labelledBy="cfp-details" title="Form details" tight>
+              <div className="cfp-details">
+                <Field
+                  label="Form title"
                   id="cfp-title"
-                  value={title}
-                  maxLength={120}
-                  aria-invalid={Boolean(errors.title)}
-                  aria-describedby={errors.title ? "cfp-title-error" : undefined}
-                  onChange={(event) => setTitle(event.target.value)}
-                />
-                {errors.title ? (
-                  <div id="cfp-title-error">
-                    {errors.title.map((error) => (
-                      <p className="error-text" key={error}>
-                        {error}
-                      </p>
-                    ))}
+                  {...(errors.title ? { error: errors.title } : {})}
+                >
+                  {(control) => (
+                    <input
+                      {...control}
+                      className="control"
+                      value={title}
+                      maxLength={120}
+                      onChange={(event) => setTitle(event.target.value)}
+                    />
+                  )}
+                </Field>
+                <Field
+                  label="Description"
+                  id="cfp-description"
+                  hint="Shown above the questions on the public page."
+                  {...(errors.description ? { error: errors.description } : {})}
+                >
+                  {(control) => (
+                    <textarea
+                      {...control}
+                      className="control"
+                      value={description}
+                      maxLength={2000}
+                      onChange={(event) => setDescription(event.target.value)}
+                    />
+                  )}
+                </Field>
+              </div>
+            </Card>
+          </div>
+        ) : section === "questions" ? (
+          /* `is-fill`: the list is the working surface of a form builder, so it takes the height
+             the viewport has and scrolls inside its own card. Content-sized, three short panes
+             stopped ~140px above the fold and the rest of the screen was empty canvas. */
+          <div className="cfp-pane cfp-list is-fill">
+            <Card
+              labelledBy="cfp-questions"
+              title="Questions"
+              hint="Applicants answer these in order. Drag a row, or hold Ctrl and press an arrow."
+              actions={
+                <button type="button" className="secondary" onClick={() => setAddingQuestion(true)}>
+                  <IconPlus size={15} />
+                  Add question
+                </button>
+              }
+              tight
+            >
+              {fields.length === 0 ? (
+                <EmptyState title="No questions yet" icon={<IconForm size={20} />}>
+                  Add at least one question before publishing the form.
+                </EmptyState>
+              ) : (
+                <GutterList label="Questions on this form" className="cfp-questions">
+                  {fields.map((field, index) => {
+                    const name = field.label.trim() || "Untitled question";
+                    const invalid = questionErrorsAt(index).length > 0;
+                    return (
+                      <GutterRow
+                        key={field.id}
+                        // Its place in the order, which is the one figure a question row is
+                        // about: applicants answer these in this sequence.
+                        measure={index + 1}
+                        measureLabel="Question"
+                        active={field.id === selectedField?.id}
+                        title={
+                          <span className="cfp-q-title">
+                            <button
+                              type="button"
+                              className="cfp-grip"
+                              aria-label={`Reorder ${name}`}
+                              draggable
+                              onDragStart={(dragEvent) => {
+                                // Firefox refuses to start a drag at all unless the transfer
+                                // carries something, which is the same reason the agenda board
+                                // sets the title here.
+                                dragEvent.dataTransfer.effectAllowed = "move";
+                                dragEvent.dataTransfer.setData("text/plain", name);
+                                setDraggingIndex(index);
+                              }}
+                              onDragEnd={() => setDraggingIndex(null)}
+                            >
+                              <IconGrip size={16} />
+                            </button>
+                            <button
+                              type="button"
+                              className="cfp-q-name"
+                              aria-current={field.id === selectedField?.id ? "true" : undefined}
+                              onClick={() => setSelectedFieldId(field.id)}
+                              onKeyDown={(keyEvent) => {
+                                // The keyboard's half of the drag handle. `moveField` is the
+                                // same model operation the two Move buttons used to call.
+                                if (!keyEvent.ctrlKey && !keyEvent.metaKey) return;
+                                const delta =
+                                  keyEvent.key === "ArrowDown"
+                                    ? 1
+                                    : keyEvent.key === "ArrowUp"
+                                      ? -1
+                                      : 0;
+                                if (!delta) return;
+                                keyEvent.preventDefault();
+                                moveField(index, delta);
+                              }}
+                            >
+                              {name}
+                            </button>
+                          </span>
+                        }
+                        status={
+                          /*
+                            One grid with three declared tracks — the validity mark, the type, the
+                            required flag — rather than three items packed in a flex row. Packed,
+                            a row carrying a required dot pushed its type pill left by the width
+                            of the dot, so six rows ended at four different x positions and the
+                            right edge of the list read as ragged. Each flag now keeps its column
+                            whether or not the row carries it.
+                          */
+                          <span className="cfp-q-flags">
+                            {invalid ? <span className="cfp-q-invalid">!</span> : null}
+                            <Pill tone="neutral">{typeLabel(field.type)}</Pill>
+                            {field.required ? (
+                              <span className="cfp-required-dot" title="Required">
+                                <span className="visually-hidden">Required</span>
+                              </span>
+                            ) : null}
+                          </span>
+                        }
+                      >
+                        {/*
+                          Dropping is a whole-row target, because a 16px grip is not something to
+                          aim at twice — but only while something is being dragged. A permanent
+                          overlay would sit on top of the row's own controls and swallow every
+                          click meant for them.
+                        */}
+                        {draggingIndex === null ? null : (
+                          <span
+                            className="cfp-drop"
+                            aria-hidden="true"
+                            onDragOver={(dragEvent) => {
+                              dragEvent.preventDefault();
+                              dragEvent.dataTransfer.dropEffect = "move";
+                            }}
+                            onDrop={(dragEvent) => {
+                              dragEvent.preventDefault();
+                              dropOn(index);
+                            }}
+                          />
+                        )}
+                      </GutterRow>
+                    );
+                  })}
+                </GutterList>
+              )}
+            </Card>
+          </div>
+        ) : (
+          <div className="cfp-pane cfp-list">
+            <Card
+              labelledBy="cfp-routing"
+              title="Submission routing"
+              hint="The first matching rule sets the CFP triage status when a proposal is submitted."
+              actions={
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={!routableStatuses.length}
+                  onClick={() =>
+                    setRouting([
+                      ...routing,
+                      {
+                        id: `route-${crypto.randomUUID()}`,
+                        when: { fieldId: fields[0]?.id ?? "", operator: "in", values: [] },
+                        // Seeded from the *routable* set, not the configured one: seeding from a
+                        // decision status would create a rule the API refuses and the select
+                        // below cannot even display, since it is filtered out of the options.
+                        routeTo: { status: routableStatuses[0]?.key ?? "" },
+                      },
+                    ])
+                  }
+                >
+                  <IconPlus size={15} />
+                  Add routing rule
+                </button>
+              }
+            >
+              {routingStatusProblem ? (
+                <p role="status" className="error-text">
+                  Routing destinations could not be loaded. Existing rules are unchanged.{" "}
+                  <button
+                    type="button"
+                    className="link"
+                    onClick={() => setRoutingStatusReload((value) => value + 1)}
+                  >
+                    Try again
+                  </button>
+                </p>
+              ) : null}
+              {routing.length ? (
+                <ol className="cfp-rules">
+                  {routing.map((rule, index) => (
+                    /* Its own class. It used to wear `.cfp-question`, whose grid stretches the
+                       last child across the row — so Remove rendered 460px wide. */
+                    <li className="cfp-rule" key={rule.id}>
+                      <div className="cfp-rule-fields">
+                        <Field label="Question" id={`rule-field-${rule.id}`}>
+                          {(control) => (
+                            <select
+                              {...control}
+                              className="control"
+                              value={rule.when.fieldId}
+                              onChange={(event) =>
+                                setRouting((current) =>
+                                  current.map((item) =>
+                                    item.id === rule.id
+                                      ? {
+                                          ...item,
+                                          when: { ...item.when, fieldId: event.target.value },
+                                        }
+                                      : item,
+                                  ),
+                                )
+                              }
+                            >
+                              {fields.map((field) => (
+                                <option key={field.id} value={field.id}>
+                                  {field.label || field.id}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                        </Field>
+                        <Field label="Match" id={`rule-match-${rule.id}`}>
+                          {(control) => (
+                            <select
+                              {...control}
+                              className="control"
+                              value={rule.when.operator}
+                              onChange={(event) =>
+                                setRouting((current) =>
+                                  current.map((item) =>
+                                    item.id === rule.id
+                                      ? {
+                                          ...item,
+                                          when: {
+                                            ...item.when,
+                                            operator: event.target.value as
+                                              | "equals"
+                                              | "in"
+                                              | "notEmpty",
+                                            values:
+                                              event.target.value === "notEmpty"
+                                                ? []
+                                                : event.target.value === "equals"
+                                                  ? item.when.values.slice(0, 1)
+                                                  : item.when.values,
+                                          },
+                                        }
+                                      : item,
+                                  ),
+                                )
+                              }
+                            >
+                              <option value="equals">equals</option>
+                              <option value="in">is one of</option>
+                              <option value="notEmpty">is answered</option>
+                            </select>
+                          )}
+                        </Field>
+                        {rule.when.operator !== "notEmpty" ? (
+                          <Field
+                            label={`Answer value${rule.when.operator === "in" ? "s" : ""}`}
+                            id={`rule-values-${rule.id}`}
+                          >
+                            {(control) => (
+                              <input
+                                {...control}
+                                className="control"
+                                value={rule.when.values.join(", ")}
+                                placeholder={
+                                  rule.when.operator === "in"
+                                    ? "Option, or comma-separated options"
+                                    : "Answer"
+                                }
+                                onChange={(event) =>
+                                  setRouting((current) =>
+                                    current.map((item) =>
+                                      item.id === rule.id
+                                        ? {
+                                            ...item,
+                                            when: {
+                                              ...item.when,
+                                              values:
+                                                item.when.operator === "in"
+                                                  ? event.target.value
+                                                      .split(",")
+                                                      .map((value) => value.trim())
+                                                  : [event.target.value.trim()],
+                                            },
+                                          }
+                                        : item,
+                                    ),
+                                  )
+                                }
+                              />
+                            )}
+                          </Field>
+                        ) : null}
+                        <Field label="Triage status" id={`rule-status-${rule.id}`}>
+                          {(control) => (
+                            <select
+                              {...control}
+                              className="control"
+                              value={rule.routeTo.status}
+                              onChange={(event) =>
+                                setRouting((current) =>
+                                  current.map((item) =>
+                                    item.id === rule.id
+                                      ? { ...item, routeTo: { status: event.target.value } }
+                                      : item,
+                                  ),
+                                )
+                              }
+                            >
+                              {/*
+                                Accepted and Declined are configured on every event but are not
+                                routable: reaching one is the effect of a recorded decision, which
+                                is what creates the session and tells the submitter. Offering them
+                                here let an organizer build a rule that told an applicant
+                                "Accepted" with no decision behind it — the API refuses such a
+                                rule, and the control should not propose one.
+                              */}
+                              {routableStatuses.map((status) => (
+                                <option key={status.key} value={status.key}>
+                                  {status.label}
+                                </option>
+                              ))}
+                              {/*
+                                A form saved before that rule existed can still hold such a route,
+                                and a `select` whose value matches no option renders *blank* — so
+                                the organizer would see an empty control, an unexplained 400 on
+                                save, and no way to tell which of their rules was the problem. The
+                                stored value is shown, named as no longer allowed, and cannot be
+                                chosen again.
+
+                                The `length === 0` branch is not defensive noise.
+                                `routingStatuses` starts empty and is filled asynchronously, and
+                                stays empty for good if that read fails — so a single branch here
+                                labelled *every* rule as no longer routable, including perfectly
+                                valid ones, in a select holding nothing else to choose. Not
+                                knowing which statuses exist is not the same as knowing this one
+                                is gone, so that case renders the stored value plainly: the
+                                control says what the rule says and saves unchanged.
+                              */}
+                              {routableStatuses.some(
+                                ({ key }) => key === rule.routeTo.status,
+                              ) ? null : routingStatuses.length === 0 ? (
+                                <option value={rule.routeTo.status}>{rule.routeTo.status}</option>
+                              ) : (
+                                <option value={rule.routeTo.status} disabled>
+                                  {statusLabels.get(rule.routeTo.status) ?? rule.routeTo.status} —
+                                  no longer a routing destination, choose another or remove this
+                                  rule
+                                </option>
+                              )}
+                            </select>
+                          )}
+                        </Field>
+                      </div>
+                      {Object.entries(errors)
+                        .filter(([key]) => key.startsWith(`routing.${index}.`))
+                        .flatMap(([, messages]) => messages)
+                        .map((error) => (
+                          <p className="error-text" key={error}>
+                            {error}
+                          </p>
+                        ))}
+                      <button
+                        type="button"
+                        className="danger small cfp-rule-remove"
+                        aria-label={`Remove routing rule ${index + 1}`}
+                        onClick={() =>
+                          setRouting((current) => current.filter(({ id }) => id !== rule.id))
+                        }
+                      >
+                        Remove rule
+                      </button>
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <p className="hint">
+                  No automatic routing. New proposals use the Submitted status.
+                </p>
+              )}
+            </Card>
+          </div>
+        )}
+
+        {section === "details" ? (
+          /*
+            The submission window is live state with one control: saving it takes effect at once
+            and publishes no form edits. That is why it sits beside the form's own details rather
+            than inside the draft, and why it is a pair of `DateTimeField`s — a `datetime-local`
+            input carries no timezone at all, so an unconverted one silently meant the operator's.
+          */
+          <aside className="cfp-inspector" aria-label="Submission window">
+            <h3 className="cfp-inspector-title">Submission window</h3>
+            <p className="cfp-window-rule">
+              Both gates have to allow a submission. The schedule cannot open a call you have
+              closed, and <strong>Reopen live CFP</strong> cannot open one whose deadline has passed
+              — move or clear the deadline to take submissions again.
+            </p>
+            <DateTimeField
+              id="cfp-opens-at"
+              label="Opens"
+              value={opensAtInput}
+              timeZone={timezone}
+              onChange={setOpensAtInput}
+            />
+            <DateTimeField
+              id="cfp-closes-at"
+              label="Deadline"
+              value={closesAtInput}
+              timeZone={timezone}
+              onChange={setClosesAtInput}
+            />
+            <div className="toolbar">
+              <button
+                type="button"
+                className="secondary"
+                disabled={busy !== null}
+                onClick={() => {
+                  /*
+                   * A wall time that does not exist is refused rather than shifted.
+                   *
+                   * On a spring-forward date the local clock jumps an hour, so a deadline typed
+                   * inside the gap — 02:30 where 02:00–02:59 never happens — converts to the
+                   * instant *before* it and the organizer's deadline silently moves an hour
+                   * earlier. Saving it is worse than refusing it, because the announced deadline
+                   * is then a time nobody chose.
+                   */
+                  const missing = [
+                    ["Opens", opensAtInput] as const,
+                    ["Deadline", closesAtInput] as const,
+                  ].filter(([, value]) => !zonedInputExists(value, timezone));
+                  if (missing.length > 0) {
+                    announce(
+                      "error",
+                      `${missing.map(([label]) => label).join(" and ")} ${
+                        missing.length > 1 ? "name times that do not" : "names a time that does not"
+                      } exist in ${timezone}: the clock skips that hour when daylight saving begins. Choose a time before or after it.`,
+                    );
+                    return;
+                  }
+                  // ERROR-INTENT: handlers cannot await; persistWindow announces both outcomes.
+                  void persistWindow({
+                    opensAt: fromZonedInput(opensAtInput, timezone),
+                    closesAt: fromZonedInput(closesAtInput, timezone),
+                  });
+                }}
+              >
+                {busy === "window" ? "Saving…" : "Save window"}
+              </button>
+              {form?.opensAt || form?.closesAt ? (
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={busy !== null}
+                  onClick={() => {
+                    // ERROR-INTENT: handlers cannot await; persistWindow announces both outcomes.
+                    void persistWindow({ opensAt: null, closesAt: null });
+                  }}
+                >
+                  Clear window
+                </button>
+              ) : null}
+            </div>
+            {/*
+              The one sentence that is not derivable from the two fields: what applicants get
+              right now. Taken from the server's own answer, because a composer that decided from
+              the operator's clock would report an open call minutes after the deadline it
+              published.
+
+              Not a live region. This workspace has exactly one — `useActionFeedback`'s, beside
+              the toolbar — and saving the window announces through it; a second would mean a
+              screen reader gets whichever of the two React updated last.
+            */}
+            <p className="cfp-window-state">
+              {effective === "open"
+                ? "Applicants can submit now."
+                : effective === "scheduled"
+                  ? "Applicants see the opening date and no form."
+                  : effective === "closed"
+                    ? deadlinePassed
+                      ? "The deadline has passed, so applicants cannot submit even though the call is marked open."
+                      : "Applicants cannot submit."
+                    : "Nothing is published, so applicants cannot reach this form at all."}
+            </p>
+          </aside>
+        ) : section === "questions" ? (
+          <aside className="cfp-inspector" aria-label="Selected question">
+            {selectedField ? (
+              <>
+                {/*
+                  The question leads, its position follows in the gutter's own face.
+                  "Question 3" was the heading and the question's name was grey 12px underneath
+                  it — the generic word led and the only thing that identifies the row was the
+                  subtitle. The index keeps its mono measure so the heading and the row selected
+                  in the list are visibly the same figure.
+                */}
+                <h3 className="cfp-inspector-title">
+                  <span className="figure cfp-inspector-index">{selectedIndex + 1}</span>
+                  <span className="cfp-inspector-name">
+                    {selectedField.label.trim() || "Untitled question"}
+                  </span>
+                </h3>
+                <Field label="Question label" id={`editor-label-${selectedField.id}`}>
+                  {(control) => (
+                    <input
+                      {...control}
+                      className="control"
+                      value={selectedField.label}
+                      maxLength={120}
+                      onChange={(event) =>
+                        updateField(selectedField.id, { label: event.target.value })
+                      }
+                    />
+                  )}
+                </Field>
+                <Field label="Field type" id={`editor-type-${selectedField.id}`}>
+                  {(control) => (
+                    <select
+                      {...control}
+                      className="control"
+                      value={selectedField.type}
+                      onChange={(event) =>
+                        updateField(selectedField.id, {
+                          type: event.target.value as CfpField["type"],
+                          options:
+                            event.target.value === "select"
+                              ? selectedField.options.length
+                                ? selectedField.options
+                                : ["Option 1"]
+                              : [],
+                        })
+                      }
+                    >
+                      {FIELD_TYPES.map((entry) => (
+                        <option key={entry.value} value={entry.value}>
+                          {entry.label}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </Field>
+                <Field
+                  label="Guidance"
+                  id={`editor-guidance-${selectedField.id}`}
+                  hint="Help text shown under the question."
+                >
+                  {(control) => (
+                    <input
+                      {...control}
+                      className="control"
+                      value={selectedField.guidance}
+                      maxLength={500}
+                      onChange={(event) =>
+                        updateField(selectedField.id, { guidance: event.target.value })
+                      }
+                    />
+                  )}
+                </Field>
+                {selectedField.type === "select" ? (
+                  <div className="field cfp-choice-field">
+                    <span className="field-label">Answer options</span>
+                    <ChoiceListEditor
+                      fieldId={selectedField.id}
+                      options={selectedField.options}
+                      {...(selectedField.id === "track" || selectedField.id === "format"
+                        ? {
+                            choices:
+                              selectedField.choices ??
+                              selectedField.options.map((label, optionIndex) => ({
+                                id: `${selectedField.id}-${optionIndex + 1}`,
+                                label,
+                                active: true,
+                              })),
+                          }
+                        : {})}
+                      onChange={(change) => updateField(selectedField.id, change)}
+                    />
                   </div>
                 ) : null}
-              </div>
-              <div className="field">
-                <label htmlFor="cfp-description">Description</label>
-                <textarea
-                  id="cfp-description"
-                  value={description}
-                  maxLength={2000}
-                  aria-describedby="cfp-description-hint"
-                  onChange={(event) => setDescription(event.target.value)}
+                {/*
+                  The shared checkbox, which draws a box. The bare `<input type="checkbox">` this
+                  replaces inherited `appearance: none` from the control tier with nothing drawn
+                  in its place, so "Required" rendered as a label beside an invisible control.
+                */}
+                <Checkbox
+                  id={`editor-required-${selectedField.id}`}
+                  label="Required"
+                  hint="Applicants cannot submit without answering this."
+                  checked={selectedField.required}
+                  onChange={(required) => updateField(selectedField.id, { required })}
                 />
-                <p className="hint" id="cfp-description-hint">
-                  Shown above the questions on the public page.
-                </p>
-                {errors.description?.map((error) => (
+                {selectedIndex > 0 ? (
+                  <div className="cfp-condition">
+                    <Checkbox
+                      id={`editor-condition-${selectedField.id}`}
+                      label="Show this question conditionally"
+                      checked={Boolean(selectedField.visibleWhen)}
+                      onChange={(conditional) =>
+                        updateField(selectedField.id, {
+                          visibleWhen: conditional
+                            ? {
+                                fieldId: fields[selectedIndex - 1]?.id ?? "",
+                                operator: "notEmpty",
+                                values: [],
+                              }
+                            : undefined,
+                        })
+                      }
+                    />
+                    {selectedField.visibleWhen ? (
+                      <div className="cfp-condition-fields">
+                        <Field label="Earlier question" id={`editor-when-${selectedField.id}`}>
+                          {(control) => (
+                            <select
+                              {...control}
+                              className="control"
+                              value={selectedField.visibleWhen?.fieldId}
+                              onChange={(event) =>
+                                updateField(selectedField.id, {
+                                  visibleWhen: {
+                                    ...(selectedField.visibleWhen ?? {
+                                      operator: "equals",
+                                      values: [""],
+                                      fieldId: "",
+                                    }),
+                                    fieldId: event.target.value,
+                                  },
+                                })
+                              }
+                            >
+                              {fields.slice(0, selectedIndex).map((candidate) => (
+                                <option key={candidate.id} value={candidate.id}>
+                                  {candidate.label || candidate.id}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                        </Field>
+                        <Field label="Match" id={`editor-operator-${selectedField.id}`}>
+                          {(control) => (
+                            <select
+                              {...control}
+                              className="control"
+                              value={selectedField.visibleWhen?.operator}
+                              onChange={(event) =>
+                                updateField(selectedField.id, {
+                                  visibleWhen: {
+                                    ...(selectedField.visibleWhen ?? {
+                                      operator: "equals",
+                                      values: [""],
+                                      fieldId: "",
+                                    }),
+                                    operator: event.target.value as "equals" | "in" | "notEmpty",
+                                  },
+                                })
+                              }
+                            >
+                              <option value="equals">equals</option>
+                              <option value="in">is one of</option>
+                              <option value="notEmpty">is answered</option>
+                            </select>
+                          )}
+                        </Field>
+                        {selectedField.visibleWhen.operator !== "notEmpty" ? (
+                          <Field
+                            label={`Value${selectedField.visibleWhen.operator === "in" ? "s" : ""}`}
+                            id={`editor-values-${selectedField.id}`}
+                          >
+                            {(control) => (
+                              <input
+                                {...control}
+                                className="control"
+                                value={selectedField.visibleWhen?.values.join(", ")}
+                                placeholder="Option, or comma-separated options"
+                                onChange={(event) =>
+                                  updateField(selectedField.id, {
+                                    visibleWhen: {
+                                      ...(selectedField.visibleWhen ?? {
+                                        operator: "equals",
+                                        values: [""],
+                                        fieldId: "",
+                                      }),
+                                      values: event.target.value
+                                        .split(",")
+                                        .map((value) => value.trim()),
+                                    },
+                                  })
+                                }
+                              />
+                            )}
+                          </Field>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+                {questionErrorsAt(selectedIndex).map((error) => (
                   <p className="error-text" key={error}>
                     {error}
                   </p>
                 ))}
-              </div>
-            </div>
-          </Card>
-
-          <Card
-            labelledBy="cfp-questions"
-            title="Questions"
-            hint="Applicants answer these in order."
-            actions={
-              <button type="button" className="secondary" onClick={() => setAddingQuestion(true)}>
-                <IconPlus size={15} />
-                Add question
-              </button>
-            }
-            tight
-          >
-            {generalFieldErrors.length ? (
-              <div className="cfp-general-errors">
-                {generalFieldErrors.map((error) => (
-                  <Notice tone="error" key={error}>
-                    {error}
-                  </Notice>
-                ))}
-              </div>
-            ) : null}
-
-            {fields.length === 0 ? (
-              <EmptyState title="No questions yet" icon={<IconForm size={20} />}>
-                Add at least one question before publishing the form.
-              </EmptyState>
-            ) : (
-              <ol className="cfp-questions">
-                {fields.map((field, index) => {
-                  const name = field.label.trim() || "Untitled question";
-                  const questionErrors = Object.entries(errors)
-                    .filter(([key]) => key.startsWith(`fields.${index}.`))
-                    .flatMap(([, messages]) => messages);
-                  return (
-                    <li className="cfp-question" key={field.id}>
-                      <div className="cfp-question-head">
-                        <span className="cfp-question-index">{index + 1}</span>
-                        <span className="cfp-question-name">{name}</span>
-                        <Pill tone="info">{typeLabel(field.type)}</Pill>
-                        {field.required ? (
-                          <Pill tone="warn">Required</Pill>
-                        ) : (
-                          <Pill tone="neutral">Optional</Pill>
-                        )}
-                      </div>
-
-                      <div className="cfp-question-body">
-                        <div className="field">
-                          <label htmlFor={`editor-label-${field.id}`}>Question label</label>
-                          <input
-                            id={`editor-label-${field.id}`}
-                            value={field.label}
-                            maxLength={120}
-                            onChange={(event) =>
-                              updateField(field.id, {
-                                label: event.target.value,
-                              })
-                            }
-                          />
-                        </div>
-                        <div className="field">
-                          <label htmlFor={`editor-type-${field.id}`}>Field type</label>
-                          <select
-                            id={`editor-type-${field.id}`}
-                            value={field.type}
-                            onChange={(event) =>
-                              updateField(field.id, {
-                                type: event.target.value as CfpField["type"],
-                                options:
-                                  event.target.value === "select"
-                                    ? field.options.length
-                                      ? field.options
-                                      : ["Option 1"]
-                                    : [],
-                              })
-                            }
-                          >
-                            {FIELD_TYPES.map((entry) => (
-                              <option key={entry.value} value={entry.value}>
-                                {entry.label}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="field cfp-span">
-                          <label htmlFor={`editor-guidance-${field.id}`}>Guidance</label>
-                          <input
-                            id={`editor-guidance-${field.id}`}
-                            value={field.guidance}
-                            maxLength={500}
-                            placeholder="Help text shown under the question"
-                            onChange={(event) =>
-                              updateField(field.id, {
-                                guidance: event.target.value,
-                              })
-                            }
-                          />
-                        </div>
-                        {field.type === "select" ? (
-                          <div className="field cfp-span cfp-choice-field">
-                            <span className="field-label">Answer options</span>
-                            <ChoiceListEditor
-                              fieldId={field.id}
-                              options={field.options}
-                              {...(field.id === "track" || field.id === "format"
-                                ? {
-                                    choices:
-                                      field.choices ??
-                                      field.options.map((label, optionIndex) => ({
-                                        id: `${field.id}-${optionIndex + 1}`,
-                                        label,
-                                        active: true,
-                                      })),
-                                  }
-                                : {})}
-                              onChange={(change) => updateField(field.id, change)}
-                            />
-                          </div>
-                        ) : null}
-                        {index > 0 ? (
-                          <div className="field cfp-span">
-                            <label className="cfp-check" htmlFor={`editor-condition-${field.id}`}>
-                              <input
-                                id={`editor-condition-${field.id}`}
-                                type="checkbox"
-                                checked={Boolean(field.visibleWhen)}
-                                onChange={(event) =>
-                                  updateField(field.id, {
-                                    visibleWhen: event.target.checked
-                                      ? {
-                                          fieldId: fields[index - 1]?.id ?? "",
-                                          operator: "notEmpty",
-                                          values: [],
-                                        }
-                                      : undefined,
-                                  })
-                                }
-                              />
-                              Show this question conditionally
-                            </label>
-                            {field.visibleWhen ? (
-                              <div className="cfp-details">
-                                <label>
-                                  Earlier question
-                                  <select
-                                    value={field.visibleWhen.fieldId}
-                                    onChange={(event) =>
-                                      updateField(field.id, {
-                                        visibleWhen: {
-                                          ...(field.visibleWhen ?? {
-                                            operator: "equals",
-                                            values: [""],
-                                            fieldId: "",
-                                          }),
-                                          fieldId: event.target.value,
-                                        },
-                                      })
-                                    }
-                                  >
-                                    {fields.slice(0, index).map((candidate) => (
-                                      <option key={candidate.id} value={candidate.id}>
-                                        {candidate.label || candidate.id}
-                                      </option>
-                                    ))}
-                                  </select>
-                                </label>
-                                <label>
-                                  Match
-                                  <select
-                                    value={field.visibleWhen.operator}
-                                    onChange={(event) =>
-                                      updateField(field.id, {
-                                        visibleWhen: {
-                                          ...(field.visibleWhen ?? {
-                                            operator: "equals",
-                                            values: [""],
-                                            fieldId: "",
-                                          }),
-                                          operator: event.target.value as
-                                            | "equals"
-                                            | "in"
-                                            | "notEmpty",
-                                        },
-                                      })
-                                    }
-                                  >
-                                    <option value="equals">equals</option>
-                                    <option value="in">is one of</option>
-                                    <option value="notEmpty">is answered</option>
-                                  </select>
-                                </label>
-                                {field.visibleWhen.operator !== "notEmpty" ? (
-                                  <label>
-                                    Value{field.visibleWhen.operator === "in" ? "s" : ""}
-                                    <input
-                                      value={field.visibleWhen.values.join(", ")}
-                                      placeholder="Option, or comma-separated options"
-                                      onChange={(event) =>
-                                        updateField(field.id, {
-                                          visibleWhen: {
-                                            ...(field.visibleWhen ?? {
-                                              operator: "equals",
-                                              values: [""],
-                                              fieldId: "",
-                                            }),
-                                            values: event.target.value
-                                              .split(",")
-                                              .map((value) => value.trim()),
-                                          },
-                                        })
-                                      }
-                                    />
-                                  </label>
-                                ) : null}
-                              </div>
-                            ) : null}
-                          </div>
-                        ) : null}
-                      </div>
-
-                      {questionErrors.map((error) => (
-                        <p className="error-text cfp-question-error" key={error}>
-                          {error}
-                        </p>
-                      ))}
-
-                      <div className="cfp-question-foot">
-                        <label className="cfp-check" htmlFor={`editor-required-${field.id}`}>
-                          <input
-                            id={`editor-required-${field.id}`}
-                            type="checkbox"
-                            checked={field.required}
-                            onChange={(event) =>
-                              updateField(field.id, {
-                                required: event.target.checked,
-                              })
-                            }
-                          />
-                          Required
-                        </label>
-                        <div className="cfp-question-actions">
-                          <button
-                            type="button"
-                            className="secondary small"
-                            aria-label={`Move ${name} up`}
-                            disabled={index === 0}
-                            onClick={() => moveField(index, -1)}
-                          >
-                            Move up
-                          </button>
-                          <button
-                            type="button"
-                            className="secondary small"
-                            aria-label={`Move ${name} down`}
-                            disabled={index === fields.length - 1}
-                            onClick={() => moveField(index, 1)}
-                          >
-                            Move down
-                          </button>
-                          <button
-                            type="button"
-                            className="ghost small cfp-remove"
-                            aria-label={`Remove ${name}`}
-                            disabled={fields.length === 1}
-                            onClick={() => setFields(fields.filter((item) => item.id !== field.id))}
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ol>
-            )}
-          </Card>
-
-          <Drawer
-            open={addingQuestion}
-            title="Add a question"
-            description="Choose one of the field types supported by the published form contract."
-            onClose={() => {
-              setAddingQuestion(false);
-              setQuestionTypeSearch("");
-            }}
-          >
-            <div className="field">
-              <label htmlFor="question-type-search">Search question types</label>
-              <input
-                id="question-type-search"
-                type="search"
-                value={questionTypeSearch}
-                onChange={(event) => setQuestionTypeSearch(event.target.value)}
-              />
-            </div>
-            <ul className="cfp-field-type-list">
-              {FIELD_TYPES.filter(({ label }) =>
-                label.toLowerCase().includes(questionTypeSearch.trim().toLowerCase()),
-              ).map(({ value, label }) => (
-                <li key={value}>
+                {/*
+                  Reachable, not dominant. Outlined in danger red at full control height this was
+                  the loudest thing in a panel whose job is editing one question — the eye landed
+                  on the one control that destroys work. It is now a quiet action under the
+                  hairline that ends the fields, and states its colour only under the pointer.
+                */}
+                <div className="toolbar cfp-inspector-actions">
                   <button
                     type="button"
-                    className="secondary"
+                    className="ghost small cfp-remove-question"
+                    aria-label={`Remove ${selectedField.label.trim() || "Untitled question"}`}
+                    disabled={fields.length === 1}
                     onClick={() => {
-                      setFields([
-                        ...fields,
-                        {
-                          id: `field-${crypto.randomUUID()}`,
-                          type: value,
-                          label: "New question",
-                          guidance: "",
-                          required: false,
-                          options: value === "select" ? ["Option 1"] : [],
-                        },
-                      ]);
-                      setAddingQuestion(false);
-                      setQuestionTypeSearch("");
+                      setFields(fields.filter((item) => item.id !== selectedField.id));
+                      setSelectedFieldId(null);
                     }}
                   >
-                    <strong>{label}</strong>
-                    <span>
-                      {value === "select"
-                        ? "Offer one choice from a list."
-                        : `Collect ${label.toLowerCase()}.`}
-                    </span>
+                    <IconTrash size={15} />
+                    Remove question
                   </button>
-                </li>
-              ))}
-            </ul>
-            {FIELD_TYPES.every(
-              ({ label }) => !label.toLowerCase().includes(questionTypeSearch.trim().toLowerCase()),
-            ) ? (
-              <EmptyState title="No supported type matches">Try a broader search.</EmptyState>
-            ) : null}
-          </Drawer>
-
-          <Card
-            labelledBy="cfp-routing"
-            title="Submission routing"
-            hint="The first matching rule sets the CFP triage status when a proposal is submitted."
-            actions={
-              <button
-                type="button"
-                className="secondary"
-                disabled={!routableStatuses.length}
-                onClick={() =>
-                  setRouting([
-                    ...routing,
-                    {
-                      id: `route-${crypto.randomUUID()}`,
-                      when: { fieldId: fields[0]?.id ?? "", operator: "in", values: [] },
-                      // Seeded from the *routable* set, not the configured one: seeding from a
-                      // decision status would create a rule the API refuses and the select below
-                      // cannot even display, since it is filtered out of the options.
-                      routeTo: { status: routableStatuses[0]?.key ?? "" },
-                    },
-                  ])
-                }
-              >
-                <IconPlus size={15} />
-                Add routing rule
-              </button>
-            }
-          >
-            {routingStatusProblem ? (
-              <p role="status" className="error-text">
-                Routing destinations could not be loaded. Existing rules are unchanged.{" "}
-                <button
-                  type="button"
-                  className="link-button"
-                  onClick={() => setRoutingStatusReload((value) => value + 1)}
-                >
-                  Try again
-                </button>
-              </p>
-            ) : null}
-            {routing.length ? (
-              <ol className="cfp-questions">
-                {routing.map((rule, index) => (
-                  <li className="cfp-question" key={rule.id}>
-                    <div className="cfp-question-body">
-                      <label>
-                        Question
-                        <select
-                          value={rule.when.fieldId}
-                          onChange={(event) =>
-                            setRouting((current) =>
-                              current.map((item) =>
-                                item.id === rule.id
-                                  ? { ...item, when: { ...item.when, fieldId: event.target.value } }
-                                  : item,
-                              ),
-                            )
-                          }
-                        >
-                          {fields.map((field) => (
-                            <option key={field.id} value={field.id}>
-                              {field.label || field.id}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label>
-                        Match
-                        <select
-                          value={rule.when.operator}
-                          onChange={(event) =>
-                            setRouting((current) =>
-                              current.map((item) =>
-                                item.id === rule.id
-                                  ? {
-                                      ...item,
-                                      when: {
-                                        ...item.when,
-                                        operator: event.target.value as
-                                          | "equals"
-                                          | "in"
-                                          | "notEmpty",
-                                        values:
-                                          event.target.value === "notEmpty"
-                                            ? []
-                                            : event.target.value === "equals"
-                                              ? item.when.values.slice(0, 1)
-                                              : item.when.values,
-                                      },
-                                    }
-                                  : item,
-                              ),
-                            )
-                          }
-                        >
-                          <option value="equals">equals</option>
-                          <option value="in">is one of</option>
-                          <option value="notEmpty">is answered</option>
-                        </select>
-                      </label>
-                      {rule.when.operator !== "notEmpty" ? (
-                        <label>
-                          Answer value{rule.when.operator === "in" ? "s" : ""}
-                          <input
-                            value={rule.when.values.join(", ")}
-                            placeholder={
-                              rule.when.operator === "in"
-                                ? "Option, or comma-separated options"
-                                : "Answer"
-                            }
-                            onChange={(event) =>
-                              setRouting((current) =>
-                                current.map((item) =>
-                                  item.id === rule.id
-                                    ? {
-                                        ...item,
-                                        when: {
-                                          ...item.when,
-                                          values:
-                                            item.when.operator === "in"
-                                              ? event.target.value
-                                                  .split(",")
-                                                  .map((value) => value.trim())
-                                              : [event.target.value.trim()],
-                                        },
-                                      }
-                                    : item,
-                                ),
-                              )
-                            }
-                          />
-                        </label>
-                      ) : null}
-                      <label>
-                        Triage status
-                        <select
-                          value={rule.routeTo.status}
-                          onChange={(event) =>
-                            setRouting((current) =>
-                              current.map((item) =>
-                                item.id === rule.id
-                                  ? { ...item, routeTo: { status: event.target.value } }
-                                  : item,
-                              ),
-                            )
-                          }
-                        >
-                          {/*
-                            Accepted and Declined are configured on every event but are not
-                            routable: reaching one is the effect of a recorded decision, which is
-                            what creates the session and tells the submitter. Offering them here
-                            let an organizer build a rule that told an applicant "Accepted" with
-                            no decision behind it — the API refuses such a rule, and the control
-                            should not propose one.
-                          */}
-                          {routableStatuses.map((status) => (
-                            <option key={status.key} value={status.key}>
-                              {status.label}
-                            </option>
-                          ))}
-                          {/*
-                            A form saved before that rule existed can still hold such a route, and
-                            a `select` whose value matches no option renders *blank* — so the
-                            organizer would see an empty control, an unexplained 400 on save, and
-                            no way to tell which of their rules was the problem. The stored value
-                            is shown, named as no longer allowed, and cannot be chosen again.
-
-                            The `length === 0` branch is not defensive noise. `routingStatuses`
-                            starts empty and is filled asynchronously, and stays empty for good if
-                            that read fails — so a single branch here labelled *every* rule as no
-                            longer routable, including perfectly valid ones, in a select holding
-                            nothing else to choose. Not knowing which statuses exist is not the
-                            same as knowing this one is gone, so that case renders the stored value
-                            plainly: the control says what the rule says and saves unchanged.
-                          */}
-                          {routableStatuses.some(
-                            ({ key }) => key === rule.routeTo.status,
-                          ) ? null : routingStatuses.length === 0 ? (
-                            <option value={rule.routeTo.status}>{rule.routeTo.status}</option>
-                          ) : (
-                            <option value={rule.routeTo.status} disabled>
-                              {statusLabels.get(rule.routeTo.status) ?? rule.routeTo.status} — no
-                              longer a routing destination, choose another or remove this rule
-                            </option>
-                          )}
-                        </select>
-                      </label>
-                    </div>
-                    {Object.entries(errors)
-                      .filter(([key]) => key.startsWith(`routing.${index}.`))
-                      .flatMap(([, messages]) => messages)
-                      .map((error) => (
-                        <p className="error-text cfp-question-error" key={error}>
-                          {error}
-                        </p>
-                      ))}
-                    <button
-                      type="button"
-                      className="ghost small cfp-remove"
-                      aria-label={`Remove routing rule ${index + 1}`}
-                      onClick={() =>
-                        setRouting((current) => current.filter(({ id }) => id !== rule.id))
-                      }
-                    >
-                      Remove rule
-                    </button>
-                  </li>
-                ))}
-              </ol>
+                </div>
+              </>
             ) : (
-              <p className="hint">No automatic routing. New proposals use the Submitted status.</p>
+              <p className="hint">Add a question to start composing the form.</p>
             )}
-          </Card>
-        </div>
-
-        <div className="cfp-pane cfp-pane-preview">
-          <Card labelledBy="cfp-preview-heading" title="Public form" tight>
-            <div className="cfp-preview-tabs">
-              <Tabs
-                label="Which version of the public form to show"
-                active={previewTab}
-                onSelect={setPreviewTab}
-                items={[
-                  { id: "draft", label: "Draft preview" },
-                  { id: "live", label: "Live form" },
-                ]}
-              />
-            </div>
-            <div
-              role="tabpanel"
-              id={`panel-${previewTab}`}
-              aria-labelledby={`tab-${previewTab}`}
-              // biome-ignore lint/a11y/noNoninteractiveTabindex: a scrollable tabpanel must be keyboard reachable.
-              tabIndex={0}
-              className="cfp-preview-panel"
-            >
-              {previewTab === "draft" ? (
-                <PublicFormPreview
-                  idPrefix="preview-draft"
-                  title={title}
-                  description={description}
-                  fields={fields}
-                  statusLine={
-                    dirty || divergesFromLive
-                      ? "Not live yet — this is what publishing would produce."
-                      : liveStatusLine
-                  }
-                />
-              ) : published ? (
-                <PublicFormPreview
-                  idPrefix="preview-live"
-                  title={published.title}
-                  description={published.description}
-                  fields={published.fields}
-                  statusLine={`${liveStatusLine} This is exactly what applicants see right now.`}
-                />
-              ) : (
-                <EmptyState title="Nothing published yet" icon={<IconGlobe size={20} />}>
-                  Publish the form and this tab shows the snapshot applicants are served, so you can
-                  compare it with the draft before changing anything.
-                </EmptyState>
-              )}
-            </div>
-          </Card>
-        </div>
+          </aside>
+        ) : null}
       </div>
+
+      {/*
+        The preview is what the organizer checks, not what they work in. It held a permanent
+        460px column beside the editor, so the form being composed had barely half the page.
+      */}
+      <Drawer
+        open={previewOpen}
+        title="Public form"
+        description="What an applicant sees, drafted and live."
+        onClose={() => setPreviewOpen(false)}
+      >
+        <div className="cfp-preview-tabs">
+          <Tabs
+            label="Which version of the public form to show"
+            active={previewTab}
+            onSelect={setPreviewTab}
+            items={[
+              { id: "draft", label: "Draft preview" },
+              { id: "live", label: "Live form" },
+            ]}
+          />
+        </div>
+        <div
+          role="tabpanel"
+          id={`panel-${previewTab}`}
+          aria-labelledby={`tab-${previewTab}`}
+          // biome-ignore lint/a11y/noNoninteractiveTabindex: a scrollable tabpanel must be keyboard reachable.
+          tabIndex={0}
+          className="cfp-preview-panel"
+        >
+          {previewTab === "draft" ? (
+            <PublicFormPreview
+              idPrefix="preview-draft"
+              title={title}
+              description={description}
+              fields={fields}
+              statusLine={
+                dirty || divergesFromLive
+                  ? "Not live yet — this is what publishing would produce."
+                  : liveStatusLine
+              }
+            />
+          ) : published ? (
+            <PublicFormPreview
+              idPrefix="preview-live"
+              title={published.title}
+              description={published.description}
+              fields={published.fields}
+              statusLine={`${liveStatusLine} This is exactly what applicants see right now.`}
+            />
+          ) : (
+            <EmptyState title="Nothing published yet" icon={<IconGlobe size={20} />}>
+              Publish the form and this tab shows the snapshot applicants are served, so you can
+              compare it with the draft before changing anything.
+            </EmptyState>
+          )}
+        </div>
+      </Drawer>
+
+      {/*
+        Four types, named and described. A search box over four options is a control that costs
+        a keystroke to reach what is already on screen.
+      */}
+      <Drawer
+        open={addingQuestion}
+        title="Add a question"
+        description="Choose one of the field types supported by the published form contract."
+        onClose={() => setAddingQuestion(false)}
+      >
+        <div className="cfp-type-grid">
+          {FIELD_TYPES.map(({ value, label }) => (
+            <button
+              key={value}
+              type="button"
+              className="cfp-type-card"
+              onClick={() => {
+                const id = `field-${crypto.randomUUID()}`;
+                setFields([
+                  ...fields,
+                  {
+                    id,
+                    type: value,
+                    label: "New question",
+                    guidance: "",
+                    required: false,
+                    options: value === "select" ? ["Option 1"] : [],
+                  },
+                ]);
+                // The question that was just added is the one being edited.
+                setSelectedFieldId(id);
+                setSection("questions");
+                setAddingQuestion(false);
+              }}
+            >
+              <strong>{label}</strong>
+              <span>
+                {value === "select"
+                  ? "One choice from a list you write."
+                  : value === "long_text"
+                    ? "A paragraph — an abstract, a bio, a description."
+                    : value === "email"
+                      ? "An address, validated as one."
+                      : "A single line of text."}
+              </span>
+            </button>
+          ))}
+        </div>
+      </Drawer>
     </>
   );
 }

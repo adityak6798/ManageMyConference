@@ -44,8 +44,10 @@ export const DOC_PATH = "docs/engineering/ci-and-release.md";
 export const EXCLUSION_HEADING = "## Gates the local check deliberately skips";
 export const DEPLOY_JOB = "deploy";
 export const DEPLOY_CONDITION = "github.event_name == 'push' && github.ref == 'refs/heads/main'";
+/* The indentation is the assertion — these keys have to be the deploy job's own, not another
+   job's — so the run counts are written as quantifiers rather than as spaces nobody can count. */
 export const DEPLOY_CONCURRENCY =
-  /  deploy:\n(?:.|\n)*?    concurrency:\n      group: production-deploy\n      cancel-in-progress: false\n/;
+  / {2}deploy:\n(?:.|\n)*? {4}concurrency:\n {6}group: production-deploy\n {6}cancel-in-progress: false\n/;
 
 /**
  * Commands a CI job may run that are not gates: they build the environment the gate

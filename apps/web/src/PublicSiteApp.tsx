@@ -2,7 +2,18 @@
 import { type CSSProperties, type FormEvent, useEffect, useState } from "react";
 import type { PublicSiteDto } from "@greenroom/contracts";
 import { readPublicSite, readPublicSitePage, registerForSite } from "./api/sites";
+/*
+ * Both stylesheets, explicitly.
+ *
+ * The portal wears `.public-shell` and every piece of furniture hung off it — the header, the
+ * nav, the lede, the section rhythm — all of which live in public-event.css. It imported only
+ * public-pages.css and rendered correctly anyway, because the entry chunk happens to pull the
+ * event pages in beside it. Splitting the bundle differently would have left this page bare.
+ */
+import "./public-event.css";
 import "./styles/public-pages.css";
+import { PageSkeleton } from "./public-event/cards";
+import { Select } from "./ui/fields";
 
 const routeFromPath = () => {
   const match = window.location.pathname.match(/^\/sites\/([^/]+)(?:\/pages\/([^/]+))?\/?$/);
@@ -78,39 +89,62 @@ export function PublicSiteApp() {
 
   if (unavailable)
     return (
-      <main className="public-shell">
-        <h1>Portal unavailable</h1>
-        <p>This portal is not published or no longer exists.</p>
-      </main>
+      <div className="public-shell">
+        <header>
+          <a className="brand" href="/">
+            Greenroom
+          </a>
+        </header>
+        <main className="pub-state">
+          <h1>This portal is not available</h1>
+          <p className="pub-note">
+            It is either unpublished or the address has changed. If somebody sent you this link, ask
+            them for the current one.
+          </p>
+        </main>
+      </div>
     );
   if (page)
     return (
       <div className="public-shell">
         <header>
-          <a href={`/sites/${page.site.slug}`}>{page.site.name}</a>
+          <a className="brand" href={`/sites/${page.site.slug}`}>
+            {page.site.name}
+          </a>
         </header>
-        <main className="pub-section">
-          <h1>{page.page.title}</h1>
+        <main>
+          <div className="pub-head">
+            <h1>{page.page.title}</h1>
+          </div>
           {/* biome-ignore lint/security/noDangerouslySetInnerHtml: publishing sanitizes this HTML before storage and serves only the sanitized projection. */}
-          <div dangerouslySetInnerHTML={{ __html: page.page.bodyHtml }} />
+          <div className="pub-prose" dangerouslySetInnerHTML={{ __html: page.page.bodyHtml }} />
         </main>
         <footer>{page.site.name}</footer>
       </div>
     );
   if (!site)
     return (
-      <main className="public-shell">
-        <p>Loading portal…</p>
-      </main>
+      <div className="public-shell">
+        <header>
+          <span className="brand">Greenroom</span>
+        </header>
+        <main className="pub-state">
+          <PageSkeleton label="Loading this portal" />
+        </main>
+      </div>
     );
 
   return (
-    <div
-      className={`public-shell theme-${site.theme}`}
-      style={{ "--accent": site.primaryColor } as CSSProperties}
-    >
+    /*
+     * The portal's one point of difference is the organization's own colour, set here as
+     * `--accent`; public-pages.css derives the hover shade and the tint from it on this same
+     * element. The `theme-${site.theme}` class it also carried matched no rule in any
+     * stylesheet — light, dark and auto all rendered identically — so it is gone rather than
+     * left implying a choice the surface does not honour.
+     */
+    <div className="public-shell" style={{ "--accent": site.primaryColor } as CSSProperties}>
       <header>
-        <strong>{site.name}</strong>
+        <span className="brand">{site.name}</span>
         {site.pages.length > 0 ? (
           <nav aria-label="Portal pages">
             {site.pages.map((page) => (
@@ -125,17 +159,23 @@ export function PublicSiteApp() {
         <section className="pub-hero">
           <h1>{site.landing.heading || site.name}</h1>
           {site.tagline ? <p className="lede">{site.tagline}</p> : null}
-          {site.landing.body ? <p>{site.landing.body}</p> : null}
+          {site.landing.body ? <p className="pub-note">{site.landing.body}</p> : null}
         </section>
 
         {site.programs.length > 0 ? (
           <section className="pub-section" aria-labelledby="portal-programs">
-            <h2 id="portal-programs">Programs</h2>
-            <ul>
+            <div className="pub-section-head">
+              <h2 id="portal-programs">Programs</h2>
+            </div>
+            <ul className="pub-proposal-list">
               {site.programs.map((program) => (
-                <li key={`${program.kind}:${program.ref}`}>
-                  <a href={program.href}>{program.title ?? program.label}</a>
-                  {program.state ? <span> · {program.state}</span> : null}
+                <li className="pub-invite" key={`${program.kind}:${program.ref}`}>
+                  <div>
+                    <p className="pub-proposal-title">
+                      <a href={program.href}>{program.title ?? program.label}</a>
+                    </p>
+                    {program.state ? <p className="pub-note">{program.state}</p> : null}
+                  </div>
                 </li>
               ))}
             </ul>
@@ -143,75 +183,123 @@ export function PublicSiteApp() {
         ) : null}
 
         <section className="pub-section" aria-labelledby="portal-register">
-          <h2 id="portal-register">{site.login.heading || "Register"}</h2>
-          {site.login.body ? <p>{site.login.body}</p> : null}
+          <div className="pub-section-head">
+            <h2 id="portal-register">{site.login.heading || "Register"}</h2>
+          </div>
+          {site.login.body ? <p className="pub-note">{site.login.body}</p> : null}
           {registered ? (
-            <p role="status">Registered with privacy notice version {registered}.</p>
+            <p className="pub-notice" role="status">
+              Registered. You accepted privacy notice version {registered}.
+            </p>
           ) : (
-            <form className="stack" onSubmit={register}>
-              <label>
-                Name
-                <input name="name" required maxLength={160} />
-              </label>
-              <label>
-                Email
-                <input name="email" type="email" required maxLength={254} />
-              </label>
+            /*
+              The same form vocabulary the call for proposals uses. This was `className="stack"`
+              — a class with no matching rule anywhere the portal loads — so eight label/input
+              pairs stacked with no separation at all and the submit button fell through to
+              whatever the console's global button rule happened to be.
+            */
+            <form className="pub-form" onSubmit={register}>
+              <div className="pub-form-field">
+                <label htmlFor="portal-name">
+                  Name
+                  <span className="pub-req" aria-hidden="true">
+                    Required
+                  </span>
+                </label>
+                <input className="control" id="portal-name" name="name" required maxLength={160} />
+              </div>
+              <div className="pub-form-field">
+                <label htmlFor="portal-email">
+                  Email
+                  <span className="pub-req" aria-hidden="true">
+                    Required
+                  </span>
+                </label>
+                <input
+                  className="control"
+                  id="portal-email"
+                  name="email"
+                  type="email"
+                  required
+                  maxLength={254}
+                />
+              </div>
               {site.registrationFields.map((field) => {
                 const id = `portal-${field.key}`;
+                const value = answers[field.key] ?? "";
+                const answer = (next: string) =>
+                  setAnswers((current) => ({ ...current, [field.key]: next }));
                 return (
-                  <div className="field" key={field.key}>
-                    <label htmlFor={id}>{field.label}</label>
+                  <div className="pub-form-field" key={field.key}>
                     {field.kind === "select" ? (
-                      <select
+                      <Select
                         id={id}
-                        required={field.required}
-                        value={answers[field.key] ?? ""}
-                        onChange={(change) =>
-                          setAnswers((current) => ({
-                            ...current,
-                            [field.key]: change.target.value,
-                          }))
+                        label={
+                          <>
+                            {field.label}
+                            {field.required ? (
+                              <span className="pub-req" aria-hidden="true">
+                                Required
+                              </span>
+                            ) : null}
+                          </>
                         }
-                      >
-                        <option value="">Choose…</option>
-                        {field.options.map((option) => (
-                          <option key={option}>{option}</option>
-                        ))}
-                      </select>
-                    ) : (
-                      <input
-                        id={id}
                         required={field.required}
-                        value={answers[field.key] ?? ""}
-                        onChange={(change) =>
-                          setAnswers((current) => ({
-                            ...current,
-                            [field.key]: change.target.value,
-                          }))
-                        }
+                        value={value || null}
+                        onChange={answer}
+                        placeholder="Choose an option"
+                        options={field.options.map((option) => ({
+                          value: option,
+                          label: option,
+                        }))}
                       />
+                    ) : (
+                      <>
+                        <label htmlFor={id}>
+                          {field.label}
+                          {field.required ? (
+                            <span className="pub-req" aria-hidden="true">
+                              Required
+                            </span>
+                          ) : null}
+                        </label>
+                        <input
+                          className="control"
+                          id={id}
+                          required={field.required}
+                          value={value}
+                          onChange={(change) => answer(change.target.value)}
+                        />
+                      </>
                     )}
                   </div>
                 );
               })}
               {site.privacyNotice ? (
-                <>
+                <div className="pub-form-field">
                   <div
-                    className="hint"
+                    className="pub-prose pub-hint"
                     // biome-ignore lint/security/noDangerouslySetInnerHtml: publishing sanitizes this HTML before storage and versions that exact projection.
                     dangerouslySetInnerHTML={{ __html: site.privacyNotice.bodyHtml }}
                   />
-                  <label>
-                    <input name="accepted" type="checkbox" required /> I accept privacy notice
-                    version {site.privacyNotice.version}.
+                  {/* The label wraps the control, so the sentence is the accessible name and
+                      clicking anywhere in it ticks the box. */}
+                  <label className="pub-consent">
+                    <input name="accepted" type="checkbox" required />
+                    <span>I accept privacy notice version {site.privacyNotice.version}.</span>
                   </label>
-                </>
+                </div>
               ) : null}
-              <button type="submit" disabled={busy || !site.privacyNotice}>
-                {busy ? "Registering…" : "Register"}
-              </button>
-              {registrationError ? <p role="alert">{registrationError}</p> : null}
+              <div className="pub-form-actions">
+                <button className="primary" type="submit" disabled={busy || !site.privacyNotice}>
+                  {busy ? "Registering…" : "Register"}
+                </button>
+              </div>
+              {registrationError ? (
+                <p className="pub-notice is-error" role="alert">
+                  {registrationError}
+                </p>
+              ) : null}
             </form>
           )}
         </section>

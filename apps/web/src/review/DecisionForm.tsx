@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
+import { useLinkProps } from "../router";
 import { IconWarning } from "../ui/icons";
 import type { useActionFeedback } from "../ui/primitives";
 import {
   type Decision,
   type DecisionOutcome,
+  hubHref,
   listTitles,
   OUTCOME_ACTION,
   OUTCOME_LABEL,
@@ -42,6 +44,7 @@ export function DecisionForm({
   onConfirm: (note: string) => void;
   onClose: () => void;
 }) {
+  const linkProps = useLinkProps();
   const single = proposals.length === 1 ? proposals[0] : null;
   const decided = single ? recorded.get(single.id) : undefined;
   const [note, setNote] = useState(decided?.note ?? "");
@@ -94,6 +97,19 @@ export function DecisionForm({
           </>
         )}
       </p>
+      {/*
+        An acceptance creates a session and a speaker, and both of them then want something
+        doing. The dialog used to end at "Accepted <title>." and leave the organizer to work out
+        where that had put anything — a finished action has to leave the reader somewhere.
+      */}
+      {done && outcome === "accepted" ? (
+        <p className="decision-next">
+          <span className="detail-term">What happens next</span>
+          <a {...linkProps(hubHref("/schedule", "agenda"))}>Place on the agenda board</a>
+          {" · "}
+          <a {...linkProps(hubHref("/people", "speakers"))}>Set onboarding tasks</a>
+        </p>
+      ) : null}
       {single ? null : (
         <ul className="decision-list">
           {proposals.map((proposal) => {
@@ -129,22 +145,28 @@ export function DecisionForm({
       {/*
        * Declining does not undo an acceptance. The session and speaker the earlier acceptance
        * created stay in the programme, so an organizer reversing a decision has to remove them
-       * in Sessions & speakers. Saying so here is the difference between a correction and a
+       * under Schedule → Sessions. Saying so here is the difference between a correction and a
        * programme that quietly disagrees with its own triage board — and the sentence names the
        * control by the word printed on it, "Withdraw". It used to say "delete the session",
        * which is a button that does not exist on that screen, so the organizer was sent looking
-       * for a word that is not there. A smaller version of the same defect this warning exists
-       * to prevent.
+       * for a word that is not there. The destination had the same problem after the hub
+       * cutover: "Sessions & speakers" is a screen that no longer exists.
+       *
+       * It is not a `.hint`, though it used to carry that class too. review.css calls this "the
+       * one place this dialog raises its voice" and draws it its own warn box; the second class
+       * did nothing only because no bare `.hint` was declared anywhere. The control tier declares
+       * one now, so keeping it would set a warning at hint size — and leave which rule won to
+       * whichever stylesheet a lazily-imported module happened to load first.
        */}
       {reversals.length && !done ? (
-        <p className="hint decision-warning">
+        <p className="decision-warning">
           <IconWarning size={14} />
           <span>
             {single
               ? "This abstract was accepted, so a session and a speaker already exist for it."
               : `${reversals.length} of these abstracts were accepted, so sessions and speakers already exist for them: ${listTitles(reversals)}.`}{" "}
-            Declining records the reversal but does not remove them — use Withdraw in Sessions &amp;
-            speakers if it should leave the programme.
+            Declining records the reversal but does not remove them — use Withdraw under Schedule
+            &rarr; Sessions if it should leave the programme.
           </span>
         </p>
       ) : null}
@@ -182,6 +204,7 @@ export function DecisionForm({
         {done ? null : (
           <button
             type="button"
+            className="primary"
             disabled={unacceptable}
             aria-disabled={busy || unacceptable}
             // The hint above is the reason, so it is the control's accessible description rather
@@ -203,7 +226,7 @@ export function DecisionForm({
             this is the control that dismisses the dialog in every state. */}
         <button
           type="button"
-          className={done ? undefined : "ghost"}
+          className={done ? "primary" : "ghost"}
           aria-disabled={busy}
           onClick={() => {
             // Honour the same in-flight rule as Confirm: closing here would unmount this

@@ -17,7 +17,7 @@ import type { ReviewerQueueDto } from "@greenroom/contracts";
 import { useState } from "react";
 import { requestReviewSuggestion, respondToReviewSuggestion } from "../api/review";
 import "../styles/review.css";
-import { IconWarning } from "../ui/icons";
+import { Checkbox } from "../ui/fields";
 import { Notice, Pill, useActionFeedback } from "../ui/primitives";
 
 import { message } from "./shared";
@@ -189,7 +189,6 @@ export function SuggestionPanel({
 
       {stale ? (
         <Notice tone="warn" role="alert">
-          <IconWarning size={15} />
           <span>
             This abstract has been edited since the draft was written, so the reasoning below may
             describe text that is no longer shown. Draft again for a current one.
@@ -222,25 +221,22 @@ export function SuggestionPanel({
         })}
       </dl>
 
-      <div className="field suggestion-notes-choice">
-        <label htmlFor="suggestion-include-summary">
-          <input
-            id="suggestion-include-summary"
-            type="checkbox"
-            checked={includeSummary}
-            disabled={busy || disabled}
-            onChange={(event) => setIncludeSummary(event.target.checked)}
-          />
-          Also copy the summary into my private notes
-        </label>
-        <p className="hint">
-          Off by default. Organizers read your notes as your own words, so the summary is added only
-          if you ask for it.
-        </p>
-      </div>
+      {/* The shared checkbox draws a box and takes the hint as its description; the bare input
+          this replaces inherited `appearance: none` and drew nothing, so the reviewer could not
+          see whether the summary was going into their notes or not. */}
+      <Checkbox
+        className="suggestion-notes-choice"
+        id="suggestion-include-summary"
+        label="Also copy the summary into my private notes"
+        hint="Off by default. Organizers read your notes as your own words, so the summary is added only if you ask for it."
+        checked={includeSummary}
+        disabled={busy || disabled}
+        onChange={setIncludeSummary}
+      />
 
       <div className="toolbar">
         <button
+          className="primary"
           type="button"
           disabled={busy || disabled}
           onClick={() => {

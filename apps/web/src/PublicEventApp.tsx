@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
 import { readItinerary } from "./api/itinerary";
+import "./public-event.css";
+import "./styles/public-pages.css";
+import { PageSkeleton } from "./public-event/cards";
 
 export { PublicEventApp } from "./public-event/PublicEventApp";
 
@@ -29,10 +32,35 @@ export function StableItineraryRedirect({ token }: { token: string }) {
     };
   }, [token]);
 
+  /*
+   * The hand-off page for the whole itinerary feature, and until now the only surface in the
+   * product wearing `pub-shell` — a class name that appears nowhere else and matches no rule in
+   * any stylesheet, so an attendee opening a shared itinerary link landed on unstyled text.
+   */
   return (
-    <main className="pub-shell" tabIndex={-1}>
-      <h1>{failure ? "Itinerary unavailable" : "Opening itinerary"}</h1>
-      <p role="status">{failure ?? "Finding the event’s current public address…"}</p>
-    </main>
+    <div className="public-shell">
+      <header>
+        <a className="brand" href="/">
+          Greenroom
+        </a>
+      </header>
+      <main className="pub-state" tabIndex={-1}>
+        {failure ? (
+          <>
+            <h1>This itinerary is not available</h1>
+            <p className="pub-note" role="status">
+              {failure} An itinerary link expires when the event it belongs to stops being
+              published, and whoever shared it can send a new one.
+            </p>
+          </>
+        ) : (
+          <>
+            <h1>Opening your itinerary</h1>
+            <p className="pub-note">Finding the event’s current public address.</p>
+            <PageSkeleton label="Opening your itinerary" />
+          </>
+        )}
+      </main>
+    </div>
   );
 }
