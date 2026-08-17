@@ -103,8 +103,8 @@ export function AcceptInvitationPage({
           <Notice tone="warn" role="status">
             <span>
               A demo identity cannot accept an invitation: it is temporary, and the membership it
-              would create is real. Sign in with the address the invitation was sent to, then
-              follow this link again — it still carries the token.
+              would create is real. Sign in with the address the invitation was sent to, then follow
+              this link again — it still carries the token.
             </span>
           </Notice>
         </Card>

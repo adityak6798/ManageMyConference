@@ -30,6 +30,9 @@ test("creates an event, previews without publishing, publishes, and takes it dow
 
   await page.goto("/");
   await page.getByRole("button", { name: "Continue as organizer" }).click();
+  // The click posts the demo session; navigating before its cookie lands loads the create form
+  // unauthenticated and the shell bounces to the sign-in surface. The switcher is the shell.
+  await expect(page.getByRole("combobox", { name: "Event workspace" })).toBeVisible();
   await fillAdditionalEvent(page, { name });
   await page.getByRole("button", { name: "Create event" }).click();
   await expect(page.getByRole("combobox", { name: "Event workspace" })).toContainText(name);

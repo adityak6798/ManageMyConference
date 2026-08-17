@@ -1,6 +1,28 @@
 # Completed execution plans
 
-Status: canonical | Owner: delivery | Last verified: 2026-08-11 (commit `3630977`)
+Status: canonical | Owner: delivery | Last verified: 2026-08-16 (`PLAN-001` unchanged since commit `3630977`)
+
+## `PLAN-005` Portal design-language rollout
+
+Status: completed 2026-08-16 | merged as PR #242 (`design/portal-integration-237`), closing issue #237
+
+Issue #237 coordinated the portal-wide redesign after the shared design language and responsive
+shell merged in PR #241. The implementation was split across three independently owned lanes:
+
+1. #238 rebuilt organizer overview, program, review, sessions, and schedule surfaces;
+2. #239 rebuilt people, communications, publishing, and settings surfaces;
+3. #240 rebuilt the landing page and the reviewer, speaker, attendee, and public-event surfaces.
+
+The final cutover composed those contributions into six job-shaped organizer hubs—Program, People,
+Schedule, Communications, Publish, and Settings—while preserving event query state and redirecting
+legacy workspace URLs to stable hub tabs. Integrations deliberately composes API-client and webhook
+controls into one tab because the user job is shared even though the bounded-context ownership is
+not. Existing reviewer and speaker routes remain direct, role-specific workspaces.
+
+This row closes because everything it set out to sequence merged; it does not close because the
+console was finished. The rebuild of the console itself, the public event pages and the signed-out
+landing page followed as [`PLAN-006`](active.md), which is where the remaining design work and its
+outstanding list live.
 
 ## `PLAN-001` Harness and reference slice
 

@@ -58,10 +58,11 @@ select:not([multiple]) {
  * A box that nobody has converted yet is still a box, not a hole.
  *
  * The `appearance: none` above strips the platform's own control off every input, and the only
- * box this tier draws is `.choice-box` — which `<Checkbox>` and `<Radio>` render *beside* a
- * visually-hidden input. A hand-rolled `<input type="checkbox">` therefore matched nothing that
- * paints, and rendered as an invisible ~13px gap: no box, no tick, no green. Nothing on the
- * screen said the control was there, let alone what it was set to.
+ * box this tier draws is `.choice-box` — which `<Checkbox>` and `<Radio>` render in the same grid
+ * cell as their own transparent input (see `.choice-input` below). A hand-rolled
+ * `<input type="checkbox">` therefore matched nothing that paints, and rendered as an invisible
+ * ~13px gap: no box, no tick, no green. Nothing on the screen said the control was there, let
+ * alone what it was set to.
  *
  * It reached thirteen controls across eight files — the agenda's unscheduled rail (whose
  * select-all also drives `indeterminate`), the deliverable tracker, the session and resource

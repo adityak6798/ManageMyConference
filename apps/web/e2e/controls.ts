@@ -58,11 +58,7 @@ export async function chooseOption(
  * length a native select popup is worst at. The textbox holds the filter, never the value, so
  * typing narrows and Enter commits whatever the list is pointing at.
  */
-export async function filterAndCommit(
-  page: Page,
-  control: Locator,
-  text: string,
-): Promise<void> {
+export async function filterAndCommit(page: Page, control: Locator, text: string): Promise<void> {
   // Narrowed for the reason `chooseOption` gives: the popover shares the field's label.
   const input = control.and(page.getByRole("combobox"));
   await input.fill(text);

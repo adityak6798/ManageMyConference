@@ -397,7 +397,8 @@
       "plans": [
         "PLAN-001",
         "PLAN-002",
-        "PLAN-005"
+        "PLAN-005",
+        "PLAN-006"
       ],
       "paths": [
         ".agents/extra-skills/bootstrap-harness",
@@ -441,6 +442,7 @@
         "apps/web/e2e/00-seed-state.spec.ts",
         "apps/web/e2e/global-setup.ts",
         "apps/web/e2e/fixtures.ts",
+        "apps/web/e2e/controls.ts",
         "apps/web/e2e/quality-global-setup.ts",
         "apps/web/e2e/capture-product.mjs",
         "docs/demo-runbook.md",
@@ -460,6 +462,8 @@
         "apps/web/src/ui/fields.tsx",
         "apps/web/src/ui/menu.tsx",
         "apps/web/src/ui/vocabulary.ts",
+        "apps/web/src/styles/tokens.css",
+        "apps/web/src/styles/controls.css",
         "apps/web/test/ui-controls.test.tsx",
         "apps/web/test/tokens.test.ts",
         "apps/web/test/vocabulary.test.ts",

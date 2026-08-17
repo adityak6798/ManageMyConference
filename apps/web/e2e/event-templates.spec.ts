@@ -70,7 +70,7 @@ async function signIn(page: Page) {
  */
 async function createDestination(page: Page): Promise<{ id: string; name: string }> {
   const name = `Greenroom Template Trial ${Date.now()}`;
-  await page.goto("/settings?tab=event");
+  // Creating an event is its own destination, and `fillAdditionalEvent` opens it.
   await fillAdditionalEvent(page, { name });
   await page.getByRole("button", { name: "Create event" }).click();
   await expect(page.getByRole("combobox", { name: "Event workspace" })).toContainText(name);
