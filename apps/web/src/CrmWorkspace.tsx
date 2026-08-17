@@ -48,6 +48,7 @@ import {
   LoadFailure,
   Notice,
   Pill,
+  SkeletonBars,
   SkeletonRows,
   Stat,
   Tabs,
@@ -679,14 +680,19 @@ export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: s
                * an organizer's typed stage and dropped it the moment the real board arrived,
                * leaving Save board dead with nothing said. Worse the other way round: a draft
                * built on an empty board *is* an empty board, and saving it sent a whole-board
-               * replacement that deleted every stage the read had not delivered yet. Only
-               * Converted being unremovable server-side kept that from stranding every prospect.
+               * replacement that deleted every stage the read had not delivered yet. Two server
+               * guards bounded the damage — Converted refuses removal, and the
+               * `crm_pipeline_stage_no_stranded_prospects` trigger aborts any stage delete that
+               * still holds a prospect — so what was actually lost was the typed stage plus any
+               * empty stage, silently. Prospects were never strandable.
                *
                * A fast machine hides both — the read beats the first keystroke — which is why
                * this surfaced as a browser test that passed on a Mac and failed on CI.
                */}
+              {/* Bars without a live region: the board or the table below is already announcing
+                  this same wait, and one screen owes a reader one announcement, not two. */}
               {loading ? (
-                <SkeletonRows rows={3} label="Loading the board's stages" />
+                <SkeletonBars rows={3} />
               ) : (
                 <PipelineStageEditor
                   stages={stages}

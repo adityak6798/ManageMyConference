@@ -135,8 +135,10 @@ describe("ACC-CRM pipeline stage editor", () => {
  * board: took it as the thing being drafted. So a stage typed before the read landed was
  * discarded by the re-seed the arriving board triggers, leaving Save board permanently disabled
  * with nothing said; and a save sent *before* it landed posted a one-stage board, a whole-board
- * replacement that deleted every stage the read had not delivered. Only the server refusing to
- * drop Converted stopped that from stranding prospects.
+ * replacement that deleted every stage the read had not delivered. Two server guards bounded it:
+ * Converted refuses removal, and `crm_pipeline_stage_no_stranded_prospects` aborts any delete of
+ * a stage still holding one. So prospects were never strandable, and what was lost was the typed
+ * stage plus any empty stage — silently, which is why nobody reported it.
  *
  * Which of the two happened turned on milliseconds, so on a fast machine neither did: this
  * reached CI as a browser journey that passed on every developer's Mac and failed on the runner.
@@ -181,11 +183,18 @@ describe("ACC-CRM stage editor over a board that has not loaded", () => {
     render(<CrmWorkspace eventId={eventId} ownerId="seed-organizer" />);
     fireEvent.click(await screen.findByRole("button", { name: "Configure stages" }));
 
-    // Nothing to type into and nothing to press: the panel says it is fetching, the way the
-    // board below it does, rather than offering a draft of a board nobody has yet.
+    // Nothing to type into and nothing to press, rather than a draft of a board nobody has yet.
     expect(screen.queryByLabelText("New stage name")).toBeNull();
     expect(screen.queryByRole("button", { name: "Save board" })).toBeNull();
-    expect(screen.getByRole("status", { name: "Loading the board's stages" })).toBeTruthy();
+    // And the wait is announced once for the page, not once per placeholder: the panel's bars
+    // are silent because the board underneath is already saying it. Counting the regions that
+    // actually announce something — `useActionFeedback` keeps an empty one mounted on purpose,
+    // so a bare count would be 2 and prove nothing — is what catches a second one returning.
+    const announcing = screen
+      .getAllByRole("status")
+      .filter((node) => node.getAttribute("aria-label") ?? node.textContent?.trim());
+    expect(announcing).toHaveLength(1);
+    expect(announcing[0]).toHaveAttribute("aria-label", "Loading the sourcing board");
 
     deliverBoard();
     const newStage = await screen.findByLabelText("New stage name");

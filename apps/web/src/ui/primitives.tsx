@@ -432,7 +432,21 @@ export function SkeletonRows({ rows = 3, label = "Loading" }: { rows?: number; l
   );
 }
 
-/** The bars a row placeholder is made of, without the live region that announces them. */
+/**
+ * The bars a row placeholder is made of, without the live region that announces them.
+ *
+ * Exported for the second placeholder on a page that is already announcing one wait: the rule
+ * one screen down is one live region for the page, not one per part, and a surface with two
+ * skeletons up at once — a board and the stage panel open over it — says the same wait twice.
+ */
+export function SkeletonBars({ rows = 3 }: { rows?: number }) {
+  return (
+    <div className="skeleton-rows">
+      <Rows rows={rows} />
+    </div>
+  );
+}
+
 function Rows({ rows }: { rows: number }) {
   return Array.from({ length: rows }, (_, row) => (
     // biome-ignore lint/suspicious/noArrayIndexKey: placeholder bars have no identity.
