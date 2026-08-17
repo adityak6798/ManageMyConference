@@ -1,6 +1,6 @@
 # Known gaps
 
-Status: canonical | Owner: quality | Last verified: 2026-08-14
+Status: canonical | Owner: quality | Last verified: 2026-08-16
 
 A gap is something a judge or a contributor would otherwise discover by clicking. Each entry states
 impact, owner, evidence, governing ID, and the test that closes it. This register is not a place to
@@ -763,6 +763,74 @@ feature-by-feature verdict.
   `ACC-DEMO-SMOKE`. Closure: the audit renders a deliberately long unbreakable string into one row
   of each measured surface before measuring, so the floor is a property of the check rather than of
   the seed — or each surface gets a component-level test that asserts the constraint directly.
+- `GAP-032` **The console rebuild (`PLAN-006`) drew several surfaces that the API cannot yet fill,
+  and left three narrower things undone.** A design pass may not invent a contract, so each of
+  these is a surface that is honest about what it does not know rather than one that guesses. They
+  are listed together because they share a cause and would otherwise be discovered one at a time by
+  clicking. Owner: as named per item. Governing ID: `PRD-PUB-001`, `PRD-AGD-001`, `PRD-COM-001`,
+  `PRD-IAM-001`, `ACC-DEMO-SMOKE`.
+
+  **Five need API or contract work.**
+
+  - **A public event page cannot be the event's own colour.** `--accent` is a slot every public
+    surface is authored against, and only two things can fill it: an organization portal, from the
+    `primaryColor` it stores, and an embed, from the option the host page's snippet passes. The
+    event projection carries no brand colour at all, so `/events/:slug` renders in Greenroom's
+    green no matter whose conference it is. Owner: publishing. Closure: the event projection
+    carries a validated colour and `PublicEventApp` sets it on `.public-shell` the way
+    `PublicSiteApp` already does.
+  - **The agenda's published-version chip is session-scoped.** There is no read for the current
+    publication — the routes are `GET …/agenda`, `…/schedule-reconciliation`, `…/criteria`,
+    `…/availability` and `…/generated-drafts`, and none of them answers "what is live". So the
+    board states what it *knows*: nothing until this session publishes, and after that the version,
+    when it happened, and how many parts have moved since. A reload forgets it. This replaced a
+    six-second toast, so it is strictly better and still not a read. Owner: agenda. Closure:
+    `GET /api/events/{eventId}/agenda/publications` (or the current publication on the agenda
+    projection), and the chip reads it on load.
+  - **The Sessions embed cannot be issued as a named address.** `embedViewSchema` is
+    `["schedule", "speakers", "gallery", "itinerary"]`, so the sessions view can be copied as a URL
+    but not persisted as an embed with a token and a revocation. The control says exactly that
+    rather than offering an issue button that would 400. Owner: publishing. Closure: `"sessions"`
+    joins the enum, with its migration and its embed renderer, and the hint comes out.
+  - **The composer has no test send.** "Send one to myself" is the obvious affordance next to a
+    server-resolved per-recipient preview, and it was not built because there is no test mode in
+    the outbox: the send would write a real `communication_deliveries` row into the same history
+    and audit timeline as a real broadcast, against a real address. Owner:
+    communications-integrations. Closure: a delivery the outbox marks as a test — excluded from
+    history counts and from the recipient budgets `GAP-027` describes — or a rendered preview that
+    is explicitly not a send.
+  - **The workspace switcher cannot name an organization.** `sessionResponseSchema.organizations`
+    is `{ id }` and nothing else, so the console says "Current organization", or "The organization
+    behind <event>", or a truncated UUID. It used to print "Organization 2", which was the console
+    reading out an array index. Owner: identity-access. Closure: the session payload carries the
+    organization's name, and the label is the name.
+
+  **Three are narrower, and are recorded so they are not mistaken for oversights.**
+
+  - **The organizer axe sweep no longer reaches every tool panel.** The sweep used to open all
+    seven inline `details.tool-panel` tools; most of them are now drawers, which render nothing
+    until they are opened, so `lifecycle-demo.spec.ts` replaced its fixed panel count with
+    `openEveryDisclosure` (every `<details>`, whatever its class) plus `auditDrawer` for the two
+    largest — the agenda's rooms/tracks/times editor
+    and the CFP public-form preview. The decision dialog, the portal editor and the
+    withdraw/unpublish confirmations are exercised by the journeys that open them and are **not**
+    axe-audited. Owner: quality. Closure: the sweep enumerates drawers the way it enumerates nav
+    destinations, so a new one joins the audit loudly rather than silently.
+  - **The CFP composer is no longer in the landing captures.** The form-builder shot was retired
+    because the fixture's form has no routing rules — its own Routing pane read 0 — and no public
+    address, so the picture was headed by a warning banner and its caption claimed conditional
+    routing the fixture does not have. The four captures now read as one pass through the lifecycle
+    instead. Owner: product. Closure: the seed grows a CFP form with routing rules and a public
+    address, and a fifth capture proves it.
+  - **One suspected CFP defect was seen and deliberately not touched**, because it is product code
+    in another domain's file. On one fixture state `/program?tab=forms` printed "This form is
+    published, but the event has no public page yet" while `/publish?tab=event-site` reported
+    "Published · Snapshot matches the draft" and the live site rendered a Call for proposals link.
+    The banner is `const unreachable = Boolean(liveStatus) && !absoluteUrl` at
+    `apps/web/src/cfp/CfpWorkspace.tsx:672`, where `absoluteUrl` derives from the form's own
+    `publicUrl`. Owner: cfp. Closure: reproduced and fixed, or shown to be correct and this bullet
+    deleted.
+
 - `GAP-031` **Browser journeys now cover every named surface; a staged scheduled-report send is
   still absent.** `zz-closure-surfaces.spec.ts` drives a custom event role and asserts both the
   serialized absence of hidden email/abstract fields and the 403 field error on a locked bio;

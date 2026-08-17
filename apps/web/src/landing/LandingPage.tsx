@@ -155,31 +155,37 @@ const unprovenCount = productProof.length - provenCount;
  * who *can* see it knows where in the product they are looking. The captions used to be the
  * file name with its first letter raised, which produced "Forms" — a word this product does not
  * use for anything.
+ *
+ * Each `alt` describes what its capture can be checked to contain. Every one of them used to
+ * describe a picture that was never taken: speaker tasks "late" when the capture shows them due
+ * in four days, conditional questions and triage routes on a form the fixture routes nowhere,
+ * conflicts "listed above" a board whose conflict count is zero. Alt text that overstates the
+ * picture is the one kind that cannot be caught by looking at the page.
  */
 const captures = [
   {
     name: "overview",
     label: "Organizer overview",
     route: "/",
-    alt: "The organizer overview, naming each outstanding speaker task by speaker, task and how many days late it is, above the proposal, speaker and schedule counts for the event.",
+    alt: "The organizer overview, opening on the two proposals awaiting a decision as the work to pick up next, above counts of proposals received, decisions outstanding, accepted sessions, sessions placed on the board and speakers, then every open speaker task with its deadline and the proposals still undecided.",
   },
   {
-    name: "forms",
-    label: "Call for proposals",
-    route: "/program?tab=forms",
-    alt: "The call for proposals editor, with conditional questions and the triage route each answer resolves to shown beside the published form.",
+    name: "submissions",
+    label: "Submissions queue",
+    route: "/program?tab=submissions",
+    alt: "The submissions queue, four proposals under status tabs that count them, each row carrying its status, the reviewers assigned to it in each round, the score its completed reviews produced, and the control that records a decision.",
   },
   {
     name: "agenda",
     label: "Agenda board",
     route: "/schedule?tab=agenda",
-    alt: "The room-by-time agenda board, sessions placed across rooms with the conflicts that would block a publish listed above it.",
+    alt: "The agenda board in its week view, both accepted sessions placed at a time on the day they run with the room named on each card, beside the panel that unschedules a session by dragging it off the grid, and above a conflict count of zero on a schedule not yet published.",
   },
   {
     name: "public-event",
     label: "Public event page",
     route: "/events/:slug",
-    alt: "The published event page an attendee sees: the multi-day programme, its sessions and its speakers, served from one versioned projection.",
+    alt: "The published event page an attendee sees: the dates, venue and summary of the event, how each of its two days opens with the session, room and track that starts it, and the speaker cards below, all served from one versioned projection.",
   },
 ] as const;
 
@@ -346,7 +352,7 @@ function LandingChrome({
  *
  * On a seeded deployment the primary *starts the demo* rather than linking to a page that shows
  * a strict subset of what is already on screen. It deliberately does not share its name with the
- * four persona buttons in the panel — thirteen browser specs find those by the exact string
+ * four persona buttons in the panel — twenty-one browser specs find those by the exact string
  * "Continue as organizer", and two controls answering to one name is a coin toss for anybody
  * driving this page by voice or by keyboard.
  *

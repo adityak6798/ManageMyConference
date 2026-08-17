@@ -168,9 +168,7 @@ const READY: Readonly<Record<string, (page: Page) => Locator>> = {
   "organizer /": (page) =>
     page.getByRole("heading", { level: 2, name: "Speaker onboarding", exact: true }),
   "organizer /inbox": (page) =>
-    page
-      .locator("p.hint")
-      .filter({ hasText: /\d+ items? (is|are) waiting on this event\./ }),
+    page.locator("p.hint").filter({ hasText: /\d+ items? (is|are) waiting on this event\./ }),
   /*
    * Reports render the builder only once the catalogue answers, and the Columns checkboxes *are*
    * the catalogue — one per field of the selected dataset — so this waits for the content rather
@@ -210,8 +208,7 @@ const READY: Readonly<Record<string, (page: Page) => Locator>> = {
    * `<tbody>` are on screen from the first frame. The live region is the only thing on the page
    * that distinguishes "reading" from "read".
    */
-  "organizer /audit": (page) =>
-    page.locator("p.hint").filter({ hasText: /\d+ records? loaded\./ }),
+  "organizer /audit": (page) => page.locator("p.hint").filter({ hasText: /\d+ records? loaded\./ }),
   "reviewer assignments": (page) => page.locator(".review-main"),
   // The task card's title counts the outstanding tasks, so the name moves; the id does not.
   "speaker portal": (page) => page.locator("#speaker-tasks-title"),

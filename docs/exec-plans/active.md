@@ -1,23 +1,91 @@
 # Active execution plans
 
-Status: canonical | Owner: delivery | Last verified: 2026-08-15
+Status: canonical | Owner: delivery | Last verified: 2026-08-16
 
-## `PLAN-005` Portal design-language rollout
+## `PLAN-006` Console modernization
 
-Status: active; implementation complete on the #237 integration branch, with review and merge pending
+Status: active; the rebuild merged as #243, the suite migration and capture regeneration are on
+`test/e2e-suite-migration` and unmerged, and no browser evidence exists at this head
 
-Issue #237 coordinates the portal-wide redesign after the shared design language and responsive
-shell merged in PR #241. The implementation was split across three independently owned lanes:
+`PLAN-005` rolled the design language across the portal. This is the change that finished the job
+on the console itself: the whole organizer console, the public event pages and the signed-out
+landing page were rebuilt on the same foundation, across seven implementation lanes and a polish
+pass. It moves presentation and interaction only — product behavior stays in the owning `PRD-*`
+specification, no HTTP shape moved, and no migration was written. The result is stated in
+[the design language](../product/design-language.md), which is the document to read before
+touching any of it.
 
-1. #238 rebuilt organizer overview, program, review, sessions, and schedule surfaces;
-2. #239 rebuilt people, communications, publishing, and settings surfaces;
-3. #240 rebuilt the landing page and the reviewer, speaker, attendee, and public-event surfaces.
+Four things changed at the foundation:
 
-The final cutover composes those contributions into six job-shaped organizer hubs—Program, People,
-Schedule, Communications, Publish, and Settings—while preserving event query state and redirecting
-legacy workspace URLs to stable hub tabs. Integrations deliberately composes API-client and webhook
-controls into one tab because the user job is shared even though the bounded-context ownership is
-not. Existing reviewer and speaker routes remain direct, role-specific workspaces.
+1. one cool neutral ramp replaced the console/public split, so no component is authored against two
+   grounds it cannot see, and public surfaces differentiate by measure, rhythm and scale instead;
+2. a control tier — `Field`, `Select`, `Combobox`, `Menu`, `Checkbox`, `Radio`, `DateTimeField`,
+   `SegmentedControl`, `CopyableSecret` — replaced 73 native `<select>`s and 21 native date inputs,
+   each of which was previously drawn by the reader's operating system;
+3. `Section` replaced `Card` as the default page region, and a bordered thing may no longer contain
+   another one;
+4. the cue gutter — a 56px monospace measure column behind a continuous hairline spine — became the
+   shared row grammar for queues, lists and boards, which is what let uppercase eyebrows, ornaments
+   and card titlebars be deleted without pages losing structure.
+
+**A redesign of this size is a reading of the product, and it found defects rather than only
+restyling them.** Recorded here because each one was reachable by a user before this change:
+
+- the bare `button` selector painted every button in the application solid green, and
+  `:focus-visible` mutated corner radius, so an input's corners visibly snapped from 8px to 5px on
+  keyboard focus;
+- `.stack`, `.inline` and `.form-stack` were written into roughly 26 forms before the rules that
+  space them existed, so those rows had no spacing at all, and six custom properties were
+  referenced with no declaration anywhere — both classes of defect now fail `gate:integrity`
+  through `tools/check-css-tokens.mjs`;
+- `/invitations/accept` was unreachable for the invitee it exists for, and dead-ended for a demo
+  persona with the standard 401 sentence — "Sign in to continue." — shown to somebody who had just
+  signed in;
+- Settings → Event shipped two implementations of the same surface, with the better one unreachable;
+- seven destructive actions committed on the press, with no confirmation of any kind;
+- the agenda board froze neither axis, and renamed rooms through `window.prompt()`;
+- a CFP preview mounted inside the console repainted every page behind it, because the token layer
+  swapped the whole ramp on `:root:has(…)`;
+- `/search` and `/events/new` were addressable but unreachable — the first redirected because the
+  route guard read the *sidebar* list as the reachability rule, the second because `main.tsx`
+  matched `/events/` for the public site and served "This event page is unavailable" to the
+  console's own create form on any document load;
+- every `Select` overflowed its column, because a grid item's automatic minimum size is its
+  untruncated content: at 390px the topbar's event chip covered the Search button, and
+  `document.elementFromPoint` at that button returned the chip;
+- the shared `Checkbox` took the visually-hidden recipe, so with no positioned ancestor the input's
+  own box was laid out against the initial containing block and sat at y = −21, off the top of the
+  document, hit-testable by nothing but its label;
+- the two signed-out surfaces — the first screens a stranger sees — shipped a `contentinfo`
+  landmark and no `banner`;
+- the public call for proposals' placeholder measured 2.81:1, on the two required questions where
+  that placeholder was the entire visible content.
+
+The browser suite was migrated with it, because a spec that drove a native `<select>` through
+`selectOption` against a converted picker reports success while writing nothing:
+`apps/web/e2e/controls.ts` now holds the control-tier helpers and every spec drives the real
+interface through them. Two journeys that had no coverage were added — the signed-out invitee at
+`/invitations/accept`, and an event-settings save landing in the topbar chip. The four landing-page
+product captures were regenerated against the rebuilt console; the CFP form-builder shot was
+retired for the submissions queue, because the fixture's form has no routing rules and no public
+address, so the picture proved a setup rather than a product.
+
+What remains before this plan can close:
+
+- **evidence at the landing commit.** The e2e migration lane measured 96 passed / 1 skipped and
+  `test:quality` 7 passed from a clean reset, and re-ran the suite in place without a reset; those
+  runs predate every commit here. `.evidence/` holds `d1` and `test-build` records naming
+  `2e9e71d`, and no `e2e` or `quality` record at all, so `npm run gate:evidence` refuses every
+  scorecard row until `npm run gate:browser` and `npm run check` are re-run at whatever commit this
+  lands on. That refusal is the gate working;
+- **`GAP-032`**, which records what this change deliberately did not build: five surfaces the API
+  cannot yet fill, each blocked on contract work that does not belong in a design pull request,
+  and three narrower things left undone. That register is what is verifiable from the tree and the
+  lanes' reports; it is not a claim that the lanes deferred nothing else, and anything else they
+  deferred is unrecorded rather than closed;
+- the suite migration and the regenerated captures are unmerged working-tree state on
+  `test/e2e-suite-migration`; `GAP-003` is unchanged, so nothing about hosted CI is a required
+  check for any of it.
 
 ## `PLAN-004` SessionBoard defect closure
 

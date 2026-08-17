@@ -198,14 +198,14 @@ test("carries one proposal from the public form to the published site", async ({
   await expect(target).toBeFocused();
   await target.press("Enter");
   await expect(
-    page.getByRole("status").filter({ hasText: `“${title}” placed in Workshop lab at 10:00–11:00.` }),
+    page
+      .getByRole("status")
+      .filter({ hasText: `“${title}” placed in Workshop lab at 10:00–11:00.` }),
   ).toBeVisible();
   await page.getByRole("button", { name: "Publish schedule" }).click();
   // Publication is irreversible, so the board asks first and previews what becomes public.
   await confirmInDrawer(page, "Publish the schedule", "Publish schedule");
-  await expect(
-    page.getByRole("status").filter({ hasText: /Published version \d+/ }),
-  ).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: /Published version \d+/ })).toBeVisible();
 
   // ---- 7. and the site is published -----------------------------------------
   await publishSite(page);
@@ -246,9 +246,7 @@ test("carries one proposal from the public form to the published site", async ({
   ).toBeVisible();
   await page.getByRole("button", { name: "Publish schedule" }).click();
   await confirmInDrawer(page, "Publish the schedule", "Publish schedule");
-  await expect(
-    page.getByRole("status").filter({ hasText: /Published version \d+/ }),
-  ).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: /Published version \d+/ })).toBeVisible();
 
   await setReadiness(page, title, "draft");
   await publishSite(page);

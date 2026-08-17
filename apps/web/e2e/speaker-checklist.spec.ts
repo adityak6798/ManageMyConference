@@ -44,7 +44,7 @@ async function signIn(page: Page) {
  * the next spec, the next run, and a judge opening the demo look at it.
  */
 async function createEvent(page: Page): Promise<string> {
-  await page.goto("/settings?tab=event");
+  // Creating an event is its own destination, and `fillAdditionalEvent` opens it.
   await fillAdditionalEvent(page, { name: `Checklist Trial ${Date.now()}` });
   await page.getByRole("button", { name: "Create event" }).click();
   await expect(page.getByRole("combobox", { name: "Event workspace" })).toContainText(

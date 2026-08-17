@@ -184,7 +184,9 @@ test("organizer tracks accepted content and speaker completes portal work", asyn
    */
   const hallwayRow = page.locator(".triage-table").getByRole("row", { name: new RegExp(HALLWAY) });
   await expect(hallwayRow).toBeVisible();
-  await hallwayRow.getByRole("button", { name: new RegExp(`^(Decide|Change) ${HALLWAY}$`) }).click();
+  await hallwayRow
+    .getByRole("button", { name: new RegExp(`^(Decide|Change) ${HALLWAY}$`) })
+    .click();
   const abstract = page.getByRole("dialog", { name: HALLWAY });
   const acceptHallway = abstract.getByRole("button", { name: `Accept ${HALLWAY}`, exact: true });
   if (await acceptHallway.count()) {

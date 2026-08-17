@@ -436,9 +436,12 @@ test("adds a room and a track, reassigns a placement onto them, and clears up af
 
   // The placement selects are behind the drawer, so it closes before they are used and opens
   // again for the removal that the move has now made possible.
-  await page.getByRole("dialog", { name: "Rooms, tracks and times" }).getByRole("button", {
-    name: "Done",
-  }).click();
+  await page
+    .getByRole("dialog", { name: "Rooms, tracks and times" })
+    .getByRole("button", {
+      name: "Done",
+    })
+    .click();
   await page
     .getByLabel(`Room assignment ${openingPlacement}`)
     .selectOption({ label: "Main stage" });

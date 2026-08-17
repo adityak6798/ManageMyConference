@@ -454,9 +454,7 @@ test("a reviewer scores and declares a conflict, and only the organizer sees the
   await expect(
     page.getByRole("status").filter({ hasText: "No evaluation was recorded" }),
   ).toBeVisible();
-  await expect(queueRow(queue, scored)).toContainText(
-    "Not started",
-  );
+  await expect(queueRow(queue, scored)).toContainText("Not started");
   expect(await segmentValue(evaluation.getByLabel("Relevance"))).toBeNull();
 
   // Unscored criteria are explicit, and completing without them is refused
@@ -466,9 +464,7 @@ test("a reviewer scores and declares a conflict, and only the organizer sees the
   await expect(page.getByRole("alert")).toContainText(
     "Relevance, Recommended format, Reviewer feedback",
   );
-  await expect(queueRow(queue, scored)).toContainText(
-    "Not started",
-  );
+  await expect(queueRow(queue, scored)).toContainText("Not started");
 
   // Exercise every supported field type. Only numeric criteria contribute to the aggregate.
   await chooseSegment(evaluation.getByLabel("Relevance"), "4");
@@ -518,9 +514,7 @@ test("a reviewer scores and declares a conflict, and only the organizer sees the
   await evaluation.getByLabel("Private notes").fill("Clear and relevant.");
   await evaluation.getByRole("button", { name: "Save draft" }).click();
   await expect(page.getByRole("status").filter({ hasText: "Draft saved" })).toBeVisible();
-  await expect(queueRow(queue, scored)).toContainText(
-    "Draft saved",
-  );
+  await expect(queueRow(queue, scored)).toContainText("Draft saved");
   // A draft is durable without being final: a reload brings the same scores back and the
   // assignment is still open for editing.
   await page.reload();
@@ -578,9 +572,7 @@ test("a reviewer scores and declares a conflict, and only the organizer sees the
   expect(await segmentValue(second.getByLabel("Recommended format"))).not.toBeNull();
   // And nothing is completed: the reviewer still has to press the button themselves.
   await expect(second.getByRole("button", { name: "Complete evaluation" })).toBeVisible();
-  await expect(queueRow(queue, conflicted)).toContainText(
-    "Draft saved",
-  );
+  await expect(queueRow(queue, conflicted)).toContainText("Draft saved");
 
   await second.getByRole("button", { name: "Declare a conflict" }).click();
   await second
@@ -593,9 +585,7 @@ test("a reviewer scores and declares a conflict, and only the organizer sees the
   // Declaring one locks it: the scoring form is gone, not merely hidden.
   await expect(second.getByLabel("Relevance")).toHaveCount(0);
   await expect(second.getByRole("button", { name: "Complete evaluation" })).toHaveCount(0);
-  await expect(queueRow(queue, conflicted)).toContainText(
-    "Conflict declared",
-  );
+  await expect(queueRow(queue, conflicted)).toContainText("Conflict declared");
 
   // ---- the organizer, and only the organizer, sees the aggregate -----------
   await switchRole(page, "organizer");

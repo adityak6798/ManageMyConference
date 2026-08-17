@@ -403,7 +403,9 @@ test("an organizer resolves each speaker's own message, and history keeps exactl
   // is a control that inserts itself at the caret: reading a list and retyping the braces is how
   // an author produces the one typo the renderer refuses.
   for (const token of documented)
-    await expect(compose.getByRole("button", { name: new RegExp(`^Insert ${token} — `) })).toBeVisible();
+    await expect(
+      compose.getByRole("button", { name: new RegExp(`^Insert ${token} — `) }),
+    ).toBeVisible();
 
   const templateSubject = `${key} · {{eventName}} needs you, {{speakerName}}`;
   await compose.getByLabel("Subject").fill(templateSubject);
@@ -419,7 +421,9 @@ test("an organizer resolves each speaker's own message, and history keeps exactl
   await compose.getByRole("button", { name: "Save this message" }).click();
   // Version 1 of a key nobody has published before: the announcement names what was written, and
   // the panel selects it, so what follows is about this run's own template and no other.
-  await expect(compose.getByRole("status")).toContainText(`Saved “${templateSubject}” as version 1`);
+  await expect(compose.getByRole("status")).toContainText(
+    `Saved “${templateSubject}” as version 1`,
+  );
   await expect(compose.getByRole("combobox", { name: "Message" })).toContainText(templateSubject);
 
   // Who the server says this event can reach. The picker is asserted against this rather than
@@ -524,9 +528,9 @@ test("an organizer resolves each speaker's own message, and history keeps exactl
   expect(stored[0]?.state).toBe("queued");
   // Nobody else was written to. The selection was one speaker, so the audience the organizer
   // approved is the audience that got a row.
-  expect(await findDeliveries(page, (id) => id.startsWith(`broadcast:${storageKey}:`))).toHaveLength(
-    1,
-  );
+  expect(
+    await findDeliveries(page, (id) => id.startsWith(`broadcast:${storageKey}:`)),
+  ).toHaveLength(1);
 
   /*
    * A template the payload cannot fill, refused on the screen showing the message.

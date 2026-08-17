@@ -69,8 +69,20 @@ try {
      */
     const captures = [
       ["overview", `/?event=${event}`],
-      ["forms", `/program?tab=forms&event=${event}`],
-      ["agenda", `/schedule?tab=agenda&event=${event}&view=room`],
+      /*
+       * The submissions queue, not the form builder at `?tab=forms`.
+       *
+       * Program opens here, and this is the only surface that shows the fixture's routed
+       * proposals, their reviewers per round, their scores and their decisions — the review work
+       * the landing copy claims two paragraphs above the picture. The form builder capture proved
+       * none of it: the fixture's form has no routing rules, so the pane the caption pointed at
+       * read "Routing 0", under a banner warning that the form has no public address.
+       */
+      ["submissions", `/program?tab=submissions&event=${event}`],
+      // The week view rather than `view=room`: the fixture's two sessions run on different days,
+      // so the room grid put one card beside an empty "Workshop lab" column and left the second
+      // session out of frame entirely — an emptier board than the product actually has.
+      ["agenda", `/schedule?tab=agenda&event=${event}&view=week`],
       ["public-event", "/events/greenroom-demo-summit"],
     ];
     for (const [name, route] of captures) {
@@ -85,7 +97,17 @@ try {
           !document.querySelector('[class*="skeleton"]') &&
           !document.querySelector(".landing-boot") &&
           !text.includes("Loading your workspace") &&
-          !text.includes("Loading Greenroom")
+          !text.includes("Loading Greenroom") &&
+          // Every picture in frame has actually arrived. The public event page draws speaker
+          // headshots with `loading="lazy"`, so the shot fired while the first speaker's card
+          // still held an empty circle: the capture showed a blank avatar the product never
+          // renders. Images outside the viewport are not in a viewport screenshot and are never
+          // waited for, because a lazy image below the fold never loads and would hang the wait.
+          [...document.images].every((image) => {
+            const box = image.getBoundingClientRect();
+            const outOfFrame = box.bottom <= 0 || box.top >= window.innerHeight;
+            return outOfFrame || (image.complete && image.naturalWidth > 0);
+          })
         );
       });
       await page.screenshot({ path: path.join(output, `${name}.webp`), type: "webp", quality: 86 });

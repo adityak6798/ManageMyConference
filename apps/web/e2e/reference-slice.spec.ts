@@ -49,7 +49,11 @@ test("signs in, switches events and roles, creates, and reloads an event", async
   // Exact, because the create form below carries a second control whose label contains this one.
   // A filtering combobox, not a native select: roughly 400 zones is the one list length a
   // select popup is worst at. Typing narrows, Enter commits the single remaining match.
-  await filterAndCommit(page, page.getByLabel("Event timezone", { exact: true }), "America/Chicago");
+  await filterAndCommit(
+    page,
+    page.getByLabel("Event timezone", { exact: true }),
+    "America/Chicago",
+  );
   await page.getByRole("button", { name: "Save event settings" }).click();
   await expect(switcher).toContainText("Greenroom Workshop Day Renamed");
   // The page subtitle prints the stored zone, so this asserts what was saved rather than what
@@ -130,9 +134,7 @@ test("publishes a clean agenda, explains draft conflicts, and keeps publication 
   // The publication counter advances with every run against a shared fixture, so assert
   // that a version was published rather than pinning the number.
   // Filtered: while the draft has conflicts, the standing summary is a second polite region.
-  await expect(
-    page.getByRole("status").filter({ hasText: /Published version \d+/ }),
-  ).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: /Published version \d+/ })).toBeVisible();
 
   // Start the experiment by moving the seeded day-two session into Unscheduled. The
   // browser journey restores that exact placement before it exits, so other specs still
@@ -212,4 +214,66 @@ test("publishes a clean agenda, explains draft conflicts, and keeps publication 
   await expect(
     page.getByRole("status").filter({ hasText: /“Accessible by default” placed in Workshop lab/ }),
   ).toBeVisible();
+});
+
+/**
+ * An event-settings save, arriving where every other surface reads the event from.
+ *
+ * The chip in the topbar is the one thing on every console surface that says which event this
+ * is, and it is drawn from the shell's event list rather than from the form that changes it. So
+ * a save that wrote to D1 and did not tell the shell looked exactly like a save that had not
+ * happened: the page kept saying the old name, on every surface, until a reload. `onEventChanged`
+ * is the seam, and this is the journey that would notice it going missing.
+ *
+ * It works on the workshop event and puts the name back, because the demo event's name is what
+ * the public projection and half this suite assert against.
+ */
+test("an event-settings save reaches the topbar chip every surface reads", async ({ page }) => {
+  const workshopEventId = "00000000-0000-4000-8000-000000000002";
+  const renamed = `Greenroom Workshop Day ${Date.now()}`;
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Continue as organizer" }).click();
+  await expect(page.getByRole("combobox", { name: "Event workspace" })).toBeVisible();
+
+  // Whatever an earlier journey in this shared fixture left the event called, restored at the end.
+  const before = await page.request.get(`/api/events/${workshopEventId}`);
+  expect(before.ok(), `reading the workshop event failed: ${await before.text()}`).toBe(true);
+  const { name: original, timezone } = (
+    (await before.json()) as { event: { name: string; timezone: string } }
+  ).event;
+
+  try {
+    await page.goto(`/settings?event=${workshopEventId}&tab=event`);
+    await expect(page.getByRole("heading", { level: 1, name: "Event" })).toBeVisible();
+    // The chip is the shell's, so it is read from the banner rather than from the page.
+    const chip = page.getByRole("banner").getByRole("combobox", { name: "Event workspace" });
+    await expect(chip).toContainText(original);
+
+    await page.getByLabel("Event name", { exact: true }).fill(renamed);
+    await page.getByRole("button", { name: "Save event settings" }).click();
+    await expect(
+      page.getByRole("status").filter({ hasText: "Event settings saved." }),
+    ).toBeVisible();
+    // The assertion this test exists for: the save is visible in the chip, without a reload.
+    await expect(chip).toContainText(renamed);
+
+    // And it is the shell's list that changed, not this form's own state: another workspace,
+    // reached without a document load, states the same name.
+    await page
+      .getByRole("navigation", { name: "Workspace navigation" })
+      .locator(`a[href="/schedule?event=${workshopEventId}"]`)
+      .click();
+    await expect(page.getByRole("heading", { level: 1, name: "Sessions" })).toBeVisible();
+    await expect(chip).toContainText(renamed);
+  } finally {
+    // Both values, because the route replaces the event's settings rather than patching them:
+    // a request that omits the zone is a request to have no zone, and it is refused.
+    const restored = await page.request.patch(`/api/events/${workshopEventId}`, {
+      data: { name: original, timezone },
+    });
+    expect(restored.ok(), `restoring the workshop event failed: ${await restored.text()}`).toBe(
+      true,
+    );
+  }
 });
