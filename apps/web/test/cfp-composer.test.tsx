@@ -318,6 +318,25 @@ describe("building the question list", () => {
     expect(within(question("Proposal title")).getByText("2")).toBeInTheDocument();
   });
 
+  it("reorders from the control that is named Reorder, not only from the one beside it", async () => {
+    stubApi((url) =>
+      url.startsWith("/api/events/") ? jsonResponse({ cfp: twoQuestions() }) : undefined,
+    );
+    render(<CfpWorkspace eventId={eventId} organizer timezone={TIMEZONE} />);
+
+    /*
+     * The grip is a focusable button whose accessible name promises a reorder, so a keyboard
+     * user tabs onto it and presses the arrows there. It carried the pointer drag only, which
+     * made it the dead tab stop issue #145 already cost this repository once on the pipeline
+     * board — the working keys were on the *next* control.
+     */
+    const grip = await screen.findByRole("button", { name: "Reorder Proposal title" });
+    fireEvent.keyDown(grip, { key: "ArrowDown", ctrlKey: true });
+
+    expect(within(question("Session abstract")).getByText("1")).toBeInTheDocument();
+    expect(within(question("Proposal title")).getByText("2")).toBeInTheDocument();
+  });
+
   it("refuses to remove the last question, which the API would reject as an empty form", async () => {
     stubApi((url) => (url.startsWith("/api/events/") ? jsonResponse({ cfp: form() }) : undefined));
     render(<CfpWorkspace eventId={eventId} organizer timezone={TIMEZONE} />);
@@ -351,7 +370,10 @@ describe("building the question list", () => {
 
     fireEvent.change(screen.getByLabelText("Field type"), { target: { value: "short_text" } });
     expect(screen.queryByText("Answer options")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    // findBy, not getBy: the wait above is satisfied by the first PUT being *issued*, and while
+    // it is in flight this control reads "Saving…" — a synchronous get for "Save draft" throws
+    // outright rather than sampling a stale value.
+    fireEvent.click(await screen.findByRole("button", { name: "Save draft" }));
 
     await waitFor(() => expect(writes(calls)).toHaveLength(2));
     // Options left behind on a short-text question would reappear the next time somebody

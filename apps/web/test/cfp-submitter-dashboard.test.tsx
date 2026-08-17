@@ -356,7 +356,10 @@ describe("the signed-in applicant's proposals", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Continue/ }));
     fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
     await waitFor(() => expect(test.calls.some(({ method }) => method === "PUT")).toBe(true));
-    fireEvent.click(screen.getByRole("button", { name: "Submit proposal" }));
+    // findBy, not getBy: that wait is satisfied when the save's PUT goes out, and until it comes
+    // back `guarded` holds `submitting` — which renders this control as "Submitting…", so a
+    // synchronous get for "Submit proposal" throws rather than racing.
+    fireEvent.click(await screen.findByRole("button", { name: "Submit proposal" }));
 
     // The submit's list lands and the row reads as submitted…
     expect(await screen.findByText("Under consideration")).toBeVisible();
@@ -483,6 +486,11 @@ describe("the signed-in applicant's proposals", () => {
     expect(test.calls.find(({ method }) => method === "PUT")?.body).toMatchObject({
       expectedRevision: 2,
     });
+    // The write has to have *returned* before the rest of this test can describe what it returned.
+    // The wait above sees the PUT go out, and `guarded` clears `submitting` only in its `finally`,
+    // so Continue and Save draft below are still disabled — two silent no-ops, and the second PUT
+    // this test waits for never happens. It is the same wait the conflict half already uses.
+    await waitFor(() => expect(screen.getByRole("button", { name: /Continue/ })).toBeEnabled());
 
     // Now the write has returned revision 3 and the list still shows 2: resume from the copy in
     // hand, or the applicant is refused for an edit they themselves just made.
@@ -639,6 +647,11 @@ describe("the signed-in applicant's proposals", () => {
     fireEvent.change(await screen.findByLabelText(/Proposal title/), {
       target: { value: "Corrected" },
     });
+    // `submits` is counted where the request is issued, so the wait above does not mean the submit
+    // has come back — and while it has not, this control is disabled and the press is a silent
+    // no-op that leaves the PUT below to time out. Waiting for the control to be pressable is what
+    // makes the second action follow the first.
+    await waitFor(() => expect(screen.getByRole("button", { name: "Save draft" })).toBeEnabled());
     fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
 
     await waitFor(() => expect(test.calls.some(({ method }) => method === "PUT")).toBe(true));

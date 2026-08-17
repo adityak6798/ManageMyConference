@@ -176,7 +176,7 @@
       {
         "path": "apps/web/src/ui/fields.tsx",
         "governing": "ARC-DOM-001",
-        "reason": "The design system's control tier. Every domain that asks a user for a value — a choice, a date, a flag, a score — renders it through the same Field, Select, Combobox, Checkbox and DateTimeField, which is what holds one height, one focus ring and one set of keyboard rules across pickers that were 73 separate native selects."
+        "reason": "The design system's control tier, and where a control asking for a value — a choice, a date, a flag, a score — belongs: the same Field, Select, Combobox, Checkbox and DateTimeField holding one height, one focus ring and one set of keyboard rules across pickers each domain used to draw for itself. The conversion is real and unfinished — 41 native selects and 21 native date and time inputs survive it, counted in GAP-032 — so this is the rule for a control, not a claim about every control in the tree."
       },
       {
         "path": "apps/web/src/ui/menu.tsx",
@@ -186,7 +186,7 @@
       {
         "path": "apps/web/src/ui/vocabulary.ts",
         "governing": "ARC-DOM-001",
-        "reason": "The design system's shared label vocabulary: how the product names a status, a delivery state, a dataset and a capability. It is deliberately presentation-only and holds no domain rule — every domain reads its own state from its own client and asks this module only what to call it, which is what stops the same delivery being 'terminal' in the outbox and 'Failed' in the webhook history, and what keeps a permission from ever reaching a reader as a raw scope token."
+        "reason": "The design system's shared label vocabulary: how the product names a status, a delivery state, a dataset and a capability. It is deliberately presentation-only and holds no domain rule — every domain reads its own state from its own client and asks this module only what to call it, which is what stops the same delivery being 'terminal' in the outbox and 'Failed' in the webhook history, and what keeps a raw scope token from ever being what a permission is called. A wire token may still be shown as a subordinate lookup key beside that label and its consequence — the roles editor prints one, because an admin matches it character by character against an API client — but never in place of the label."
       },
       {
         "path": "apps/api/src/transport/http/runtime.ts",

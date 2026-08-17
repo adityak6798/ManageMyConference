@@ -2,7 +2,7 @@
  * The control tier.
  *
  * Every interactive control in the product is drawn here, at one height, one radius, one
- * border and one focus ring. Before this file the console shipped 73 native `<select>`s, 21
+ * border and one focus ring. Before this file the console shipped 72 native `<select>`s, 20
  * native date inputs, native checkboxes and radios, and no `appearance` reset anywhere, so a
  * single toolbar could hold four controls at three different heights, each drawn by a
  * different operating system. That is the largest reason the console read as a 2010s admin
@@ -225,10 +225,17 @@ button.control:hover:not(:disabled) {
  * console did — dims the border and the text together and lands the label at roughly 2.4:1
  * against the page, so a disabled field looks like a rendering failure. Instead the ground
  * goes inset, the border goes back to a hairline, and only the value dims.
+ *
+ * `opacity` is reset rather than left alone, because shell.css still fades every bare disabled
+ * `<button>` and a `.control` is a button whenever it is a select trigger. Colour is not enough
+ * to win that: a class beats an element selector on the properties both declare, and the fade is
+ * a property this rule never mentioned, so it composed on top of the inset ground and the same
+ * trigger read one way on the console and another on a public page, which loads no shell.css.
  */
 .control:disabled,
 .control[aria-disabled="true"],
 .control.is-disabled {
+  opacity: 1;
   background: var(--surface-2);
   border-color: var(--rule);
   color: var(--ink-4);
@@ -257,6 +264,66 @@ button.control:hover:not(:disabled) {
 .control-icon.is-sm {
   width: var(--control-h-sm);
   height: var(--control-h-sm);
+}
+
+/*
+ * A button the tier draws for itself: the copy button inside `CopyableSecret`, the default
+ * `Menu` trigger.
+ *
+ * Both used to render `class="secondary small"`, and those classes are declared in shell.css —
+ * reachable only through `styles.css`, which only `App.tsx` imports. `main.tsx` routes every
+ * `/events/*` path to the public roots, which never evaluate `App.tsx`, so on the public call
+ * for proposals the Copy button beside a submitted proposal's confirmation reference matched
+ * nothing at all: 21px of the operating system's own button chrome, Arial at 13px with an
+ * `outset` border, beside a 34px mono value the tier had drawn properly. It is the exact defect
+ * `.field`, `.hint` and `.error-text` moved into this file to stop, and the reason the header of
+ * `ui/fields.tsx` claims any surface rendering a control gets the tier with it.
+ *
+ * Every property the shell needs is declared here rather than inherited from the console's
+ * `:where(button)` reset, for the same reason: a public page never loads that reset either.
+ * The measurements are the console's `secondary` plus `small`, so the console is unchanged.
+ */
+.control-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+  min-height: var(--control-h-sm);
+  margin: 0;
+  padding: 3px var(--s-2);
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--ink-2);
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  font-weight: var(--fw-medium);
+  line-height: var(--leading-snug);
+  text-align: center;
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
+}
+.control-button:hover:not(:disabled) {
+  background: var(--surface-2);
+  border-color: var(--slate);
+  color: var(--ink);
+}
+/* The tier's answer to disabled, not the console's blanket fade: the ground goes inset, the
+   border back to a hairline, and only the label dims. `opacity: 1` is the half that makes it one
+   answer instead of two — see `.control:disabled` above; without it shell.css's `button:disabled`
+   fade multiplied this treatment on the console and left it alone on a public page, so the same
+   Copy button was two different greys depending on which route rendered it. */
+.control-button:disabled {
+  opacity: 1;
+  background: var(--surface-2);
+  border-color: var(--rule);
+  color: var(--ink-4);
+  cursor: not-allowed;
 }
 
 /* ========================= the field ========================= */
@@ -618,8 +685,17 @@ button.control:hover:not(:disabled) {
 .datetime-value {
   color: var(--ink);
 }
+/*
+ * `--slate`, for the same reason `.select-value.is-placeholder` above takes it: this span is the
+ * whole visible content of an unfilled date field, and `--ink-4` measures 2.81:1 on white.
+ *
+ * Being `aria-hidden` does not excuse it. The native `datetime-local` under this display is
+ * `opacity: 0` with `color: transparent` — see `.datetime-native` below — so the value it carries
+ * is read by assistive technology and by nothing else. "Choose a date" is the only thing a sighted
+ * reader has to go on, across 21 date fields, and it was set below AA.
+ */
 .datetime-value.is-empty {
-  color: var(--ink-4);
+  color: var(--slate);
 }
 /* The zone is a measure, not a caption: it is the difference between 09:45 in two cities. */
 .datetime-zone {
@@ -744,11 +820,22 @@ button.control:hover:not(:disabled) {
   position: relative;
   display: inline-flex;
 }
+/*
+ * Placed against the viewport, not against the trigger.
+ *
+ * `position: absolute` inside `.menu` put the popover in whatever scroll container the trigger
+ * was in, and the row-action menus this replaced native selects with sit inside `.table-wrap`,
+ * whose `overflow-x: auto` computes `overflow-y` to `auto` as well. A menu opened on the last
+ * row was clipped by the table and not hit-testable, and the focus call that rescued it scrolled
+ * the table under its own sticky header. No overflow value on the wrapper fixes that — `visible`
+ * beside a scrolling axis computes back to `auto`, and `clip` would take the table's horizontal
+ * scrolling and its scroll-shadow affordance with it — so the popover leaves the clip instead.
+ * `top` and `left` are set inline by `ui/menu.tsx`, which measures the trigger and the popover
+ * and flips above the trigger when there is no room beneath it.
+ */
 .menu-popover {
-  position: absolute;
+  position: fixed;
   z-index: 40;
-  top: calc(100% + var(--s-1));
-  left: 0;
   min-width: 200px;
   max-width: 320px;
   padding: var(--s-1);
@@ -756,10 +843,6 @@ button.control:hover:not(:disabled) {
   border-radius: var(--r-lg);
   background: var(--surface);
   box-shadow: var(--shadow-md);
-}
-.menu-popover.is-end {
-  left: auto;
-  right: 0;
 }
 .menu-item {
   display: block;

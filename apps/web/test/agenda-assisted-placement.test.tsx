@@ -82,6 +82,12 @@ describe("assisted agenda placement", () => {
     cleanup();
     vi.unstubAllGlobals();
     onError.mockReset();
+    // The board keeps the chosen view in the query string so a link is shareable, and jsdom shares
+    // one `location` across a file — and the view is read back in a `useState` initializer at
+    // mount. Without this, the test that switches to List decides which view every test after it
+    // opens in, which is a different board depending on the order they run in. The sibling
+    // selection suite resets it for the same reason.
+    window.history.replaceState(null, "", "/");
   });
 
   it("fills the board in one request and explains what it could not place", async () => {

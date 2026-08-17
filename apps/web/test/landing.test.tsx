@@ -219,7 +219,12 @@ describe("the landing surfaces", () => {
 
     const codeField = await screen.findByLabelText("Six-digit code");
     expect(codeField).not.toBe(address);
-    expect(codeField).toHaveFocus();
+    // Waited for, because the caret is moved by an effect and the field is committed before it.
+    // `setChallenge` lands from an awaited fetch, so React flushes the commit and the passive
+    // effect that calls `codeRef.current.focus()` in separate tasks — the query below resolves on
+    // the DOM mutation, one task early. Sampling there is what produced the bare
+    // "Expected element with focus / Received element with focus" under `--sequence.shuffle`.
+    await waitFor(() => expect(codeField).toHaveFocus());
     expect(screen.getByRole("status")).toHaveTextContent(
       "We sent a six-digit code to chair@example.test",
     );
@@ -281,8 +286,17 @@ describe("the landing surfaces", () => {
     );
     render(<LandingRoot bootstrap={probeIdentity()} />);
 
-    await waitFor(() => expect(window.location.pathname).toBe("/invitations/accept"));
-    expect(window.location.search).toBe("?token=inv-token-2");
+    // The hand-back waits on two chained reads — the auth config, then the session probe — so on
+    // a runner executing several suites at once it can outlast waitFor's 1s default. The address
+    // is asserted whole inside the wait rather than sampled after it, because a pathname that has
+    // arrived does not mean the query has.
+    await waitFor(
+      () => {
+        expect(window.location.pathname).toBe("/invitations/accept");
+        expect(window.location.search).toBe("?token=inv-token-2");
+      },
+      { timeout: 5000 },
+    );
     // Spent by the navigation it caused: a second sign-in in this tab is not a second
     // invitation.
     expect(window.sessionStorage.getItem("greenroom.invitation-token")).toBeNull();
@@ -409,8 +423,22 @@ describe("the landing surfaces", () => {
     // The console is a real dynamic import of ../App, not a double: what is being proven is
     // that the handover completes, and a stubbed module would prove only that this test can
     // call setState.
-    await waitFor(() => expect(screen.queryByText("Loading Greenroom…")).toBeNull());
-    await waitFor(() => expect(window.location.pathname).toBe("/"));
+    //
+    // Both halves of the handover are waited for together, and for longer than the 1s default,
+    // because that import is the whole console module graph: when no earlier file in the run has
+    // already pulled `../App` through vite-node, this test pays the transform itself and it
+    // routinely takes over a second. Running this file alone failed here on 7 of 11 shuffled
+    // seeds; the same gap is what makes it an occasional casualty of the full suite. The URL and
+    // the loading state settle in one commit — `navigate` runs just before `setWorkspace` — so
+    // asserting the second after waiting only on the first sampled a value that had no reason to
+    // have arrived yet.
+    await waitFor(
+      () => {
+        expect(screen.queryByText("Loading Greenroom…")).toBeNull();
+        expect(window.location.pathname).toBe("/");
+      },
+      { timeout: 5000 },
+    );
     // The marketing surface is gone rather than layered underneath.
     expect(
       screen.queryByRole("heading", {

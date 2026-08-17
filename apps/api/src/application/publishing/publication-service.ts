@@ -445,6 +445,9 @@ export class PublicationService {
           : "Those dates end before the schedule starts. Set both days rather than leaving one to the agenda.",
       );
     if (merged.event.slug !== base.draft.event.slug) {
+      // An address the console owns — `/events/new` — is refused before this, by
+      // `publicationSettingsInputSchema`: it is a vocabulary rule about the address space rather
+      // than a fact about other events, so no query here could find it taken.
       const owner = await this.repository.findEventIdBySlug(merged.event.slug);
       if (owner && owner !== eventId)
         throw new PublicationSlugTakenError("That public address is already taken.");

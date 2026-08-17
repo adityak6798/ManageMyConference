@@ -203,4 +203,40 @@ describe("the member row", () => {
     await waitFor(() => expect(stubbed.writes).toHaveLength(1));
     expect(stubbed.writes[0]?.method).toBe("DELETE");
   });
+
+  /**
+   * A removal that succeeded and a re-read that failed are two outcomes, and the reader has to be
+   * able to tell them apart. Reported as one, the organizer was told the removal had failed over
+   * a membership the server had already ended — and the obvious response to that is to do it again.
+   */
+  it("reports a failed re-read as a stale list, not as the removal failing", async () => {
+    const stubbed = stub([member]);
+    let removed = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+        // Every read after the removal fails, which is what a deployment restarting under the
+        // organizer looks like from here.
+        if (removed && (!init?.method || init.method === "GET"))
+          return Promise.reject(new TypeError("Failed to fetch"));
+        if (init?.method === "DELETE") {
+          removed = true;
+          return jsonResponse({ changed: 1 });
+        }
+        return stubbed.fetch(input, init);
+      }),
+    );
+    render(<MembersWorkspace organizationId={organizationId} eventId={eventId} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Remove from organization" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove Ada Rivera" }));
+
+    // The removal is announced as what it was: done.
+    expect(await screen.findByText(/Removed Ada Rivera/)).toBeInTheDocument();
+    // And the failed re-read is said separately, beside the list it makes stale, rather than
+    // replacing the whole page with a load failure.
+    const stale = await screen.findByText(/The list below is what was read before that\./);
+    expect(stale).toBeVisible();
+    expect(screen.getByText("Ada Rivera")).toBeVisible();
+  });
 });

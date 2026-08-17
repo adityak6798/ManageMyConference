@@ -68,9 +68,11 @@ const renderBody = (body: string, name: string) => body.replaceAll("{{speakerNam
 interface HarnessOptions {
   templates?: (typeof template)[];
   sendFails?: { message: string; correlationId: string } | undefined;
+  /** Held open so a test can assert what the panel says while its first read is unresolved. */
+  holdTemplates?: Promise<void> | undefined;
 }
 
-function harness({ templates = [template], sendFails }: HarnessOptions = {}) {
+function harness({ templates = [template], sendFails, holdTemplates }: HarnessOptions = {}) {
   const sends: unknown[] = [];
   const created: unknown[] = [];
   let history: unknown[] = [];
@@ -93,7 +95,10 @@ function harness({ templates = [template], sendFails }: HarnessOptions = {}) {
       stored = [...stored, { ...template, ...body, version, id: `template-${stored.length + 1}` }];
       return json({ template: stored.at(-1) }, 201);
     }
-    if (url.includes("/api/communications/templates")) return json({ templates: stored });
+    if (url.includes("/api/communications/templates"))
+      return holdTemplates
+        ? holdTemplates.then(() => new Response(JSON.stringify({ templates: stored })))
+        : json({ templates: stored });
     if (url.includes("/api/communications/recipients"))
       return json({ recipients, audienceVersion: audience });
     if (url.includes("/api/communications/merge-fields"))
@@ -318,7 +323,13 @@ describe("sending a message to speakers from the console", () => {
     fireEvent.change(screen.getByLabelText("Template name"), {
       target: { value: "speaker-welcome" },
     });
-    expect(screen.getByText(/Saving publishes version 2 of this template/)).toBeInTheDocument();
+    // findBy, not getBy: the version the disclosure names comes from the template read, so under
+    // a loaded runner the sentence can be one tick behind the keystroke that asks for it. A
+    // synchronous get sampled that gap and failed roughly one run in twelve under
+    // `--sequence.shuffle`.
+    expect(
+      await screen.findByText(/Saving publishes version 2 of this template/),
+    ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Save this message" }));
 
     await waitFor(() => expect(created).toHaveLength(1));
@@ -330,13 +341,20 @@ describe("sending a message to speakers from the console", () => {
     harness();
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: "Write a message" }));
+    // The token buttons are waited for before the caret is placed, not sampled after it. "Write a
+    // message" is in the region's actions and renders whether or not the panel's read has landed,
+    // so the form can be open while `mergeFields` is still empty and the list renders nothing —
+    // which is how this failed under `--sequence.shuffle` with "Unable to find an accessible
+    // element with the role button and name /Insert speakerName/". Waiting first also keeps the
+    // selection immediately adjacent to the click that spends it: nothing re-renders in between.
+    const insert = await screen.findByRole("button", { name: /Insert speakerName/ });
     const body = screen.getByLabelText<HTMLTextAreaElement>("Message");
     fireEvent.change(body, { target: { value: "Hi , welcome." } });
     body.setSelectionRange(3, 3);
 
     // The tokens used to be a list to read and retype, and a token typed one character wrong is
     // a send the renderer refuses rather than a message with a gap in it.
-    fireEvent.click(screen.getByRole("button", { name: /Insert speakerName/ }));
+    fireEvent.click(insert);
 
     await waitFor(() =>
       expect(screen.getByLabelText<HTMLTextAreaElement>("Message")).toHaveValue(
@@ -384,6 +402,39 @@ describe("sending a message to speakers from the console", () => {
         "Nothing new to send: every reachable speaker already has version 1 of “You're speaking at Summit”. Save a new version to send a correction.",
       ),
     );
+  });
+
+  it("waits for the first read rather than announcing that there are no messages", async () => {
+    // Reassigned synchronously by the executor below; the throw is what a broken harness gets
+    // rather than a silently un-held read that would make this test pass for the wrong reason.
+    let release: () => void = () => {
+      throw new Error("the templates read was never held");
+    };
+    harness({
+      holdTemplates: new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+    });
+    render(<App />);
+
+    /*
+     * An organization that has templates was told "No messages yet" on every first paint, and a
+     * heading is announced whether or not the reader is looking at it — the panel then flipped
+     * to the picker when the read landed. An empty state is a claim about what exists, so it
+     * waits for the answer.
+     */
+    const compose = await screen.findByRole("region", { name: "Send to speakers" });
+    expect(within(compose).queryByText("No messages yet")).toBeNull();
+    expect(
+      within(compose).getByRole("status", { name: "Loading the saved messages" }),
+    ).toBeInTheDocument();
+
+    release();
+    // And the wait is a wait, not a second empty state: the picker arrives when the read does.
+    expect(await within(compose).findByLabelText("Message")).toBeInTheDocument();
+    expect(
+      within(compose).queryByRole("status", { name: "Loading the saved messages" }),
+    ).toBeNull();
   });
 
   it("explains a failed read in place of the controls it could not populate", async () => {

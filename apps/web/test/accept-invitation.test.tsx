@@ -137,6 +137,42 @@ describe("accepting an invitation from its link", () => {
     expect(screen.getByLabelText("Invitation token")).toHaveValue("the-token");
   });
 
+  /**
+   * The persona a self-serve invitee actually holds.
+   *
+   * Somebody who signed in through the public call-for-proposals door is stored with
+   * `persona = 'public'`, no organization and no event role — and that is exactly who an organizer
+   * invites to speak or review next. The console's attendee page short-circuited every route for
+   * that persona, so the one surface that could have given them a seat was answered with "this
+   * account has no organizer workspace", whose only control is Sign out. Signing back in through
+   * the same door returns the same persona, so the invitation could never be accepted.
+   */
+  it("renders for the public persona a self-serve invitee actually holds", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/api/session"))
+          return jsonResponse({
+            actor: { id: "seed-submitter", name: "Sam Submitter", persona: "public" },
+            organizations: [],
+            eventAccess: [],
+            capabilities: [],
+            authentication: "session",
+          });
+        if (url.includes("/api/events")) return jsonResponse({ events: [] });
+        return jsonResponse({});
+      }),
+    );
+    render(<App />);
+
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Accept an invitation" }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Invitation token")).toHaveValue("the-token");
+    expect(screen.queryByText("This account has no organizer workspace")).toBeNull();
+  });
+
   it("explains a refusal and leaves the token in place to retry", async () => {
     const stubbed = stub("reviewer", () =>
       jsonResponse(

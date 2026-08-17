@@ -115,6 +115,14 @@ interface PaletteState {
 
 const IDLE: PaletteState = { answer: null, loading: false, failure: null };
 
+/**
+ * The clipboard can refuse — an insecure origin, a denied permission — and a copy button that
+ * silently does nothing is worse than no button at all. The reference is already on screen and
+ * selectable, so the refusal is answered by saying so rather than by a second control.
+ */
+const CLIPBOARD_REFUSED = "This browser refused the clipboard. Select the reference and copy it.";
+const COPIED = "Reference copied.";
+
 function sectionsWhere(answer: SearchResponseDto | null, state: "unauthorized" | "failed") {
   if (!answer) return [];
   return SECTION_ORDER.filter((key) => answer.sections[key].state === state);
@@ -139,6 +147,9 @@ export function CommandPalette({
   const [query, setQuery] = useState("");
   const [state, setState] = useState<PaletteState>(IDLE);
   const [activeIndex, setActiveIndex] = useState(0);
+  /** What a press on Copy did, said in the one live region this dialog owns. */
+  const [copyNote, setCopyNote] = useState("");
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const inputRef = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   /** Whatever had focus when the palette opened, so closing puts it back. */
@@ -203,7 +214,9 @@ export function CommandPalette({
       });
     }
     // The full-page search surface is no longer a sidebar item, so this is how a reader reaches
-    // it: as the last thing the palette offers, once there is a query to carry over.
+    // it: as the last thing the palette offers, once there is a query to carry over. The query
+    // travels in `q` — the row promises "all results for X", and a destination that opened on an
+    // empty form made the reader type X a second time to collect on it.
     if (searchable)
       result.push({
         key: "all",
@@ -212,7 +225,7 @@ export function CommandPalette({
           {
             id: "see-all",
             title: `See all results for “${trimmed}”`,
-            href: `/search?event=${encodeURIComponent(eventId)}`,
+            href: `/search?event=${encodeURIComponent(eventId)}&q=${encodeURIComponent(trimmed)}`,
             kindLabel: "Search",
             glyph: <IconSearch size={16} />,
           },
@@ -241,8 +254,11 @@ export function CommandPalette({
     setQuery("");
     setState(IDLE);
     setActiveIndex(0);
+    setCopyNote("");
     inputRef.current?.focus();
   }, [open]);
+
+  useEffect(() => () => clearTimeout(copyTimer.current), []);
 
   // The page behind the overlay is still operable without this: a dialog the reader can Tab out
   // of leaves them driving a page that is visually covered.
@@ -311,6 +327,28 @@ export function CommandPalette({
     [onClose],
   );
 
+  function noteCopy(text: string) {
+    setCopyNote(text);
+    clearTimeout(copyTimer.current);
+    copyTimer.current = setTimeout(() => setCopyNote(""), 6000);
+  }
+
+  async function copyReference(reference: string) {
+    const clipboard = navigator.clipboard;
+    if (!clipboard?.writeText) {
+      noteCopy(CLIPBOARD_REFUSED);
+      return;
+    }
+    try {
+      await clipboard.writeText(reference);
+      noteCopy(COPIED);
+    } catch {
+      // ERROR-INTENT: a refused clipboard is a permission answer, not a fault. It is reported to
+      // the reader as the manual path rather than logged and swallowed.
+      noteCopy(CLIPBOARD_REFUSED);
+    }
+  }
+
   function onKeyDown(keyEvent: React.KeyboardEvent<HTMLDivElement>) {
     if (keyEvent.key === "Escape") {
       keyEvent.preventDefault();
@@ -338,7 +376,7 @@ export function CommandPalette({
 
   if (!open) return null;
 
-  const announcement = state.failure
+  const status = state.failure
     ? state.failure.message
     : tooShort
       ? `Type at least ${SEARCH_QUERY_MIN_LENGTH} characters to search.`
@@ -351,6 +389,12 @@ export function CommandPalette({
           : destinations.length > 0
             ? `Type to search this event, or open one of ${destinations.length} destinations.`
             : "Type to search this event.";
+
+  // The copy control's outcome joins the sentence already in this region rather than mounting a
+  // second one. It is appended rather than substituted because the failure message lives nowhere
+  // else on the panel: replacing it would take the reason off the screen to report a clipboard.
+  const announcement = copyNote ? `${status} ${copyNote}` : status;
+  const reference = state.failure?.reference;
 
   let index = -1;
 
@@ -480,8 +524,32 @@ export function CommandPalette({
           </p>
         ) : null}
 
-        {state.failure?.reference ? (
-          <p className="palette-note is-error">Reference: {state.failure.reference}</p>
+        {/*
+          The correlation reference is data, not prose. It printed as "Reference: 01JD…" at the
+          end of a paragraph — the one string a reader is asked to quote character by character,
+          in proportional type, with nothing to copy it. It takes the console's standing
+          treatment instead: the measure face and a copy control on a line of its own, the same
+          identifier the same way on every surface that has to hand one to support.
+
+          The shared `NoticeReference` is not reused here because it mounts a `role="status"` of
+          its own, which is precisely the second polite region the note above refuses; the
+          outcome goes to the announcement instead.
+        */}
+        {reference ? (
+          <p className="palette-note is-error notice-reference">
+            <span className="visually-hidden">Reference</span>
+            <code className="figure">{reference}</code>
+            <button
+              type="button"
+              className="ghost small"
+              // ERROR-INTENT: `copyReference` settles every outcome into the announcement above —
+              // copied, or the manual path — so it has no rejection left for a handler to catch.
+              onClick={() => void copyReference(reference)}
+              aria-label="Copy the reference"
+            >
+              {copyNote === COPIED ? "Copied" : "Copy"}
+            </button>
+          </p>
         ) : null}
 
         {/*

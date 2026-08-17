@@ -79,6 +79,34 @@ feature-by-feature verdict.
   of those survives a green `npm run schema:check`. Owner: platform. Governing ID: `ARC-003`,
   `TST-002`. Closure: extend the model to the missing facets, or record each as accepted with the
   reason it cannot be modelled.
+- `GAP-033` **`tools/check-css-tokens.mjs` gates one of the two directions a stylesheet and a
+  component can disagree in, and it is not the direction that shipped the defect it was written
+  for.** The gate walks the stylesheets: it fails an undeclared `var()` anywhere — a stylesheet or a
+  component's inline style — and a class a stylesheet selects on that nothing names. It never walks
+  the class names a component writes, so `<div className="form-stack">` with no rule behind it
+  passes, which is exactly how 26 forms shipped with no spacing before `PLAN-006` found them. The
+  reverse pass needs an oracle for the names a component composes at runtime — a class built from a
+  template writes no class name anywhere — and `classUsage` has that only in a loose form, tuned so
+  that a false "unused" cannot make the gate lie about working code; read backwards, that same
+  looseness fails working code. Impact: the class-before-rule defect is caught by looking at the
+  page or by the browser suite, not by `npm run check`. A second, smaller looseness survives in the
+  covered direction: a class name that collides with an identifier or with unrelated string content
+  still reads as used, though prose no longer does. That looseness had kept exactly two rules alive:
+  `.spine`, because "spine" is written into the prose of four component files describing the cue
+  gutter, and `.denied`, because "denied" is written into six comments, five of them about a refused
+  clipboard. Tightening the oracle exposed both. `.denied` (`apps/web/src/styles/workspaces.css`)
+  was dead and was deleted; it never had an exemption entry, because until the tightening the gate
+  had never reported it. `.spine` (`apps/web/src/styles/shell.css`) is a
+  rule published ahead of its first adopter rather than a dead one, so it stays and takes an
+  exemption entry instead. `.tabular` is a third case and not an instance of this looseness at all:
+  no source has ever named it, so the gate had always reported it, and an exemption entry had
+  silenced it on the claim that `index.html` and the embed views were its callers — which was false.
+  The `.tabular` half of `tokens.css`'s `table, .tabular` and that entry went together, because the
+  gate fails a stale entry whose rule has gone. Owner: engineering. Governing
+  ID: `ARC-001`, `ENG-CODE-001`. Closure: the gate collects the class names a component names —
+  attribute values and `classes(...)` arguments rather than free text — and fails one no stylesheet
+  selects, with an exemption list for the composed names; or this direction is accepted permanently
+  and `docs/product/design-language.md` keeps saying so.
 
 ## Missing product capability
 
@@ -764,7 +792,7 @@ feature-by-feature verdict.
   of each measured surface before measuring, so the floor is a property of the check rather than of
   the seed — or each surface gets a component-level test that asserts the constraint directly.
 - `GAP-032` **The console rebuild (`PLAN-006`) drew several surfaces that the API cannot yet fill,
-  and left three narrower things undone.** A design pass may not invent a contract, so each of
+  and left four narrower things undone.** A design pass may not invent a contract, so each of
   these is a surface that is honest about what it does not know rather than one that guesses. They
   are listed together because they share a cause and would otherwise be discovered one at a time by
   clicking. Owner: as named per item. Governing ID: `PRD-PUB-001`, `PRD-AGD-001`, `PRD-COM-001`,
@@ -805,7 +833,37 @@ feature-by-feature verdict.
     reading out an array index. Owner: identity-access. Closure: the session payload carries the
     organization's name, and the label is the name.
 
-  **Three are narrower, and are recorded so they are not mistaken for oversights.**
+  **Four are narrower, and are recorded so they are not mistaken for oversights.**
+
+  - **The control tier reached most surfaces, not all of them.** Counted in `apps/web/src` with
+    comments stripped, native `<select>`s went 72 → 41 and native `date`/`time`/`datetime-local`
+    inputs went 20 → 21 across the rebuild. `ui/fields.tsx` and `styles/controls.css` head their
+    files with the same two before-figures; an earlier revision of both said 73 and 21, and this
+    register carried a reconciliation for the difference that was invented rather than measured.
+    There is nothing to reconcile — recount before repeating any of these numbers. The date figure
+    rose by one because two larger movements nearly cancel. The agenda went 4 → 10: it replaced
+    four `datetime-local` fields with six date and time inputs — a day, a start and an end on each
+    of the slot editor and the new-slot row — and added four more, on slot generation and
+    copy-a-day, that had no date control before. Against that +6, five call sites elsewhere moved
+    to `DateField`/`DateTimeField` and left the count: two in `cfp/CfpWorkspace.tsx`, two in
+    `PublishingWorkspace.tsx`, one in `workspaces/api-clients.tsx`. There is no `TimeField` call
+    site anywhere. An unconverted control
+    still takes the reset and the height, so it looks like the tier and does not carry its keyboard
+    rules — that difference is the cost, and it is invisible until somebody drives it from the
+    keyboard. Where the remainder sits, as *selects · date and time inputs*:
+    `content/ContentOperations.tsx` 9 · 1 (its selects grew from 6), `cfp/CfpWorkspace.tsx` 6 · 0,
+    `agenda/AgendaWorkspace.tsx` 3 · 10, `content/DeliverableTracker.tsx` 3 · 0, `App.tsx` 2 · 2,
+    `CrmWorkspace.tsx` 2 · 2, `content/SpeakerOutreach.tsx` 2 · 1, `review/ProposalActions.tsx`
+    2 · 0, `review/RoundsPanel.tsx` 2 · 2, `events/EventTemplatesWorkspace.tsx` 1 · 2,
+    `CrmDirectoryWorkspace.tsx` 1 · 1, and one select each in `CustomRolesWorkspace.tsx`,
+    `agenda/UnscheduledRail.tsx`, `cfp/controls.tsx`, `content/ChecklistEditor.tsx`,
+    `content/SessionEditor.tsx`, `content/SpeakerContent.tsx`, `review/ReviewerProgressPanel.tsx`
+    and `review/RubricForm.tsx`. `CrmWorkspace.tsx`'s two owner selects are a deliberate exception
+    documented at the top of that file: their `aria-invalid` and described-by wiring is the contract
+    with the server's field errors, and acceptance tests read the element's own options. Owner: the
+    lane owning each surface; product owns the count. Closure: each listed surface converts or
+    records why its control stays native, and this bullet is deleted when the count reaches zero —
+    measured, not asserted.
 
   - **The organizer axe sweep no longer reaches every tool panel.** The sweep used to open all
     seven inline `details.tool-panel` tools; most of them are now drawers, which render nothing

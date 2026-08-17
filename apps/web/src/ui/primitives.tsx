@@ -348,6 +348,33 @@ export function Drawer({
     if (!open && dialog.open) dialog.close();
   }, [open]);
 
+  /*
+   * A caller that unmounts the drawer while `open` is still true — `{x ? <Drawer …/> : null}`
+   * rather than `open={x}` — detaches a dialog the platform still holds as modal, so the inert
+   * backdrop and the top-layer entry outlive the element and the focus the browser would have
+   * returned to the trigger is dropped on `<body>` instead. Two agenda call sites shipped exactly
+   * that. Closing here is the safety net under the mistake rather than a substitute for `open`:
+   * only a mounted dialog can hand focus back to what opened it.
+   *
+   * It is its own mount-only effect, and it closes only a dialog React has already detached.
+   * Written as the cleanup of the `[open]` effect above, it ran on every re-run of that effect —
+   * and a re-run is not an unmount. `main.tsx` renders the console inside `StrictMode`, which
+   * tears an effect down and sets it up again on mount, so a drawer whose caller mounts it
+   * already open was closed between the two: the platform's `close` event fired while `open` was
+   * still true, and `onClose` below reported to the caller that the reader had dismissed a drawer
+   * they had only just opened. `isConnected` separates the two teardowns — a simulated one leaves
+   * the element in the document, a real deletion does not.
+   */
+  useEffect(() => {
+    // The element is captured while the effect runs rather than read from the ref inside the
+    // cleanup: React nulls a ref during the commit that deletes the component, so by teardown
+    // `dialogRef.current` is null and there is nothing left to close.
+    const dialog = dialogRef.current;
+    return () => {
+      if (dialog?.open && !dialog.isConnected) dialog.close();
+    };
+  }, []);
+
   return (
     <dialog
       ref={dialogRef}
@@ -525,6 +552,7 @@ export function Refusal({
   grantedBy,
   children,
   action,
+  level = 3,
 }: {
   title?: string;
   /** What the account is missing, named the way the product names it. */
@@ -533,13 +561,22 @@ export function Refusal({
   grantedBy: ReactNode;
   children?: ReactNode;
   action?: ReactNode;
+  /**
+   * The title's heading level. `3` by default, because a refusal normally sits in a card under
+   * the page's own `<h1>`. A refusal that *is* the page passes `1`: the console's public landing
+   * is one card and nothing else, so at the default it published a document whose highest
+   * heading was an `<h3>` — the only branch of the shell with no `<h1>` at all. A `PageHeader`
+   * above it is not the fix, because it would print the same sentence twice.
+   */
+  level?: 1 | 3;
 }) {
+  const Heading = level === 1 ? "h1" : "h3";
   return (
     <div className="empty is-refusal">
       <span className="glyph">
         <IconShield size={20} />
       </span>
-      <h3>{title}</h3>
+      <Heading>{title}</Heading>
       {children ? <p>{children}</p> : null}
       <p className="refusal-grant">
         Needs {capability}. {grantedBy} can grant it.
@@ -869,14 +906,14 @@ type LoadState<Key, Value> = {
   error: string | null;
   /** The correlation reference of `error`, for `LoadFailure`'s own `reference` prop. */
   reference: string | null;
+  /** Why the most recent refresh over data already on screen failed, if it did. */
+  refreshError: ApiFailure | null;
   loading: boolean;
 };
 
 /** A refusal is either a bare sentence or the whole `ApiFailure` `describeApiFailure` returns. */
-const failureOf = (described: string | ApiFailure) =>
-  typeof described === "string"
-    ? { error: described, reference: null }
-    : { error: described.message, reference: described.reference };
+const failureOf = (described: string | ApiFailure): ApiFailure =>
+  typeof described === "string" ? { message: described, reference: null } : described;
 
 /**
  * Owns one keyed read lifecycle. Changing the key clears the previous entity immediately,
@@ -886,6 +923,14 @@ const failureOf = (described: string | ApiFailure) =>
  * `describeError` may answer with an `ApiFailure` instead of a sentence, which is how the
  * correlation reference reaches `LoadFailure` as its own selectable value rather than as a
  * clause a caller glued onto the end of the message.
+ *
+ * A first read that fails owns the surface through `error`; a refresh that fails answers in
+ * `refreshError` instead, because replacing a working page — and any form open on it — with a
+ * full-page failure is exactly what "reloads retain current data" promises not to do. The two
+ * are separate fields rather than one because they are separate states, and collapsing them is
+ * what made a failed refresh indistinguishable from a successful one: the rejection went
+ * nowhere, so a surface whose only control is "try again" answered the press with a
+ * byte-identical page. Callers that `await reload()` still get the rejection thrown at them.
  */
 export function useLoad<Key, Value>(
   key: Key,
@@ -899,6 +944,7 @@ export function useLoad<Key, Value>(
     data: null,
     error: null,
     reference: null,
+    refreshError: null,
     loading: true,
   });
 
@@ -910,23 +956,38 @@ export function useLoad<Key, Value>(
         data: clear ? null : current.data,
         error: null,
         reference: null,
+        refreshError: null,
         loading: true,
       }));
       try {
         const data = await loader(key);
         if (mounted.current && sequence.current === request)
-          setState({ key, data, error: null, reference: null, loading: false });
+          setState({
+            key,
+            data,
+            error: null,
+            reference: null,
+            refreshError: null,
+            loading: false,
+          });
         return data;
       } catch (reason) {
         if (mounted.current && sequence.current === request)
-          setState((current) => ({
-            key,
-            data: clear ? null : current.data,
-            ...(clear || current.data === null
-              ? failureOf(describeError(reason))
-              : { error: null, reference: null }),
-            loading: false,
-          }));
+          setState((current) => {
+            // Whether this read owns the surface: with nothing on screen there is nothing to
+            // keep, so the failure is the page. Otherwise the page stays and the failure is
+            // news beside it — kept, not dropped, so the reader learns the data is stale.
+            const owns = clear || current.data === null;
+            const failure = failureOf(describeError(reason));
+            return {
+              key,
+              data: clear ? null : current.data,
+              error: owns ? failure.message : null,
+              reference: owns ? failure.reference : null,
+              refreshError: owns ? null : failure,
+              loading: false,
+            };
+          });
         throw reason;
       }
     },
@@ -945,7 +1006,7 @@ export function useLoad<Key, Value>(
 
   const currentState = Object.is(state.key, key)
     ? state
-    : { key, data: null, error: null, reference: null, loading: true };
+    : { key, data: null, error: null, reference: null, refreshError: null, loading: true };
 
   return {
     ...currentState,

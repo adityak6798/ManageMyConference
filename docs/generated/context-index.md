@@ -332,6 +332,7 @@
 - `code` / `repository-fact`: [apps/web/src/workspaces/contract.ts](../../apps/web/src/workspaces/contract.ts)
 - `code` / `repository-fact`: [apps/web/src/workspaces/registry.tsx](../../apps/web/src/workspaces/registry.tsx)
 - `specification` / `normative`: [docs/architecture/system-context.md](../../docs/architecture/system-context.md)
+- `specification` / `normative`: [docs/quality/known-gaps.md](../../docs/quality/known-gaps.md)
 - `code` / `repository-fact`: [packages/contracts/openapi/contract.ts](../../packages/contracts/openapi/contract.ts)
 - `code` / `repository-fact`: [packages/contracts/openapi/registry.ts](../../packages/contracts/openapi/registry.ts)
 - `code` / `repository-fact`: [packages/contracts/scripts/generate-openapi.ts](../../packages/contracts/scripts/generate-openapi.ts)

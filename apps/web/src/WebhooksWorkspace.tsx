@@ -12,7 +12,9 @@
  * **The secret is shown once.** Creating a subscription answers it, and nothing can reissue it;
  * rotation is the only other time it appears. So it is displayed at the moment it exists, said to
  * be one-time, and never fetched again — beside the endpoint it signs, rather than in a banner at
- * the top of a page whose rows have since moved.
+ * the top of a page whose rows have since moved. Creation and rotation write the same single slot,
+ * so while one is unacknowledged neither control will issue another over it: rotating to recover a
+ * lost secret costs the receiver the one it is verifying with.
  *
  * **Rotation names its overlap.** The old secret keeps verifying until the instant the response
  * reports, which is the whole reason rotation is not replacement — a receiver needs time to
@@ -53,6 +55,7 @@ import {
   GutterList,
   GutterRow,
   LoadFailure,
+  Notice,
   Pill,
   Refusal,
   Section,
@@ -166,20 +169,38 @@ export function WebhooksWorkspace({ organizationId }: { organizationId: string }
             <button
               className="secondary"
               type="button"
-              disabled={busy}
+              disabled={busy || subscriptions.isRefreshing}
               onClick={() =>
-                // ERROR-INTENT: `useLoad` stores the rejection in its own error state, which this
-                // component renders; awaiting it here would only delay the handler's return.
-                void subscriptions.reload()
+                // A refusal is data already on screen, so a failed re-check lands in `useLoad`'s
+                // `refreshError`, rendered below, rather than replacing this page.
+                // ERROR-INTENT: reported there; uncaught here it only reached the browser as a
+                // rejection nobody saw, because a handler cannot await what it started.
+                void subscriptions.reload().catch(() => undefined)
               }
             >
-              Check again
+              {subscriptions.isRefreshing ? "Checking…" : "Check again"}
             </button>
           }
         >
           No subscriptions can be created until the deployment has an egress endpoint and wrapping
           keys.
         </Refusal>
+        {/*
+          The only control on this screen has to be able to answer. When the API is unreachable the
+          re-check used to redraw an identical page — the same refusal, no busy state, nothing said
+          — so the press was indistinguishable from a press that found the deployment still
+          unconfigured. This is that distinction, and it says which of the two happened.
+        */}
+        {subscriptions.refreshError ? (
+          <Notice
+            tone="error"
+            title="The re-check did not get an answer"
+            reference={subscriptions.refreshError.reference}
+          >
+            {subscriptions.refreshError.message} Whether webhooks have been configured since is
+            still unknown — this only says the check itself did not complete.
+          </Notice>
+        ) : null}
       </Section>
     );
   if (subscriptions.error)
@@ -193,6 +214,25 @@ export function WebhooksWorkspace({ organizationId }: { organizationId: string }
   const list =
     subscriptions.data === "unconfigured" ? [] : (subscriptions.data?.subscriptions ?? []);
   const openUrl = list.find((subscription) => subscription.id === openSubscription)?.url ?? "";
+  /*
+   * A secret nobody has acknowledged blocks both controls that would issue a second one.
+   *
+   * There is one slot on this screen for a value that exists nowhere else, and creation and
+   * rotation both write it. Without this, rotating one endpoint and then adding another replaced
+   * the rotation secret with the new one before anybody had stored it — and rotating again to
+   * recover is not free: the store keeps a single previous secret, so the second rotation retires
+   * the secret the receiver is actually verifying with, inside the overlap window that exists to
+   * stop precisely that. `SavedEmbeds` holds the same shape of value the same way.
+   *
+   * It asks whether the secret is *on screen*, not whether one was issued, because the row is the
+   * only place it is ever drawn. A create whose reload does not come back — the API answered the
+   * POST and then stopped answering — leaves an issued secret with no row to render it: no value
+   * to read, no "I have stored it" to press, and the sentence under the form pointing at a row
+   * that is not there. Derived from `issued` alone the guard then held both controls closed for
+   * the rest of the session over a secret nobody was ever shown. The value is kept rather than
+   * dropped, so a later reload that does return the row shows it again.
+   */
+  const holding = list.some((subscription) => subscription.id === issued?.subscriptionId);
 
   async function submit(formEvent: FormEvent) {
     formEvent.preventDefault();
@@ -266,6 +306,13 @@ export function WebhooksWorkspace({ organizationId }: { organizationId: string }
                           >
                             I have stored it
                           </button>
+                          {/* Why the rotate and create controls are inert while this is up. A
+                              disabled button with no reason beside it reads as a broken one. */}
+                          <p className="hint">
+                            Rotating another secret and adding an endpoint stay unavailable until
+                            this is stored — either would replace it here, and nothing can show it
+                            again.
+                          </p>
                         </div>
                       ) : null}
                     </td>
@@ -299,7 +346,7 @@ export function WebhooksWorkspace({ organizationId }: { organizationId: string }
                       <button
                         className="secondary small"
                         type="button"
-                        disabled={busy}
+                        disabled={busy || holding}
                         onClick={() =>
                           run("Signing secret rotated.", async () => {
                             const rotated = await rotateWebhookSecret(
@@ -378,10 +425,18 @@ export function WebhooksWorkspace({ organizationId }: { organizationId: string }
             <button
               className="primary"
               type="submit"
-              disabled={busy || !url.trim() || eventTypes.length === 0}
+              disabled={busy || holding || !url.trim() || eventTypes.length === 0}
             >
               Add webhook
             </button>
+            {/* The form is a scroll away from the row holding the secret, so the reason it
+                refuses has to be here too rather than only up there. */}
+            {holding ? (
+              <p className="hint">
+                Store the signing secret shown on the row above first — creating another endpoint
+                would issue a second secret over it.
+              </p>
+            ) : null}
           </div>
         </form>
       </Section>

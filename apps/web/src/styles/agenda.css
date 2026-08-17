@@ -278,11 +278,16 @@
   font-weight: var(--fw-semibold);
   text-align: left;
 }
-/* The duration is the second half of the measure: how long the row runs, under when it starts. */
+/*
+ * The duration is the second half of the measure: how long the row runs, under when it starts.
+ * It sets in --slate like every other gutter figure. At --ink-4 it measured 2.81:1 on --surface,
+ * which is a reader-facing figure below AA — and being aria-hidden does not excuse it, because
+ * the visible reading is the only one a low-vision sighted reader gets.
+ */
 .agenda .board-duration {
   display: block;
   margin-top: 2px;
-  color: var(--ink-4);
+  color: var(--slate);
   font-family: var(--font-mono);
   font-size: var(--text-2xs);
   font-variant-numeric: tabular-nums;

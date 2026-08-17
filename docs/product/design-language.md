@@ -13,10 +13,15 @@ The tokens this document describes are declared once, in `apps/web/src/styles/to
 controls are drawn once, in `apps/web/src/styles/controls.css`. A name not declared there does not
 exist: `var(--gone)` resolves to nothing and the property is silently dropped, which is why
 `tools/check-css-tokens.mjs` refuses a reference with no declaration and
-`apps/web/test/tokens.test.ts` refuses a declaration going missing. The same gate refuses the
-mirror case — a class a stylesheet selects on that no component names — because 26 forms once
-shipped `.stack` and `.form-stack` before the rules that space them existed, and rendered with
-neither.
+`apps/web/test/tokens.test.ts` refuses a declaration going missing. A reference is a reference
+wherever it is written, so `style={{ marginTop: "var(--typo)" }}` in a component fails the same way.
+The same gate refuses the mirror case — a class a stylesheet selects on that no component names —
+because 26 forms once shipped `.stack` and `.form-stack` before the rules that space them existed,
+and rendered with neither. Read that direction carefully: the gate proves no rule is dead, not that
+every class a component names has a rule, so the 26-form defect itself would still pass it
+(`GAP-033`). Comments are not usage — a class named only in prose is dead — but a name that
+collides with an identifier still reads as used, which is the loose side the check deliberately
+errs on.
 
 ## Principles
 
@@ -45,18 +50,19 @@ configured — the accent.
 
 - **Neutrals.** `--ink` headings and primary text · `--ink-2` body copy that is not a heading ·
   `--slate` secondary text, gutter figures, descriptions, every metadata label · `--ink-4` disabled
-  glyphs, and a placeholder only where it is decoration over a real value · `--paper` page canvas ·
-  `--surface` working surfaces, and the correct value for text on a dark ground · `--surface-2` the
-  inset ground of a header row or nested field · `--rule` hairlines · `--rule-strong` control
-  borders.
-- **`--ink-4` never carries text a reader has to read**, and a control's placeholder usually is
+  controls and non-text glyphs, and never a placeholder · `--paper` page canvas · `--surface`
+  working surfaces, and the correct value for text on a dark ground · `--surface-2` the inset
+  ground of a header row or nested field · `--rule` hairlines · `--rule-strong` control borders.
+- **`--ink-4` never carries text a reader has to read**, and a control's placeholder is exactly
   that text: until something is chosen, the placeholder is the entire visible content of a
-  `Select` or `Combobox`. So `.select-value.is-placeholder` and `.combobox-input::placeholder` set
-  in `--slate` (5.95:1); at `--ink-4` they measured 2.81:1 on white and axe reported a serious
-  contrast violation on the public call for proposals, where that placeholder was the whole of two
-  required questions. Disabled controls keep `--ink-4`, which WCAG exempts, and so does
-  `.datetime-value.is-empty`, because that span is `aria-hidden` decoration over a real native
-  input that carries the value itself.
+  `Select`, a `Combobox` or a date field. So `.select-value.is-placeholder`,
+  `.combobox-input::placeholder` and `.datetime-value.is-empty` all set in `--slate`, which
+  measures 6.04:1 on `--surface`; at `--ink-4` they measured 2.81:1 on the same ground and axe
+  reported a serious contrast violation on the public call for proposals, where that placeholder
+  was the whole of two required questions. The date field looked like an exception and is not:
+  `.datetime-native` is `opacity: 0` with `color: transparent`, so the span is not decoration over
+  a visible native value — it is the only thing an unfilled date field renders. Disabled controls
+  keep `--ink-4`, which WCAG exempts.
 - **Green.** `--green` marks the primary action, the current navigation item, the focus ring, and
   the selected rail. Nothing else, and never a page wash. `--green-strong` is hover and pressed on a
   green ground, `--green-soft` a selected row or rail tint, `--green-line` a hairline on that tint.
@@ -115,13 +121,16 @@ configured — the accent.
   instead.
 - **Elevation is for things that float over the page**: `--shadow-md` for popovers, `--shadow-lg`
   for dialogs and drawers. A card gets a hairline and nothing else. There is no card shadow.
-- **Stacking order**, in the one order the product uses. Anchored to the page: 1 sticky table
-  header · 8 the agenda's board bar · 10 the call-for-proposals status bar · 19 the shell's own
-  pinned alert. Floating over it: 20 topbar · 30 account popover · 40 select, combobox, and menu
-  popovers, and the mobile navigation scrim · 50 command palette and the mobile navigation drawer ·
-  100 skip link. Everything from 8 to 19 is a band that sticks *under* the topbar at `--topbar-h`
-  and scrolls beneath it, which is what those three values buy. The drawer is a native `<dialog>`
-  and rises above all of them in the top layer, which is why it needs no z-index of its own. A new
+- **Stacking order**, in the one order the product uses. Anchored to the page: 1 a sticky table
+  header, or anything that has only to clear its own siblings · 2 a frozen row axis · 3 the corner
+  above both frozen axes · 8 the agenda's board bar · 10 the call-for-proposals status bar · 19 the
+  shell's own pinned alert. Floating over it: 20 topbar · 30 account popover · 40 select, combobox,
+  and menu popovers, and the mobile navigation scrim · 50 command palette and the mobile navigation
+  drawer · 100 skip link. 1 to 3 order the parts of one surface against each other — the agenda
+  board freezes both axes, so its row axis clears the sticky header it scrolls under and the corner
+  clears both. Everything from 8 to 19 is a band that sticks *under* the topbar at `--topbar-h` and
+  scrolls beneath it, which is what those three values buy. The drawer is a native `<dialog>` and
+  rises above all of them in the top layer, which is why it needs no z-index of its own. A new
   surface takes one of these numbers rather than inventing a value.
 
 ### The cue gutter — the signature
@@ -177,14 +186,25 @@ right of the spine.
   timezones is the length a native popup is worst at), `Checkbox`, `Radio` and `RadioGroup`,
   `DateTimeField` with its `DateField` / `TimeField` shorthands, `SegmentedControl` for a bounded
   choice worth showing in full, `CopyableSecret` for a value that exists to be copied once, and
-  `Menu` for the once-a-season actions that used to line up as buttons. They replaced 73 native
-  `<select>`s and 21 native date inputs, each of which was drawn by the reader's operating system
-  and by no rule in this document. A native control that a lane has not converted still gets the
-  reset and the height, so it looks like the tier rather than like Windows; it does not get the
-  tier's keyboard rules, which is the reason to convert it.
+  `Menu` for the once-a-season actions that used to line up as buttons. The console they replaced
+  drew its pickers with the reader's operating system and by no rule in this document: it held 72
+  native `<select>`s and 20 native date and time inputs before the rebuild, and holds 41 and 21
+  after it, so **the conversion is real and unfinished** — count it yourself before repeating a
+  number, and read `GAP-032` for where the remainder sits. A native control that a lane has not
+  converted still gets the reset and the height, so it looks like the tier rather than like
+  Windows; it does not get the tier's keyboard rules, which is the reason to convert it.
 - **A menu is not a select.** A menu runs actions and holds no value; a select holds a value and
   runs nothing. They live in separate modules for that reason, and a surface reaching for one when
   it means the other is the mistake the split exists to make visible.
+- **The tier draws its own buttons and places its own popovers.** A control the tier renders may
+  only name a class `styles/controls.css` declares, because a shared control is mounted on public
+  surfaces that never load the console shell — `Menu`'s default trigger and `CopyableSecret`'s copy
+  control are therefore `control-button`, not the console's `secondary small`, which would have
+  reached the reader as an operating-system button on the public call for proposals. A menu popover
+  is placed in viewport coordinates with `position: fixed`, measured from its trigger and flipped
+  above it when there is no room below, because an ancestor that scrolls one axis clips the other:
+  `.table-wrap` declares only `overflow-x`, and CSS computes the `visible` beside it back to `auto`,
+  so an anchored popover was clipped by the very table its row actions sit in.
 - **Forms:** labels remain visible; helper text explains constraints before failure; errors attach to
   their field and an action-level summary appears when several fields fail.
 - **A destructive or irreversible action is confirmed in a drawer**, not in a `window.confirm` and
@@ -232,7 +252,11 @@ right of the spine.
 
 ## Vocabulary and error copy
 
-- **No surface prints a raw enum or a permission token.** `apps/web/src/ui/vocabulary.ts` holds the
+- **No surface *labels* anything with a raw enum or a permission token.** A wire token may appear
+  only as a subordinate lookup key beside its plain-language label and consequence, never in place
+  of one — the roles editor prints `reports:pii` under the label because an admin matches that exact
+  string against an API client, and it is set in the mono face at the smallest size for that reason.
+  `apps/web/src/ui/vocabulary.ts` holds the
   shared maps — proposal status, submitter proposal state, delivery state, site state, session
   publication state, report dataset, embed view — with a tone beside each state so the same state is
   never amber on one screen and grey on the next. An event's own configured status labels win over

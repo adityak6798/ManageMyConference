@@ -195,11 +195,18 @@
   font-weight: var(--fw-semibold);
 }
 
-/* The wire spelling, present but subordinate: it is a lookup key, not the label. */
+/*
+  The wire spelling, present but subordinate: it is a lookup key, not the label.
+
+  Subordinate is the mono face and the smaller size, not a dimmer ink. It was --ink-4, which is
+  2.81:1 on white and is reserved for disabled glyphs and decoration over a real value — and this
+  is neither: an admin matching a role against an API client reads these characters one by one,
+  at 11px, which is the hardest text on the surface to make out.
+*/
 .capability-token {
   font-family: var(--font-mono);
   font-size: var(--text-2xs);
-  color: var(--ink-4);
+  color: var(--slate);
 }
 
 /* A role's granted capabilities, in the same words, on the roles table. */

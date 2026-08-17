@@ -269,7 +269,56 @@ describe("the command palette", () => {
 
     type("keynote");
 
-    expect(await screen.findByText(/Reference: ref-9/)).toBeInTheDocument();
+    // The reference is data, not prose: its own measure line with a copy control, rather than an
+    // identifier glued to the end of a paragraph that a reader has to select by hand.
+    const reference = await screen.findByText("ref-9");
+    expect(reference.tagName).toBe("CODE");
+    expect(reference).toHaveClass("figure");
+    expect(screen.getByRole("button", { name: "Copy the reference" })).toBeInTheDocument();
+  });
+
+  it("says the copy outcome in the one live region it owns, not a second one", async () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+    stubFetch(
+      {
+        error: { code: "INTERNAL_ERROR", message: "Something went wrong.", correlationId: "ref-9" },
+      },
+      500,
+    );
+    render(<CommandPalette eventId={eventId} access={noDestinations} open onClose={vi.fn()} />);
+    type("keynote");
+    const copy = await screen.findByRole("button", { name: "Copy the reference" });
+
+    fireEvent.click(copy);
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("ref-9"));
+    const announce = document.querySelector("[aria-live]") as HTMLElement;
+    await waitFor(() => expect(announce).toHaveTextContent("Reference copied."));
+    // A second polite region racing the first is the trap `ACC-AGENDA` records, so the outcome
+    // joins the sentence already in this one rather than mounting its own.
+    expect(document.querySelectorAll("[aria-live], [role='status']")).toHaveLength(1);
+    // The refusal lives nowhere else on the panel, so the copy outcome is added to it rather
+    // than put in its place.
+    expect(announce).toHaveTextContent("Something went wrong. Reference copied.");
+  });
+
+  it("reports a refused clipboard rather than a button that silently does nothing", async () => {
+    vi.stubGlobal("navigator", { ...navigator, clipboard: undefined });
+    stubFetch(
+      {
+        error: { code: "INTERNAL_ERROR", message: "Something went wrong.", correlationId: "ref-9" },
+      },
+      500,
+    );
+    render(<CommandPalette eventId={eventId} access={noDestinations} open onClose={vi.fn()} />);
+    type("keynote");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Copy the reference" }));
+
+    expect(
+      await screen.findByText(/This browser refused the clipboard\. Select the reference/),
+    ).toBeInTheDocument();
   });
 
   /**
@@ -324,7 +373,11 @@ describe("the command palette", () => {
     const options = screen.getAllByRole("option");
     expect(options[options.length - 1]).toBe(seeAll);
     fireEvent.click(seeAll);
-    expect(window.location.pathname + window.location.search).toBe(`/search?event=${eventId}`);
+    // The query travels with the reader. A row labelled "See all results for “keynote”" that
+    // lands on an empty form is the option promising something the destination cannot deliver.
+    expect(window.location.pathname + window.location.search).toBe(
+      `/search?event=${eventId}&q=keynote`,
+    );
   });
 
   it("names the keys it is driven by rather than a Close button that scrolled away", () => {

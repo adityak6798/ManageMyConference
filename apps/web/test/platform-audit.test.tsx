@@ -92,8 +92,16 @@ describe("the audit timeline surface", () => {
     await waitFor(() => expect(calls).toHaveLength(2));
     expect(calls[1]).toContain("cursor=");
     // Both on screen: this is one continuous list the reader is walking down.
+    //
+    // The second row is awaited rather than sampled. `calls` is pushed to inside the fetch stub,
+    // so the wait above is satisfied the moment the request is *issued* — the page it answers with
+    // is a further round trip away, and every assertion below describes that page. Sampling here
+    // also made the last line a false pass: while the read is in flight the control renders
+    // "Loading…", so it is absent whether or not the cursor was cleared.
+    expect(
+      await screen.findByRole("row", { name: /Agenda schedule published/ }),
+    ).toBeInTheDocument();
     expect(screen.getByRole("row", { name: /Review decision accepted/ })).toBeInTheDocument();
-    expect(screen.getByRole("row", { name: /Agenda schedule published/ })).toBeInTheDocument();
     // …and the control goes away when there is nothing older.
     expect(screen.queryByRole("button", { name: "Load older records" })).not.toBeInTheDocument();
   });

@@ -162,7 +162,12 @@ describe("the requested-work tracker", () => {
       assetId: upload.id,
       body: "Wrong template — please use the 16:9 one.",
     });
-    expect(announce).toHaveBeenCalledWith("success", expect.stringContaining("headshot.png"));
+    // Waited for, because the `waitFor` above is satisfied by the request going out: the handler
+    // calls fetch before it yields, so `toHaveBeenCalled` is true while the announcement is still
+    // two ticks away — the response, its body, and the `.then` that announces.
+    await waitFor(() =>
+      expect(announce).toHaveBeenCalledWith("success", expect.stringContaining("headshot.png")),
+    );
   });
 
   it("refuses to send an empty comment rather than posting one", () => {

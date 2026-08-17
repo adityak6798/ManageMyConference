@@ -16,10 +16,10 @@ import {
   type SearchResultDto,
   type SearchSectionKey,
 } from "@greenroom/contracts";
-import { type FormEvent, useCallback, useRef, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type ApiFailure, describeApiFailure } from "../api/config";
 import { searchEvent } from "../api/platform";
-import { useLinkProps } from "../router";
+import { useLinkProps, useLocation } from "../router";
 import { IconSearch } from "../ui/icons";
 import { Card, EmptyState, LoadFailure, Notice, Pill } from "../ui/primitives";
 
@@ -50,7 +50,27 @@ const KIND_LABELS: Readonly<Record<SearchResultDto["kind"], string>> = {
 };
 
 export function SearchWorkspace({ eventId }: { eventId: string }) {
-  const [draft, setDraft] = useState("");
+  const location = useLocation();
+  /**
+   * The term the address carries, re-read on every navigation.
+   *
+   * The palette's "See all results" option is the only advertised route to this page, and it
+   * hands the term over in `q`. Ignoring it landed the reader who had already typed their query
+   * on an empty form telling them to "Enter a search to begin" — the one destination that asked
+   * them to type it a second time. Read once at mount was not enough: the palette is reachable
+   * from this page too, and the shell keys this workspace on the selected event rather than on
+   * the address, so a second hand-off changed the URL and remounted nothing — leaving the address
+   * naming one term and the page showing the answer to another. Derived from the router's
+   * location so this reacts the way every other console surface does; still guarded on the
+   * pathname, for the same reason the review queue guards its own, so an unrelated surface's `q`
+   * cannot seed this one.
+   */
+  const carried = useMemo(() => {
+    const [pathname, search = ""] = location.split("?");
+    if (pathname !== "/search") return "";
+    return (new URLSearchParams(search).get("q") ?? "").trim();
+  }, [location]);
+  const [draft, setDraft] = useState(carried);
   const [answer, setAnswer] = useState<SearchResponseDto | null>(null);
   const [busy, setBusy] = useState(false);
   /** The last query that was actually asked, so the retry re-asks it rather than the draft. */
@@ -89,6 +109,19 @@ export function SearchWorkspace({ eventId }: { eventId: string }) {
     },
     [eventId],
   );
+
+  // Asked whenever the address names a term, and only when it is long enough to be a search at
+  // all: a shorter one seeds the box and waits, rather than opening the page on a refusal nobody
+  // asked for. The box follows the address too — a hand-off that replaced the term and left the
+  // previous one in the field would make the next search start from a term nobody chose. A
+  // search submitted from this page does not rewrite the address, so this cannot re-ask it.
+  useEffect(() => {
+    if (!carried) return;
+    setDraft(carried);
+    if (carried.length < SEARCH_QUERY_MIN_LENGTH) return;
+    // ERROR-INTENT: run() renders both outcomes into its own state; nothing here awaits it.
+    void run(carried);
+  }, [carried, run]);
 
   function submit(formEvent: FormEvent) {
     formEvent.preventDefault();

@@ -193,7 +193,12 @@ describe("the operational inbox", () => {
     const deliveries = within(
       (await screen.findByRole("region", { name: "Deliveries that failed" })) as HTMLElement,
     );
-    expect(deliveries.getByText(/Reference: ref-3/)).toBeInTheDocument();
+    // The reference is its own selectable value with its own copy control, not a clause in the
+    // middle of the sentence — the one part of a failure a reader quotes character by character.
+    const reference = deliveries.getByText("ref-3");
+    expect(reference.tagName).toBe("CODE");
+    expect(reference).toHaveClass("figure");
+    expect(deliveries.getByRole("button", { name: "Copy the reference" })).toBeInTheDocument();
     // The page did not blank: the categories that answered are still on screen.
     expect(screen.getByRole("link", { name: "Confirm profile details" })).toBeInTheDocument();
     expect(screen.getByText(/1 item is waiting/)).toBeInTheDocument();

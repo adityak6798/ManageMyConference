@@ -2,13 +2,21 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-describe("API origin configuration", () => {
-  afterEach(() => {
-    vi.unstubAllEnvs();
-    vi.unstubAllGlobals();
-    vi.resetModules();
-  });
+/*
+ * File-scoped, not describe-scoped, because `src/api/config.ts` reads `VITE_API_BASE_URL` at
+ * module scope: the first import in the file decides `apiBase` for every later one. With this
+ * reset inside the first describe, running the second one first cached the module with no base
+ * URL and left the first describe's `vi.stubEnv` inert — "prefixes API paths and normalizes a
+ * configured trailing slash" then failed on 14 of 16 `--sequence.shuffle` seeds while passing
+ * under the plain `vitest run` that CI and `npm run check` use.
+ */
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+  vi.resetModules();
+});
 
+describe("API origin configuration", () => {
   it("keeps local API requests relative by default", async () => {
     const nativeFetch = vi.fn().mockResolvedValue(new Response());
     vi.stubGlobal("fetch", nativeFetch);

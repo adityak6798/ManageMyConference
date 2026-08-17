@@ -8,13 +8,18 @@
 //      a heading with no colour, or a row with no gap — and nothing anywhere says so. The
 //      design-foundation rebuild renamed --canvas, --muted, --line, --shadow-sm and the
 //      whole eight-step green ramp, which is exactly the change that leaves this behind.
-//   2. A class selector no component names. This is the one that bit: `.stack`, `.inline`
+//   2. A class selector no component names — dead CSS left behind by a migration, which is
+//      how a stylesheet grows a second, stale answer to a question the product has already
+//      settled. It is the mirror of the incident that prompted this file: `.stack`, `.inline`
 //      and `.form-stack` were written into 26 forms before the rules that give them their
-//      spacing existed, and the forms rendered with none. The mirror case is dead CSS left
-//      behind by a migration, which is how a stylesheet grows a second, stale answer to a
-//      question the product has already settled.
+//      spacing existed, and the forms rendered with none. Read the direction carefully — the
+//      incident's own direction is the one below, and it is not covered.
 //
 // What it deliberately does NOT cover
+//   * A class a *component* names that no stylesheet declares — the `.stack` direction. It
+//     needs an oracle for the class names a component builds at runtime, which this file has
+//     only in the loose form `classUsage` documents; asserting the reverse from that would
+//     fail working code. Recorded as a gap in docs/quality/known-gaps.md (`GAP-033`).
 //   * Whether a class is *reachable* — a component may name a class it never renders.
 //     Proving that needs the render tree, and the browser suite owns behaviour.
 //   * Element and attribute selectors. `.data-label` styling and `button.primary` are
@@ -49,8 +54,8 @@ export const EXEMPT_CLASSES = new Map([
     "controls.css publishes the square glyph button for the workspaces that still hand-roll one; the first adopter removes this entry.",
   ],
   [
-    "tabular",
-    "tokens.css publishes the tabular-figures utility for markup outside the component tier; index.html and the embed views are its callers.",
+    "spine",
+    "shell.css declares the cue-gutter edge once so a surface drawing its own measure column — a table's first cell, the agenda board's time axis — reuses the line rather than redrawing it; no such surface names it yet.",
   ],
 ]);
 
@@ -65,9 +70,18 @@ function files(directory, extensions) {
 
 const lineOf = (text, index) => text.slice(0, index).split("\n").length;
 
-/** Comments blanked out, keeping every byte offset so reported line numbers stay true. */
+/**
+ * Comments blanked out, keeping every byte offset so reported line numbers stay true.
+ *
+ * A `//` run is only taken as a comment when nothing but whitespace precedes it on its line.
+ * That is deliberately narrower than the language: `href="https://…"` must survive, and a
+ * trailing comment left in place can only make a class look used, never make working code
+ * look dead.
+ */
 const withoutComments = (text) =>
-  text.replace(/\/\*[\s\S]*?\*\//g, (comment) => comment.replace(/[^\n]/g, " "));
+  text
+    .replace(/\/\*[\s\S]*?\*\//g, (comment) => comment.replace(/[^\n]/g, " "))
+    .replace(/^[ \t]*\/\/.*$/gm, (comment) => " ".repeat(comment.length));
 
 /** Every custom property a stylesheet declares, wherever it declares it. */
 export function declaredProperties(text) {
@@ -145,9 +159,16 @@ export function selectorClasses(text) {
  * the prefix before `${` counts as naming every class that starts with it. It is a
  * deliberately loose rule — a false "used" is a stylesheet that keeps a rule too long,
  * while a false "unused" would make the gate lie about working code.
+ *
+ * Loose is not the same as inert, which is why comments are blanked first. Prose is the one
+ * place a class name can appear that is certainly not a use: `.spine` and `.denied` were both
+ * dead rules the gate called used, because "spine" is written into four component headers
+ * describing the cue gutter and "denied" into five sentences about clipboard permission. What
+ * stays loose after this is a name that collides with an identifier or with unrelated string
+ * content, which errs in the tolerated direction.
  */
 export function classUsage(sources) {
-  const text = sources.map((source) => source.text).join("\n");
+  const text = sources.map((source) => withoutComments(source.text)).join("\n");
   const prefixes = [...text.matchAll(/([\w-]+)\$\{/g)]
     .map((match) => match[1])
     .filter((prefix) => prefix.length > 1);
@@ -169,11 +190,13 @@ export function analyse({ stylesheets, sources, exemptions = EXEMPT_CLASSES }) {
   for (const source of sources)
     for (const name of inlineDeclaredProperties(source.text)) declared.add(name);
 
-  for (const sheet of stylesheets)
-    for (const reference of referencedProperties(sheet.text)) {
+  // Sources are read for `var()` too: `style={{ marginTop: "var(--s-4)" }}` drops just as
+  // silently as the same typo in a stylesheet, and there is no rule anywhere for it to live in.
+  for (const file of [...stylesheets, ...sources])
+    for (const reference of referencedProperties(file.text)) {
       if (reference.fallback || declared.has(reference.name)) continue;
       problems.push(
-        `${sheet.path}:${reference.line}: \`var(${reference.name})\` has no declaration and no ` +
+        `${file.path}:${reference.line}: \`var(${reference.name})\` has no declaration and no ` +
           "fallback, so the property resolves to nothing. Declare the token or give it a fallback.",
       );
     }

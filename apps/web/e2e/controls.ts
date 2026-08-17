@@ -57,13 +57,29 @@ export async function chooseOption(
  * The filtering variant exists for a list too long to scan — roughly 400 timezones is the one
  * length a native select popup is worst at. The textbox holds the filter, never the value, so
  * typing narrows and Enter commits whatever the list is pointing at.
+ *
+ * `commits` is the label the field settles on, which defaults to the filter because a timezone's
+ * label *is* the id typed to find it. Pass it where the two differ.
  */
-export async function filterAndCommit(page: Page, control: Locator, text: string): Promise<void> {
+export async function filterAndCommit(
+  page: Page,
+  control: Locator,
+  text: string,
+  commits: string = text,
+): Promise<void> {
   // Narrowed for the reason `chooseOption` gives: the popover shares the field's label.
   const input = control.and(page.getByRole("combobox"));
   await input.fill(text);
   await input.press("Enter");
-  await expect(input).toHaveValue(text);
+  /*
+   * The popover closes only when the commit lands, so this is the assertion that separates the
+   * two outcomes — and the one this helper was missing while `chooseOption` had it.
+   * `toHaveValue` alone cannot separate them: the textbox shows the live filter, so a filter
+   * that matched nothing enabled leaves the typed text in place and the spec passes on the
+   * string it typed itself. For a field whose label equals its value, that is every outcome.
+   */
+  await expect(input).toHaveAttribute("aria-expanded", "false");
+  await expect(input).toHaveValue(commits);
 }
 
 /** Point the console at another event. The switcher is the shell's own listbox. */

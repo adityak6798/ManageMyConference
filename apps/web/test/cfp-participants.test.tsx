@@ -3,7 +3,13 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ParticipantsEditor } from "../src/cfp/ParticipantsEditor";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  // The UUID spy below is installed inside a test and would otherwise outlive it: nothing in this
+  // workspace's vitest config restores mocks, so every later test in this file would mint the same
+  // participant id — a fixture one test owns, silently applied to the rest.
+  vi.restoreAllMocks();
+});
 
 describe("proposal participants", () => {
   it("adds, edits, assigns a role, and removes a structured participant", () => {
