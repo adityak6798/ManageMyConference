@@ -156,7 +156,10 @@ export function PipelineStageEditor({
 
   return (
     <div className="stage-editor">
-      {stages.length === 0 ? (
+      {/* The draft's emptiness, not the saved board's: every row below is drawn from the draft,
+          so asking `stages` here meant the first stage added to an empty board was accepted,
+          counted as unsaved, and shown nowhere — "No stages yet" above a live Save board. */}
+      {draft.length === 0 ? (
         <EmptyState icon={<IconDashboard size={20} />} title="No stages yet">
           Add the first column of this event's board.
         </EmptyState>

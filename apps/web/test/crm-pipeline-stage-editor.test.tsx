@@ -8,10 +8,15 @@
  * off with no message and nothing to undo from, which is losing typed work rather than a rough
  * edge. The editor is rendered directly, the way the Accelevents panel's tests do, because the
  * property is about this component's own state rather than about anything the server said.
+ *
+ * The last case is the exception, and mounts the whole workspace: what it pins is not the
+ * editor's state but *which board the workspace hands it*, and the board only fails to be there
+ * while the workspace's first read is in flight.
  */
 import type { PipelineStageDto, StageCategoryDto } from "@greenroom/contracts";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { CrmWorkspace } from "../src/CrmWorkspace";
 import { PipelineStageEditor } from "../src/crm/PipelineStageEditor";
 
 const eventId = "00000000-0000-4000-8000-000000000001";
@@ -35,12 +40,12 @@ const stages = [
   stage("converted", "Converted", 2, "won"),
 ];
 
-function mount() {
+function mount(board: readonly PipelineStageDto[] = stages) {
   const onSave = vi.fn();
   const onDelete = vi.fn();
   render(
     <PipelineStageEditor
-      stages={stages}
+      stages={board}
       counts={new Map([["engaged", 2]])}
       busy={false}
       onSave={onSave}
@@ -57,7 +62,10 @@ function mount() {
   return { onSave, onDelete, firstName, remove };
 }
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 describe("ACC-CRM pipeline stage editor", () => {
   it("refuses to remove a stage while a rename is unsaved, and keeps the rename", () => {
@@ -102,5 +110,97 @@ describe("ACC-CRM pipeline stage editor", () => {
     fireEvent.click(screen.getByRole("button", { name: /Remove and move them/ }));
     // Converted is never a destination, so the offered default is the other open stage.
     expect(onDelete).toHaveBeenCalledWith("engaged", "identified");
+  });
+
+  it("shows the first stage added to an empty board instead of the empty state", () => {
+    mount([]);
+    fireEvent.change(screen.getByLabelText("New stage name"), {
+      target: { value: "Shortlisted" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add stage" }));
+
+    // Every row is drawn from the draft, so the empty state has to ask the draft too: reading
+    // the saved board there counted the stage as unsaved and drew "No stages yet" over it.
+    expect(screen.queryByText("No stages yet")).toBeNull();
+    expect(screen.getByLabelText("Stage name")).toHaveValue("Shortlisted");
+    expect(screen.getByRole("button", { name: "Save board" })).toBeEnabled();
+  });
+});
+
+/*
+ * The board arriving late.
+ *
+ * `stages` is `[]` until the workspace's first read lands, and an empty array is not a board —
+ * it is the absence of one. Handed that placeholder, this editor did what it does with any
+ * board: took it as the thing being drafted. So a stage typed before the read landed was
+ * discarded by the re-seed the arriving board triggers, leaving Save board permanently disabled
+ * with nothing said; and a save sent *before* it landed posted a one-stage board, a whole-board
+ * replacement that deleted every stage the read had not delivered. Only the server refusing to
+ * drop Converted stopped that from stranding prospects.
+ *
+ * Which of the two happened turned on milliseconds, so on a fast machine neither did: this
+ * reached CI as a browser journey that passed on every developer's Mac and failed on the runner.
+ */
+describe("ACC-CRM stage editor over a board that has not loaded", () => {
+  const eventStages = [
+    { key: "identified", label: "Identified", category: "open", sortOrder: 0 },
+    { key: "contacted", label: "Contacted", category: "open", sortOrder: 1 },
+    { key: "converted", label: "Converted", category: "won", sortOrder: 2 },
+  ].map((entry, index) => ({
+    ...entry,
+    id: `52000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+    eventId,
+    createdAt: "2026-08-14T00:00:00.000Z",
+  }));
+
+  it("withholds the editor until the board is there, then drafts against the real one", async () => {
+    // The read is held open rather than delayed by a timer, so the ordering this pins is the
+    // one the test states rather than one a loaded machine might reorder.
+    let deliverBoard!: () => void;
+    const board = new Promise<void>((resolve) => {
+      deliverBoard = resolve;
+    });
+    const sent: unknown[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (init?.method && init.method !== "GET") sent.push(JSON.parse(String(init.body)));
+        if (url.endsWith("/prospects/owners"))
+          return new Response(JSON.stringify({ owners: [] }), { status: 200 });
+        if (url.includes("/pipeline/stages")) {
+          await board;
+          return new Response(JSON.stringify({ stages: eventStages }), { status: 200 });
+        }
+        if (url.includes("/prospects"))
+          return new Response(JSON.stringify({ prospects: [] }), { status: 200 });
+        return new Response("{}", { status: 200 });
+      }),
+    );
+
+    render(<CrmWorkspace eventId={eventId} ownerId="seed-organizer" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Configure stages" }));
+
+    // Nothing to type into and nothing to press: the panel says it is fetching, the way the
+    // board below it does, rather than offering a draft of a board nobody has yet.
+    expect(screen.queryByLabelText("New stage name")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save board" })).toBeNull();
+    expect(screen.getByRole("status", { name: "Loading the board's stages" })).toBeTruthy();
+
+    deliverBoard();
+    const newStage = await screen.findByLabelText("New stage name");
+    fireEvent.change(newStage, { target: { value: "Shortlisted" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add stage" }));
+
+    // The draft is the event's board plus the addition, so saving it adds a column rather than
+    // replacing the board with one.
+    fireEvent.click(screen.getByRole("button", { name: "Save board" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect((sent[0] as { stages: { key: string }[] }).stages.map(({ key }) => key)).toEqual([
+      "identified",
+      "contacted",
+      "converted",
+      "shortlisted",
+    ]);
   });
 });
