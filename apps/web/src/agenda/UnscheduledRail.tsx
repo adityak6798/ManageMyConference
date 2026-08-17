@@ -31,7 +31,9 @@ export function UnscheduledRail({
   unplaced,
   heldSessionId,
   busy,
+  tracks,
   trackId,
+  onTrackChange,
   searching,
   over,
   accepts,
@@ -51,8 +53,11 @@ export function UnscheduledRail({
   /** The session being carried from this rail, if the operator is holding one. */
   heldSessionId: string | null;
   busy: boolean;
+  /** Every track a new placement could land on. */
+  tracks: readonly { id: string; name: string; color: string }[];
   /** The track a newly placed session lands on; no track means nothing can be picked up. */
   trackId: string;
+  onTrackChange: (trackId: string) => void;
   searching: boolean;
   over: boolean;
   /** Whether what is being dragged can be dropped here at all. */
@@ -112,11 +117,34 @@ export function UnscheduledRail({
         title="Unscheduled"
         hint={
           sessions.length
-            ? `${sessions.length} session${sessions.length === 1 ? "" : "s"} ready to place`
-            : "Drag a scheduled card here to remove its room and time"
+            ? "Drag a card onto the grid, or press Enter on one to pick it up and place it with the arrow keys."
+            : "Drag a scheduled card here to remove its room and time."
         }
         tight
       >
+        {/* Where a new placement lands, stated where placements start.
+            It used to sit in the filter toolbar labelled "Track" beside the search box, so it
+            read as a filter that narrowed the board — which it never did — and its visible
+            label and its accessible name disagreed. */}
+        {tracks.length ? (
+          <div className="agenda-rail-track">
+            <label htmlFor="agenda-track-for-new">New placements go to</label>
+            <select
+              id="agenda-track-for-new"
+              className="control is-sm"
+              value={trackId}
+              disabled={busy}
+              onChange={(event) => onTrackChange(event.target.value)}
+            >
+              {tracks.map((track) => (
+                <option key={track.id} value={track.id}>
+                  {track.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : null}
+
         {sessions.length ? (
           <div className="agenda-rail-select">
             <label className="agenda-rail-all">
@@ -232,12 +260,11 @@ export function UnscheduledRail({
                     onKeyDown={onSourceKeys}
                     onClick={() => (held ? onCancelCarry() : onPickUp(source))}
                   >
+                    {/* The grip is the affordance; the sentence explaining it is said once in
+                        the panel hint above rather than repeated under every card. */}
+                    <IconGrip size={16} className="sched-grip" />
                     <span className="sched-title">{session.title}</span>
                     {reason ? <span className="sched-unplaced">{reason}</span> : null}
-                    <span className="sched-meta">
-                      <IconGrip size={12} />
-                      Drag, or press Enter to place
-                    </span>
                   </button>
                 </div>
               );

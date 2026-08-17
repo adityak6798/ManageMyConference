@@ -166,7 +166,7 @@ export function StatusForm({
           <IconPlus size={14} />
           Add status
         </button>
-        <button type="submit" disabled={busy}>
+        <button className="primary" type="submit" disabled={busy}>
           Save statuses
         </button>
         <button type="button" className="ghost" onClick={reset} disabled={busy}>

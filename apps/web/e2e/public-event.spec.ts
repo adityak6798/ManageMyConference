@@ -1,4 +1,5 @@
 // @acceptance ACC-PUBLIC
+import { chooseOption } from "./controls";
 import { expect, test } from "./fixtures";
 
 /*
@@ -40,7 +41,8 @@ test("browses the same accessible published projection directly and embedded", a
   // rather than a hero with nothing behind it.
   await expect(page.getByText("September 1–2, 2026").first()).toBeVisible();
   await expect(page.getByText("Harbor Conference Center, Oakland").first()).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Schedule at a glance" })).toBeVisible();
+  // "at a glance" is one session per day now, so the heading says what the list is.
+  await expect(page.getByRole("heading", { name: "How each day opens" })).toBeVisible();
   await expect(
     page.locator(".pub-glance").getByRole("link", { name: "Designing the calm conference" }),
   ).toBeVisible();
@@ -101,7 +103,12 @@ test("browses the same accessible published projection directly and embedded", a
   await expect(
     page.getByRole("heading", { level: 1, name: "Designing the calm conference" }),
   ).toBeVisible();
-  await expect(page.locator(".pub-tz")).toContainText("Tuesday, September 1, 2026 at 9:00 AM PDT");
+  // When, how long, where, which track and which format are one metadata line on the detail
+  // page, in the order somebody planning a day reads them — `.pub-tz` is the standing zone
+  // statement a listing carries, and a session detail states its own time instead.
+  await expect(page.locator(".pub-meta")).toContainText(
+    "Tuesday, September 1, 2026 at 9:00 AM PDT",
+  );
   await page.getByRole("link", { name: "← All sessions" }).click();
   await expect(page.getByRole("heading", { level: 1, name: "Sessions" })).toBeVisible();
 
@@ -177,10 +184,13 @@ test("browses the same accessible published projection directly and embedded", a
   await page.getByLabel("Proposal title").fill("A public CFP submission");
   await page.getByLabel("Abstract").fill("Submitted from the public event route.");
   await page.getByLabel("Contact email").fill("public-speaker@example.com");
-  if (await page.getByLabel("Experience level").count())
-    await page.getByLabel("Experience level").selectOption("Experienced");
+  const experience = page.getByLabel("Experience level");
+  if (await experience.count()) await chooseOption(page, experience, "Experienced");
   await page.getByRole("button", { name: "Submit proposal" }).click();
-  await expect(page.getByRole("status")).toContainText(/Confirmation: [0-9a-f-]{36}/);
+  // The reference now outlives the sentence announcing it: it sits in a panel of its own, so
+  // the next click cannot take away the only handle an anonymous proposal has.
+  await expect(page.getByText("Proposal received. Your confirmation is below.")).toBeVisible();
+  await expect(page.getByText(/^[0-9a-f-]{36}$/)).toBeVisible();
   await page.request.post("/api/demo-session", { data: { persona: "organizer" } });
   const closed = await page.request.post(
     "/api/events/00000000-0000-4000-8000-000000000001/cfp/state",
@@ -203,7 +213,10 @@ test("browses the same accessible published projection directly and embedded", a
 
 test("shows a clear unpublished or unknown event state", async ({ page }) => {
   await page.goto("/events/not-published");
-  await expect(page.getByRole("heading", { name: "Event unavailable" })).toBeVisible();
+  // A dead end is a whole page: the shell, what happened, and something to press.
+  await expect(
+    page.getByRole("heading", { level: 1, name: "This event page is unavailable" }),
+  ).toBeVisible();
 });
 
 /**
@@ -284,7 +297,8 @@ test("serves an edit published during this run on the public page", async ({ pag
   await page.goto(`/publishing?event=${EVENT_ID}`);
   await page.getByRole("button", { name: "Publish changes" }).click();
   await expect(page.getByRole("status").filter({ hasText: "Published." })).toBeVisible();
-  await expect(page.getByText("Snapshot matches the draft")).toBeVisible();
+  // Exact: the paragraph under the pill repeats the phrase, so a substring matches both.
+  await expect(page.getByText("Snapshot matches the draft", { exact: true })).toBeVisible();
   await page.goto(`/events/${SLUG}/sessions`);
   await expect(page.getByRole("link", { name: original, exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: renamed })).toHaveCount(0);

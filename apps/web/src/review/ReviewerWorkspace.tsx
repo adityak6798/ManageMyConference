@@ -9,11 +9,21 @@
  */
 
 import type { ReviewerQueueDto } from "@greenroom/contracts";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getReviewerQueue } from "../api/review";
 import "../styles/review.css";
 import { IconInbox } from "../ui/icons";
-import { Card, EmptyState, Notice, Pill, useLoad } from "../ui/primitives";
+import {
+  Card,
+  EmptyState,
+  GutterList,
+  GutterRow,
+  LoadFailure,
+  Notice,
+  Pill,
+  SkeletonRows,
+  useLoad,
+} from "../ui/primitives";
 
 import { EvaluationCard } from "./EvaluationCard";
 import { message, type PillTone, ProposalAnswers } from "./shared";
@@ -32,6 +42,16 @@ export function ReviewerWorkspace({ eventId }: { eventId: string }) {
   const fetchQueue = useCallback((id: string) => getReviewerQueue(id), []);
   const describeLoadFailure = useCallback((reason: unknown) => message(reason), []);
   const { data, error, reload: load } = useLoad(eventId, fetchQueue, describeLoadFailure);
+  /*
+   * Which queue row the keyboard is on, which is not which abstract is open.
+   *
+   * The queue is a list of choices, so it takes one tab stop and the arrow keys move inside it
+   * — the pattern the agenda board already implements one directory away. Moving focus is not
+   * choosing: a reviewer arrowing past a row must not load it, because loading it replaces the
+   * abstract they are reading. Enter and Space choose, as they do on any button.
+   */
+  const [focusRow, setFocusRow] = useState(0);
+  const rowRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   /**
    * Which assignment the reviewer is working on.
@@ -53,22 +73,13 @@ export function ReviewerWorkspace({ eventId }: { eventId: string }) {
     if (resolvedId && resolvedId !== activeId) setActiveId(resolvedId);
   }, [resolvedId, activeId]);
 
-  if (error) return <Notice tone="error">{error}</Notice>;
+  if (error) return <LoadFailure what="your review queue" error={error} onRetry={load} />;
 
   if (!data)
     return (
-      <>
-        <Card tight>
-          <div className="triage-skeleton" aria-hidden="true">
-            {[0, 1, 2].map((row) => (
-              <div key={row} className="skeleton" style={{ height: 18 }} />
-            ))}
-          </div>
-        </Card>
-        <p className="visually-hidden" role="status">
-          Loading your review assignments.
-        </p>
-      </>
+      <Card>
+        <SkeletonRows rows={3} label="Loading your review assignments" />
+      </Card>
     );
 
   if (!data.assignments.length)
@@ -87,51 +98,96 @@ export function ReviewerWorkspace({ eventId }: { eventId: string }) {
   const active = resolved;
   if (!active) return null;
 
-  const remaining = data.assignments.length - completed;
+  const activeIndex = data.assignments.findIndex(
+    ({ assignment }) => assignment.id === active.assignment.id,
+  );
+  /*
+   * The next abstract that still wants an evaluation, offered when this one is finished.
+   *
+   * Finishing used to be a dead end: the completed card said "Evaluation submitted" and the
+   * reviewer had to go back to the queue and work out which row was next. The queue deliberately
+   * does not jump on its own — that was a real defect, because it swapped the abstract out from
+   * under whoever had just submitted — so the way forward is offered rather than taken.
+   */
+  const next =
+    data.assignments
+      .slice(activeIndex + 1)
+      .concat(data.assignments.slice(0, Math.max(activeIndex, 0)))
+      .find((item) => item.evaluation?.state !== "completed" && !item.conflict) ?? null;
+
+  /** Roving focus inside the queue: arrows move, Enter and Space choose. */
+  const moveFocus = (to: number) => {
+    const bounded = Math.max(0, Math.min(data.assignments.length - 1, to));
+    setFocusRow(bounded);
+    rowRefs.current[bounded]?.focus();
+  };
 
   return (
     <div className="reviewer-workspace">
-      <header className="reviewer-heading">
-        <div>
-          <p className="reviewer-eyebrow">Review workspace</p>
-          <h2>
-            {remaining
-              ? `${remaining} ${remaining === 1 ? "evaluation" : "evaluations"} left`
-              : "Your queue is complete"}
-          </h2>
-          <p>Work through assigned proposals. Drafts stay private until you complete them.</p>
-        </div>
-        <p className="reviewer-progress">
-          <strong>{completed}</strong>
-          <span>of {data.assignments.length} complete</span>
-        </p>
-      </header>
       <div className="reviewer-layout">
-        <Card
-          labelledBy="review-queue-title"
-          title="Your queue"
-          hint={`${completed} of ${data.assignments.length} complete`}
-          tight
-        >
-          <ul className="review-queue">
-            {data.assignments.map((item) => {
-              const state = queueState(item);
-              const current = item.assignment.id === active.assignment.id;
-              return (
-                <li key={item.assignment.id}>
-                  <button
-                    type="button"
-                    aria-current={current ? "true" : undefined}
-                    onClick={() => setActiveId(item.assignment.id)}
-                  >
-                    <span className="queue-title">{item.proposal.title}</span>
-                    <Pill tone={state.tone}>{state.label}</Pill>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        </Card>
+        {/*
+          The queue follows the reviewer down a long abstract. It used to scroll away with the
+          page, so by the time somebody had read a 900-word submission there was no queue on
+          screen to move on with.
+        */}
+        <div className="reviewer-queue-pane">
+          <Card
+            labelledBy="review-queue-title"
+            title="Your queue"
+            // The one statement of progress. It was made three times in 120px — a heading, a
+            // figure beside it, and this hint — under a second page header the shell had
+            // already rendered.
+            hint={`${completed} of ${data.assignments.length} complete`}
+            tight
+          >
+            <GutterList label="Abstracts assigned to you">
+              {data.assignments.map((item, index) => {
+                const state = queueState(item);
+                const current = item.assignment.id === active.assignment.id;
+                return (
+                  <GutterRow
+                    key={item.assignment.id}
+                    // Where this abstract sits in the queue: the figure the row is about.
+                    measure={index + 1}
+                    measureLabel="Abstract"
+                    active={current}
+                    title={
+                      <button
+                        type="button"
+                        className="queue-choice"
+                        aria-current={current ? "true" : undefined}
+                        tabIndex={index === focusRow ? 0 : -1}
+                        ref={(node) => {
+                          rowRefs.current[index] = node;
+                        }}
+                        onFocus={() => setFocusRow(index)}
+                        onKeyDown={(keyEvent) => {
+                          const to =
+                            keyEvent.key === "ArrowDown"
+                              ? index + 1
+                              : keyEvent.key === "ArrowUp"
+                                ? index - 1
+                                : keyEvent.key === "Home"
+                                  ? 0
+                                  : keyEvent.key === "End"
+                                    ? data.assignments.length - 1
+                                    : null;
+                          if (to === null) return;
+                          keyEvent.preventDefault();
+                          moveFocus(to);
+                        }}
+                        onClick={() => setActiveId(item.assignment.id)}
+                      >
+                        {item.proposal.title}
+                      </button>
+                    }
+                    status={<Pill tone={state.tone}>{state.label}</Pill>}
+                  />
+                );
+              })}
+            </GutterList>
+          </Card>
+        </div>
 
         <div className="review-main">
           <Card
@@ -185,6 +241,16 @@ export function ReviewerWorkspace({ eventId }: { eventId: string }) {
             // than refusing the save afterwards.
             readOnlyReason={active.roundClosedReason ?? null}
             suggestionsEnabled={data.suggestionsEnabled ?? false}
+            // Named, so finishing an evaluation offers the next abstract instead of ending in a
+            // full stop. The queue still does not move on its own.
+            {...(next
+              ? {
+                  next: {
+                    title: next.proposal.title,
+                    onOpen: () => setActiveId(next.assignment.id),
+                  },
+                }
+              : {})}
             reload={async () => {
               await load();
             }}

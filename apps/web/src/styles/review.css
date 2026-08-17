@@ -46,7 +46,7 @@
   }
   .triage-table tr {
     padding: var(--s-3);
-    border: 1px solid var(--line);
+    border: 1px solid var(--rule);
     border-radius: var(--r-md);
     background: var(--surface);
   }
@@ -59,16 +59,16 @@
     border: 0;
     white-space: normal;
     text-align: left;
+    /* A value sizes to itself. Stacked, every cell is a grid, and a grid item's default
+       `stretch` drew each status pill as a 180px bar across the card — a pill is a pill at
+       every width. */
+    justify-items: start;
   }
   .triage-table td::before {
     content: attr(data-label);
-    color: var(--muted);
+    color: var(--slate);
     font-size: var(--text-xs);
-    font-weight: 650;
-  }
-  .triage-table .decision-buttons {
-    display: flex;
-    flex-wrap: wrap;
+    font-weight: var(--fw-medium);
   }
   /*
    * `width: 1%` is the table idiom for "shrink this column to its content". Below this
@@ -81,49 +81,94 @@
     width: 100%;
     padding-top: var(--s-2);
   }
-  .triage-table td.select-cell input[type="checkbox"] {
-    justify-self: start;
-  }
 }
 
+/*
+ * Filters left, actions right.
+ *
+ * Nine controls used to run across this bar in one line, so "Track" and "Export XLSX" sat side
+ * by side carrying the same weight — nothing but the label said which of them changed the view
+ * and which of them did something. The split is the whole of the fix.
+ */
 .triage-toolbar {
   align-items: flex-end;
+  justify-content: space-between;
   padding: var(--s-4) var(--s-5);
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--rule);
 }
-.triage-toolbar .triage-search {
-  flex: 1 1 260px;
-  max-width: 420px;
+.triage-filters {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+  min-width: 0;
+  flex: 1 1 24rem;
 }
-.triage-toolbar .triage-search input {
+.triage-filters > .field:first-child {
+  flex: 1 1 16rem;
+  max-width: 26rem;
+}
+.triage-filters .select,
+.triage-filters input {
   width: 100%;
   min-width: 0;
 }
+.triage-tools {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--s-2);
+  flex-wrap: wrap;
+}
+/* One export with its formats attached: the two halves read as one control, so the seam
+   between them is the only border they do not share. */
+.triage-export {
+  display: flex;
+  align-items: center;
+}
+.triage-export > button {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.triage-export .triage-export-more {
+  margin-left: -1px;
+  padding-inline: var(--s-2);
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
 .triage-count {
-  margin-left: auto;
-  color: var(--muted);
+  color: var(--slate);
   font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
 }
-/* Select-all sits in the toolbar rather than in the table head, which the card layout
-   below 780px hides. One control, reachable at every width. */
-.triage-select-all {
-  display: flex;
+/* Select-all belongs with the actions it enables, not with the filters — and never in the
+   table head, which the card layout below 780px hides. One control, reachable at every width. */
+/* `.choice` supplies the box and its column; this only sits the pair on the bar's baseline with
+   the counts beside it. The class lands on `<Checkbox>`'s own wrapper rather than on the label,
+   so it reaches `.choice` as a descendant — it was written as `.triage-select-all.choice` while
+   this control was still hand-rolled markup with both classes on one element. */
+.triage-select-all .choice {
   align-items: center;
-  gap: var(--s-2);
   padding-bottom: 7px;
   color: var(--ink-2);
   font-size: var(--text-sm);
-  font-weight: 620;
+  font-weight: var(--fw-medium);
   white-space: nowrap;
 }
-.triage-select-all input[type="checkbox"] {
-  width: auto;
-  min-width: 0;
+.triage-select-all .choice-box {
+  /* Centred against one line of text rather than hung from the top of a wrapping label. */
+  margin-top: 0;
+}
+.triage-select-all .choice-text {
+  color: inherit;
 }
 
-/* The bulk bar only exists while rows are selected, so it announces itself with
-   a tinted band rather than sitting permanently above the table. */
+/*
+ * The selection bar: how a selection is made, how big it is, and what can be done with it.
+ *
+ * It is present whenever there are rows — otherwise "select all" would live inside the thing
+ * that only appears once something is selected — and it raises its voice only when it has a
+ * selection to act on.
+ */
 .triage-bulk {
   display: flex;
   align-items: flex-end;
@@ -132,19 +177,26 @@
   min-width: 0;
   margin: 0;
   padding: var(--s-3) var(--s-5);
-  background: var(--green-50);
+  background: var(--green-soft);
   border: 0;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--rule);
+}
+.triage-bulk.is-idle {
+  gap: var(--s-4);
+  background: none;
 }
 .triage-bulk .selection-count {
   display: flex;
   align-items: center;
   gap: var(--s-2);
   padding-bottom: 7px;
-  color: var(--green-800);
+  color: var(--green-strong);
   font-size: var(--text-sm);
-  font-weight: 650;
+  font-weight: var(--fw-medium);
   white-space: nowrap;
+}
+.triage-bulk.is-idle .selection-count {
+  color: var(--slate);
 }
 .triage-actions {
   display: flex;
@@ -170,66 +222,63 @@
   margin: 0;
   padding: 0 0 0 var(--s-5);
   border: 0;
-  border-left: 1px solid var(--line);
+  border-left: 1px solid var(--rule);
 }
 .triage-decide .group-label {
   padding: 0;
   color: var(--ink-2);
   font-size: var(--text-sm);
-  font-weight: 620;
+  font-weight: var(--fw-medium);
 }
 /* The pipeline hint says where Accepted and Declined went, so it sits under the select
    rather than competing with it for the row. */
 .triage-actions .field > .hint {
   max-width: 34ch;
-  color: var(--muted);
+  color: var(--slate);
   font-size: var(--text-xs);
 }
 .triage-feedback .notice {
   margin: var(--s-4) var(--s-5) 0;
 }
 
+/*
+ * Why "Start next round" will refuse, as the last line of the bar that holds it.
+ *
+ * It was a full-width band of `--warn-bg` below the bar: a standing condition of the round,
+ * true before anybody presses anything, painted louder than every warning on the page. As a
+ * caption it takes the bar's own row — `flex-basis: 100%` puts it on a line of its own — and
+ * says the same thing in text.
+ */
 .triage-next-round-hint {
+  flex-basis: 100%;
   margin: 0;
-  padding: var(--s-3) var(--s-5);
-  border-bottom: 1px solid var(--line);
-  background: var(--warn-bg);
-  color: var(--ink-2);
+  color: var(--slate);
   font-size: var(--text-sm);
 }
 .triage-next-round-hint strong {
-  color: var(--ink);
+  color: var(--ink-2);
+  font-weight: var(--fw-medium);
 }
 
 @media (max-width: 780px) {
   .triage-toolbar {
     align-items: stretch;
   }
-  .triage-toolbar .triage-search,
-  .triage-toolbar .field {
+  .triage-filters,
+  .triage-filters > .field:first-child,
+  .triage-tools {
     flex-basis: 100%;
     max-width: none;
   }
-  .triage-toolbar > button {
-    flex: 1 1 calc(50% - var(--s-2));
-    justify-content: center;
-  }
   .triage-count {
-    margin-left: 0;
     align-self: center;
   }
   .triage-round-bar .field,
-  .triage-round-bar select,
+  .triage-round-bar .select,
   .triage-round-bar input[type="number"] {
     width: 100%;
     max-width: none;
   }
-}
-
-.triage-skeleton {
-  display: grid;
-  gap: var(--s-3);
-  padding: var(--s-5);
 }
 
 /* --------------------------- table ---------------------------- */
@@ -250,18 +299,18 @@
   background: none;
   color: var(--ink);
   font: inherit;
-  font-weight: 620;
+  font-weight: var(--fw-medium);
   text-align: left;
 }
 .triage-table .cell-link:hover {
   background: none;
-  color: var(--green-800);
+  color: var(--green-strong);
   text-decoration: underline;
   text-underline-offset: 3px;
 }
 .triage-table tbody tr.is-open,
 .triage-table tbody tr.is-open:hover {
-  background: var(--green-50);
+  background: var(--green-soft);
 }
 
 /* Each assigned reviewer sits on their own line with the control that takes the
@@ -289,18 +338,22 @@
   margin-top: 2px;
 }
 
-/* The decision column carries a recorded outcome above its two controls, so the
-   pair reads as one cell rather than as three loose items on a dense row. */
+/*
+ * The recorded outcome, and one way in to change it. The four outcome buttons that used to
+ * sit here are in the abstract's drawer, beside the text being decided on.
+ *
+ * The cell stays a table cell and the flex row is inside it. `display: flex` on a `<td>` takes
+ * the cell out of the table's own box tree — the browser wraps it in an anonymous cell — so this
+ * column stopped taking the row's border, the hairlines between rows ended short of the Decision
+ * column, and the whole right end of the table read as a second, ragged lane.
+ */
 .triage-table td.decision-cell {
   white-space: nowrap;
 }
-.triage-table .decision-buttons {
-  display: inline-flex;
+.triage-table .decision-cell-row {
+  display: flex;
+  align-items: center;
   gap: var(--s-2);
-  flex-wrap: wrap;
-}
-.triage-table td.decision-cell .pill + .decision-buttons {
-  margin-top: var(--s-2);
 }
 
 /* ---------------------- decision dialog ----------------------- */
@@ -335,10 +388,10 @@
   gap: var(--s-2);
   align-items: flex-start;
   padding: var(--s-3);
-  border: 1px solid var(--warn-fg, var(--border));
+  border: 1px solid var(--warn-fg);
   border-radius: var(--r-md);
-  background: var(--surface-2);
-  color: var(--text);
+  background: var(--warn-bg);
+  color: var(--warn-fg);
 }
 .decision-warning svg {
   flex: none;
@@ -359,12 +412,17 @@
 .decision-question {
   font-size: var(--text-md);
 }
+/* A finished decision leaves the organizer somewhere. An acceptance has created a session and a
+   speaker, and both of them want something doing next. */
+.decision-next {
+  font-size: var(--text-sm);
+}
 .decision-question strong {
-  font-weight: 650;
+  font-weight: var(--fw-semibold);
 }
 .decision-confirm > .hint {
   max-width: var(--measure);
-  color: var(--muted);
+  color: var(--slate);
   font-size: var(--text-sm);
 }
 /* A decision over a selection names every abstract it would decide: the organizer is
@@ -377,14 +435,14 @@
   overflow: auto;
   margin: 0;
   padding: var(--s-3);
-  border: 1px solid var(--line);
+  border: 1px solid var(--rule);
   border-radius: var(--r-md);
   background: var(--surface-2);
   font-size: var(--text-sm);
 }
 .decision-list .sub {
   display: block;
-  color: var(--muted);
+  color: var(--slate);
   font-size: var(--text-xs);
 }
 .decision-errors {
@@ -400,7 +458,7 @@
 .decision-errors .error-text {
   color: var(--danger-fg);
   font-size: var(--text-xs);
-  font-weight: 600;
+  font-weight: var(--fw-medium);
 }
 /* Kept clickable-looking but inert in flight: disabling the control mid-request
    moves focus to the document body and the outcome is announced to nobody. */
@@ -418,14 +476,15 @@
   align-items: center;
 }
 
-/* ------------------------ detail panel ------------------------ */
+/* ------------------------ detail drawer ------------------------ */
 
-.proposal-detail:focus {
-  outline: none;
-}
-.proposal-detail .card {
-  border-color: var(--line-strong);
-  box-shadow: var(--shadow-md);
+/*
+ * The abstract opens over the queue rather than several thousand pixels below it, so the panel
+ * that used to need its own border, shadow and focus handling needs none of them: `Drawer`
+ * brings the surface, the backdrop and the focus trap.
+ */
+.detail-status {
+  margin-bottom: var(--s-4);
 }
 .detail-reviewers,
 .review-notes {
@@ -435,21 +494,14 @@
 .detail-term {
   display: block;
   margin-bottom: 2px;
-  color: var(--muted);
+  color: var(--slate);
   font-size: var(--text-xs);
-  font-weight: 650;
+  font-weight: var(--fw-medium);
 }
-/* In the detail card the answers open the body, so the shared divider above them
-   would read as a stray rule under the card header. */
-.proposal-detail .proposal-answers {
-  margin-top: 0;
-  padding-top: 0;
-  border-top: 0;
-}
-.proposal-detail .triage-actions {
+.drawer .triage-actions {
   margin-top: var(--s-5);
   padding-top: var(--s-4);
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--rule);
 }
 
 /* ====================== evaluation setup ====================== */
@@ -458,27 +510,43 @@
    as one more card rather than two forms competing with the triage table. */
 .review-setup {
   background: var(--surface);
-  border: 1px solid var(--line);
+  border: 1px solid var(--rule);
   border-radius: var(--r-lg);
-  box-shadow: var(--shadow-sm);
 }
 .review-setup > summary {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-2);
   padding: var(--s-4) var(--s-5);
   border-radius: var(--r-lg);
   color: var(--ink);
   font-size: var(--text-md);
-  font-weight: 620;
+  font-weight: var(--fw-medium);
   cursor: pointer;
+  /* Both spellings of "no platform triangle": the icon set draws this one. */
+  list-style: none;
+}
+.review-setup > summary::-webkit-details-marker {
+  display: none;
+}
+.setup-caret {
+  flex: none;
+  margin-top: 4px;
+  color: var(--slate);
+  transition: transform 120ms ease;
+}
+.review-setup[open] > summary .setup-caret {
+  transform: rotate(90deg);
 }
 .review-setup > summary .setup-summary-hint {
   display: block;
   margin-top: 2px;
-  color: var(--muted);
+  color: var(--slate);
   font-size: var(--text-sm);
-  font-weight: 450;
+  font-weight: var(--fw-medium);
 }
 .review-setup[open] > summary {
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--rule);
   border-radius: var(--r-lg) var(--r-lg) 0 0;
 }
 .review-setup-body {
@@ -496,7 +564,7 @@
 }
 .setup-heading .hint {
   margin-top: 2px;
-  color: var(--muted);
+  color: var(--slate);
   font-size: var(--text-sm);
   max-width: var(--measure);
 }
@@ -513,7 +581,7 @@
   gap: var(--s-3);
   align-items: end;
   padding: var(--s-4);
-  border: 1px solid var(--line);
+  border: 1px solid var(--rule);
   border-radius: var(--r-md);
   background: var(--surface-2);
 }
@@ -528,7 +596,7 @@
 .status-reserved {
   align-self: center;
   max-width: 28ch;
-  color: var(--muted);
+  color: var(--slate);
   font-size: var(--text-xs);
 }
 .rubric-row-actions {
@@ -544,7 +612,7 @@
   margin: 0;
 }
 .rubric-summary dt {
-  font-weight: 650;
+  font-weight: var(--fw-medium);
 }
 .rubric-summary dd {
   margin: 0;
@@ -553,56 +621,39 @@
 }
 .rubric-summary .sub {
   display: block;
-  color: var(--muted);
+  color: var(--slate);
   font-size: var(--text-xs);
 }
 
 /* ========================== reviewer ========================== */
 
+/*
+ * The reviewer's surface has one page header, and the shell renders it.
+ *
+ * This workspace used to add a second — an eyebrow, an h2 counting what was left, a line of
+ * explanation and a large figure — directly under the shell's own title and subtitle. Progress
+ * was stated three times inside 120px, and none of the three was the abstract the reviewer had
+ * come to read. The queue card's hint is the one statement that survives.
+ */
 .reviewer-workspace {
   display: grid;
   gap: var(--s-6);
   min-width: 0;
-}
-.reviewer-heading {
-  display: flex;
-  align-items: end;
-  justify-content: space-between;
-  gap: var(--s-6);
-}
-.reviewer-heading h2 {
-  margin-top: var(--s-1);
-  font-size: var(--text-2xl);
-}
-.reviewer-heading > div > p:last-child {
-  margin-top: var(--s-2);
-  color: var(--muted);
-}
-.reviewer-eyebrow {
-  color: var(--green-700);
-  font-size: var(--text-xs);
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-.reviewer-progress {
-  display: grid;
-  justify-items: end;
-  flex: none;
-  color: var(--muted);
-  font-size: var(--text-xs);
-}
-.reviewer-progress strong {
-  color: var(--ink);
-  font-size: var(--text-2xl);
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
 }
 .reviewer-layout {
   display: grid;
   grid-template-columns: minmax(15rem, 0.42fr) minmax(0, 1fr);
   gap: var(--s-5);
   align-items: start;
+  min-width: 0;
+}
+/* The queue follows the reviewer down a long abstract, and scrolls on its own once it is
+   taller than the viewport rather than taking the page with it. */
+.reviewer-queue-pane {
+  position: sticky;
+  top: calc(var(--topbar-h) + var(--s-4));
+  max-height: calc(100vh - var(--topbar-h) - var(--s-8));
+  overflow: auto;
   min-width: 0;
 }
 
@@ -626,55 +677,30 @@
 }
 .review-fieldset > legend {
   padding: 0;
-  color: var(--muted);
+  color: var(--slate);
   font-size: var(--text-xs);
-  font-weight: 650;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-weight: var(--fw-semibold);
 }
 
-/* One row per criterion: guidance on the left, the score control on the right,
-   and an explicit badge so "not scored" is a state a reviewer can see. */
+/*
+ * One criterion per row: its name, its guidance, and the scale itself.
+ *
+ * The scale used to be a `<select>` on the right of the row — four interactions per criterion on
+ * the control a reviewer touches more than any other in the product. It is a segmented group
+ * now, so the row is a field rather than a two-column split, and "not scored" is the state of
+ * having chosen nothing rather than a badge beside a dropdown.
+ */
 .criterion {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--s-4);
-  flex-wrap: wrap;
-  padding: var(--s-4) 0;
-  border-bottom: 1px solid var(--line);
-}
-.criterion .field {
-  flex: 1 1 220px;
   min-width: 0;
-}
-.criterion-text .field,
-.criterion-text .criterion-input {
-  flex-basis: 100%;
-}
-.criterion-text .criterion-input {
-  flex-wrap: wrap;
-}
-.criterion-text .criterion-input textarea {
-  flex-basis: 100%;
+  padding: var(--s-4) 0;
+  border-bottom: 1px solid var(--rule);
 }
 .criterion .hint {
   max-width: var(--measure);
 }
-.criterion-input {
-  display: flex;
-  align-items: center;
-  gap: var(--s-3);
-  flex: 1 1 260px;
-  min-width: 0;
-}
-.criterion-input select {
-  width: auto;
-  min-width: 130px;
-}
-.criterion-input textarea {
-  flex: 1 1 260px;
-  min-width: 0;
+.criterion textarea {
+  width: 100%;
+  min-height: 5rem;
 }
 
 .review-notes-field {
@@ -685,7 +711,7 @@
 .score-guard {
   color: var(--warn-fg);
   font-size: var(--text-xs);
-  font-weight: 620;
+  font-weight: var(--fw-medium);
 }
 .review-actions {
   margin-top: var(--s-4);
@@ -695,7 +721,7 @@
   gap: var(--s-3);
   margin-top: var(--s-5);
   padding: var(--s-4);
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--rule-strong);
   border-radius: var(--r-md);
   background: var(--surface-2);
 }
@@ -709,59 +735,48 @@
 }
 .review-scores dt {
   color: var(--ink-2);
-  font-weight: 600;
+  font-weight: var(--fw-medium);
 }
 .review-scores dd {
   margin: 0;
   overflow-wrap: anywhere;
 }
 
-.review-queue {
-  list-style: none;
-  display: grid;
-  margin: 0;
-  padding: 0;
-}
-.review-queue > li + li {
-  border-top: 1px solid var(--line);
-}
-.review-queue button {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--s-3);
+/*
+ * Each row of the queue is a choice, and its position in the queue is the measure it carries —
+ * so the row is a gutter row and the title is the control. The list takes one tab stop and the
+ * arrows move inside it; the whole title is the target, so the pointer has the same reach as
+ * the keyboard.
+ */
+.queue-choice {
+  display: block;
   width: 100%;
-  padding: var(--s-3) var(--s-5);
-  border: 0;
-  border-radius: 0;
-  background: none;
-  color: var(--ink);
-  font: inherit;
+  color: var(--ink-2);
   font-size: var(--text-sm);
+  /* The gutter title is semibold; a queue where every row is semibold says nothing about which
+     one is open, so the weight is what the current row spends. */
+  font-weight: var(--fw-medium);
   text-align: left;
-}
-.review-queue button:hover {
-  background: var(--surface-2);
-}
-.review-queue button[aria-current="true"] {
-  background: var(--green-50);
-  box-shadow: inset 3px 0 0 var(--green-700);
-  font-weight: 650;
-}
-.review-queue .queue-title {
-  min-width: 0;
   overflow-wrap: anywhere;
+}
+.queue-choice:hover {
+  color: var(--green-strong);
+  text-decoration: underline;
+}
+.queue-choice[aria-current="true"] {
+  color: var(--ink);
+  font-weight: var(--fw-semibold);
 }
 
 @media (max-width: 780px) {
-  .reviewer-heading {
-    align-items: start;
-  }
   .reviewer-layout {
     grid-template-columns: minmax(0, 1fr);
   }
-  .reviewer-progress {
-    justify-items: start;
+  /* Sticky is a desktop affordance: on a phone the queue is above the abstract, and pinning
+     it would take half the screen for a list nobody is reading. */
+  .reviewer-queue-pane {
+    position: static;
+    max-height: none;
   }
 }
 
@@ -774,7 +789,7 @@
 .suggestion-panel {
   margin-bottom: var(--s-4);
   padding: var(--s-3) var(--s-4);
-  border-left: 3px solid var(--green-700);
+  border-left: 3px solid var(--green);
   border-radius: var(--r-md);
   background: var(--surface-2);
 }
@@ -796,7 +811,7 @@
   font-size: var(--text-xs);
 }
 .suggestion-provenance dt {
-  color: var(--ink-3);
+  color: var(--slate);
 }
 .suggestion-provenance dd {
   margin: 0;
@@ -818,7 +833,7 @@
   gap: var(--s-1);
 }
 .suggestion-score dt {
-  font-weight: 600;
+  font-weight: var(--fw-medium);
 }
 .suggestion-score dd {
   display: flex;
@@ -845,15 +860,12 @@
 }
 .suggestion-rationale {
   min-width: 0;
-  color: var(--ink-3);
+  color: var(--slate);
   font-size: var(--text-sm);
   overflow-wrap: anywhere;
 }
-.suggestion-notes-choice label {
-  display: flex;
-  align-items: center;
-  gap: var(--s-2);
-}
+/* `.choice` lays the box out now; the rule that was here flattened a bare input and its text into
+   a flex row, which is exactly the arrangement the control tier already owns. */
 
 /* ========================= responsive ========================= */
 
@@ -871,16 +883,9 @@
     padding-left: 0;
     border-left: 0;
   }
-  .triage-action-row select,
-  .criterion-input select {
+  .triage-action-row select {
     min-width: 0;
     flex: 1;
-  }
-  .criterion {
-    align-items: stretch;
-  }
-  .triage-count {
-    margin-left: 0;
   }
 }
 
@@ -895,7 +900,7 @@
   align-items: flex-end;
   gap: var(--s-4);
   padding: var(--s-3) var(--s-5);
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--rule);
   background: var(--surface-2, transparent);
 }
 /*
@@ -917,7 +922,7 @@
 }
 .triage-round-summary {
   margin: 0 0 var(--s-1);
-  color: var(--muted);
+  color: var(--slate);
   font-size: var(--text-xs);
 }
 /*
@@ -969,7 +974,7 @@
   }
   .review-rounds-table tr {
     padding: var(--s-3);
-    border: 1px solid var(--line);
+    border: 1px solid var(--rule);
     border-radius: var(--r-md);
     background: var(--surface);
   }
@@ -981,12 +986,14 @@
     border: 0;
     white-space: normal;
     text-align: left;
+    /* Same reason as the triage table: a stretched grid item turns a state pill into a bar. */
+    justify-items: start;
   }
   .review-rounds-table td[data-label]::before {
     content: attr(data-label);
-    color: var(--muted);
+    color: var(--slate);
     font-size: var(--text-xs);
-    font-weight: 650;
+    font-weight: var(--fw-medium);
   }
   /* A cell's secondary line is part of its value, not a second label. */
   .review-rounds-table td[data-label] > .sub {
@@ -1002,8 +1009,34 @@
 
 .review-rounds-table td .sub {
   display: block;
-  color: var(--muted);
+  color: var(--slate);
   font-size: var(--text-xs);
+}
+.review-rounds-table .round-window {
+  white-space: nowrap;
+  color: var(--ink-2);
+}
+/* The row's actions, on one line at the end of the row, with the button first. */
+.review-rounds-table td.round-actions {
+  text-align: right;
+}
+.round-actions-row {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  /* A two-word action stays two words: the table hands this cell whatever width is left, and
+     without this "Invite new" broke across two lines while "Edit" beside it did not. */
+  white-space: nowrap;
+}
+@media (max-width: 780px) {
+  /* Stacked, the row is a card and its actions are a wrapped group under their label. */
+  .review-rounds-table td.round-actions {
+    text-align: left;
+  }
+  .round-actions-row {
+    flex-wrap: wrap;
+    white-space: normal;
+  }
 }
 .round-create,
 .round-editor {
@@ -1011,7 +1044,7 @@
   gap: var(--s-4);
   margin-top: var(--s-4);
   padding-top: var(--s-4);
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--rule);
 }
 .round-editor h4 {
   margin: 0;
@@ -1037,7 +1070,7 @@
 }
 .field-error {
   margin: var(--s-1) 0 0;
-  color: var(--danger, #b42318);
+  color: var(--danger-fg);
   font-size: var(--text-xs);
 }
 
@@ -1048,9 +1081,12 @@
   margin: var(--s-4) 0 0;
   padding: var(--s-4) 0 0;
   border: 0;
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--rule);
 }
+/* A round picker is one short name wide. `.field` is a grid, and a grid item with `width: auto`
+   stretches its track — so "First pass" was drawn in a control the full width of the panel. */
 .reminder-controls select {
+  justify-self: start;
   width: auto;
   min-width: 14rem;
 }
@@ -1078,7 +1114,7 @@
 }
 .submitted-reviews li {
   padding: var(--s-3) var(--s-4);
-  border: 1px solid var(--line);
+  border: 1px solid var(--rule);
   border-radius: var(--r-md);
   background: var(--surface);
 }
@@ -1090,7 +1126,7 @@
   margin: 0 0 var(--s-2);
 }
 .submitted-review-head .sub {
-  color: var(--muted);
+  color: var(--slate);
   font-size: var(--text-xs);
 }
 /* The comment is prose a person wrote, so it keeps its line breaks and stays readable-width. */

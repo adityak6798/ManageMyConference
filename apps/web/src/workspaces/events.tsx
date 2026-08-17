@@ -3,22 +3,24 @@
  *
  * Owned by the `events` domain. @spec PRD-EVT-002 ARC-FLOW-006
  */
+import type { EventDto } from "@greenroom/contracts";
 import { type FormEvent, useState } from "react";
+import { type ApiFailure, describeApiFailure } from "../api/config";
 import { ApiError, updateEvent } from "../api/events";
 import { EventTemplatesWorkspace } from "../events/EventTemplatesWorkspace";
 import { TimezoneField } from "../events/TimezoneField";
-import { IconInbox } from "../ui/icons";
-import { Card, Notice, useActionFeedback } from "../ui/primitives";
+import { IconCopy } from "../ui/icons";
+import { Notice, Section, useActionFeedback } from "../ui/primitives";
 import type { HubTabModule, WorkspaceModule } from "./contract";
 
 export const eventTemplatesWorkspace: WorkspaceModule = {
   domain: "events",
   path: "/event-templates",
   label: "Event templates",
-  group: "Audience",
+  group: "reach",
   /** 60–69 is this lane's band, which puts templates after the surfaces they configure. */
   order: 60,
-  icon: <IconInbox size={16} />,
+  icon: <IconCopy />,
   personas: ["organizer"],
   /**
    * Two conditions the browser can check, and one it deliberately cannot.
@@ -66,14 +68,18 @@ function EventSettings({
   eventId,
   name: initialName,
   timezone: initialTimezone,
+  onEventChanged,
 }: {
   eventId: string;
   name: string;
   timezone: string;
+  onEventChanged: (event: EventDto) => void;
 }) {
   const [name, setName] = useState(initialName);
   const [timezone, setTimezone] = useState(initialTimezone);
   const [timezoneErrors, setTimezoneErrors] = useState<string[]>([]);
+  /** Kept whole rather than glued into a sentence, so the reference stays selectable. */
+  const [failure, setFailure] = useState<ApiFailure | null>(null);
   const [busy, setBusy] = useState(false);
   const feedback = useActionFeedback();
 
@@ -81,37 +87,64 @@ function EventSettings({
     formEvent.preventDefault();
     setBusy(true);
     setTimezoneErrors([]);
+    setFailure(null);
     try {
       const updated = await updateEvent(eventId, { name, timezone });
       setName(updated.name);
+      // The server canonicalizes, so the control shows the id that was actually stored rather
+      // than the alias that was sent.
       setTimezone(updated.timezone);
+      // The shell holds the event list every other surface reads the name from — the topbar
+      // chip, this page's own header. Without this the save succeeded and nothing on screen
+      // changed, which is indistinguishable from a save that did not happen.
+      onEventChanged(updated);
       feedback.announce("success", "Event settings saved.");
     } catch (reason) {
-      if (reason instanceof ApiError) {
+      // ERROR-INTENT: rendered as this form's own refusal, beside the control that caused it.
+      if (reason instanceof ApiError)
+        // A refusal the server attached to a field belongs on that field.
         setTimezoneErrors(reason.envelope.error.fieldErrors?.timezone ?? []);
-        feedback.announce(
-          "error",
-          `${reason.message} Reference: ${reason.envelope.error.correlationId}`,
-        );
-      } else feedback.announce("error", "Event settings could not be saved. Try again.");
+      setFailure(describeApiFailure(reason, "Event settings could not be saved."));
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <Card title="Event details" hint="These values drive the organizer and attendee experience.">
+    /*
+     * A region, not a card. Two settings and a save are the whole of this tab, so a bordered box
+     * around them framed the page inside the page and put a second border around every field it
+     * held. The heading and the space under it are the structure.
+     */
+    <Section
+      labelledBy="hub-event-details"
+      title="Event details"
+      description="These two values are read by every other surface in the console."
+    >
       {feedback.node}
-      <form className="stack" onSubmit={submit}>
+      <form className="stack event-settings-form" onSubmit={submit}>
         <div className="field">
           <label htmlFor="hub-event-name">Event name</label>
+          {/* Every setting on this tab says what changing it does. The timezone field has
+              carried its consequence since it was written; the name was left to be guessed at. */}
+          <p className="hint" id="hub-event-name-hint">
+            The name speakers, reviewers and visitors see — on the public site, in every invitation,
+            and on each calendar invite.
+          </p>
           <input
             id="hub-event-name"
+            className="control"
+            aria-describedby="hub-event-name-hint"
             value={name}
             onChange={(event) => setName(event.target.value)}
             required
             maxLength={120}
           />
+          {!name.trim() ? (
+            /* On the field it is about, not in a banner above the form: a page-level warning
+               for one empty input asks the reader to work out which input it means. */
+            <p className="error-text">An event name is required.</p>
+          ) : null}
         </div>
         <TimezoneField
           id="hub-event-timezone"
@@ -120,12 +153,18 @@ function EventSettings({
           errors={timezoneErrors}
           disabled={busy}
         />
-        {!name.trim() ? <Notice tone="warn">An event name is required.</Notice> : null}
-        <button type="submit" disabled={busy || !name.trim()}>
-          {busy ? "Saving…" : "Save event settings"}
-        </button>
+        {failure ? (
+          <Notice tone="error" reference={failure.reference}>
+            {failure.message}
+          </Notice>
+        ) : null}
+        <div className="toolbar">
+          <button className="primary" type="submit" disabled={busy || !name.trim()}>
+            {busy ? "Saving…" : "Save event settings"}
+          </button>
+        </div>
       </form>
-    </Card>
+    </Section>
   );
 }
 
@@ -144,7 +183,13 @@ export const eventSettingsHubTab: HubTabModule = {
     title: "Event",
     subtitle: `${event.name} · ${event.timezone}`,
   }),
-  render: ({ event }) => (
-    <EventSettings key={event.id} eventId={event.id} name={event.name} timezone={event.timezone} />
+  render: ({ event, onEventChanged }) => (
+    <EventSettings
+      key={event.id}
+      eventId={event.id}
+      name={event.name}
+      timezone={event.timezone}
+      onEventChanged={onEventChanged}
+    />
   ),
 };

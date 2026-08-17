@@ -50,6 +50,22 @@ const criteriaOf = (
   plan: OrganizerReviewWorkspaceDto["plan"],
 ): readonly NonNullable<Round["criteria"]>[number][] => round?.criteria ?? plan?.criteria ?? [];
 
+/**
+ * A hub destination that keeps whichever event the console is on.
+ *
+ * The console's addresses are `/<hub>?tab=<tab>&event=<id>`, and the event parameter is the
+ * shell's, not this domain's — so it is carried over from the address already open rather than
+ * threaded through every component that wants to offer a link. Built here because two review
+ * surfaces need it and neither owns the router.
+ */
+function hubHref(path: string, tab: string): string {
+  const params = new URLSearchParams(window.location.search);
+  const event = params.get("event");
+  const next = new URLSearchParams({ tab });
+  if (event) next.set("event", event);
+  return `${path}?${next.toString()}`;
+}
+
 /** A handled API failure, with the reference an organizer can quote when reporting it. */
 const message = (error: unknown, fallback = "Review work could not be loaded. Please retry.") =>
   error instanceof ReviewApiError
@@ -167,6 +183,7 @@ export {
   criteriaOf,
   DECISION_STATUS_KEYS,
   fieldErrorsOf,
+  hubHref,
   listTitles,
   message,
   OUTCOME_LABEL,

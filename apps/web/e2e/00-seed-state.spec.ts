@@ -20,6 +20,7 @@
  * assertions name the seeded fields that must be present rather than the whole set.
  */
 import { cfpResponseSchema, publicEventProjectionSchema } from "@greenroom/contracts";
+import { chooseOption } from "./controls";
 import { expect, test } from "./fixtures";
 
 /*
@@ -132,8 +133,8 @@ test("an applicant completes the seeded form before any organizer has republishe
   await page.getByLabel("Your name").fill("Pat Applicant");
   await page.getByLabel("Contact email").fill("pat.applicant@example.test");
   // Later runs meet the extra question `cfp.spec.ts` publishes; the seed does not ship it.
-  if (await page.getByLabel("Experience level").count())
-    await page.getByLabel("Experience level").selectOption("Experienced");
+  const experience = page.getByLabel("Experience level");
+  if (await experience.count()) await chooseOption(page, experience, "Experienced");
 
   // 201, not the 500 the missing `fields` produced. Asserted on the wire and on screen.
   const created = page.waitForResponse(
@@ -141,5 +142,10 @@ test("an applicant completes the seeded form before any organizer has republishe
   );
   await page.getByRole("button", { name: "Submit proposal" }).click();
   expect((await created).status()).toBe(201);
-  await expect(page.getByRole("status")).toContainText(/Confirmation: [0-9a-f-]{36}/);
+  // The reference is the only handle an anonymous proposal has, so it now outlives the sentence
+  // that announced it: the live region says a proposal arrived, and the reference sits in a panel
+  // that survives the next click instead of being cleared with the form.
+  await expect(page.getByText("Proposal received. Your confirmation is below.")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Proposal received" })).toBeVisible();
+  await expect(page.getByText(/^[0-9a-f-]{36}$/)).toBeVisible();
 });

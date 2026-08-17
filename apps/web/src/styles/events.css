@@ -1,5 +1,5 @@
 /*
- * Event templates.
+ * Event templates, and the event settings form beside them in the Settings hub.
  *
  * Spacing and wrapping, and nothing else. Every part of this surface with a visual identity —
  * the cards, pills, notices, empty states, lists, fields and buttons — comes from the shell and
@@ -12,6 +12,18 @@
  * widening a narrow screen.
  */
 
+/*
+ * A form sets to the measure its own description sets to.
+ *
+ * Two settings and a save ran the full 1150px of the console, so an event name got a box wide
+ * enough for a paragraph and the sentence introducing it wrapped at half that. Both edges now
+ * agree, and the save button is a button rather than a green bar across the page.
+ */
+.event-settings-form,
+.template-save-form {
+  max-width: var(--measure);
+}
+
 /* A card body holding more than one block: the blocks stack with the shared spacing step. */
 .template-stack {
   display: grid;
@@ -19,14 +31,9 @@
   align-content: start;
 }
 
-.template-loading {
-  display: grid;
-  gap: var(--s-3);
-}
-
 /* An aside that explains a refusal or an absence, in the muted voice the hints already use. */
 .template-note {
-  color: var(--muted);
+  color: var(--slate);
   font-size: var(--text-sm);
 }
 
@@ -38,9 +45,9 @@
   margin-top: var(--s-2);
 }
 .template-entry-label {
-  color: var(--muted);
+  color: var(--slate);
   font-size: var(--text-xs);
-  font-weight: 650;
+  font-weight: var(--fw-medium);
 }
 .template-entries {
   display: grid;
@@ -67,12 +74,24 @@
   overflow-wrap: anywhere;
 }
 
+/*
+ * The template's name is the row's title and the control that opens it, so it is drawn as the
+ * title: no inset padding to knock it out of line with the meta underneath, and no ghost-button
+ * ink of its own. The row states the current template — a green spine and a tint on the gutter
+ * row — so the button no longer paints a second selected state inside the first.
+ */
 .template-list .template-open {
   min-width: 0;
-  padding-inline: var(--s-2);
+  min-height: 0;
+  padding: 0;
+  color: inherit;
+  /* The button reset declares its own weight, which would otherwise render this title one step
+     lighter than every other row title in the product. */
+  font-weight: inherit;
+  text-align: left;
 }
-
-.template-list .template-open[aria-current="true"] {
-  background: var(--green-50);
-  color: var(--green-800);
+.template-list .template-open:hover {
+  background: none;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }

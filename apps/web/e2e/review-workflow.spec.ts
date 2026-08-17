@@ -1,5 +1,6 @@
 // @acceptance ACC-REVIEW
-import { expect, type Page, test } from "./fixtures";
+import { chooseSegment, segmentValue, switchPersona } from "./controls";
+import { expect, type Locator, type Page, test } from "./fixtures";
 
 // One applicant address per spec file; see the note in `00-seed-state.spec.ts`.
 test.use({ extraHTTPHeaders: { "cf-connecting-ip": "198.51.100.5" } });
@@ -80,8 +81,8 @@ async function signInAsOrganizer(page: Page) {
 /**
  * Switch the signed-in persona, and wait for the switch to actually land.
  *
- * `switchPersona` (apps/web/src/App.tsx) is fired from the select's change handler and
- * deliberately not awaited, so `selectOption` returns while `POST /api/demo-session` is
+ * `switchPersona` (apps/web/src/App.tsx) is fired from the picker's change handler and
+ * deliberately not awaited, so the press returns while `POST /api/demo-session` is
  * still in flight. A `page.goto` issued straight afterwards aborts that request, the next
  * document is fetched with the previous identity's cookie, and `routesFor` sends the
  * organizer off `/reviews` to the overview — where the queue this journey needs does not
@@ -90,15 +91,14 @@ async function signInAsOrganizer(page: Page) {
  * cookie arrives with those headers.
  */
 async function switchRole(page: Page, persona: "organizer" | "reviewer") {
-  const role = page.getByRole("combobox", { name: "Signed-in role" });
   const switched = page.waitForResponse(
     (response) =>
       response.url().includes("/api/demo-session") && response.request().method() === "POST",
   );
-  await role.selectOption(persona);
+  await switchPersona(page, persona === "organizer" ? "Organizer" : "Reviewer");
   expect((await switched).ok(), "the persona switch was refused").toBe(true);
-  // The select is rendered from the session, so its value is the shell agreeing.
-  await expect(role).toHaveValue(persona);
+  // The picker is rendered from the session, so what it shows is the shell agreeing.
+  await expect(page.getByRole("button", { name: /^Account and access for / })).toBeVisible();
 }
 
 interface PublishedField {
@@ -124,6 +124,17 @@ interface PublishedField {
  * Setup for another domain, which is why it goes through the public API rather than the
  * browser — `cfp.spec.ts` and `00-seed-state.spec.ts` own the submission journey itself.
  */
+/**
+ * One row of the reviewer's queue, with the state it is in.
+ *
+ * The state moved out of the row's own control and into the row beside it: a button whose
+ * accessible name changed as work progressed was a control that renamed itself under the
+ * reviewer's cursor. So the row is the thing that carries "Not started", and the button inside
+ * it is only the title.
+ */
+const queueRow = (queue: Locator, title: string): Locator =>
+  queue.getByRole("listitem").filter({ hasText: title });
+
 async function fileAbstract(page: Page, title: string): Promise<string> {
   const form = await page.request.get(`/api/public/events/${DEMO_EVENT}/cfp`);
   expect(form.ok(), `reading the published form failed: ${await form.text()}`).toBe(true);
@@ -152,7 +163,10 @@ test("organizer triages abstracts, assigns a reviewer, and configures the pipeli
   await restoreSeededPipeline(page);
   await page.goto(TRIAGE);
 
-  await expect(page.getByRole("heading", { level: 1, name: "Review" })).toBeVisible();
+  // The daily queue is the Program hub's first tab, named for what it holds. "Review" is the
+  // sibling tab that configures rounds and scoring, and opening the console on that put a
+  // configuration surface in front of the work every morning.
+  await expect(page.getByRole("heading", { level: 1, name: "Submissions" })).toBeVisible();
   await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
 
   // ---- statuses are tabs, and the counts describe the whole pipeline ----------
@@ -173,14 +187,19 @@ test("organizer triages abstracts, assigns a reviewer, and configures the pipeli
     expect(bounds?.x).toBeGreaterThanOrEqual(0);
     expect((bounds?.x ?? 0) + (bounds?.width ?? 0)).toBeLessThanOrEqual(390);
   }
+  /*
+   * The decision column, at phone width.
+   *
+   * Each row used to carry four outcome buttons — around 240 of them on a sixty-row queue —
+   * which is what forced the table sideways in the first place. The decision is made where the
+   * abstract is now, so a row offers one way in and that one has to be reachable.
+   */
   const mobileRow = table.getByRole("row", { name: /Typed boundaries at scale/ });
-  for (const action of ["Accept", "Decline"]) {
-    const bounds = await mobileRow
-      .getByRole("button", { name: new RegExp(`^${action}`) })
-      .boundingBox();
-    expect(bounds?.x).toBeGreaterThanOrEqual(0);
-    expect((bounds?.x ?? 0) + (bounds?.width ?? 0)).toBeLessThanOrEqual(390);
-  }
+  const decideBounds = await mobileRow
+    .getByRole("button", { name: /^(Decide|Change) Typed boundaries at scale$/ })
+    .boundingBox();
+  expect(decideBounds?.x).toBeGreaterThanOrEqual(0);
+  expect((decideBounds?.x ?? 0) + (decideBounds?.width ?? 0)).toBeLessThanOrEqual(390);
   await page.setViewportSize({ width: 1440, height: 900 });
 
   // A status tab shows only that status; the counts stay visible for the others.
@@ -196,20 +215,20 @@ test("organizer triages abstracts, assigns a reviewer, and configures the pipeli
   await page.getByLabel("Search abstracts").fill("");
   await expect(table.getByRole("row", { name: /Typed boundaries at scale/ })).toBeVisible();
 
-  // ---- the detail panel shows answers under their configured labels ----------
-  // Every triage row carries three controls whose accessible name contains the title — the
-  // row link plus Accept and Decline — and Playwright matches names by substring, so the
-  // row link has to be addressed exactly.
+  // ---- the detail drawer shows answers under their configured labels ---------
+  // Every triage row carries two controls whose accessible name contains the title — the row
+  // link and the way in to a decision — and Playwright matches names by substring, so the row
+  // link has to be addressed exactly.
   await page.getByRole("button", { name: "Designing for the hallway track", exact: true }).click();
-  const detail = page.getByRole("region", { name: "Designing for the hallway track" });
+  const detail = page.getByRole("dialog", { name: "Designing for the hallway track" });
   // The submitted answers used to render their raw storage keys ("abstract").
   await expect(detail.getByRole("term").filter({ hasText: "Abstract" })).toBeVisible();
   await expect(detail.getByRole("term").filter({ hasText: /^abstract$/ })).toHaveCount(0);
   await expect(
     detail.getByRole("definition").filter({ hasText: "A practical guide to making" }),
   ).toBeVisible();
-  await detail.getByRole("button", { name: "Close" }).click();
-  await expect(detail).toHaveCount(0);
+  await detail.getByRole("button", { name: "Close Designing for the hallway track" }).click();
+  await expect(detail).toBeHidden();
 
   // ---- unsaved configuration survives a triage reload ------------------------
   await page.locator("summary").filter({ hasText: "Evaluation setup" }).click();
@@ -219,7 +238,7 @@ test("organizer triages abstracts, assigns a reviewer, and configures the pipeli
 
   // ---- a bulk transition is atomic, announced, and audited -------------------
   await page.getByLabel("Select Typed boundaries at scale").check();
-  const bulk = page.getByRole("group", { name: "Actions for the selected abstracts" });
+  const bulk = page.getByRole("group", { name: "The selected abstracts, and what to do" });
   await expect(bulk.getByText("1 selected")).toBeVisible();
   await bulk.getByLabel("Move selection to").selectOption({ label: "Under review" });
   const transitioned = page.waitForResponse(
@@ -255,7 +274,7 @@ test("organizer triages abstracts, assigns a reviewer, and configures the pipeli
   // Assignment is idempotent: a reviewer already reviewing this abstract is not assigned
   // twice, so a second run re-runs this step against the same seeded row.
   await page.getByRole("button", { name: "Typed boundaries at scale", exact: true }).click();
-  const typed = page.getByRole("region", { name: "Typed boundaries at scale" });
+  const typed = page.getByRole("dialog", { name: "Typed boundaries at scale" });
   const assigned = page.waitForResponse(
     (response) =>
       response.url().endsWith("/review/assignments") && response.request().method() === "POST",
@@ -358,7 +377,7 @@ test("organizer triages abstracts, assigns a reviewer, and configures the pipeli
   await page.getByLabel("Select Workshop proposal").check();
   await expect(
     page
-      .getByRole("group", { name: "Actions for the selected abstracts" })
+      .getByRole("group", { name: "The selected abstracts, and what to do" })
       .getByLabel("Move selection to")
       .getByRole("option", { name: "Shortlisted" }),
   ).toHaveAttribute("value", "shortlisted");
@@ -385,16 +404,18 @@ test("a reviewer scores and declares a conflict, and only the organizer sees the
   // ---- both new abstracts go to the same reviewer --------------------------
   for (const title of [scored, conflicted]) {
     await page.getByRole("button", { name: title, exact: true }).click();
-    const panel = page.getByRole("region", { name: title });
+    // A decision is a modal question, so the abstract is read and acted on in a dialog.
+    const panel = page.getByRole("dialog", { name: title });
     await panel.getByLabel("Assign this abstract to").selectOption({ label: "Ravi Reviewer" });
     await panel.getByRole("button", { name: "Assign", exact: true }).click();
     await expect(
       page.getByRole("status").filter({ hasText: "Ravi Reviewer is now reviewing" }),
     ).toBeVisible();
+    await panel.getByRole("button", { name: `Close ${title}` }).click();
+    await expect(panel).toBeHidden();
     await expect(table.getByRole("row", { name: new RegExp(title) })).toContainText(
       "Ravi Reviewer",
     );
-    await panel.getByRole("button", { name: "Close" }).click();
   }
 
   // ---- the reviewer scores the abstract that was just assigned -------------
@@ -426,17 +447,17 @@ test("a reviewer scores and declares a conflict, and only the organizer sees the
   await expect(draft).toContainText("review-suggestion/v1");
   await expect(draft).toContainText("Not scored");
   // The reviewer's own controls are untouched by a draft sitting above them.
-  await expect(evaluation.getByLabel("Relevance")).toHaveValue("");
-  await expect(evaluation.getByLabel("Recommended format")).toHaveValue("");
+  expect(await segmentValue(evaluation.getByLabel("Relevance"))).toBeNull();
+  expect(await segmentValue(evaluation.getByLabel("Recommended format"))).toBeNull();
   // Dismissing writes nothing at all: the queue pill still says this was never started.
   await draft.getByRole("button", { name: "Dismiss" }).click();
   await expect(
     page.getByRole("status").filter({ hasText: "No evaluation was recorded" }),
   ).toBeVisible();
-  await expect(queue.getByRole("button", { name: new RegExp(scored) })).toContainText(
+  await expect(queueRow(queue, scored)).toContainText(
     "Not started",
   );
-  await expect(evaluation.getByLabel("Relevance")).toHaveValue("");
+  expect(await segmentValue(evaluation.getByLabel("Relevance"))).toBeNull();
 
   // Unscored criteria are explicit, and completing without them is refused
   // rather than silently defaulting each one to its minimum score.
@@ -445,13 +466,13 @@ test("a reviewer scores and declares a conflict, and only the organizer sees the
   await expect(page.getByRole("alert")).toContainText(
     "Relevance, Recommended format, Reviewer feedback",
   );
-  await expect(queue.getByRole("button", { name: new RegExp(scored) })).toContainText(
+  await expect(queueRow(queue, scored)).toContainText(
     "Not started",
   );
 
   // Exercise every supported field type. Only numeric criteria contribute to the aggregate.
-  await evaluation.getByLabel("Relevance").selectOption("4");
-  await evaluation.getByLabel("Recommended format").selectOption("Workshop");
+  await chooseSegment(evaluation.getByLabel("Relevance"), "4");
+  await chooseSegment(evaluation.getByLabel("Recommended format"), "Workshop");
   const longFeedback = "Strong audience fit. ".repeat(25);
   await evaluation.getByLabel("Reviewer feedback").fill(longFeedback);
   const reviewGeometry = await page.evaluate(() => {
@@ -497,15 +518,15 @@ test("a reviewer scores and declares a conflict, and only the organizer sees the
   await evaluation.getByLabel("Private notes").fill("Clear and relevant.");
   await evaluation.getByRole("button", { name: "Save draft" }).click();
   await expect(page.getByRole("status").filter({ hasText: "Draft saved" })).toBeVisible();
-  await expect(queue.getByRole("button", { name: new RegExp(scored) })).toContainText(
+  await expect(queueRow(queue, scored)).toContainText(
     "Draft saved",
   );
   // A draft is durable without being final: a reload brings the same scores back and the
   // assignment is still open for editing.
   await page.reload();
   await queue.getByRole("button", { name: new RegExp(scored) }).click();
-  await expect(evaluation.getByLabel("Relevance")).toHaveValue("4");
-  await expect(evaluation.getByLabel("Recommended format")).toHaveValue("Workshop");
+  expect(await segmentValue(evaluation.getByLabel("Relevance"))).toBe("4");
+  expect(await segmentValue(evaluation.getByLabel("Recommended format"))).toBe("Workshop");
   await expect(evaluation.getByLabel("Reviewer feedback")).toHaveValue(longFeedback);
   await expect(evaluation.getByLabel("Private notes")).toHaveValue("Clear and relevant.");
 
@@ -531,7 +552,7 @@ test("a reviewer scores and declares a conflict, and only the organizer sees the
   expect(completedGeometry.labelsHaveWidth).toBe(true);
   expect(completedGeometry.feedbackStyle?.textAlign).not.toBe("right");
   expect(completedGeometry.feedbackStyle?.fontVariantNumeric).not.toContain("tabular-nums");
-  await expect(queue.getByRole("button", { name: new RegExp(scored) })).toContainText("Completed");
+  await expect(queueRow(queue, scored)).toContainText("Completed");
 
   // ---- and declines the one they cannot judge ------------------------------
   await queue.getByRole("button", { name: new RegExp(conflicted) }).click();
@@ -553,11 +574,11 @@ test("a reviewer scores and declares a conflict, and only the organizer sees the
     page.getByRole("status").filter({ hasText: "press Complete evaluation" }),
   ).toBeVisible();
   // The drafted values are now in the reviewer's own controls, where they can change them.
-  await expect(second.getByLabel("Relevance")).not.toHaveValue("");
-  await expect(second.getByLabel("Recommended format")).not.toHaveValue("");
+  expect(await segmentValue(second.getByLabel("Relevance"))).not.toBeNull();
+  expect(await segmentValue(second.getByLabel("Recommended format"))).not.toBeNull();
   // And nothing is completed: the reviewer still has to press the button themselves.
   await expect(second.getByRole("button", { name: "Complete evaluation" })).toBeVisible();
-  await expect(queue.getByRole("button", { name: new RegExp(conflicted) })).toContainText(
+  await expect(queueRow(queue, conflicted)).toContainText(
     "Draft saved",
   );
 
@@ -572,7 +593,7 @@ test("a reviewer scores and declares a conflict, and only the organizer sees the
   // Declaring one locks it: the scoring form is gone, not merely hidden.
   await expect(second.getByLabel("Relevance")).toHaveCount(0);
   await expect(second.getByRole("button", { name: "Complete evaluation" })).toHaveCount(0);
-  await expect(queue.getByRole("button", { name: new RegExp(conflicted) })).toContainText(
+  await expect(queueRow(queue, conflicted)).toContainText(
     "Conflict declared",
   );
 
@@ -622,7 +643,7 @@ test("a reviewer scores and declares a conflict, and only the organizer sees the
    * from the completed evaluations after both.
    */
   await page.getByRole("button", { name: scored, exact: true }).click();
-  const panel = page.getByRole("region", { name: scored });
+  const panel = page.getByRole("dialog", { name: scored });
   const assignTo = panel.getByLabel("Assign this abstract to");
   // The round's pool, in name order, and the signed-in organizer is not in it.
   await expect(assignTo.getByRole("option")).toHaveText([

@@ -8,7 +8,7 @@
  * reachable at all, that it reads the token out of the link, and that it is reachable by the
  * personas who are actually invited.
  */
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../src/App";
 
@@ -103,6 +103,40 @@ describe("accepting an invitation from its link", () => {
     expect(await screen.findByText("The invitation is accepted")).toBeInTheDocument();
   });
 
+  /**
+   * The case the surface was written for, and the one it did not serve.
+   *
+   * An invitee's first invitation is the one that gives them a seat — so before they accept it
+   * they have no event at all. `renderPage` answered the no-event guard first, so what they saw
+   * was "This identity has no event assigned — switch the signed-in role from the top right",
+   * where there is no role to switch to and no way to reach the token they were sent. For the
+   * majority invitee this page was dead code.
+   */
+  it("renders for an account with no event access at all", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/api/session"))
+          return jsonResponse({
+            actor: { id: "seed-invitee", name: "New Person", persona: "reviewer" },
+            organizations: [],
+            eventAccess: [],
+            capabilities: [],
+            authentication: "session",
+          });
+        if (url.includes("/api/events")) return jsonResponse({ events: [] });
+        return jsonResponse({});
+      }),
+    );
+    render(<App />);
+
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Accept an invitation" }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Invitation token")).toHaveValue("the-token");
+  });
+
   it("explains a refusal and leaves the token in place to retry", async () => {
     const stubbed = stub("reviewer", () =>
       jsonResponse(
@@ -126,9 +160,11 @@ describe("accepting an invitation from its link", () => {
     await waitFor(() => expect(accept).toBeEnabled());
     fireEvent.click(accept);
 
-    const refusal = await screen.findByText(/That invitation is not valid/);
-    // The correlation reference, as every console failure carries.
-    expect(refusal.textContent).toContain("corr-1");
+    const refusal = await screen.findByRole("alert");
+    expect(refusal).toHaveTextContent("That invitation is not valid");
+    // The correlation reference, as every console failure carries — on its own line, as a
+    // value the reader can select, rather than glued onto the end of the sentence.
+    expect(within(refusal).getByText("corr-1")).toBeInTheDocument();
     expect(screen.getByLabelText("Invitation token")).toHaveValue("the-token");
   });
 

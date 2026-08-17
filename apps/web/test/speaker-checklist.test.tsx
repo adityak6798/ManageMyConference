@@ -10,7 +10,7 @@
  * than looking like something that failed to load.
  */
 import type { ContentWorkspaceDto, SpeakerTaskTemplateDto } from "@greenroom/contracts";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChecklistEditor, dueOffsetLabel } from "../src/content/ChecklistEditor";
 

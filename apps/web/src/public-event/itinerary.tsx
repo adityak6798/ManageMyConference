@@ -16,6 +16,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createItinerary, readItinerary, saveItinerary } from "../api/itinerary";
+import { IconStar } from "../ui/icons";
 import type { PublicSession } from "./model";
 
 /*
@@ -322,7 +323,13 @@ export function StarButton({
       }
       onClick={() => itinerary.toggle(session.slug)}
     >
-      <span aria-hidden="true">{starred ? "★" : "☆"}</span>
+      {/*
+        One shape, two states: the outline is the offer and the fill is the answer, and the fill
+        is painted by CSS from `is-on` rather than by a second glyph. The star used to be a
+        font-rendered ★/☆ at 22px, which rendered differently on every platform and whose hollow
+        state read as a disabled control on a card full of live links.
+      */}
+      <IconStar />
     </button>
   );
 }

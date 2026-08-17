@@ -24,6 +24,7 @@ import {
   setProfileCollaborators,
   updateSpeakerWorkflow,
 } from "../api/content";
+import { IconClock, IconSearch, IconSpeakers } from "../ui/icons";
 import { EmptyState, Notice, useActionFeedback } from "../ui/primitives";
 import { AccelEventsSync } from "./AccelEventsSync";
 import { ChecklistEditor } from "./ChecklistEditor";
@@ -42,22 +43,244 @@ import { memberName, type Run, SOCIAL_PLATFORMS, shortDateTime, type Workspace }
 function ToolPanel({
   title,
   hint,
+  nested = false,
   children,
 }: {
   title: string;
-  hint: string;
+  hint?: string;
+  /** A disclosure inside a disclosure: same behaviour, no second border. */
+  nested?: boolean;
   children: ReactNode;
 }) {
   return (
     <details className="tool-panel">
       <summary>
         <span className="tool-heading">
-          <h3>{title}</h3>
-          <span className="hint">{hint}</span>
+          {nested ? <h4>{title}</h4> : <h3>{title}</h3>}
+          {hint ? <span className="hint">{hint}</span> : null}
         </span>
       </summary>
       <div className="tool-body">{children}</div>
     </details>
+  );
+}
+
+type WorkflowColumn = { key: string; label: string; category: "open" | "ready" | "blocked" };
+
+const CATEGORY_OPTIONS: readonly { value: WorkflowColumn["category"]; label: string }[] = [
+  { value: "open", label: "Open" },
+  { value: "ready", label: "Ready" },
+  { value: "blocked", label: "Blocked" },
+];
+
+/**
+ * The progress columns this event tracks speakers through, as rows.
+ *
+ * They used to be a textarea of `identifier|Name|status` lines, parsed on submit: a schema an
+ * organizer had to be told about in a hint, with no way to see which part was wrong, and one
+ * mistyped pipe silently dropping a whole column. Each column is now a row with three named
+ * controls and its own Remove.
+ */
+function WorkflowColumnEditor({
+  columns,
+  busy,
+  onSave,
+}: {
+  columns: readonly WorkflowColumn[];
+  busy: boolean;
+  onSave: (columns: readonly WorkflowColumn[]) => void;
+}) {
+  const [rows, setRows] = useState<readonly WorkflowColumn[]>(columns);
+  const patch = (index: number, change: Partial<WorkflowColumn>) =>
+    setRows((current) => current.map((row, at) => (at === index ? { ...row, ...change } : row)));
+  const complete = rows.filter((row) => row.key.trim() && row.label.trim());
+
+  return (
+    <form
+      className="stack"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSave(complete);
+      }}
+    >
+      <ul className="editable-rows" aria-label="Progress columns">
+        {rows.map((row, index) => (
+          // The identifier is the stable key the server stores, so a row keeps its identity
+          // across a rename; a blank one is new and is positioned instead.
+          <li className="editable-row" key={row.key || `new-${index}`}>
+            <label className="editable-field">
+              <span>Name</span>
+              <input
+                className="control is-sm"
+                value={row.label}
+                disabled={busy}
+                onChange={(changed) => patch(index, { label: changed.target.value })}
+              />
+            </label>
+            <label className="editable-field">
+              <span>Identifier</span>
+              <input
+                className="control is-sm figure"
+                value={row.key}
+                disabled={busy}
+                onChange={(changed) => patch(index, { key: changed.target.value })}
+              />
+            </label>
+            <label className="editable-field">
+              <span>Counts as</span>
+              <select
+                className="control is-sm"
+                value={row.category}
+                disabled={busy}
+                onChange={(changed) =>
+                  patch(index, { category: changed.target.value as WorkflowColumn["category"] })
+                }
+              >
+                {CATEGORY_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              className="danger small"
+              disabled={busy}
+              onClick={() => setRows((current) => current.filter((_, at) => at !== index))}
+            >
+              Remove<span className="visually-hidden"> {row.label || "this column"}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+      <div className="row-actions">
+        <button
+          type="button"
+          className="secondary"
+          disabled={busy}
+          onClick={() =>
+            setRows((current) => [...current, { key: "", label: "", category: "open" }])
+          }
+        >
+          Add a column
+        </button>
+        <button className="primary" type="submit" disabled={busy || !complete.length}>
+          Save progress columns
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/**
+ * Who else may see or edit one speaker's profile, chosen from the people this event already has.
+ *
+ * It used to be a textarea of `user-id|edit` lines — an organizer was expected to know an
+ * opaque identifier by heart, and a typo silently granted nothing to nobody.
+ */
+function CollaboratorEditor({
+  collaborators,
+  directory,
+  busy,
+  onSave,
+}: {
+  collaborators: readonly { userId: string; access: "view" | "edit" }[];
+  directory: readonly { id: string; name: string }[];
+  busy: boolean;
+  onSave: (collaborators: readonly { userId: string; access: "view" | "edit" }[]) => void;
+}) {
+  const [rows, setRows] =
+    useState<readonly { userId: string; access: "view" | "edit" }[]>(collaborators);
+  const [adding, setAdding] = useState("");
+  const nameOf = (userId: string) =>
+    directory.find((member) => member.id === userId)?.name ?? userId;
+  const available = directory.filter((member) => !rows.some((row) => row.userId === member.id));
+
+  return (
+    <form
+      className="stack"
+      onSubmit={(event) => {
+        event.preventDefault();
+        onSave(rows);
+      }}
+    >
+      {rows.length ? (
+        <ul className="editable-rows" aria-label="Collaborators">
+          {rows.map((row) => (
+            <li className="editable-row" key={row.userId}>
+              <span className="editable-name">{nameOf(row.userId)}</span>
+              <label className="editable-field">
+                <span>Access</span>
+                <select
+                  className="control is-sm"
+                  value={row.access}
+                  disabled={busy}
+                  onChange={(changed) =>
+                    setRows((current) =>
+                      current.map((entry) =>
+                        entry.userId === row.userId
+                          ? { ...entry, access: changed.target.value === "view" ? "view" : "edit" }
+                          : entry,
+                      ),
+                    )
+                  }
+                >
+                  <option value="view">Can view</option>
+                  <option value="edit">Can edit</option>
+                </select>
+              </label>
+              <button
+                type="button"
+                className="danger small"
+                disabled={busy}
+                onClick={() =>
+                  setRows((current) => current.filter((entry) => entry.userId !== row.userId))
+                }
+              >
+                Remove<span className="visually-hidden"> {nameOf(row.userId)}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="hint">Nobody else can open this profile yet.</p>
+      )}
+      <div className="editable-row">
+        <label className="editable-field">
+          <span>Add a collaborator</span>
+          <select
+            className="control is-sm"
+            value={adding}
+            disabled={busy || !available.length}
+            onChange={(changed) => setAdding(changed.target.value)}
+          >
+            <option value="">
+              {available.length ? "Choose a member…" : "Everybody is already listed"}
+            </option>
+            {available.map((member) => (
+              <option key={member.id} value={member.id}>
+                {member.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          type="button"
+          className="secondary small"
+          disabled={busy || !adding}
+          onClick={() => {
+            setRows((current) => [...current, { userId: adding, access: "edit" }]);
+            setAdding("");
+          }}
+        >
+          Add
+        </button>
+      </div>
+      <button className="primary" type="submit" disabled={busy}>
+        Save collaborators
+      </button>
+    </form>
   );
 }
 
@@ -149,21 +372,9 @@ export function ContentOperations({
     );
   }
 
-  function saveWorkflowStatuses(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const rows = String(new FormData(event.currentTarget).get("statuses"))
-      .split("\n")
-      .map((line) => line.split("|").map((part) => part.trim()))
-      .filter(([key, label, category]) => key && label && category)
-      .map(([key, label, category]) => ({
-        key: key ?? "",
-        label: label ?? "",
-        // Keep invalid input invalid so the shared contract can name it; silently turning a
-        // typo into `open` changes the organizer's workflow rather than refusing the typo.
-        category: category as "open" | "ready" | "blocked",
-      }));
+  function saveWorkflowStatuses(statuses: readonly WorkflowColumn[]) {
     // ERROR-INTENT: run() owns rejection handling and exposes failures through shared action state.
-    void run(() => configureContentWorkflowStatuses(eventId, { statuses: rows }));
+    void run(() => configureContentWorkflowStatuses(eventId, { statuses: [...statuses] }));
   }
 
   function refreshShares(profileId: string) {
@@ -193,18 +404,12 @@ export function ContentOperations({
     void run(async () => setRemixDraft(await draftProfileRemix(profileId, instruction)));
   }
 
-  function saveCollaborators(event: FormEvent<HTMLFormElement>, profileId: string) {
-    event.preventDefault();
-    const parsed = String(new FormData(event.currentTarget).get("collaborators"))
-      .split("\n")
-      .map((line) => line.split("|").map((part) => part.trim()))
-      .filter(([userId]) => userId)
-      .map(([userId, access]) => ({
-        userId: userId ?? "",
-        access: access === "view" ? ("view" as const) : ("edit" as const),
-      }));
+  function saveCollaborators(
+    profileId: string,
+    chosen: readonly { userId: string; access: "view" | "edit" }[],
+  ) {
     // ERROR-INTENT: run() owns rejection handling and exposes failures through shared action state.
-    void run(async () => setCollaborators(await setProfileCollaborators(profileId, parsed)));
+    void run(async () => setCollaborators(await setProfileCollaborators(profileId, [...chosen])));
   }
 
   const filteredSpeakers = workspace.speakers.filter(
@@ -271,10 +476,16 @@ export function ContentOperations({
             />
           </label>
           <div className="row-actions">
-            <button type="submit" name="mode" value="preview" disabled={busy}>
+            <button className="secondary" type="submit" name="mode" value="preview" disabled={busy}>
               Preview CSV
             </button>
-            <button type="submit" name="mode" value="commit" disabled={busy || !preview}>
+            <button
+              className="primary"
+              type="submit"
+              name="mode"
+              value="commit"
+              disabled={busy || !preview}
+            >
               Import valid rows
             </button>
           </div>
@@ -307,25 +518,18 @@ export function ContentOperations({
         title="Speaker workflow"
         hint="Filter progress and maintain logistics for one speaker at a time."
       >
-        <form className="stack" onSubmit={saveWorkflowStatuses}>
-          <label>
-            Workflow columns
-            <textarea
-              name="statuses"
-              rows={Math.max(4, workflowStatuses.length)}
-              defaultValue={workflowStatuses
-                .map((status) => `${status.key}|${status.label}|${status.category ?? "open"}`)
-                .join("\n")}
-              aria-describedby="workflow-status-format"
-            />
-          </label>
-          <p id="workflow-status-format" className="hint">
-            One column per line: identifier|Name|status. Status can be open, ready, or blocked.
-          </p>
-          <button className="secondary" type="submit" disabled={busy}>
-            Save progress columns
-          </button>
-        </form>
+        {/* Remounted whenever the server's answer changes, so the rows below are always the
+            columns this event actually has rather than the ones it had when the panel opened. */}
+        <WorkflowColumnEditor
+          key={workflowStatuses.map((status) => status.key).join("|")}
+          columns={workflowStatuses.map((status) => ({
+            key: status.key,
+            label: status.label,
+            category: status.category ?? "open",
+          }))}
+          busy={busy}
+          onSave={saveWorkflowStatuses}
+        />
         <div className="workflow-picker">
           <label>
             Progress filter
@@ -360,8 +564,7 @@ export function ContentOperations({
         {workflowSpeaker ? (
           <>
             {canAdministerShares ? (
-              <details className="tool-panel">
-                <summary>Private profile share links</summary>
+              <ToolPanel title="Private profile share links" nested>
                 <form
                   className="stack"
                   onSubmit={(event) => shareProfile(event, workflowSpeaker.id)}
@@ -379,7 +582,7 @@ export function ContentOperations({
                     <input name="password" type="password" minLength={8} maxLength={200} />
                   </label>
                   <div className="crm-form-actions">
-                    <button type="submit" disabled={busy}>
+                    <button className="primary" type="submit" disabled={busy}>
                       Create share link
                     </button>
                     <button
@@ -426,10 +629,9 @@ export function ContentOperations({
                     ))}
                   </ul>
                 ) : null}
-              </details>
+              </ToolPanel>
             ) : null}
-            <details className="tool-panel">
-              <summary>AI bio remix</summary>
+            <ToolPanel title="AI bio remix" nested>
               <form className="stack" onSubmit={(event) => remixProfile(event, workflowSpeaker.id)}>
                 <label>
                   Drafting instruction
@@ -456,30 +658,18 @@ export function ContentOperations({
                   />
                 </div>
               ) : null}
-            </details>
-            <details className="tool-panel">
-              <summary>Profile collaborators</summary>
-              <form
-                className="stack"
-                onSubmit={(event) => saveCollaborators(event, workflowSpeaker.id)}
-              >
-                <label>
-                  Collaborator identities
-                  <textarea
-                    name="collaborators"
-                    rows={4}
-                    defaultValue={collaborators
-                      .map((item) => `${item.userId}|${item.access}`)
-                      .join("\n")}
-                    placeholder="user-id|edit"
-                  />
-                </label>
-                <p className="hint">One existing event member per line; use view or edit access.</p>
-                <button type="submit" className="secondary" disabled={busy}>
-                  Replace collaborators
-                </button>
-              </form>
-            </details>
+            </ToolPanel>
+            <ToolPanel title="Profile collaborators" nested>
+              <CollaboratorEditor
+                // Remounted per speaker and per saved answer: the rows below belong to the
+                // profile on screen, never to the one that was on screen a moment ago.
+                key={`${workflowSpeaker.id}:${collaborators.map(({ userId }) => userId).join(",")}`}
+                collaborators={collaborators}
+                directory={workspace.actorDirectory ?? []}
+                busy={busy}
+                onSave={(chosen) => saveCollaborators(workflowSpeaker.id, chosen)}
+              />
+            </ToolPanel>
             {/*
              * What the speaker wrote, read-only, beside the workflow an organizer maintains.
              *
@@ -564,20 +754,20 @@ export function ContentOperations({
                     .join("\n")}
                 />
               </label>
-              <button type="submit" disabled={busy}>
+              <button className="primary" type="submit" disabled={busy}>
                 Save workflow
                 <span className="visually-hidden"> for {workflowSpeaker.name}</span>
               </button>
             </form>
           </>
         ) : workspace.speakers.length ? (
-          <EmptyState title="No speakers match">
+          <EmptyState icon={<IconSearch size={20} />} title="No speakers match">
             Choose another progress filter to see the rest of the roster.
           </EmptyState>
         ) : (
           // Advice an organizer can act on. Telling somebody with an empty roster to change a
           // filter sends them round a loop no filter setting can end.
-          <EmptyState title="No speakers yet">
+          <EmptyState icon={<IconSpeakers size={20} />} title="No speakers yet">
             Speaker records are created when you accept a proposal, import a CSV, or sync
             registrations.
           </EmptyState>
@@ -649,7 +839,7 @@ export function ContentOperations({
             Instructions
             <textarea name="instructions" />
           </label>
-          <button type="submit" disabled={busy || !selectedSpeakers.length}>
+          <button className="primary" type="submit" disabled={busy || !selectedSpeakers.length}>
             Assign to selected
           </button>
         </form>
@@ -720,7 +910,7 @@ export function ContentOperations({
             </table>
           </div>
         ) : (
-          <EmptyState title="No edits yet">
+          <EmptyState icon={<IconClock size={20} />} title="No edits yet">
             Attributed revisions appear after the first edit.
           </EmptyState>
         )}

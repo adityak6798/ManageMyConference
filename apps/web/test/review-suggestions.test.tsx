@@ -15,6 +15,21 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ReviewerWorkspace } from "../src/ReviewWorkspace";
 
+/**
+ * The score a criterion is showing, read off the segmented scale.
+ *
+ * A bounded 1–5 scale is a row of choices the reviewer can see rather than a list to open, so
+ * "what is scored" is which segment is checked — there is no input carrying a value any more.
+ */
+function scoreOf(criterion: string) {
+  const group = screen.getByRole("radiogroup", { name: criterion });
+  return (
+    within(group)
+      .getAllByRole("radio")
+      .find((segment) => segment.getAttribute("aria-checked") === "true")?.textContent ?? null
+  );
+}
+
 const eventId = "123e4567-e89b-12d3-a456-426614174000";
 const proposalId = "11111111-1111-4111-8111-111111111111";
 const assignmentId = "55555555-5555-4555-8555-555555555555";
@@ -142,7 +157,7 @@ describe("the assistant's draft", () => {
     expect(within(panel).getByText("Squarely on this audience's topic.")).toBeInTheDocument();
 
     // And the reviewer's own form is untouched — a drafted 4 is not in the select.
-    expect(screen.getByLabelText("Audience fit")).toHaveValue("");
+    expect(scoreOf("Audience fit")).toBeNull();
     expect(screen.getByText("1 of 1 criteria still need a score.")).toBeInTheDocument();
   });
 
@@ -186,7 +201,7 @@ describe("the assistant's draft", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Accept into my scores" }));
 
     // The accepted value lands in the reviewer's own control, where they can change it.
-    await waitFor(() => expect(screen.getByLabelText("Audience fit")).toHaveValue("4"));
+    await waitFor(() => expect(scoreOf("Audience fit")).toBe("4"));
     // Accepting is not completing: no evaluation was submitted, and the card still offers both.
     expect(sent.filter(({ url }) => url.endsWith("/evaluation"))).toHaveLength(0);
     expect(screen.getByRole("button", { name: "Complete evaluation" })).toBeInTheDocument();
@@ -255,7 +270,7 @@ describe("the assistant's draft", () => {
     fireEvent.change(notes, { target: { value: "Halfway through my own note" } });
     fireEvent.click(screen.getByRole("button", { name: "Accept into my scores" }));
 
-    await waitFor(() => expect(screen.getByLabelText("Audience fit")).toHaveValue("4"));
+    await waitFor(() => expect(scoreOf("Audience fit")).toBe("4"));
     expect(screen.getByLabelText("Private notes")).toHaveValue("Halfway through my own note");
   });
 
@@ -291,7 +306,7 @@ describe("the assistant's draft", () => {
     fireEvent.click(screen.getByLabelText(/copy the summary into my private notes/i));
     fireEvent.click(screen.getByRole("button", { name: "Accept into my scores" }));
 
-    await waitFor(() => expect(screen.getByLabelText("Audience fit")).toHaveValue("4"));
+    await waitFor(() => expect(scoreOf("Audience fit")).toBe("4"));
     expect(screen.getByLabelText("Private notes")).toHaveValue(
       "My own half-written note\n\nA talk about watermark-only stream joins.",
     );
@@ -341,7 +356,7 @@ describe("the assistant's draft", () => {
 
     expect(await screen.findByText(/No evaluation was recorded/i)).toBeInTheDocument();
     expect(sent[0]?.body).toMatchObject({ response: "rejected" });
-    expect(screen.getByLabelText("Audience fit")).toHaveValue("");
+    expect(scoreOf("Audience fit")).toBeNull();
   });
 
   it("leaves a usable scoring form when the assistant is unavailable", async () => {
@@ -370,7 +385,11 @@ describe("the assistant's draft", () => {
     expect(await screen.findByText(/did not answer in time/i)).toBeInTheDocument();
     expect(await screen.findByText(/still score this yourself/i)).toBeInTheDocument();
     // The manual path is intact, which is the whole point of the degradation.
-    expect(screen.getByLabelText("Audience fit")).toBeEnabled();
+    expect(
+      within(screen.getByRole("radiogroup", { name: "Audience fit" })).getByRole("radio", {
+        name: "3",
+      }),
+    ).toBeEnabled();
     expect(screen.getByRole("button", { name: "Complete evaluation" })).toBeEnabled();
   });
 

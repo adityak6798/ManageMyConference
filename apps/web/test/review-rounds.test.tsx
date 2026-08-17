@@ -189,12 +189,12 @@ describe("the round the console is working in", () => {
 
     // The default is the earliest open round: triage is where abstracts nobody has looked at yet
     // are handled, and those belong at the start of the process.
-    const selector = await screen.findByLabelText("Working in round");
-    expect(selector).toHaveValue("1");
+    const selector = await screen.findByRole("combobox", { name: "Working in round" });
+    expect(selector).toHaveTextContent("First pass");
     // Only that round's pool is offered, because a name the round does not admit is an assignment
     // the organizer would be refused for.
     fireEvent.click(screen.getByRole("button", { name: "Typed boundaries at scale" }));
-    const panel = screen.getByRole("region", { name: "Typed boundaries at scale" });
+    const panel = screen.getByRole("dialog", { name: "Typed boundaries at scale" });
     expect(
       within(panel.querySelector("select[id$='reviewer']") ?? panel)
         .getAllByRole("option")
@@ -202,7 +202,8 @@ describe("the round the console is working in", () => {
     ).not.toContain("Nina Alvarez");
 
     // Switching rounds switches the pool, the policy summary, and where work lands.
-    fireEvent.change(selector, { target: { value: "2" } });
+    fireEvent.keyDown(selector, { key: "ArrowDown" });
+    fireEvent.click(screen.getByRole("option", { name: /Programme committee/ }));
     expect(screen.getByText(/Open review · its own scorecard/)).toBeVisible();
 
     fireEvent.change(screen.getByLabelText("Max abstracts per reviewer"), {
@@ -484,7 +485,7 @@ describe("what the reviewers said", () => {
     stubApi((url) => (url.includes("/review/organizer") ? jsonResponse(reviewed()) : undefined));
     render(<OrganizerReviewWorkspace eventId={eventId} />);
     fireEvent.click(await screen.findByRole("button", { name: "Typed boundaries at scale" }));
-    const detail = await screen.findByRole("region", { name: "Typed boundaries at scale" });
+    const detail = await screen.findByRole("dialog", { name: "Typed boundaries at scale" });
 
     /*
      * The defect the 2026-08-14 evaluator run recorded as CFP-11 partial: the aggregate and the
@@ -510,7 +511,7 @@ describe("what the reviewers said", () => {
     stubApi((url) => (url.includes("/review/organizer") ? jsonResponse(workspace()) : undefined));
     render(<OrganizerReviewWorkspace eventId={eventId} />);
     fireEvent.click(await screen.findByRole("button", { name: "Typed boundaries at scale" }));
-    const detail = await screen.findByRole("region", { name: "Typed boundaries at scale" });
+    const detail = await screen.findByRole("dialog", { name: "Typed boundaries at scale" });
     expect(
       within(detail).getByText("No reviewer has completed an evaluation of this abstract yet."),
     ).toBeVisible();

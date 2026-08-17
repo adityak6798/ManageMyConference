@@ -17,10 +17,11 @@ import {
   type SearchSectionKey,
 } from "@greenroom/contracts";
 import { type FormEvent, useCallback, useRef, useState } from "react";
-import { ResponseContractError } from "../api/config";
-import { PlatformApiError, searchEvent } from "../api/platform";
+import { type ApiFailure, describeApiFailure } from "../api/config";
+import { searchEvent } from "../api/platform";
 import { useLinkProps } from "../router";
-import { Card, EmptyState, Notice, Pill } from "../ui/primitives";
+import { IconSearch } from "../ui/icons";
+import { Card, EmptyState, LoadFailure, Notice, Pill } from "../ui/primitives";
 
 const SECTION_LABELS: Readonly<Record<SearchSectionKey, string>> = {
   content: "Sessions, speakers and tasks",
@@ -48,18 +49,15 @@ const KIND_LABELS: Readonly<Record<SearchResultDto["kind"], string>> = {
   contact: "Contact",
 };
 
-function describeFailure(reason: unknown): string {
-  if (reason instanceof PlatformApiError)
-    return `${reason.envelope.error.message} Reference: ${reason.envelope.error.correlationId}`;
-  if (reason instanceof ResponseContractError) return reason.message;
-  return "Search is unavailable right now. Please retry.";
-}
-
 export function SearchWorkspace({ eventId }: { eventId: string }) {
   const [draft, setDraft] = useState("");
   const [answer, setAnswer] = useState<SearchResponseDto | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  /** The last query that was actually asked, so the retry re-asks it rather than the draft. */
+  const [asked, setAsked] = useState("");
+  const [failure, setFailure] = useState<ApiFailure | null>(null);
+  /** A refusal by the reader, not by the server: too short to search. */
+  const [tooShort, setTooShort] = useState(false);
   // Submitted rather than typed, so an explicit search is one request. Answers are still
   // numbered: two submissions in quick succession can land out of order.
   const issued = useRef(0);
@@ -73,14 +71,17 @@ export function SearchWorkspace({ eventId }: { eventId: string }) {
     async (query: string) => {
       const generation = ++issued.current;
       setBusy(true);
-      setError(null);
+      setFailure(null);
+      setTooShort(false);
+      setAsked(query);
       try {
         const result = await searchEvent(eventId, query);
         if (generation === issued.current) setAnswer(result);
       } catch (reason: unknown) {
         if (generation === issued.current) {
           setAnswer(null);
-          setError(describeFailure(reason));
+          // ERROR-INTENT: rendered in place of the results, with the retry that re-asks it.
+          setFailure(describeApiFailure(reason, "Search is unavailable right now."));
         }
       } finally {
         if (generation === issued.current) setBusy(false);
@@ -94,7 +95,8 @@ export function SearchWorkspace({ eventId }: { eventId: string }) {
     const query = draft.trim();
     if (query.length < SEARCH_QUERY_MIN_LENGTH) {
       setAnswer(null);
-      setError(`Search for at least ${SEARCH_QUERY_MIN_LENGTH} characters.`);
+      setFailure(null);
+      setTooShort(true);
       return;
     }
     // ERROR-INTENT: handlers cannot await; run() renders both outcomes into its own state.
@@ -125,13 +127,14 @@ export function SearchWorkspace({ eventId }: { eventId: string }) {
             <div className="form-row">
               <input
                 id="event-search"
+                className="control"
                 type="search"
                 autoComplete="off"
                 value={draft}
                 placeholder="Keynote, an address, a room…"
                 onChange={(changeEvent) => setDraft(changeEvent.target.value)}
               />
-              <button type="submit" disabled={busy}>
+              <button className="primary" type="submit" disabled={busy}>
                 {busy ? "Searching…" : "Search"}
               </button>
             </div>
@@ -141,7 +144,7 @@ export function SearchWorkspace({ eventId }: { eventId: string }) {
           `aria-live` without `role="status"`: a workspace's own action feedback already owns
           the page's one status region, and a second is the trap `ACC-AGENDA` records.
         */}
-        <p className="palette-announce" aria-live="polite">
+        <p className="hint" aria-live="polite">
           {busy
             ? "Searching…"
             : answer
@@ -150,7 +153,18 @@ export function SearchWorkspace({ eventId }: { eventId: string }) {
         </p>
         {/* A failure is announced by the notice's own `alert` role, so the polite region above
             deliberately does not repeat it — two announcements of one event read as two. */}
-        {error ? <Notice tone="error">{error}</Notice> : null}
+        {tooShort ? (
+          <Notice tone="warn">Search for at least {SEARCH_QUERY_MIN_LENGTH} characters.</Notice>
+        ) : null}
+        {failure ? (
+          <LoadFailure
+            what="your search"
+            error={failure.message}
+            reference={failure.reference}
+            retryLabel="Search again"
+            onRetry={() => run(asked)}
+          />
+        ) : null}
       </Card>
 
       {answer && unauthorized.length > 0 ? (
@@ -174,10 +188,12 @@ export function SearchWorkspace({ eventId }: { eventId: string }) {
             if (section.state !== "ok" || section.results.length === 0) return null;
             return (
               <Card key={key} title={SECTION_LABELS[key]} labelledBy={`search-${key}`}>
-                <ul className="plain-list">
+                <ul className="plain-list search-list">
                   {section.results.map((result) => (
                     <li key={`${result.kind}:${result.id}`}>
-                      <a {...linkProps(result.href)}>{result.title}</a>{" "}
+                      <a className="row-link" {...linkProps(result.href)}>
+                        {result.title}
+                      </a>{" "}
                       <Pill>{KIND_LABELS[result.kind]}</Pill>
                       {result.subtitle ? <span className="sub">{result.subtitle}</span> : null}
                     </li>
@@ -190,7 +206,7 @@ export function SearchWorkspace({ eventId }: { eventId: string }) {
 
       {answer && total === 0 ? (
         <Card>
-          <EmptyState title={`No matches for “${answer.query}”`}>
+          <EmptyState icon={<IconSearch size={20} />} title={`No matches for “${answer.query}”`}>
             Search covers only the parts of this event your role can already open, so a record you
             cannot see will not appear here either.
           </EmptyState>

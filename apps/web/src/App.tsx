@@ -1,6 +1,7 @@
 import {
   type EventDto,
   type EventTemplateDto,
+  type InboxResponseDto,
   resolveTimezone,
   type SessionDto,
 } from "@greenroom/contracts";
@@ -15,14 +16,15 @@ import {
   useState,
 } from "react";
 import { AcceptInvitationPage } from "./AcceptInvitationPage";
-import { AppShell, type NavGroup, type Persona } from "./AppShell";
+import { AppShell, type NavGroup, type Persona, ShellSkeleton } from "./AppShell";
+import { type ApiFailure, describeApiFailure } from "./api/config";
 import {
   applyEventTemplate,
   EventTemplateApiError,
   getEventTemplate,
   listEventTemplates,
 } from "./api/event-templates";
-import { ApiError, createEvent, listAssignedEvents, updateEvent } from "./api/events";
+import { ApiError, createEvent, listAssignedEvents } from "./api/events";
 import {
   getAuthConfig,
   getSession,
@@ -33,23 +35,26 @@ import {
   startDemoSession,
   verifyLoginCode,
 } from "./api/identity";
+import { getInbox } from "./api/platform";
 import { PublicationApiError, updatePublicationSettings } from "./api/publication";
 import { CommandPalette } from "./CommandPalette";
 import { TimezoneField } from "./events/TimezoneField";
 import { InstanceMarker } from "./InstanceMarker";
 import { OverviewPage } from "./OverviewPage";
-import { navigate, useLocation } from "./router";
+import { navigate, useLinkProps, useLocation } from "./router";
 import "./styles.css";
 import {
+  IconBroadcast,
   IconCalendar,
   IconDashboard,
   IconForm,
-  IconGlobe,
+  IconPlus,
   IconSend,
   IconSettings,
   IconSpeakers,
+  IconWarning,
 } from "./ui/icons";
-import { Card, EmptyState, HubTabs, Notice, PageHeader } from "./ui/primitives";
+import { Card, EmptyState, HubTabs, Notice, PageHeader, Refusal } from "./ui/primitives";
 import type {
   HubTabModule,
   NavGroupName,
@@ -67,6 +72,7 @@ import {
   hubTabForLegacyPath,
   hubTabForSelection,
   hubTabsFor,
+  NAV_GROUP_LABELS,
   NAV_GROUP_ORDER,
   workspaceForPath,
   workspacesForPersona,
@@ -77,10 +83,8 @@ const personas: Persona[] = ["organizer", "reviewer", "speaker", "public"];
 /**
  * The envelope behind a refusal, whichever client raised it.
  *
- * Every API client in `api/` declares its own error class — that is what keeps a domain's
- * failures its own — and every one of them carries the same envelope. The shell talks to two of
- * them, so it asks for the envelope rather than for a class, and a third client added later
- * costs one line here instead of a silently generic message.
+ * Only the unauthorized branch below still needs the code rather than the sentence;
+ * `describeApiFailure` reads both shapes structurally for everything else.
  */
 function envelopeOf(error: unknown) {
   if (
@@ -93,14 +97,22 @@ function envelopeOf(error: unknown) {
   return null;
 }
 
-function readableError(error: unknown): string {
-  const envelope = envelopeOf(error);
-  if (envelope) return `${envelope.error.message} Reference: ${envelope.error.correlationId}`;
-  if (error instanceof EventCreationConfigurationError) return error.message;
-  return "Something went wrong. Please retry; if it continues, contact support.";
+class EventCreationConfigurationError extends Error {}
+
+/**
+ * One voice for every failure the shell owns, with the reference kept out of the sentence.
+ *
+ * `EventCreationConfigurationError` is the shell's own: it carries a sentence written for the
+ * reader and no correlation id, because nothing went wrong on the wire — the event was created
+ * and the configuration that was meant to follow it could not be.
+ */
+function describeShellFailure(reason: unknown, fallback: string): ApiFailure {
+  if (reason instanceof EventCreationConfigurationError)
+    return { message: reason.message, reference: null };
+  return describeApiFailure(reason, fallback);
 }
 
-class EventCreationConfigurationError extends Error {}
+const UNEXPECTED = "Something went wrong. Please retry; if it continues, contact support.";
 
 interface NavEntry {
   href: string;
@@ -121,48 +133,57 @@ interface NavEntry {
  */
 const ACCEPT_INVITATION_PATH = "/invitations/accept";
 
+/**
+ * Creating an event is a destination, not an anchor.
+ *
+ * It used to be `/settings#create-event`, which could not work: `navigate` strips the hash and
+ * then scrolls to the top, so the link went to Settings and left the reader looking at a
+ * different form, and pressing it again stacked a duplicate history entry each time.
+ */
+const NEW_EVENT_PATH = "/events/new";
+
 const organizerHubs: readonly NavEntry[] = [
   {
     href: HUB_PATHS.program,
     label: "Program",
-    group: "Program",
+    group: "operate",
     order: 10,
-    icon: <IconForm size={16} />,
+    icon: <IconForm />,
   },
   {
     href: HUB_PATHS.people,
     label: "People",
-    group: "Program",
+    group: "operate",
     order: 20,
-    icon: <IconSpeakers size={16} />,
+    icon: <IconSpeakers />,
   },
   {
     href: HUB_PATHS.schedule,
     label: "Schedule",
-    group: "Program",
+    group: "operate",
     order: 30,
-    icon: <IconCalendar size={16} />,
+    icon: <IconCalendar />,
   },
   {
     href: HUB_PATHS.communications,
     label: "Communications",
-    group: "Audience",
+    group: "reach",
     order: 40,
-    icon: <IconSend size={16} />,
+    icon: <IconSend />,
   },
   {
     href: HUB_PATHS.publish,
     label: "Publish",
-    group: "Audience",
+    group: "reach",
     order: 50,
-    icon: <IconGlobe size={16} />,
+    icon: <IconBroadcast />,
   },
   {
     href: HUB_PATHS.settings,
     label: "Settings",
-    group: "Audience",
-    order: 60,
-    icon: <IconSettings size={16} />,
+    group: "admin",
+    order: 100,
+    icon: <IconSettings />,
   },
 ];
 
@@ -178,7 +199,7 @@ function shellRoutes(role: WorkspaceRole): NavEntry[] {
     label,
     group: "home",
     order: 0,
-    icon: <IconDashboard size={16} />,
+    icon: <IconDashboard />,
   });
   if (role === "organizer" || role === "custom") return [overview("Overview")];
   // A reviewer and a speaker land on their own single workspace, so the shell adds nothing.
@@ -187,14 +208,20 @@ function shellRoutes(role: WorkspaceRole): NavEntry[] {
 }
 
 /** Routes each persona can reach, in sidebar order. The first entry is its home. */
-function routesFor(role: WorkspaceRole): NavEntry[] {
+function routesFor(role: WorkspaceRole, canCreateEvent = false): NavEntry[] {
   // A custom role is capability-shaped rather than persona-shaped. Its discoverable surface is
   // the organizer catalogue; each module's own capability gate still decides whether it opens.
   if (role === "organizer" || role === "custom") {
-    // Search and Inbox are cross-hub utilities rather than another organizer job hub. Keeping
-    // their routes discoverable also gives command-palette and overview links a full-page target.
+    /*
+     * Inbox and Reports are cross-hub utilities rather than another organizer job hub: one is
+     * everything waiting, the other is a question asked of the whole event.
+     *
+     * `/search` is deliberately absent. It answers exactly the question the command palette
+     * answers, from a keystroke available on every surface, and a second permanent nav item for
+     * it only cost a row — the palette's "see all results" now carries the reader to the page.
+     */
     const utilities = workspacesForPersona("organizer")
-      .filter(({ path }) => path === "/search" || path === "/inbox")
+      .filter(({ path }) => path === "/inbox" || path === "/reports")
       .map((module) => ({
         href: module.path,
         label: module.label,
@@ -202,7 +229,18 @@ function routesFor(role: WorkspaceRole): NavEntry[] {
         order: module.order,
         icon: module.icon,
       }));
-    return [...shellRoutes(role), ...utilities, ...organizerHubs].sort(
+    const create: NavEntry[] = canCreateEvent
+      ? [
+          {
+            href: NEW_EVENT_PATH,
+            label: "Create another event",
+            group: "admin",
+            order: 90,
+            icon: <IconPlus />,
+          },
+        ]
+      : [];
+    return [...shellRoutes(role), ...utilities, ...organizerHubs, ...create].sort(
       (left, right) => left.order - right.order,
     );
   }
@@ -214,6 +252,27 @@ function routesFor(role: WorkspaceRole): NavEntry[] {
     icon: module.icon,
   }));
   return [...shellRoutes(role), ...domains].sort((left, right) => left.order - right.order);
+}
+
+type WaitingCounts = { inbox: number; program: number; schedule: number };
+
+/** What the inbox says is still open, folded onto the destinations that can act on it. */
+function countWaiting(answer: InboxResponseDto): WaitingCounts {
+  const open = (key: keyof InboxResponseDto["categories"]) => {
+    const category = answer.categories[key];
+    return category.state === "ok"
+      ? category.items.filter((item) => item.status === "open").length
+      : 0;
+  };
+  const categories = Object.keys(answer.categories) as (keyof InboxResponseDto["categories"])[];
+  return {
+    inbox: categories.reduce((total, key) => total + open(key), 0),
+    // Proposals waiting on a decision are Program's job; an unplaced session or a clash is
+    // Schedule's. Nothing else in the inbox maps onto a single destination, so nothing else
+    // gets a badge — a number beside a nav item is a promise that opening it shows those items.
+    program: open("reviews"),
+    schedule: open("programme"),
+  };
 }
 
 // Two domains claiming one route would otherwise mean whichever module the registry reached
@@ -268,15 +327,11 @@ export function App({
   const [createTimezone, setCreateTimezone] = useState(
     () => resolveTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone) ?? "UTC",
   );
-  const [settingsName, setSettingsName] = useState("");
-  const [settingsTimezone, setSettingsTimezone] = useState("");
-  /** Whatever the server said about `timezone`, rendered on the control it refused. */
-  const [timezoneErrors, setTimezoneErrors] = useState<string[]>([]);
   // The shell reports its own failures and no one else's: signing in, switching identity,
   // creating an event. It starts and finishes each of those, so it can keep the message
   // accurate by itself. A workspace that is mounted owns its failures — it renders them
   // beside the control that caused them, or, when a load fails, in place of itself.
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ApiFailure | null>(null);
   // The one exception, and only for a failure to *load*: until a draft arrives the agenda
   // board has no surface of its own to render one in, so it hands the message here and the
   // /agenda route renders it above the board. Nothing else reports to the shell.
@@ -288,6 +343,8 @@ export function App({
   const [code, setCode] = useState("");
   const [challenge, setChallenge] = useState("");
   const [publication, setPublication] = useState<{ slug: string; state: string } | null>(null);
+  /** What is waiting on this event, for the counts beside the nav items. */
+  const [waiting, setWaiting] = useState<WaitingCounts | null>(null);
   /**
    * The command palette is global chrome rather than a route, so the shell owns whether it is
    * open. It is the only surface here that is not a workspace module, and the reason is that a
@@ -295,6 +352,7 @@ export function App({
    */
   const [paletteOpen, setPaletteOpen] = useState(false);
   const location = useLocation();
+  const linkProps = useLinkProps();
   const path = location.split("?")[0] ?? "/";
   /*
    * The one flag the Google callback sets, and only on the sign-in that provisioned a brand new
@@ -335,25 +393,55 @@ export function App({
     [],
   );
 
+  /** A workspace renamed the event, or moved it to another zone. */
+  const applyEventChange = useCallback((updated: EventDto) => {
+    setEvents((current) =>
+      current.map((event) => (event.id === updated.id ? { ...event, ...updated } : event)),
+    );
+  }, []);
+
   useEffect(() => {
     // ERROR-INTENT: React effects cannot await; the attached handlers render the outcome.
     void loadShell()
       .catch(async (reason: unknown) => {
         if (envelopeOf(reason)?.error.code !== "UNAUTHORIZED") throw reason;
-        setError(readableError(reason));
+        setError(describeShellFailure(reason, UNEXPECTED));
         setDemoMode((await getAuthConfig()).demoMode);
       })
-      .catch((reason: unknown) => setError(readableError(reason)))
+      .catch((reason: unknown) => setError(describeShellFailure(reason, UNEXPECTED)))
       .finally(() => setLoading(false));
   }, [loadShell]);
 
   const selectedEvent = events.find(({ id }) => id === selectedEventId);
   const query = selectedEventId ? `?event=${selectedEventId}` : "";
 
+  /*
+   * What is waiting, read once per event.
+   *
+   * The badge is declared, rendered and styled by the shell, and until now nobody ever supplied
+   * one — so from anywhere but the Overview nothing told an organizer that eleven proposals were
+   * waiting on them.
+   */
   useEffect(() => {
-    setSettingsName(selectedEvent?.name ?? "");
-    setSettingsTimezone(selectedEvent?.timezone ?? "");
-  }, [selectedEvent]);
+    if (!selectedEventId || !session) {
+      setWaiting(null);
+      return;
+    }
+    let live = true;
+    // A count is an accelerant, never the thing itself: a summary that does not come back leaves
+    // the nav items unbadged and the console entirely usable.
+    // ERROR-INTENT: reporting it would put a failure on screen about a number nobody asked for.
+    void getInbox(selectedEventId)
+      .then((answer) => {
+        if (live) setWaiting(countWaiting(answer));
+      })
+      .catch(() => {
+        if (live) setWaiting(null);
+      });
+    return () => {
+      live = false;
+    };
+  }, [selectedEventId, session]);
 
   useEffect(() => {
     if (!session?.organizations.length) return;
@@ -372,7 +460,9 @@ export function App({
           active.some(({ id }) => id === current) ? current : (active[0]?.id ?? ""),
         );
       })
-      .catch((reason: unknown) => setError(readableError(reason)));
+      .catch((reason: unknown) =>
+        setError(describeShellFailure(reason, "The template list could not be read.")),
+      );
   }, [createMode, createOrganizationId]);
 
   /**
@@ -389,6 +479,14 @@ export function App({
   const hasDurableSession = session?.authentication
     ? session.authentication === "session"
     : realSession;
+  /**
+   * Whether identity can be switched at all.
+   *
+   * The switcher POSTs `/api/demo-session`, which answers 404 whenever DEMO_MODE is off — so on
+   * a real deployment the most prominent control in the topbar returned "The requested resource
+   * was not found." with a correlation id to an organizer who had not asked to become anybody.
+   */
+  const canSwitchPersona = session?.authentication === "demo";
 
   const activeRole = useMemo<WorkspaceRole>(() => {
     if (!session) return "public";
@@ -421,7 +519,26 @@ export function App({
       ({ eventId, role }) => eventId === selectedEventId && role === "organizer",
     ),
   );
-  const allowed = useMemo(() => routesFor(activeRole), [activeRole]);
+  const canCreateEvent = Boolean(session?.capabilities.includes("events:create"));
+  const allowed = useMemo(
+    () => routesFor(activeRole, canCreateEvent),
+    [activeRole, canCreateEvent],
+  );
+
+  /**
+   * A legacy path that is about to become a hub URL.
+   *
+   * `renderPage` returns nothing while this is true. `/cfp` resolves through
+   * `workspaceForPath`, so the console used to mount CfpWorkspace, fire its three reads, and
+   * only then run the effect below — which navigates to `/program?tab=forms` and mounts the
+   * whole thing again. One guard covers every caller, including the hrefs the API mints for
+   * inbox items and search hits, without touching the API.
+   */
+  const pendingRedirect =
+    (activeRole === "organizer" || activeRole === "custom") && !loading && session !== null
+      ? hubTabForLegacyPath(path)
+      : undefined;
+  const redirecting = Boolean(pendingRedirect && path !== HUB_PATHS[pendingRedirect.hub]);
 
   // Old bookmarks remain useful after the information architecture changes. Preserve all
   // unrelated query state (especially the selected event) while replacing only the tab.
@@ -439,13 +556,37 @@ export function App({
   useEffect(() => {
     if (loading || !session) return;
     if (path === ACCEPT_INVITATION_PATH) return;
+    // Not gated on the capability: an account that cannot create events is told so, by name,
+    // rather than bounced to its home with nothing said.
+    if (path === NEW_EVENT_PATH) return;
+    /*
+     * A route this persona's own module registered, whether or not the sidebar offers it.
+     *
+     * `allowed` is the *navigation* list, and using it as the reachability rule made every
+     * addressable-but-unadvertised destination a dead end. `/search` is the one that mattered:
+     * it is deliberately absent from the sidebar because the command palette answers the same
+     * question from a keystroke — and the palette's own "See all results for …" option, the only
+     * advertised way in, redirected to the overview. `renderPage` already refuses a module this
+     * account cannot open by name, which is the answer a refusal owes the reader.
+     */
+    const addressable = workspaceForPath(path);
+    const persona = activeRole === "custom" ? "organizer" : activeRole;
     if (
       allowed.some((route) => route.href === path) ||
+      addressable?.personas.includes(persona as never) ||
       ((activeRole === "organizer" || activeRole === "custom") && hubTabForLegacyPath(path))
     )
       return;
     navigate(`${allowed[0]?.href ?? "/"}${query}`, { replace: true });
   }, [activeRole, allowed, loading, path, query, session]);
+
+  // Creating an event is a form, and a form that is a destination owes the reader its first
+  // field. The old `#create-event` anchor could not do this: `navigate` drops the hash.
+  useEffect(() => {
+    if (path !== NEW_EVENT_PATH) return;
+    const focus = requestAnimationFrame(() => document.getElementById("event-name")?.focus());
+    return () => cancelAnimationFrame(focus);
+  }, [path]);
 
   // A failure raised for one surface, or for one event, must not follow the user to the
   // next one — switching event keeps the same path, so both axes have to clear it.
@@ -495,16 +636,15 @@ export function App({
     try {
       await startDemoSession(persona);
       await loadShell();
-      // Disabling the select while the switch is in flight drops focus to <body>, and the
-      // whole workspace changes underneath. Move focus to the destination so keyboard and
-      // screen-reader users land on the new surface instead of at the top of the document.
+      // The whole workspace changes underneath, so move focus to the destination rather than
+      // leaving keyboard and screen-reader users at the top of the document.
       requestAnimationFrame(() => {
         const main = document.getElementById("main");
         main?.setAttribute("tabindex", "-1");
         main?.focus({ preventScroll: true });
       });
     } catch (reason: unknown) {
-      setError(readableError(reason));
+      setError(describeShellFailure(reason, "The signed-in role could not be changed."));
     } finally {
       setBusy(false);
     }
@@ -524,7 +664,7 @@ export function App({
       await signOut();
       window.location.assign("/");
     } catch (reason: unknown) {
-      setError(readableError(reason));
+      setError(describeShellFailure(reason, "You could not be signed out."));
       setBusy(false);
     }
   }
@@ -543,7 +683,7 @@ export function App({
       await revokeAllSessions();
       window.location.assign("/");
     } catch (reason: unknown) {
-      setError(readableError(reason));
+      setError(describeShellFailure(reason, "The other sessions could not be ended."));
       setBusy(false);
     }
   }
@@ -560,7 +700,7 @@ export function App({
         await loadShell();
       }
     } catch (reason) {
-      setError(readableError(reason));
+      setError(describeShellFailure(reason, "You could not be signed in."));
     } finally {
       setBusy(false);
     }
@@ -636,45 +776,13 @@ export function App({
       setCreateTemplateId("");
       createIdempotencyKey.current = crypto.randomUUID();
     } catch (reason: unknown) {
-      setError(readableError(reason));
+      setError(describeShellFailure(reason, "That event could not be created."));
     } finally {
       setBusy(false);
     }
   }
 
-  async function submitSettings(formEvent: FormEvent) {
-    formEvent.preventDefault();
-    if (!selectedEvent) return;
-    setBusy(true);
-    setError(null);
-    setTimezoneErrors([]);
-    try {
-      const updated = await updateEvent(selectedEvent.id, {
-        name: settingsName,
-        timezone: settingsTimezone,
-      });
-      setEvents((current) => current.map((event) => (event.id === updated.id ? updated : event)));
-      // The server canonicalizes, so the control shows the id that was actually stored rather
-      // than the alias that was sent.
-      setSettingsTimezone(updated.timezone);
-    } catch (reason: unknown) {
-      // A refusal the server attached to a field belongs on that field. Anything else stays a
-      // page-level message, which is where it was already going.
-      setTimezoneErrors(envelopeOf(reason)?.error.fieldErrors?.timezone ?? []);
-      setError(readableError(reason));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  if (loading)
-    return (
-      <main className="page-body">
-        <p role="status" className="notice">
-          Loading your workspace…
-        </p>
-      </main>
-    );
+  if (loading) return <ShellSkeleton />;
 
   if (!session)
     return (
@@ -683,7 +791,6 @@ export function App({
           <InstanceMarker />
         </div>
         <PageHeader
-          eyebrow="Project Greenroom"
           title={demoMode ? "Demo mode: choose a workspace role" : "Sign in to Greenroom"}
           subtitle={
             demoMode
@@ -696,6 +803,7 @@ export function App({
             <div className="persona-actions">
               {personas.map((persona) => (
                 <button
+                  className="secondary"
                   key={persona}
                   type="button"
                   disabled={busy}
@@ -716,6 +824,7 @@ export function App({
                 </label>
                 <input
                   id={challenge ? "login-code" : "login-email"}
+                  className="control"
                   type={challenge ? "text" : "email"}
                   inputMode={challenge ? "numeric" : undefined}
                   autoComplete={challenge ? "one-time-code" : "email"}
@@ -726,11 +835,12 @@ export function App({
                   required
                 />
               </div>
-              <button type="submit" disabled={busy}>
+              <button className="primary" type="submit" disabled={busy}>
                 {challenge ? "Sign in" : "Email me a code"}
               </button>
               {challenge ? (
                 <button
+                  className="secondary"
                   type="button"
                   disabled={busy}
                   onClick={() => {
@@ -746,21 +856,97 @@ export function App({
           )}
           {error ? (
             <div style={{ marginTop: "var(--s-4)" }}>
-              <Notice tone="error">{error}</Notice>
+              <Notice tone="error" reference={error.reference}>
+                {error.message}
+              </Notice>
             </div>
           ) : null}
         </Card>
       </main>
     );
 
+  /*
+   * An attendee identity gets a page, not a console.
+   *
+   * Every block of the shell — the nav, the event chip, the palette — is chrome for work this
+   * account cannot do, and rendering it around a single refusal is the console telling somebody
+   * they are nearly an organizer. They are not; they are in the wrong place, and the useful
+   * thing is to say which access is missing and offer the way out.
+   */
+  if (activeRole === "public")
+    return (
+      <main className="page-body public-landing" id="main" tabIndex={-1}>
+        <div className="brandmark">
+          <span className="glyph" aria-hidden="true">
+            G
+          </span>
+          <span className="wordmark">Greenroom</span>
+        </div>
+        <Card>
+          <Refusal
+            title="This account has no organizer workspace"
+            capability="a seat on an event"
+            grantedBy="An organizer of that event"
+            action={
+              hasAuthenticatedSession ? (
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={busy}
+                  onClick={() => {
+                    // ERROR-INTENT: handlers cannot await; endSession renders its own failure.
+                    void endSession();
+                  }}
+                >
+                  Sign out
+                </button>
+              ) : null
+            }
+          >
+            An event's public schedule, sessions, speakers and call for proposals are published at
+            their own address and need no account at all.
+          </Refusal>
+        </Card>
+        {error ? (
+          <Notice tone="error" reference={error.reference}>
+            {error.message}
+          </Notice>
+        ) : null}
+      </main>
+    );
+
   // Each entry carries its own group and icon, so the sidebar is grouped by what a workspace
   // declares rather than by slicing a hand-ordered array at hard-coded indices.
+  // Zero is not a count worth drawing: the badge means "this needs you", and a nav item
+  // permanently reading 0 is the console asking to be ignored.
+  const countFor = (href: string): number | undefined => {
+    if (!waiting) return undefined;
+    if (href === "/inbox") return waiting.inbox || undefined;
+    if (href === HUB_PATHS.program) return waiting.program || undefined;
+    if (href === HUB_PATHS.schedule) return waiting.schedule || undefined;
+    return undefined;
+  };
   const groups: NavGroup[] = NAV_GROUP_ORDER.flatMap((name) => {
     const items = allowed
       .filter((route) => route.group === name)
-      .map((route) => ({ href: `${route.href}${query}`, label: route.label, icon: route.icon }));
+      .map((route) => {
+        const count = countFor(route.href);
+        return {
+          href: `${route.href}${query}`,
+          label: route.label,
+          icon: route.icon,
+          ...(count === undefined ? {} : { count }),
+        };
+      });
     if (items.length === 0) return [];
-    return [name === "home" ? { items } : { heading: name, items }];
+    const heading = NAV_GROUP_LABELS[name];
+    return [
+      {
+        ...(heading ? { heading } : {}),
+        ...(name === "admin" ? { pinned: true } : {}),
+        items,
+      },
+    ];
   });
 
   // Only offer the link once the event is actually published under a known slug.
@@ -775,24 +961,33 @@ export function App({
     <>
       <PageHeader title="No access to this workspace" subtitle={selectedEvent?.name} />
       <Card>
-        <EmptyState title="Your role on this event does not include this workspace">
-          Switch to an event you organize, or change the signed-in role from the top right.
-        </EmptyState>
+        <Refusal
+          title="Your role on this event does not open this workspace"
+          capability="a role that includes this workspace"
+          grantedBy="An organizer of this event"
+        >
+          Switch to an event you organize, or ask an organizer for the access.
+        </Refusal>
       </Card>
     </>
   );
 
-  /** Render a domain's workspace behind the header it declares for itself. */
-  function renderWorkspace(workspace: WorkspaceModule, access: WorkspaceAccess) {
-    if (!selectedEvent) return noAccess;
-    const context: WorkspaceContext = {
+  function workspaceContext(access: WorkspaceAccess, event: EventDto): WorkspaceContext {
+    return {
       ...access,
-      event: selectedEvent,
+      event,
       query,
       agendaLoadFailure,
       reportAgendaLoadFailure,
       onPublicationChange: setPublication,
+      onEventChanged: applyEventChange,
     };
+  }
+
+  /** Render a domain's workspace behind the header it declares for itself. */
+  function renderWorkspace(workspace: WorkspaceModule, access: WorkspaceAccess) {
+    if (!selectedEvent) return noAccess;
+    const context = workspaceContext(access, selectedEvent);
     const { eyebrow, title, subtitle } = workspace.header(context);
     return (
       <>
@@ -808,14 +1003,7 @@ export function App({
 
   function renderHubTab(tab: HubTabModule, access: WorkspaceAccess, tabs: readonly HubTabModule[]) {
     if (!selectedEvent) return noAccess;
-    const context: WorkspaceContext = {
-      ...access,
-      event: selectedEvent,
-      query,
-      agendaLoadFailure,
-      reportAgendaLoadFailure,
-      onPublicationChange: setPublication,
-    };
+    const context = workspaceContext(access, selectedEvent);
     const header = tab.header(context);
     const tabItems = tabs.map((item) => {
       const params = new URLSearchParams(locationQuery);
@@ -825,35 +1013,272 @@ export function App({
     });
     return (
       <>
-        <PageHeader {...header} />
-        <HubTabs
-          items={tabItems}
-          active={tab.tab}
-          label={`${header.eyebrow ?? header.title} sections`}
+        {/*
+          No eyebrow. The hub is already named twice above this line — by the current sidebar
+          item and by the selected tab — and a third copy of the word in small grey type over
+          the page title is the ornament this rebuild exists to remove. The field stays on
+          `WorkspaceHeader` so no domain module has to be edited, and it still names the tab
+          strip for a reader who cannot see where they are.
+        */}
+        <PageHeader
+          title={header.title}
+          {...(header.subtitle ? { subtitle: header.subtitle } : {})}
         />
+        {/*
+          A strip of one is not a choice. Communications has exactly one visible tab, and the
+          strip drew a lone selected chip under the page title that looked pressable and did
+          nothing — a control offering the destination the reader is already standing on.
+        */}
+        {tabItems.length > 1 ? (
+          <HubTabs
+            items={tabItems}
+            active={tab.tab}
+            label={`${header.eyebrow ?? header.title} sections`}
+          />
+        ) : null}
         {canOpenTab(tab, access) ? (
           <Fragment key={`${selectedEvent.id}:${tab.hub}:${tab.tab}`}>
             {tab.render(context)}
           </Fragment>
         ) : (
           <Card>
-            <EmptyState title="Your role on this event does not include this section">
-              Switch to an event you organize, or ask an administrator for the required access.
-            </EmptyState>
+            <Refusal
+              title="Your role on this event does not open this section"
+              capability="a role that includes this section"
+              grantedBy="An organizer of this event"
+            >
+              Switch to an event you organize, or ask an organizer for the access.
+            </Refusal>
           </Card>
         )}
       </>
     );
   }
 
+  /**
+   * Name an organization the reader can recognise.
+   *
+   * "Organization 2" was the console reading out an array index. The session payload carries
+   * organization *ids* and no names — that is the contract, not an oversight here — so the
+   * useful name is the one the reader already knows: the event they are in, or an event they
+   * already have in that organization. The id is the last resort, and it is truncated because
+   * a full UUID in an option label is not a name either.
+   */
+  function organizationLabel(organizationId: string) {
+    if (selectedEvent && organizationId === selectedEvent.organizationId)
+      return "Current organization";
+    const sibling = events.find((event) => event.organizationId === organizationId);
+    return sibling
+      ? `The organization behind ${sibling.name}`
+      : `Organization ${organizationId.slice(0, 8)}`;
+  }
+
+  function renderCreateEvent() {
+    if (!session?.capabilities.includes("events:create"))
+      return (
+        <>
+          <PageHeader title="Create an event" />
+          <Card>
+            <Refusal
+              capability="permission to create events"
+              grantedBy="An organization owner"
+              title="This account cannot create events"
+            >
+              Every other event you already have a seat on stays reachable from the switcher at the
+              top of the console.
+            </Refusal>
+          </Card>
+        </>
+      );
+    return (
+      <>
+        <PageHeader
+          title="Create an event"
+          subtitle="Proposals, reviews, speakers, files, the agenda, and publication history are never copied from another event."
+        />
+        <Card>
+          <form className="stack settings-event-form" onSubmit={submit}>
+            {/*
+              Offered only when there is a choice to make. One organization is not a decision,
+              and a select with one option is a control that teaches the reader nothing.
+            */}
+            {session.organizations.length > 1 ? (
+              <div className="field">
+                <label htmlFor="event-organization">Organization</label>
+                <select
+                  id="event-organization"
+                  className="control"
+                  value={createOrganizationId}
+                  onChange={(event) => setCreateOrganizationId(event.target.value)}
+                  required
+                >
+                  {session.organizations.map((organization) => (
+                    <option key={organization.id} value={organization.id}>
+                      {organizationLabel(organization.id)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
+            <div className="field">
+              <label htmlFor="event-name">Event name</label>
+              <input
+                id="event-name"
+                className="control"
+                value={createName}
+                onChange={(changeEvent) => setCreateName(changeEvent.target.value)}
+                placeholder="Greenroom Summit"
+                required
+                maxLength={120}
+              />
+            </div>
+            <TimezoneField
+              id="event-timezone"
+              value={createTimezone}
+              onChange={setCreateTimezone}
+              disabled={busy}
+              label="Event timezone"
+              hint="Defaults to this browser's zone. Change it before creating if the event runs elsewhere."
+            />
+            <div className="field">
+              <label htmlFor="event-slug">Public address</label>
+              <div className="input-prefix">
+                <span aria-hidden="true">/events/</span>
+                <input
+                  id="event-slug"
+                  className="control"
+                  value={createSlug}
+                  onChange={(event) => setCreateSlug(event.target.value)}
+                  placeholder="greenroom-summit"
+                  pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
+                  required
+                />
+              </div>
+              <p className="hint">
+                Use lowercase letters, numbers, and hyphens. If this address is already taken,
+                choose another.
+              </p>
+            </div>
+            <div className="field-grid two">
+              <div className="field">
+                <label htmlFor="event-starts-on">Starts</label>
+                <input
+                  id="event-starts-on"
+                  className="control"
+                  type="date"
+                  value={createStartsOn}
+                  onChange={(event) => setCreateStartsOn(event.target.value)}
+                  required
+                />
+              </div>
+              <div className="field">
+                <label htmlFor="event-ends-on">Ends</label>
+                <input
+                  id="event-ends-on"
+                  className="control"
+                  type="date"
+                  min={createStartsOn}
+                  value={createEndsOn}
+                  onChange={(event) => setCreateEndsOn(event.target.value)}
+                  required
+                />
+              </div>
+            </div>
+            <fieldset className="field">
+              <legend>Starting configuration</legend>
+              <label className="choice-row">
+                <input
+                  type="radio"
+                  name="create-mode"
+                  value="empty"
+                  checked={createMode === "empty"}
+                  onChange={() => setCreateMode("empty")}
+                />
+                Empty event
+              </label>
+              <label className="choice-row">
+                <input
+                  type="radio"
+                  name="create-mode"
+                  value="template"
+                  checked={createMode === "template"}
+                  onChange={() => setCreateMode("template")}
+                />
+                Apply a selected template
+              </label>
+            </fieldset>
+            {createMode === "template" ? (
+              <div className="field">
+                <label htmlFor="event-template">Template</label>
+                <select
+                  id="event-template"
+                  className="control"
+                  value={createTemplateId}
+                  onChange={(event) => setCreateTemplateId(event.target.value)}
+                  required
+                >
+                  {createTemplates.length ? null : (
+                    <option value="">No active templates available</option>
+                  )}
+                  {createTemplates.map((template) => (
+                    <option key={template.id} value={template.id}>
+                      {template.name}
+                    </option>
+                  ))}
+                </select>
+                <p className="hint">
+                  The newest version is used. If part of the setup cannot be applied, you can review
+                  and retry it from Templates.
+                </p>
+              </div>
+            ) : null}
+            <button className="primary" type="submit" disabled={busy}>
+              {busy ? "Creating…" : "Create event"}
+            </button>
+          </form>
+        </Card>
+      </>
+    );
+  }
+
   function renderPage() {
+    // The location's own search string, not the shell's `query` — that one is the selected
+    // event, and the token lives in the link the organizer sent. Answered before the
+    // no-event guard below, because the majority invitee has no event yet: they used to be
+    // told to "switch the signed-in role from the top right", where there is no role to
+    // switch to, and this page was dead code for exactly the people it was written for.
+    if (path === ACCEPT_INVITATION_PATH)
+      return (
+        <AcceptInvitationPage
+          search={location.split("?")[1] ?? ""}
+          durableSession={hasDurableSession}
+        />
+      );
+
+    // A legacy path is one effect away from being a hub URL. Mounting the old workspace for a
+    // frame fires its reads and then throws them away.
+    if (redirecting) return null;
+
+    if (path === NEW_EVENT_PATH) return renderCreateEvent();
+
     if (!selectedEvent)
       return (
         <>
           <PageHeader title="No event workspace" />
           <Card>
-            <EmptyState title="This identity has no event assigned">
-              Switch the signed-in role from the top right to see an assigned workspace.
+            <EmptyState
+              icon={<IconCalendar size={20} />}
+              title="This account has no event assigned"
+              action={
+                canCreateEvent ? (
+                  <a className="btn primary" {...linkProps(NEW_EVENT_PATH)}>
+                    Create an event
+                  </a>
+                ) : null
+              }
+            >
+              An organizer of an existing event can invite you to it, or you can start one of your
+              own.
             </EmptyState>
           </Card>
         </>
@@ -872,16 +1297,17 @@ export function App({
       const requestedTab = locationQuery.get("tab");
       const persona = activeRole === "custom" ? "organizer" : activeRole;
       const activeTab = hubTabForSelection(hub, requestedTab, persona) ?? tabs[0];
-      // The shell still owns event creation state; its settings form is rendered below, now as
-      // the Event tab. Every other hub tab is a domain contribution.
-      if (activeTab && !(hub === "settings" && activeTab.tab === "event"))
-        return renderHubTab(activeTab, access, tabs);
+      // Every hub tab is a domain contribution, Settings > Event included. The shell used to
+      // keep an escape hatch here and render a second copy of that form from its own state —
+      // one without the success announcement and without the empty-name guard, which is why
+      // saving an event name looked like it had done nothing.
+      if (activeTab) return renderHubTab(activeTab, access, tabs);
     }
     const workspace = workspaceForPath(path);
     if (workspace)
       return canOpen(workspace, access) ? renderWorkspace(workspace, access) : noAccess;
 
-    // The shell's own two surfaces. A domain adds neither a case here nor an entry above.
+    // The shell's own surface. A domain adds neither a case here nor an entry above.
     if (path === "/") {
       if (activeRole === "organizer" || activeRole === "custom")
         return (
@@ -892,231 +1318,17 @@ export function App({
             onPublicationChange={handlePublicationChange}
           />
         );
-      return (
-        <>
-          <PageHeader title={selectedEvent.name} subtitle="Attendee view" />
-          <Card>
-            {/* The public slug is only readable by an organizer, so this identity cannot
-                be told whether the event is published — say what is true instead of
-                guessing either way. */}
-            <EmptyState title="This event has a public site of its own">
-              Its schedule, sessions, speakers, and call for proposals are published at a separate
-              address. An organizer can copy that link from the workspace.
-            </EmptyState>
-          </Card>
-        </>
-      );
+      // A reviewer or a speaker has no overview; the allowlist redirect below is one effect
+      // away from their own workspace. Mounting the organizer dashboard for that frame would
+      // fire its whole fan-out at an identity that cannot read any of it.
+      return null;
     }
-    // The location's own search string, not the shell's `query` — that one is the selected
-    // event, and the token lives in the link the organizer sent.
-    if (path === ACCEPT_INVITATION_PATH)
-      return <AcceptInvitationPage search={location.split("?")[1] ?? ""} />;
-    if (path === "/settings")
-      return (
-        <>
-          <PageHeader
-            eyebrow="Settings"
-            title="Event settings"
-            subtitle={`${selectedEvent.name} · ${selectedEvent.timezone}`}
-          />
-          <HubTabs
-            label="Settings sections"
-            active="event"
-            items={hubTabsFor("settings", activeRole === "custom" ? "organizer" : activeRole).map(
-              (item) => {
-                const params = new URLSearchParams(locationQuery);
-                params.set("tab", item.tab);
-                if (selectedEventId) params.set("event", selectedEventId);
-                return { id: item.tab, label: item.label, href: `${HUB_PATHS.settings}?${params}` };
-              },
-            )}
-          />
-          {activeEventCapabilities.includes("events:settings:update") ? (
-            <Card
-              title="Current event"
-              hint="Update the name and timezone used throughout this workspace."
-              labelledBy="current-event-title"
-            >
-              <form className="stack settings-event-form" onSubmit={submitSettings}>
-                <div className="field">
-                  <label htmlFor="settings-event-name">Current event name</label>
-                  <input
-                    id="settings-event-name"
-                    value={settingsName}
-                    onChange={(changeEvent) => setSettingsName(changeEvent.target.value)}
-                    required
-                    maxLength={120}
-                  />
-                </div>
-                <TimezoneField
-                  id="settings-event-timezone"
-                  value={settingsTimezone}
-                  onChange={setSettingsTimezone}
-                  errors={timezoneErrors}
-                  disabled={busy}
-                />
-                <button type="submit" disabled={busy}>
-                  {busy ? "Saving…" : "Save event settings"}
-                </button>
-              </form>
-            </Card>
-          ) : null}
-          {session?.capabilities.includes("events:create") ? (
-            <Card
-              title="Create another event"
-              hint="Start fresh or use a template for the reusable setup."
-              labelledBy="create-title"
-            >
-              <form className="stack settings-event-form" onSubmit={submit}>
-                <p className="hint" id="create-event">
-                  Proposals, reviews, speakers, files, the agenda, and publication history are never
-                  copied from another event.
-                </p>
-                <div className="field">
-                  <label htmlFor="event-organization">Organization</label>
-                  <select
-                    id="event-organization"
-                    value={createOrganizationId}
-                    onChange={(event) => setCreateOrganizationId(event.target.value)}
-                    required
-                  >
-                    {session.organizations.map((organization, index) => (
-                      <option key={organization.id} value={organization.id}>
-                        {organization.id === selectedEvent.organizationId
-                          ? "Current organization"
-                          : `Organization ${index + 1}`}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="field">
-                  <label htmlFor="event-name">Event name</label>
-                  <input
-                    id="event-name"
-                    value={createName}
-                    onChange={(changeEvent) => setCreateName(changeEvent.target.value)}
-                    placeholder="Greenroom Summit"
-                    required
-                    maxLength={120}
-                  />
-                </div>
-                {/* Named apart from the settings control above it: both are on this page. */}
-                <TimezoneField
-                  id="event-timezone"
-                  value={createTimezone}
-                  onChange={setCreateTimezone}
-                  disabled={busy}
-                  label="New event timezone"
-                  hint="Defaults to this browser's zone. Change it before creating if the event runs elsewhere."
-                />
-                <div className="field">
-                  <label htmlFor="event-slug">Public address</label>
-                  <div className="input-prefix">
-                    <span aria-hidden="true">/events/</span>
-                    <input
-                      id="event-slug"
-                      value={createSlug}
-                      onChange={(event) => setCreateSlug(event.target.value)}
-                      placeholder="greenroom-summit"
-                      pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
-                      required
-                    />
-                  </div>
-                  <p className="hint">
-                    Use lowercase letters, numbers, and hyphens. If this address is already taken,
-                    choose another.
-                  </p>
-                </div>
-                <div className="field-grid two">
-                  <div className="field">
-                    <label htmlFor="event-starts-on">Starts</label>
-                    <input
-                      id="event-starts-on"
-                      type="date"
-                      value={createStartsOn}
-                      onChange={(event) => setCreateStartsOn(event.target.value)}
-                      required
-                    />
-                  </div>
-                  <div className="field">
-                    <label htmlFor="event-ends-on">Ends</label>
-                    <input
-                      id="event-ends-on"
-                      type="date"
-                      min={createStartsOn}
-                      value={createEndsOn}
-                      onChange={(event) => setCreateEndsOn(event.target.value)}
-                      required
-                    />
-                  </div>
-                </div>
-                <fieldset className="field">
-                  <legend>Starting configuration</legend>
-                  <label className="choice-row">
-                    <input
-                      type="radio"
-                      name="create-mode"
-                      value="empty"
-                      checked={createMode === "empty"}
-                      onChange={() => setCreateMode("empty")}
-                    />
-                    Empty event
-                  </label>
-                  <label className="choice-row">
-                    <input
-                      type="radio"
-                      name="create-mode"
-                      value="template"
-                      checked={createMode === "template"}
-                      onChange={() => setCreateMode("template")}
-                    />
-                    Apply a selected template
-                  </label>
-                </fieldset>
-                {createMode === "template" ? (
-                  <div className="field">
-                    <label htmlFor="event-template">Template</label>
-                    <select
-                      id="event-template"
-                      value={createTemplateId}
-                      onChange={(event) => setCreateTemplateId(event.target.value)}
-                      required
-                    >
-                      {createTemplates.length ? null : (
-                        <option value="">No active templates available</option>
-                      )}
-                      {createTemplates.map((template) => (
-                        <option key={template.id} value={template.id}>
-                          {template.name}
-                        </option>
-                      ))}
-                    </select>
-                    <p className="hint">
-                      The newest version is used. If part of the setup cannot be applied, you can
-                      review and retry it from Templates.
-                    </p>
-                  </div>
-                ) : null}
-                <button type="submit" disabled={busy}>
-                  {busy ? "Creating…" : "Create event"}
-                </button>
-              </form>
-            </Card>
-          ) : (
-            <Card>
-              <EmptyState title="Organizers only">
-                Organization and event settings stay restricted to organizers.
-              </EmptyState>
-            </Card>
-          )}
-        </>
-      );
 
     return (
       <>
         <PageHeader title="Page not found" />
         <Card>
-          <EmptyState title="That workspace does not exist">
+          <EmptyState icon={<IconWarning size={20} />} title="That workspace does not exist">
             Use the navigation to return to a surface your role can reach.
           </EmptyState>
         </Card>
@@ -1130,9 +1342,7 @@ export function App({
       events={events}
       selectedEventId={selectedEventId}
       onSelectEvent={selectEvent}
-      {...(session.capabilities.includes("events:create")
-        ? { createEventHref: `/settings${query}#create-event` }
-        : {})}
+      demoMode={canSwitchPersona}
       onSwitchPersona={(persona) => {
         // ERROR-INTENT: handlers cannot await; switchPersona renders failures.
         void switchPersona(persona);
@@ -1158,11 +1368,31 @@ export function App({
       groups={groups}
       activePath={path}
       publicHref={publicHref}
+      {...(error
+        ? {
+            alert: (
+              <Notice
+                tone="error"
+                reference={error.reference}
+                onDismiss={() => setError(null)}
+                dismissLabel="Dismiss this message"
+              >
+                {error.message}
+              </Notice>
+            ),
+          }
+        : {})}
       {...(selectedEvent
         ? {
             overlay: (
               <CommandPalette
                 eventId={selectedEvent.id}
+                access={{
+                  session,
+                  activeRole,
+                  capabilities: activeEventCapabilities,
+                  isEventOrganizer,
+                }}
                 open={paletteOpen}
                 onClose={() => setPaletteOpen(false)}
               />
@@ -1171,7 +1401,6 @@ export function App({
         : {})}
     >
       {renderPage()}
-      {error ? <Notice tone="error">{error}</Notice> : null}
     </AppShell>
   );
 }

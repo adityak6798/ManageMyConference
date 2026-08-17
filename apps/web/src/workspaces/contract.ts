@@ -13,8 +13,20 @@ import type { ReactNode } from "react";
 import type { Persona } from "../AppShell";
 export type WorkspaceRole = Persona | "custom";
 
-/** Sidebar grouping. `home` is the ungrouped first item. */
-export type NavGroupName = "home" | "Program" | "Audience";
+/**
+ * Sidebar grouping, as an id rather than as the words on screen.
+ *
+ * The union member used to be printed straight into the heading, so the sidebar said "Program"
+ * directly above a nav item called "Program", and Settings was filed under "Audience". The id
+ * and the caption are now separate things: `NAV_GROUP_LABELS` in `registry.tsx` owns the words,
+ * and `home` and `admin` deliberately have none — the first block is the persona's landing
+ * surfaces, and the last is one pinned item under a hairline.
+ *
+ * The pre-cutover spellings `Program` and `Audience` were accepted through the rebuild so an
+ * untouched domain module still compiled. Every module now names an id, so they are gone: a
+ * union with two spellings for one block is how the sidebar grew two answers in the first place.
+ */
+export type NavGroupName = "home" | "operate" | "reach" | "admin";
 
 /**
  * The stable, job-shaped destinations of the redesigned organizer console.
@@ -66,6 +78,15 @@ export interface WorkspaceContext extends WorkspaceAccess {
   agendaLoadFailure: string | null;
   reportAgendaLoadFailure: (message: string) => void;
   onPublicationChange: (publication: { state: string; slug: string } | null) => void;
+  /**
+   * The event record changed under a workspace that owns the form for it.
+   *
+   * The shell holds the assigned-event list, and every surface that names the event — the topbar
+   * chip, the page header — reads it from there. Renaming an event on the Settings tab used to
+   * leave all of them showing the old name until the next full load, which is what made a save
+   * that had actually succeeded look like it had done nothing.
+   */
+  onEventChanged: (event: EventDto) => void;
 }
 
 export interface WorkspaceHeader {

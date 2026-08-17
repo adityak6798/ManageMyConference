@@ -5,6 +5,10 @@
  * long unbreakable strings, and a live embed frame is a page inside a page — both
  * push a console layout sideways on a phone if left alone. Everything that can
  * carry a URL wraps or scrolls inside its own box, so the page body never does.
+ *
+ * The regions themselves are borderless now: only the publication state is a card, because it
+ * is one distinct state. Public details, Preview, Embeds and Issued embeds are page regions,
+ * and a page region is a heading and some space.
  */
 
 .publishing-status {
@@ -31,16 +35,43 @@
   gap: var(--s-2);
 }
 .publishing-meta {
-  color: var(--muted);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+
+/*
+ * The fingerprints, which are evidence rather than an answer.
+ *
+ * They used to be the whole status line — "Snapshot 1k3f9x2 · published never · draft 8b2e0qa" —
+ * so the one fact the reader wanted (what has changed) had to be inferred by comparing two hashes
+ * character by character. The sentence above states it; this is what proves it.
+ */
+.publishing-technical > summary {
+  color: var(--slate);
+  cursor: pointer;
+  font-size: var(--text-xs);
+  font-weight: var(--fw-medium);
+}
+.publishing-prints {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
+  gap: var(--s-2) var(--s-4);
+  margin: var(--s-2) 0 0;
+}
+.publishing-prints dt {
+  color: var(--slate);
   font-size: var(--text-xs);
 }
-.publishing-meta code {
-  font-family: var(--font-mono);
-  font-size: var(--text-2xs);
+.publishing-prints dd {
+  margin: 0;
 }
 
 .publishing-actions {
   justify-content: flex-end;
+}
+/* Taking the event off the web is not another publishing control, so it sits away from them. */
+.publishing-actions .publishing-unpublish {
+  margin-inline-start: var(--s-4);
 }
 
 .publishing-foot {
@@ -53,7 +84,7 @@
    width rather than clipped or pushed off screen. */
 .publishing-url {
   font-size: var(--text-xs);
-  color: var(--muted);
+  color: var(--slate);
   overflow-wrap: anywhere;
   word-break: break-word;
 }
@@ -65,21 +96,24 @@
 }
 
 .publishing-sub {
-  color: var(--muted);
+  color: var(--slate);
   font-size: var(--text-xs);
-}
-
-.publishing-loading {
-  display: grid;
-  gap: var(--s-3);
 }
 
 /* ------------------------ public details ------------------------- */
 
-.publishing-details {
+/*
+ * A form sets to the measure its own description sets to.
+ *
+ * `.section-description` wraps at 68ch while these inputs ran the full width of the console, so a
+ * two-line sentence introduced a control column three times as wide as itself — and a 1100px box
+ * for a venue name reads as a text area. Both forms now share that edge.
+ */
+.publishing-details,
+.publishing-issue-form {
   display: grid;
   gap: var(--s-4);
-  padding: var(--s-4) var(--s-5);
+  max-width: var(--measure);
 }
 
 /*
@@ -89,46 +123,28 @@
  */
 .publishing-details-dates {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
   gap: var(--s-4);
-}
-
-.publishing-field-error {
-  color: var(--danger-fg);
-  font-size: var(--text-xs);
 }
 
 /* --------------------------- embed options ---------------------------- */
 
+/* No border: the options are part of the Embeds region, not a box inside it. */
 .publishing-embed-config {
   display: grid;
   gap: var(--s-4);
-  margin: 0 var(--s-5) var(--s-4);
-  padding: var(--s-4);
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r-lg);
-}
-.publishing-embed-config legend {
-  padding: 0 var(--s-2);
-  color: var(--ink-3);
-  font-size: var(--text-2xs);
-  font-weight: 700;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
+  margin-bottom: var(--s-5);
 }
 .publishing-embed-options {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 14rem), 1fr));
   gap: var(--s-4);
 }
-.publishing-legend {
-  display: block;
-  margin-bottom: var(--s-2);
-  color: var(--ink-3);
-  font-size: var(--text-2xs);
-  font-weight: 700;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
+/* A colour input draws its own swatch and refuses to be tall, so it is pinned to the one
+   control height rather than left half the size of the field beside it. */
+.publishing-accent {
+  width: 4rem;
+  padding: 2px;
 }
 /* Wraps rather than scrolls: six short checkboxes on one row overflow a phone, and a
    horizontally scrolling row of form controls is worse than two rows of them. */
@@ -137,20 +153,11 @@
   flex-wrap: wrap;
   gap: var(--s-2) var(--s-4);
 }
-.publishing-check {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--s-2);
-  font-size: var(--text-sm);
-}
 
 /* ---------------------------- preview ---------------------------- */
 
 .publishing-tabs {
-  padding: var(--s-3) var(--s-5) 0;
-}
-.publishing-panel {
-  padding: var(--s-4) var(--s-5) var(--s-5);
+  margin-bottom: var(--s-4);
 }
 .publishing-panel:focus-visible {
   outline: 2px solid var(--focus);
@@ -169,19 +176,13 @@
   margin: 0;
 }
 .publishing-facts dt {
-  color: var(--muted);
-  font-size: var(--text-2xs);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  color: var(--slate);
+  font-size: var(--text-xs);
 }
 .publishing-facts dd {
   margin: 2px 0 0;
   font-size: var(--text-sm);
   overflow-wrap: anywhere;
-}
-.publishing-facts code {
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
 }
 
 .publishing-projection-line {
@@ -189,7 +190,7 @@
   align-items: flex-start;
   gap: var(--s-2);
   padding: var(--s-3);
-  border: 1px solid var(--line);
+  border: 1px solid var(--rule);
   border-radius: var(--r-md);
   background: var(--surface-2);
   font-size: var(--text-sm);
@@ -197,12 +198,7 @@
 }
 .publishing-projection-line svg {
   flex: none;
-  margin-top: 3px;
-  color: var(--muted);
-}
-.publishing-projection-line code {
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
+  color: var(--slate);
 }
 
 .publishing-lists {
@@ -217,8 +213,11 @@
   margin-bottom: var(--s-2);
   font-size: var(--text-sm);
 }
+.publishing-lists h3 svg {
+  color: var(--slate);
+}
 .publishing-lists h3 .publishing-sub {
-  font-weight: 500;
+  font-weight: var(--fw-medium);
 }
 
 .publishing-plain {
@@ -226,13 +225,11 @@
   margin: 0;
   padding: 0;
   display: grid;
-  gap: var(--s-2);
+  gap: 0;
 }
 .publishing-plain > li {
-  padding: var(--s-2) var(--s-3);
-  border: 1px solid var(--line);
-  border-radius: var(--r-sm);
-  background: var(--surface);
+  padding: var(--s-2) 0;
+  border-bottom: 1px solid var(--rule);
   font-size: var(--text-sm);
   overflow-wrap: anywhere;
 }
@@ -246,16 +243,14 @@
 .publishing-embeds {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: var(--s-5);
+  gap: var(--s-6);
 }
 .publishing-feed {
   display: grid;
   gap: var(--s-2);
-  margin-top: var(--s-5);
-  padding: var(--s-4);
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  background: var(--surface-2);
+  margin-top: var(--s-6);
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--rule);
   overflow-wrap: anywhere;
 }
 .publishing-feed h3,
@@ -263,18 +258,25 @@
   margin: 0;
 }
 
-/* Positioned so this section's own live region — .visually-hidden, and therefore
-   position:absolute, while it holds no message — is anchored to the card that owns it
-   rather than to whatever ancestor happens to be positioned. */
+/*
+ * One embed view.
+ *
+ * Positioned so this section's own live region — .visually-hidden, and therefore
+ * position:absolute, while it holds no message — is anchored to the section that owns it
+ * rather than to whatever ancestor happens to be positioned.
+ *
+ * No border. This was a bordered box, inside a bordered card, containing a bordered preview
+ * frame: three container depths for one address and one snippet. A hairline above it separates
+ * one view from the next, which is all the separation a heading needed.
+ */
 .publishing-embed {
   position: relative;
   display: grid;
   gap: var(--s-3);
+  align-content: start;
   min-width: 0;
-  padding: var(--s-4);
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  background: var(--surface-2);
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--rule);
 }
 .publishing-embed-head h3 {
   font-size: var(--text-md);
@@ -288,15 +290,11 @@
   margin-top: calc(-1 * var(--s-1));
 }
 
-.publishing-live-preview {
-  border-top: 1px solid var(--line);
-  padding-top: var(--s-3);
-}
 .publishing-live-preview summary {
-  color: var(--green-700);
+  color: var(--green);
   cursor: pointer;
   font-size: var(--text-sm);
-  font-weight: 650;
+  font-weight: var(--fw-medium);
 }
 .publishing-live-preview[open] summary {
   margin-bottom: var(--s-3);
@@ -312,7 +310,7 @@
   resize: vertical;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  background: var(--surface);
+  background: var(--surface-2);
 }
 
 /* A real page inside the page. The wrapper owns the size so the frame cannot
@@ -320,7 +318,7 @@
 .publishing-frame {
   overflow: hidden;
   height: 320px;
-  border: 1px solid var(--line-strong);
+  border: 1px solid var(--rule-strong);
   border-radius: var(--r-md);
   background: var(--surface);
 }
@@ -334,6 +332,9 @@
 @media (max-width: 640px) {
   .publishing-actions {
     justify-content: flex-start;
+  }
+  .publishing-actions .publishing-unpublish {
+    margin-inline-start: 0;
   }
   .publishing-embeds {
     grid-template-columns: minmax(0, 1fr);

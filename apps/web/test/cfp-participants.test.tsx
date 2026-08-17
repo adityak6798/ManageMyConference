@@ -26,7 +26,10 @@ describe("proposal participants", () => {
     expect(onChange).toHaveBeenLastCalledWith([
       expect.objectContaining({ name: "Inez Invited", role: "co_speaker" }),
     ]);
-    fireEvent.change(screen.getByLabelText("Role"), { target: { value: "moderator" } });
+    // Role is the shared `Select` — a listbox trigger, so it is opened and an option chosen.
+    // A native `change` on it writes nothing, which is exactly why it is asserted this way.
+    fireEvent.click(screen.getByRole("combobox", { name: "Role" }));
+    fireEvent.click(screen.getByRole("option", { name: "Moderator" }));
     expect(onChange).toHaveBeenLastCalledWith([expect.objectContaining({ role: "moderator" })]);
     fireEvent.click(screen.getByRole("button", { name: "Remove participant 1" }));
     expect(onChange).toHaveBeenLastCalledWith([]);

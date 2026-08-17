@@ -15,6 +15,7 @@ import type {
   UpdateContentSessionInput,
 } from "@greenroom/contracts";
 import { Fragment, useMemo, useState } from "react";
+import { type ApiFailure, describeApiFailure } from "../api/config";
 import {
   clearSpeakerProfilePhoto,
   contentFieldErrors,
@@ -26,7 +27,7 @@ import {
   withdrawContentSession,
 } from "../api/content";
 import "../styles/content.css";
-import { IconInbox, IconSessions, IconSpeakers, IconTask, IconWarning } from "../ui/icons";
+import { IconInbox, IconSessions, IconSpeakers, IconTask } from "../ui/icons";
 import { Card, EmptyState, Notice, Pill, Stat, Tabs, useActionFeedback } from "../ui/primitives";
 
 import { SessionEditor } from "./SessionEditor";
@@ -48,8 +49,21 @@ import {
   shortDate,
   shortDateTime,
   type Workspace,
-  withReference,
 } from "./shared";
+
+/**
+ * A refused photo change, preferring the server's field-level answer to its envelope sentence.
+ *
+ * A validation refusal answers with a generic message and the useful part attached to the field:
+ * "assetId — that file belongs to another speaker" names the input the organizer has to change.
+ * The reference is the envelope's either way, so whichever sentence is shown stays quotable.
+ */
+function photoFailure(reason: unknown): ApiFailure {
+  const failure = describeApiFailure(reason, "That profile photo could not be changed.");
+  const detail = contentFieldErrors(reason).assetId?.[0];
+  return detail ? { message: detail, reference: failure.reference } : failure;
+}
+
 // This organizer state owner intentionally exceeds 400 lines. Session edits, withdrawals, task
 // requests, speaker messages, asset visibility, and profile-photo choices all share the mutation
 // runner and speaker/session projections above; their table/panel markup is used once, so splitting
@@ -133,9 +147,9 @@ export function OrganizerView({
       if (!result.ok || !report) {
         sessionFeedback.announce(
           "error",
-          withReference(
-            "Calendar invitations could not be sent.",
+          describeApiFailure(
             result.ok ? undefined : result.error,
+            "Calendar invitations could not be sent.",
           ),
         );
         return;
@@ -161,7 +175,7 @@ export function OrganizerView({
         result.ok ? "success" : "error",
         result.ok
           ? "Session changes saved."
-          : withReference("That session could not be saved.", result.error),
+          : describeApiFailure(result.error, "That session could not be saved."),
       ),
     );
   }
@@ -185,7 +199,7 @@ export function OrganizerView({
         result.ok ? "success" : "error",
         result.ok
           ? `“${title}” was withdrawn, along with any agenda placement holding it. A live public page reconciles on its next read.`
-          : withReference("That session could not be withdrawn.", result.error),
+          : describeApiFailure(result.error, "That session could not be withdrawn."),
       );
     });
   }
@@ -208,11 +222,11 @@ export function OrganizerView({
           ? publishing
             ? `“${asset.name}” is now publishable.`
             : `“${asset.name}” is private again and has left the public page.`
-          : withReference(
+          : describeApiFailure(
+              result.error,
               publishing
                 ? "That asset could not be published."
                 : "That asset could not be made private.",
-              result.error,
             ),
       ),
     );
@@ -237,14 +251,13 @@ export function OrganizerView({
           ? asset
             ? `“${asset.name}” is now ${speaker.name}’s profile photo. ${photoVisibility(asset)}`
             : `${speaker.name} has no profile photo now.`
-          : withReference(
-              contentFieldErrors(result.error).assetId?.[0] ??
-                "That profile photo could not be changed.",
-              result.error,
-            ),
+          : photoFailure(result.error),
       ),
     );
   }
+
+  /** An invitation needs a time, so it exists only once the published agenda places something. */
+  const invitable = workspace.sessions.some((session) => session.schedule);
 
   const tabItems = [
     { id: "all", label: "All sessions", count: workspace.sessions.length },
@@ -254,47 +267,60 @@ export function OrganizerView({
   ];
 
   return (
-    <div className={sessionsOnly ? "content-workspace sessions-only" : "content-workspace"}>
+    <div className="content-workspace">
       {/* Order is the point of this layout (#144): an organizer opens this page to see accepted
           content and who owes work, so the stat tiles, the sessions table and the speaker roster
           come first. Authoring, imports and history follow as disclosures below the dashboard —
           they are settings-shaped tasks performed rarely, and they used to occupy the first 1420px
-          of the page while the dashboard started 32% down it. */}
-      <dl className="grid-auto">
-        <Stat
-          label="Accepted sessions"
-          value={workspace.sessions.length}
-          hint={`${counts.published} published`}
-          icon={<IconSessions size={15} />}
-        />
-        <Stat
-          label="Speakers"
-          value={workspace.speakers.length}
-          hint={`${speakersWithOpenWork.size} with open work`}
-          icon={<IconSpeakers size={15} />}
-        />
-        <Stat
-          label="Open speaker tasks"
-          value={openTasks.length}
-          hint={
-            openTasks.filter((task) => daysUntil(task.dueAt, now) < 0).length
-              ? `${openTasks.filter((task) => daysUntil(task.dueAt, now) < 0).length} overdue`
-              : "All on track"
-          }
-          icon={<IconTask size={15} />}
-          attention={openTasks.some((task) => daysUntil(task.dueAt, now) < 0)}
-        />
-        {/* Deliverables rather than uploads, so the number agrees with the table below it:
-            counting rows made a deck re-uploaded once read as two things to review. */}
-        <Stat
-          label="Speaker assets"
-          value={deliverables.length}
-          hint={`${deliverables.filter(({ latest }) => latest.visibility === "publishable").length} publishable`}
-          icon={<IconInbox size={15} />}
-        />
-      </dl>
+          of the page while the dashboard started 32% down it.
 
-      <div className="split">
+          The Schedule hub's narrower presentation is a *branch*, not a stylesheet: `sessions-only`
+          used to hide four panels with `display: none` while they stayed mounted, fetched, and ran
+          their effects — a page paying for three surfaces nobody could see. */}
+      {/*
+       * The tally row is for the workspace that has four numbers to compare. The Schedule hub has
+       * one, and it was already printed twice below it — on the card this page is named after and
+       * on its "All sessions" tab — so a lone tile stretched the full width of the page to repeat
+       * the heading directly under it. A stat that agrees with the control beside it is not a
+       * second reading; it is the same reading, taking 130px to say so.
+       */}
+      {sessionsOnly ? null : (
+        <dl className="grid-auto">
+          <Stat
+            label="Accepted sessions"
+            value={workspace.sessions.length}
+            hint={`${counts.published} published`}
+            icon={<IconSessions size={15} />}
+          />
+          <Stat
+            label="Speakers"
+            value={workspace.speakers.length}
+            hint={`${speakersWithOpenWork.size} with open work`}
+            icon={<IconSpeakers size={15} />}
+          />
+          <Stat
+            label="Open speaker tasks"
+            value={openTasks.length}
+            hint={
+              openTasks.filter((task) => daysUntil(task.dueAt, now) < 0).length
+                ? `${openTasks.filter((task) => daysUntil(task.dueAt, now) < 0).length} overdue`
+                : "All on track"
+            }
+            icon={<IconTask size={15} />}
+            attention={openTasks.some((task) => daysUntil(task.dueAt, now) < 0)}
+          />
+          {/* Deliverables rather than uploads, so the number agrees with the table below it:
+              counting rows made a deck re-uploaded once read as two things to review. */}
+          <Stat
+            label="Speaker assets"
+            value={deliverables.length}
+            hint={`${deliverables.filter(({ latest }) => latest.visibility === "publishable").length} publishable`}
+            icon={<IconInbox size={15} />}
+          />
+        </dl>
+      )}
+
+      <div className={sessionsOnly ? "split is-single" : "split"}>
         <div className="content-stack">
           {/* Sessions are created by accepting an abstract in review, never from here: the
               acceptance command names a proposal and the server resolves the rest of it. */}
@@ -305,18 +331,21 @@ export function OrganizerView({
             actions={
               // Only offered once the published agenda places something: an invitation needs a
               // time, and a button that can only report "nothing to send" is not worth a click.
-              workspace.sessions.some((session) => session.schedule) ? (
+              // When it cannot be offered, the reason goes in the toolbar below rather than in
+              // this slot, where a grey sentence in a row of controls read as a disabled button.
+              invitable ? (
+                // Bordered, not ghost: in the header slot a ghost button has no edge and no
+                // ground, so the one control on this card read as a caption sitting beside the
+                // title rather than as the thing that sends every speaker their invitation.
                 <button
                   type="button"
-                  className="ghost small"
+                  className="secondary small"
                   onClick={sendCalendarInvites}
                   disabled={busy}
                 >
                   Send calendar invitations
                 </button>
-              ) : (
-                <span className="hint">Invitations can be sent once the agenda is published.</span>
-              )
+              ) : null
             }
             tight
           >
@@ -345,6 +374,11 @@ export function OrganizerView({
                 {visibleSessions.length} of {workspace.sessions.length}{" "}
                 {plural(workspace.sessions.length, "session")}
               </p>
+              {invitable ? null : (
+                <p className="hint">
+                  Calendar invitations can be sent once the agenda is published.
+                </p>
+              )}
             </div>
             <div className="content-feedback">{sessionFeedback.node}</div>
             <div
@@ -402,7 +436,13 @@ export function OrganizerView({
                             <td data-label="Schedule">
                               {session.schedule ? (
                                 <>
-                                  {shortDateTime(session.schedule.startsAt)}
+                                  {/* A placed session's start is the one measure on this row, and
+                                      it sets like every other measure in the product — the same
+                                      mono face the board's time gutter uses, so a reader who has
+                                      just come from the grid recognises it as the same fact. */}
+                                  <span className="figure">
+                                    {shortDateTime(session.schedule.startsAt)}
+                                  </span>
                                   <span className="sub">{session.schedule.location}</span>
                                 </>
                               ) : (
@@ -444,7 +484,6 @@ export function OrganizerView({
                                 aria-label="Withdraw session confirmation"
                               >
                                 <Notice tone="warn">
-                                  <IconWarning size={15} />
                                   <span>
                                     Withdraw “{session.title}”? It leaves the programme and any
                                     agenda placement holding it is removed.{" "}
@@ -456,6 +495,7 @@ export function OrganizerView({
                                 </Notice>
                                 <div className="session-editor-actions">
                                   <button
+                                    className="danger primary"
                                     type="button"
                                     aria-disabled={busy}
                                     onClick={() => withdrawSession(session.id, session.title)}
@@ -509,149 +549,153 @@ export function OrganizerView({
             </div>
           </Card>
 
-          <Card
-            labelledBy="speaker-assets"
-            title="Speaker assets"
-            hint="Uploads stay private until you mark them publishable, and marking one as a headshot does not publish it."
-            tight
-          >
-            <div className="content-feedback">{assetFeedback.node}</div>
-            {workspace.assets.length ? (
-              <div className="table-wrap">
-                <table className="data content-table">
-                  <thead>
-                    <tr>
-                      <th scope="col">File</th>
-                      <th scope="col">Speaker</th>
-                      <th scope="col">Latest upload</th>
-                      <th scope="col">Visibility</th>
-                      <th scope="col">
-                        <span className="visually-hidden">Actions</span>
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {/* One row per deliverable, showing the version an organizer would download.
+          {sessionsOnly ? null : (
+            <Card
+              labelledBy="speaker-assets"
+              title="Speaker assets"
+              hint="Uploads stay private until you mark them publishable, and marking one as a headshot does not publish it."
+              tight
+            >
+              <div className="content-feedback">{assetFeedback.node}</div>
+              {workspace.assets.length ? (
+                <div className="table-wrap">
+                  <table className="data content-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">File</th>
+                        <th scope="col">Speaker</th>
+                        <th scope="col">Latest upload</th>
+                        <th scope="col">Visibility</th>
+                        <th scope="col">
+                          <span className="visually-hidden">Actions</span>
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {/* One row per deliverable, showing the version an organizer would download.
                         Listing every upload put two rows with the same name and date beside each
                         other and left the choice between them to guesswork. */}
-                    {deliverables.map(({ groupId, latest: asset, prior }) => {
-                      const owner = speakerById.get(asset.speakerProfileId);
-                      const isPhoto = Boolean(owner && owner.photoAssetId === asset.id);
-                      return (
-                        <tr key={groupId}>
-                          <td className="primary-cell" data-label="File">
-                            {asset.name}
-                            <span className="sub">
-                              {asset.contentType}
-                              {isPhoto ? " · Profile photo" : ""}
-                            </span>
-                          </td>
-                          <td data-label="Speaker">{owner?.name ?? "Unknown speaker"}</td>
-                          <td data-label="Latest upload">
-                            {shortDate(asset.uploadedAt)}
-                            {prior.length ? (
+                      {deliverables.map(({ groupId, latest: asset, prior }) => {
+                        const owner = speakerById.get(asset.speakerProfileId);
+                        const isPhoto = Boolean(owner && owner.photoAssetId === asset.id);
+                        return (
+                          <tr key={groupId}>
+                            <td className="primary-cell" data-label="File">
+                              {asset.name}
                               <span className="sub">
-                                Version {asset.versionNumber ?? 1} of {prior.length + 1}
+                                {asset.contentType}
+                                {isPhoto ? " · Profile photo" : ""}
                               </span>
-                            ) : null}
-                          </td>
-                          <td data-label="Visibility">
-                            <Pill tone={asset.visibility === "publishable" ? "ok" : "neutral"}>
-                              {asset.visibility === "publishable" ? "Publishable" : "Private"}
-                            </Pill>
-                          </td>
-                          <td data-label="Actions">
-                            {/* Both controls stay mounted through the round trip, so the
+                            </td>
+                            <td data-label="Speaker">{owner?.name ?? "Unknown speaker"}</td>
+                            <td data-label="Latest upload">
+                              {shortDate(asset.uploadedAt)}
+                              {prior.length ? (
+                                <span className="sub">
+                                  Version {asset.versionNumber ?? 1} of {prior.length + 1}
+                                </span>
+                              ) : null}
+                            </td>
+                            <td data-label="Visibility">
+                              <Pill tone={asset.visibility === "publishable" ? "ok" : "neutral"}>
+                                {asset.visibility === "publishable" ? "Publishable" : "Private"}
+                              </Pill>
+                            </td>
+                            <td data-label="Actions">
+                              {/* Both controls stay mounted through the round trip, so the
                                 keyboard focus that triggered one is not thrown back to the
                                 body; each is a toggle, because both decisions are reversible. */}
-                            <div className="row-actions">
-                              {/* An organizer has to be able to open what a speaker sent them —
+                              <div className="row-actions">
+                                {/* An organizer has to be able to open what a speaker sent them —
                                   a slide deck the workspace only lists is not delivered.
                                   `GET /api/speaker-assets/:id` already authorizes this. */}
-                              <a
-                                className="download"
-                                href={`/api/speaker-assets/${asset.id}`}
-                                download={asset.name}
-                              >
-                                Download
-                                <span className="visually-hidden"> — {asset.name}</span>
-                              </a>
-                              <button
-                                type="button"
-                                className="secondary small"
-                                aria-disabled={busy}
-                                onClick={() => setAssetVisibility(asset)}
-                              >
-                                {asset.visibility === "publishable"
-                                  ? "Make private"
-                                  : "Mark publishable"}
-                                <span className="visually-hidden"> — {asset.name}</span>
-                              </button>
-                              {owner && isImageAsset(asset) ? (
+                                <a
+                                  className="download"
+                                  href={`/api/speaker-assets/${asset.id}`}
+                                  download={asset.name}
+                                >
+                                  Download
+                                  <span className="visually-hidden"> — {asset.name}</span>
+                                </a>
                                 <button
                                   type="button"
-                                  className="ghost small"
+                                  className="secondary small"
                                   aria-disabled={busy}
-                                  onClick={() => setProfilePhoto(owner, isPhoto ? null : asset)}
+                                  onClick={() => setAssetVisibility(asset)}
                                 >
-                                  {isPhoto ? "Remove profile photo" : "Use as profile photo"}
+                                  {asset.visibility === "publishable"
+                                    ? "Make private"
+                                    : "Mark publishable"}
                                   <span className="visually-hidden"> — {asset.name}</span>
                                 </button>
-                              ) : null}
-                            </div>
-                            {/* Prior versions stay downloadable rather than merely counted: an
+                                {owner && isImageAsset(asset) ? (
+                                  <button
+                                    type="button"
+                                    className="ghost small"
+                                    aria-disabled={busy}
+                                    onClick={() => setProfilePhoto(owner, isPhoto ? null : asset)}
+                                  >
+                                    {isPhoto ? "Remove profile photo" : "Use as profile photo"}
+                                    <span className="visually-hidden"> — {asset.name}</span>
+                                  </button>
+                                ) : null}
+                              </div>
+                              {/* Prior versions stay downloadable rather than merely counted: an
                                 organizer comparing what changed needs the file, not the number. */}
-                            {prior.length ? (
-                              <details className="asset-history">
-                                <summary>
-                                  {prior.length} {plural(prior.length, "earlier version")}
-                                  <span className="visually-hidden"> of {asset.name}</span>
-                                </summary>
-                                <ul>
-                                  {prior.map((old) => (
-                                    <li key={old.id}>
-                                      <a
-                                        className="download"
-                                        href={`/api/speaker-assets/${old.id}`}
-                                        download={old.name}
-                                      >
-                                        Version {old.versionNumber ?? 1}
-                                        <span className="visually-hidden">
-                                          {" "}
-                                          of {asset.name}, uploaded {shortDate(old.uploadedAt)}
-                                        </span>
-                                      </a>
-                                      <span className="sub">{shortDate(old.uploadedAt)}</span>
-                                    </li>
-                                  ))}
-                                </ul>
-                              </details>
-                            ) : null}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <EmptyState title="No speaker uploads yet" icon={<IconInbox size={20} />}>
-                Request an asset from a speaker and their upload lands here for review.
-              </EmptyState>
-            )}
-          </Card>
+                              {prior.length ? (
+                                <details className="asset-history">
+                                  <summary>
+                                    {prior.length} {plural(prior.length, "earlier version")}
+                                    <span className="visually-hidden"> of {asset.name}</span>
+                                  </summary>
+                                  <ul>
+                                    {prior.map((old) => (
+                                      <li key={old.id}>
+                                        <a
+                                          className="download"
+                                          href={`/api/speaker-assets/${old.id}`}
+                                          download={old.name}
+                                        >
+                                          Version {old.versionNumber ?? 1}
+                                          <span className="visually-hidden">
+                                            {" "}
+                                            of {asset.name}, uploaded {shortDate(old.uploadedAt)}
+                                          </span>
+                                        </a>
+                                        <span className="sub">{shortDate(old.uploadedAt)}</span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </details>
+                              ) : null}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <EmptyState title="No speaker uploads yet" icon={<IconInbox size={20} />}>
+                  Request an asset from a speaker and their upload lands here for review.
+                </EmptyState>
+              )}
+            </Card>
+          )}
         </div>
 
-        <SpeakerOutreach workspace={workspace} busy={busy} run={run} />
+        {sessionsOnly ? null : <SpeakerOutreach workspace={workspace} busy={busy} run={run} />}
       </div>
 
-      <ContentOperations
-        eventId={eventId}
-        workspace={workspace}
-        busy={busy}
-        run={run}
-        canAdministerShares={canAdministerShares}
-      />
+      {sessionsOnly ? null : (
+        <ContentOperations
+          eventId={eventId}
+          workspace={workspace}
+          busy={busy}
+          run={run}
+          canAdministerShares={canAdministerShares}
+        />
+      )}
     </div>
   );
 }

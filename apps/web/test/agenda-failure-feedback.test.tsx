@@ -57,6 +57,20 @@ const board = {
 
 const IN_USE = "Remove affected placements before deleting resources";
 
+/**
+ * The box `useActionFeedback` draws, given the paragraph inside it that carries the alert.
+ *
+ * The announcement is a live region nested in the region's own body, so that a correlation
+ * reference can sit beside the sentence rather than be read out ahead of it. Where the
+ * *region* sits in the document is what these tests are about.
+ */
+function feedbackRegion(alert: HTMLElement): HTMLElement {
+  const region = alert.closest(".notice");
+  if (!(region instanceof HTMLElement))
+    throw new Error("the alert is not inside a feedback region");
+  return region;
+}
+
 function refusal(message: string, status = 409) {
   return new Response(
     JSON.stringify({
@@ -117,18 +131,25 @@ function stubRedactedPublicationFetch() {
   );
 }
 
+/** Open the rooms, tracks and times drawer the board bar leads to. */
+async function openResources() {
+  fireEvent.click(await screen.findByRole("button", { name: "Rooms and times" }));
+  return screen.findByRole("dialog", { name: "Rooms, tracks and times" });
+}
+
 /**
- * The resources-panel row for a room or track, by the name it shows. Scoped to the panel
- * because a room name is also a column header on the board itself.
+ * The drawer row for a room or track, by the name it is holding. Rooms and tracks are edited
+ * in place now — the rename used to be a `window.prompt()` — so the row is a form named after
+ * what it currently holds, and the name itself lives in an input.
  */
 function rowFor(name: string): HTMLElement {
   const rows = Array.from(
     document.querySelectorAll<HTMLElement>(".agenda-resources .resource-row"),
   );
-  const row = rows.find(
-    (candidate) => candidate.querySelector(".name")?.textContent?.trim() === name,
+  const row = rows.find((candidate) =>
+    Array.from(candidate.querySelectorAll("input")).some((input) => input.value === name),
   );
-  if (!row) throw new Error(`No resources row is named “${name}”.`);
+  if (!row) throw new Error(`No resources row is holding “${name}”.`);
   return row;
 }
 
@@ -141,28 +162,24 @@ describe("AgendaWorkspace failure feedback", () => {
     onError.mockReset();
   });
 
-  it("announces a refused room removal under the toolbar, not below the workspace", async () => {
+  it("announces a refused room removal under the board bar, not below the workspace", async () => {
     const writes = stubFetch(() => refusal(IN_USE));
-    const { container } = render(<AgendaWorkspace event={event} onError={onError} />);
+    render(<AgendaWorkspace event={event} onError={onError} />);
 
-    await screen.findByText("Manage rooms, tracks, and times");
+    const drawer = await openResources();
     const row = rowFor("Main stage");
-    fireEvent.click(within(row).getByRole("button", { name: "Remove" }));
+    fireEvent.click(within(row).getByRole("button", { name: /^Remove/ }));
 
     await waitFor(() => expect(writes).toHaveLength(1));
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(IN_USE);
 
-    // The live region is the workspace's own — the element directly after the toolbar,
-    // which is where every successful agenda action already announces itself.
-    expect(alert.previousElementSibling).toHaveClass("agenda-toolbar");
-    // …and therefore above the resources panel the operator clicked in, not after it.
-    const resources = container.querySelector("details.agenda-resources");
-    if (!resources) throw new Error("the resources panel is missing");
-    expect(resources.contains(alert)).toBe(false);
-    expect(
-      alert.compareDocumentPosition(resources) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+    // The live region is the workspace's own — the feedback region directly after the board
+    // bar, which is where every successful agenda action already announces itself. The region
+    // is the box `useActionFeedback` draws; the alert is the paragraph inside it.
+    expect(feedbackRegion(alert).previousElementSibling).toHaveClass("agenda-bar");
+    // …and it is not inside the drawer the operator clicked in.
+    expect(drawer.contains(alert)).toBe(false);
 
     // The row that was refused says so too, so the reason is legible from the button.
     expect(within(row).getByText(IN_USE)).toBeInTheDocument();
@@ -174,13 +191,13 @@ describe("AgendaWorkspace failure feedback", () => {
     stubFetch();
     render(<AgendaWorkspace event={event} onError={onError} />);
 
-    await screen.findByText("Manage rooms, tracks, and times");
+    await openResources();
     const row = rowFor("Main stage");
     const note = within(row).getByText(
       "Holds 1 scheduled session. Move or unschedule it before removing this room.",
     );
     // A disabled button cannot be focused, so the reason travels with the live one.
-    expect(within(row).getByRole("button", { name: "Remove" })).toHaveAttribute(
+    expect(within(row).getByRole("button", { name: /^Remove/ })).toHaveAttribute(
       "aria-describedby",
       note.id,
     );
@@ -188,49 +205,84 @@ describe("AgendaWorkspace failure feedback", () => {
     // A room with nothing in it carries no warning at all.
     const free = rowFor("Lab");
     expect(within(free).queryByText(/Move or unschedule/)).toBeNull();
-    expect(within(free).getByRole("button", { name: "Remove" })).not.toHaveAttribute(
+    expect(within(free).getByRole("button", { name: /^Remove/ })).not.toHaveAttribute(
       "aria-describedby",
     );
+  });
+
+  /*
+   * Naming a room is now a row of the drawer rather than a `window.prompt()`.
+   *
+   * The prompt was browser chrome the design language forbids: unstyleable, unlabelled, and with
+   * nowhere to report a refusal. Enter commits, Escape puts back what the server holds, and the
+   * row's own error slot is where a refusal lands.
+   */
+  it("renames a room in place, and reverts the row on Escape", async () => {
+    const writes = stubFetch();
+    render(<AgendaWorkspace event={event} onError={onError} />);
+
+    await openResources();
+    const row = rowFor("Main stage");
+    const name = within(row).getByRole("textbox") as HTMLInputElement;
+    const save = within(row).getByRole("button", { name: /^Save/ });
+    expect(save).toBeDisabled();
+
+    fireEvent.change(name, { target: { value: "Great hall" } });
+    expect(save).toBeEnabled();
+    fireEvent.keyDown(name, { key: "Escape" });
+    expect(name.value).toBe("Main stage");
+    expect(writes).toHaveLength(0);
+
+    fireEvent.change(name, { target: { value: "Great hall" } });
+    fireEvent.submit(row);
+    await waitFor(() => expect(writes).toHaveLength(1));
+    expect(writes[0]).toMatch(/PUT .*\/agenda\/resources$/);
+    expect(await screen.findByRole("status")).toHaveTextContent("Room renamed.");
   });
 
   it("announces a refused track removal in the row that was refused", async () => {
     stubFetch(() => refusal(IN_USE));
     render(<AgendaWorkspace event={event} onError={onError} />);
 
-    await screen.findByText("Manage rooms, tracks, and times");
+    await openResources();
     const row = rowFor("Platform");
-    fireEvent.click(within(row).getByRole("button", { name: "Remove" }));
+    fireEvent.click(within(row).getByRole("button", { name: /^Remove/ }));
 
     expect(await within(row).findByText(IN_USE)).toBeInTheDocument();
     expect(screen.getByRole("alert")).toHaveTextContent(IN_USE);
     expect(onError).not.toHaveBeenCalled();
   });
 
-  it("announces a refused timeslot removal in the row and under the toolbar", async () => {
+  it("announces a refused timeslot removal in the row and under the board bar", async () => {
     stubFetch(() => refusal(IN_USE));
     render(<AgendaWorkspace event={event} onError={onError} />);
 
+    await openResources();
     const remove = await screen.findByRole("button", { name: /^Remove Tue, Sep 1/ });
     fireEvent.click(remove);
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(IN_USE);
-    expect(alert.previousElementSibling).toHaveClass("agenda-toolbar");
+    expect(feedbackRegion(alert).previousElementSibling).toHaveClass("agenda-bar");
     const row = remove.closest(".resource-row");
     if (!row) throw new Error("the timeslot row is missing");
     expect(within(row as HTMLElement).getByText(IN_USE)).toBeInTheDocument();
     expect(onError).not.toHaveBeenCalled();
   });
 
-  it("announces a refused publication beside the Publish button", async () => {
+  it("announces a refused publication where every other agenda outcome announces", async () => {
     stubFetch(() => refusal("Schedule conflicts must be resolved before publication"));
     render(<AgendaWorkspace event={event} onError={onError} />);
 
+    // Publication is irreversible, so the press opens a confirmation carrying the preview of
+    // what will be public rather than committing on the first click.
     fireEvent.click(await screen.findByRole("button", { name: "Publish schedule" }));
+    const confirm = await screen.findByRole("dialog", { name: "Publish the schedule" });
+    fireEvent.click(within(confirm).getByRole("button", { name: "Publish schedule" }));
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("Schedule conflicts must be resolved before publication");
-    expect(alert.previousElementSibling).toHaveClass("agenda-toolbar");
+    expect(feedbackRegion(alert).previousElementSibling).toHaveClass("agenda-bar");
     expect(onError).not.toHaveBeenCalled();
   });
 
@@ -241,10 +293,14 @@ describe("AgendaWorkspace failure feedback", () => {
     const publish = await screen.findByRole("button", { name: "Publish schedule" });
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
     expect(publish).toHaveAccessibleName("Publish schedule");
-    expect(screen.queryByRole("button", { name: /public/ })).toBeNull();
+    fireEvent.click(publish);
+    // No numeric preview at all, rather than a confidently wrong zero.
     expect(
-      screen.getByText("The public page includes only sessions marked Published in Sessions."),
+      await screen.findByText(
+        "Every scheduled session that is published in Sessions will appear on the public page.",
+      ),
     ).toBeInTheDocument();
+    expect(screen.queryByText(/will appear on the public page; the rest/)).toBeNull();
   });
 
   it("announces a refused placement where the successful one would have announced", async () => {
@@ -254,11 +310,11 @@ describe("AgendaWorkspace failure feedback", () => {
     // Pick the placed session up, then drop it in the other room: the same code path a
     // pointer drag ends in, and the one whose failure used to leave the board silent.
     fireEvent.click(await screen.findByRole("button", { name: /^Opening keynote\./ }));
-    fireEvent.click(screen.getByRole("button", { name: /Place .+ in Lab/ }));
+    fireEvent.click(screen.getByRole("gridcell", { name: /Place .+ in Lab/ }));
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("Slot not found");
-    expect(alert.previousElementSibling).toHaveClass("agenda-toolbar");
+    expect(feedbackRegion(alert).previousElementSibling).toHaveClass("agenda-bar");
     expect(onError).not.toHaveBeenCalled();
   });
 

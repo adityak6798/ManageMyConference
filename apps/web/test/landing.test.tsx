@@ -35,16 +35,35 @@ function stubDeployment(doors: { demoMode: boolean; google: boolean }) {
   return fetchMock;
 }
 
+/** A deployment whose only door is an emailed code, with both steps of it answering. */
+function stubEmailDeployment() {
+  let issued = 0;
+  const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
+    const url = String(input);
+    if (url.endsWith("/api/auth/config")) return jsonResponse({ demoMode: false, google: false });
+    if (url.endsWith("/api/auth/code")) {
+      issued += 1;
+      return jsonResponse({ challenge: `challenge-${issued}` });
+    }
+    if (url.endsWith("/api/auth/verify")) return jsonResponse({ authenticated: true });
+    return jsonResponse(unauthorized, 401);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
 describe("the landing surfaces", () => {
   beforeEach(() => {
     window.history.replaceState(null, "", "/");
+    window.sessionStorage.clear();
   });
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+    window.sessionStorage.clear();
   });
 
-  it("states what Greenroom is and offers both doors", async () => {
+  it("states what Greenroom is and leads with the capability ledger", async () => {
     stubDeployment({ demoMode: true, google: false });
     // Under StrictMode, as `main.tsx` mounts it: development mounts twice, and a root that
     // treats the simulated unmount as the real one drops the probe's answer and never leaves
@@ -61,17 +80,23 @@ describe("the landing surfaces", () => {
         name: "Run the whole conference without losing the thread.",
       }),
     ).toBeInTheDocument();
-    expect(screen.getAllByRole("link", { name: "Try the demo" })[0]).toHaveAttribute(
-      "href",
-      "/signin",
+    // The hero primary opens the demo rather than linking to a page that shows a strict subset
+    // of what is already on screen — and it does not answer to the persona buttons' name.
+    expect(screen.getAllByRole("button", { name: "Open the demo as an organizer" })).toHaveLength(
+      2,
     );
-    expect(screen.getAllByRole("link", { name: "See product proof" })[0]).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Choose another role" })).toHaveAttribute(
       "href",
-      "#capabilities",
+      "#signin-panel",
     );
-    // The page describes the two capabilities that are built but unproven as exactly that,
-    // rather than counting them among the seven that ship.
+    // The honest count is the section heading, not a sentence inside a collapsed disclosure.
+    expect(
+      screen.getByRole("heading", { name: "9 capabilities. 7 proven end to end, 2 not." }),
+    ).toBeInTheDocument();
+    // …and the ledger is on the page rather than behind a triangle: both unproven rows are
+    // readable without opening anything.
     expect(screen.getAllByText("Built, not yet proven end to end")).toHaveLength(2);
+    expect(screen.queryByRole("group")).toBeNull();
     expect(
       screen.getByRole("heading", { name: "Four principles, not a pile of features" }),
     ).toBeInTheDocument();
@@ -81,6 +106,32 @@ describe("the landing surfaces", () => {
     expect(screen.getByRole("link", { name: "View source" })).toHaveAttribute(
       "href",
       "https://github.com/adityak6798/ManageMyConference",
+    );
+    // The repository is reachable from the footer too. It used to be reachable only from one
+    // link in the middle of the page.
+    expect(screen.getByRole("link", { name: "Source on GitHub" })).toBeInTheDocument();
+  });
+
+  /**
+   * The hero primary, which used to be a link to a page showing fewer doors than the one it
+   * was on.
+   */
+  it("starts the demo from the hero without borrowing a persona button's name", async () => {
+    const fetchMock = stubDeployment({ demoMode: true, google: false });
+    render(<LandingRoot bootstrap={probeIdentity()} />);
+
+    const heroDoors = await screen.findAllByRole("button", {
+      name: "Open the demo as an organizer",
+    });
+    fireEvent.click(heroDoors[0] as HTMLElement);
+
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          ([input, init]) =>
+            String(input).endsWith("/api/demo-session") && String(init?.body).includes("organizer"),
+        ),
+      ).toBe(true),
     );
   });
 
@@ -130,6 +181,111 @@ describe("the landing surfaces", () => {
 
     await screen.findByRole("heading", { level: 1 });
     expect(screen.queryByRole("link", { name: "Continue with Google" })).toBeNull();
+  });
+
+  /**
+   * The panel on "/" exists so that an evaluator never has to find a second page before they
+   * are inside the product. On an emailed-code deployment it used to contain a heading, a
+   * sentence and a footnote link: the form was gated on the sign-in *page*, so the deployment
+   * with only one door was the one whose landing page had none.
+   */
+  it("puts a working door on the landing panel of a deployment that only emails codes", async () => {
+    stubEmailDeployment();
+    render(<LandingRoot bootstrap={probeIdentity()} />);
+
+    await screen.findByRole("heading", {
+      level: 1,
+      name: "Run the whole conference without losing the thread.",
+    });
+    expect(screen.getByLabelText("Email address")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Email me a code" })).toBeInTheDocument();
+  });
+
+  /**
+   * The second step of the emailed-code flow, which used to rewrite the first field in place.
+   *
+   * Mutating `type` and `autocomplete` on a live input is how a password manager that has
+   * already filled an address ends up saving it as a one-time code; nothing announced the
+   * change; the caret stayed on a field that was now for something else; and "Request a new
+   * code" threw the address away and asked for it again rather than issuing a second code.
+   */
+  it("moves to a fresh code field, says where the code went, and re-issues for that address", async () => {
+    const fetchMock = stubEmailDeployment();
+    render(<LandingRoot bootstrap={probeIdentity()} />);
+
+    const address = await screen.findByLabelText("Email address");
+    fireEvent.change(address, { target: { value: "chair@example.test" } });
+    fireEvent.click(screen.getByRole("button", { name: "Email me a code" }));
+
+    const codeField = await screen.findByLabelText("Six-digit code");
+    expect(codeField).not.toBe(address);
+    expect(codeField).toHaveFocus();
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "We sent a six-digit code to chair@example.test",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Send a new code" }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "A new code is on its way to chair@example.test",
+      ),
+    );
+    expect(
+      fetchMock.mock.calls.filter(
+        ([input, init]) =>
+          String(input).endsWith("/api/auth/code") &&
+          String(init?.body).includes("chair@example.test"),
+      ),
+    ).toHaveLength(2);
+    // Still on the code step. The reader is not sent back to type an address they already gave.
+    expect(screen.getByLabelText("Six-digit code")).toBeInTheDocument();
+  });
+
+  /**
+   * The invitation link, which is the third signed-out surface rather than a stray URL.
+   *
+   * An invitee arriving signed out used to get the marketing hero and the token was dropped on
+   * the floor — the exact failure `AcceptInvitationPage`'s header comment says that surface
+   * exists to prevent.
+   */
+  it("names the invitation and keeps its token while the invitee signs in", async () => {
+    window.history.replaceState(null, "", "/invitations/accept?token=inv-token-1");
+    stubDeployment({ demoMode: false, google: true });
+    render(<LandingRoot bootstrap={probeIdentity()} />);
+
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Accept your invitation" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Continue with Google" })).toBeInTheDocument();
+    // Held rather than carried in the URL: the Google flow leaves this document, and its
+    // callback lands on a path the *server* chooses — that route refuses to take a destination
+    // from the request, which is the open redirect it would otherwise be.
+    expect(window.sessionStorage.getItem("greenroom.invitation-token")).toBe("inv-token-1");
+  });
+
+  it("hands a signed-in invitee back to the invitation when the callback lands on /", async () => {
+    window.sessionStorage.setItem("greenroom.invitation-token", "inv-token-2");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) =>
+        String(input).endsWith("/api/auth/config")
+          ? jsonResponse({ demoMode: false, google: true })
+          : jsonResponse({
+              actor: { id: "user-1", name: "Ivy Invitee", persona: "speaker" },
+              organizations: [],
+              eventAccess: [],
+              capabilities: [],
+            }),
+      ),
+    );
+    render(<LandingRoot bootstrap={probeIdentity()} />);
+
+    await waitFor(() => expect(window.location.pathname).toBe("/invitations/accept"));
+    expect(window.location.search).toBe("?token=inv-token-2");
+    // Spent by the navigation it caused: a second sign-in in this tab is not a second
+    // invitation.
+    expect(window.sessionStorage.getItem("greenroom.invitation-token")).toBeNull();
   });
 
   it("renders the emailed-code form and the Google door on the sign-in page", async () => {

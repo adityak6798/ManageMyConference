@@ -253,7 +253,12 @@ describe("the operational inbox", () => {
     );
     render(<InboxWorkspace eventId={eventId} />);
 
-    expect(await screen.findByText(/Reference: ref-5/)).toBeInTheDocument();
+    const failure = await screen.findByRole("alert");
+    expect(failure).toHaveTextContent("Access denied.");
+    expect(within(failure).getByText("ref-5")).toBeInTheDocument();
+    // A read that did not come back offers the one control that can change that; before this
+    // the reader's only recourse was reloading the whole console.
+    expect(within(failure).getByRole("button", { name: "Try again" })).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: "Speaker work" })).not.toBeInTheDocument();
   });
 });

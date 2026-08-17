@@ -196,7 +196,7 @@ test("hands an itinerary to another browser through its link alone", async ({ pa
 test("renders malformed stable itinerary links as unavailable", async ({ page }) => {
   await page.goto("/itineraries/token/extra");
   await expect(
-    page.getByRole("heading", { level: 1, name: "Itinerary unavailable" }),
+    page.getByRole("heading", { level: 1, name: "This itinerary is not available" }),
   ).toBeVisible();
 });
 
@@ -215,7 +215,8 @@ test("serves a configured embed anonymously and honours the configuration", asyn
   // Filtered out by `track=Platform`, and its description is suppressed by `fields=time`.
   await expect(page.getByRole("link", { name: "Accessible by default" })).toHaveCount(0);
   await expect(page.locator(".pub-session-abstract")).toHaveCount(0);
-  await expect(page.locator(".pub-session-meta")).toHaveCount(1);
+  // One metadata line per card — when, how long, where, which track — under `.pub-meta`.
+  await expect(page.locator(".pub-meta")).toHaveCount(1);
 });
 
 test("says the same thing about one session on every surface that names it", async ({ page }) => {

@@ -13,9 +13,35 @@
  * assert where focus *is*, and does below, but modality is the browser's to provide.
  */
 import type { SearchResponseDto, SearchSectionDto } from "@greenroom/contracts";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CommandPalette } from "../src/CommandPalette";
+import type { WorkspaceAccess } from "../src/workspaces/contract";
+
+/*
+ * An identity with no hub tabs at all, so the cases below measure the *search* half of the
+ * palette without the destination list moving the arrow-key indices under them. The
+ * destination half has its own case at the foot of this file.
+ */
+const noDestinations: WorkspaceAccess = {
+  session: null,
+  activeRole: "public",
+  capabilities: [],
+  isEventOrganizer: false,
+};
+
+const organizer: WorkspaceAccess = {
+  session: null,
+  activeRole: "organizer",
+  capabilities: [
+    "events:read",
+    "events:settings:read",
+    "events:settings:update",
+    "cfp:manage",
+    "review:manage",
+  ],
+  isEventOrganizer: true,
+};
 
 const eventId = "123e4567-e89b-12d3-a456-426614174000";
 
@@ -90,7 +116,7 @@ describe("the command palette", () => {
   });
 
   it("is a named modal dialog that puts focus in its own input", () => {
-    render(<CommandPalette eventId={eventId} open onClose={vi.fn()} />);
+    render(<CommandPalette eventId={eventId} access={noDestinations} open onClose={vi.fn()} />);
 
     const dialog = screen.getByRole("dialog", { name: "Search this event" });
     expect(dialog).toHaveAttribute("aria-modal", "true");
@@ -99,7 +125,7 @@ describe("the command palette", () => {
 
   it("says what it needs before it will search, and asks nothing of the server", async () => {
     const calls = stubFetch(answer("k"));
-    render(<CommandPalette eventId={eventId} open onClose={vi.fn()} />);
+    render(<CommandPalette eventId={eventId} access={noDestinations} open onClose={vi.fn()} />);
 
     type("k");
 
@@ -110,7 +136,7 @@ describe("the command palette", () => {
 
   it("renders each populated state rather than a heading over nothing", async () => {
     stubFetch(populated);
-    render(<CommandPalette eventId={eventId} open onClose={vi.fn()} />);
+    render(<CommandPalette eventId={eventId} access={noDestinations} open onClose={vi.fn()} />);
 
     type("keynote");
 
@@ -125,7 +151,7 @@ describe("the command palette", () => {
 
   it("says so when nothing matched, naming what was searched for", async () => {
     stubFetch(answer("zzz"));
-    render(<CommandPalette eventId={eventId} open onClose={vi.fn()} />);
+    render(<CommandPalette eventId={eventId} access={noDestinations} open onClose={vi.fn()} />);
 
     type("zzz");
 
@@ -134,7 +160,7 @@ describe("the command palette", () => {
 
   it("moves the active option with the arrow keys without moving DOM focus", async () => {
     stubFetch(populated);
-    render(<CommandPalette eventId={eventId} open onClose={vi.fn()} />);
+    render(<CommandPalette eventId={eventId} access={noDestinations} open onClose={vi.fn()} />);
     type("keynote");
     const first = await screen.findByRole("option", { name: /Opening keynote/ });
     const second = screen.getByRole("option", { name: /Keynote Speaker/ });
@@ -155,7 +181,7 @@ describe("the command palette", () => {
   it("opens the active result at the link the server produced for it", async () => {
     stubFetch(populated);
     const onClose = vi.fn();
-    render(<CommandPalette eventId={eventId} open onClose={onClose} />);
+    render(<CommandPalette eventId={eventId} access={noDestinations} open onClose={onClose} />);
     type("keynote");
     await screen.findByRole("option", { name: /Opening keynote/ });
 
@@ -171,7 +197,7 @@ describe("the command palette", () => {
     document.body.append(opener);
     opener.focus();
     const onClose = vi.fn();
-    render(<CommandPalette eventId={eventId} open onClose={onClose} />);
+    render(<CommandPalette eventId={eventId} access={noDestinations} open onClose={onClose} />);
 
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
 
@@ -191,7 +217,7 @@ describe("the command palette", () => {
           }),
       ),
     );
-    render(<CommandPalette eventId={eventId} open onClose={vi.fn()} />);
+    render(<CommandPalette eventId={eventId} access={noDestinations} open onClose={vi.fn()} />);
 
     type("keyn");
     await waitFor(() => expect(resolvers).toHaveLength(1));
@@ -239,15 +265,78 @@ describe("the command palette", () => {
       },
       500,
     );
-    render(<CommandPalette eventId={eventId} open onClose={vi.fn()} />);
+    render(<CommandPalette eventId={eventId} access={noDestinations} open onClose={vi.fn()} />);
 
     type("keynote");
 
     expect(await screen.findByText(/Reference: ref-9/)).toBeInTheDocument();
   });
 
+  /**
+   * The half of the palette that asks nobody anything.
+   *
+   * Roughly twenty hub-tab destinations had no keyboard route at all: the palette searched
+   * records and nothing else, so a surface with no records in it — Settings, Publishing, the
+   * review configuration — could be reached only by pointing at the sidebar and then at a tab.
+   */
+  it("offers every hub tab this account can open, before a single request is made", async () => {
+    const calls = stubFetch(answer("keynote"));
+    render(<CommandPalette eventId={eventId} access={organizer} open onClose={vi.fn()} />);
+
+    const goTo = screen.getByRole("group", { name: "Go to" });
+    expect(within(goTo).getByRole("option", { name: /Program · Submissions/ })).toBeInTheDocument();
+    expect(within(goTo).getByRole("option", { name: /Settings · Event/ })).toBeInTheDocument();
+    // The list opens pointing at its first row, so Enter alone is a complete gesture.
+    expect(within(goTo).getAllByRole("option")[0]).toHaveAttribute("aria-selected", "true");
+    // Nothing was asked of the server: the destination list is the registry's own answer.
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect(calls).toHaveLength(0);
+  });
+
+  it("filters destinations by the same keystrokes that search, and opens the active one", () => {
+    stubFetch(answer("set"));
+    const onClose = vi.fn();
+    render(<CommandPalette eventId={eventId} access={organizer} open onClose={onClose} />);
+
+    type("activity");
+
+    const goTo = screen.getByRole("group", { name: "Go to" });
+    expect(within(goTo).getAllByRole("option")).toHaveLength(1);
+    fireEvent.keyDown(screen.getByRole("combobox"), { key: "Enter" });
+
+    expect(window.location.pathname + window.location.search).toBe(
+      `/settings?tab=activity&event=${eventId}`,
+    );
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  /**
+   * `/search` is no longer a sidebar item — it answered exactly the question this surface
+   * answers — so the palette is what carries a reader to the full page, with their query.
+   */
+  it("offers the full search page as the last thing in the list", async () => {
+    stubFetch(populated);
+    render(<CommandPalette eventId={eventId} access={noDestinations} open onClose={vi.fn()} />);
+
+    type("keynote");
+
+    const seeAll = await screen.findByRole("option", { name: /See all results for “keynote”/ });
+    const options = screen.getAllByRole("option");
+    expect(options[options.length - 1]).toBe(seeAll);
+    fireEvent.click(seeAll);
+    expect(window.location.pathname + window.location.search).toBe(`/search?event=${eventId}`);
+  });
+
+  it("names the keys it is driven by rather than a Close button that scrolled away", () => {
+    render(<CommandPalette eventId={eventId} access={noDestinations} open onClose={vi.fn()} />);
+
+    expect(screen.getByText("↑↓ navigate · ↵ open · esc close")).toBeInTheDocument();
+  });
+
   it("renders nothing at all while closed", () => {
-    render(<CommandPalette eventId={eventId} open={false} onClose={vi.fn()} />);
+    render(
+      <CommandPalette eventId={eventId} access={noDestinations} open={false} onClose={vi.fn()} />,
+    );
 
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });

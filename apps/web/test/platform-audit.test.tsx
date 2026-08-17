@@ -123,6 +123,10 @@ describe("the audit timeline surface", () => {
     );
     render(<AuditWorkspace eventId={eventId} />);
 
-    expect(await screen.findByText(/Reference: ref-2/)).toBeInTheDocument();
+    const failure = await screen.findByRole("alert");
+    expect(failure).toHaveTextContent("Access denied.");
+    expect(within(failure).getByText("ref-2")).toBeInTheDocument();
+    // A read that did not come back offers the one control that can change that.
+    expect(within(failure).getByRole("button", { name: "Try again" })).toBeInTheDocument();
   });
 });

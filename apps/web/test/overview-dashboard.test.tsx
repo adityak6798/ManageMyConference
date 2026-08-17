@@ -6,7 +6,7 @@
  * fails degrades its own card, and a failed background poll never takes down a dashboard
  * that is already on screen.
  */
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, within } from "@testing-library/react";
 import type { EventDto } from "@greenroom/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { OverviewPage } from "../src/OverviewPage";
@@ -131,9 +131,26 @@ function placedAgenda(slotId: string, roomId = "room-main") {
   };
 }
 
-/** The value rendered under a stat's own label, so two stats cannot be confused. */
-function stat(label: string) {
-  return screen.getByText(label).closest(".stat")?.querySelector("dd")?.textContent;
+/**
+ * The figure one pipeline measure carries, read under its own label.
+ *
+ * Scoped to the strip because the same words are a region heading elsewhere on the page —
+ * "Awaiting decision" is both a measure and the table below it.
+ */
+function measure(label: string) {
+  const strip = document.querySelector(".measure-strip");
+  if (!strip) throw new Error("the pipeline strip is not on screen");
+  return within(strip as HTMLElement)
+    .getByText(label)
+    .closest("div")
+    ?.querySelector("dd")?.textContent;
+}
+
+/** The count in the cue gutter of the job row with this name, or null when no such row exists. */
+function job(name: string | RegExp) {
+  const link = screen.queryByRole("link", { name });
+  if (!link) return null;
+  return link.closest(".gutter-row")?.querySelector(".figure")?.textContent ?? null;
 }
 
 function json(body: unknown, status = 200) {
@@ -231,6 +248,62 @@ describe("overview dashboard", () => {
     expect(screen.getByText("Designing the calm conference")).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(screen.queryByText(/The overview could not be loaded/)).not.toBeInTheDocument();
+  });
+
+  /*
+   * The landing surface is a workbench, not a report. These hold the three claims that make it
+   * one: the work is a queue with a count per job, every row goes somewhere, and the freshness
+   * stamp is a fact on the page rather than something spoken over the reader four times a minute.
+   */
+  it("leads with the queue of jobs, each carrying its count and its destination", async () => {
+    stubOverviewFetch({ agenda: "missing" });
+    render(<OverviewPage event={event} query={`?event=${eventId}`} />);
+    await screen.findByText("Sam Speaker");
+
+    expect(screen.getByRole("heading", { name: "What needs you now" })).toBeInTheDocument();
+    expect(job("Proposal awaiting a decision")).toBe("1");
+    expect(screen.getByRole("link", { name: /Proposal awaiting a decision/ })).toHaveAttribute(
+      "href",
+      `/program?event=${eventId}&tab=submissions`,
+    );
+    expect(job("Session to schedule")).toBe("1");
+    expect(screen.getByRole("link", { name: /Session to schedule/ })).toHaveAttribute(
+      "href",
+      `/schedule?event=${eventId}&tab=agenda`,
+    );
+  });
+
+  it("makes every row a link into the workspace that owns the record", async () => {
+    stubOverviewFetch({ agenda: "missing" });
+    render(<OverviewPage event={event} query={`?event=${eventId}`} />);
+    await screen.findByText("Sam Speaker");
+
+    // The triage queue can open one abstract by id, so the row names it.
+    expect(screen.getByRole("link", { name: "Typed boundaries at scale" })).toHaveAttribute(
+      "href",
+      `/program?event=${eventId}&tab=submissions&proposal=${proposalId}`,
+    );
+    // Speakers and the agenda board take no record id, so those rows link to the surface.
+    expect(screen.getByRole("link", { name: "Sam Speaker" })).toHaveAttribute(
+      "href",
+      `/people?event=${eventId}&tab=speakers`,
+    );
+    expect(screen.getByRole("link", { name: "Designing the calm conference" })).toHaveAttribute(
+      "href",
+      `/schedule?event=${eventId}&tab=agenda`,
+    );
+  });
+
+  it("states when it last refreshed without announcing it", async () => {
+    stubOverviewFetch({});
+    render(<OverviewPage event={event} query={`?event=${eventId}`} />);
+    await screen.findByText("Sam Speaker");
+
+    const stamp = screen.getByText(/^Updated /);
+    // A stamp that re-announced every fifteen seconds interrupted whatever was being read.
+    expect(stamp).not.toHaveAttribute("role");
+    // To the minute: seconds made it a clock nobody asked for.
+    expect(stamp.textContent).not.toMatch(/:\d\d:\d\d/);
   });
 
   it("uses one request for first paint and reuses it across a remount", async () => {
@@ -377,16 +450,17 @@ describe("the board and the published schedule", () => {
     render(<OverviewPage event={event} query={`?event=${eventId}`} />);
 
     await screen.findByText("Sam Speaker");
-    // Nothing is waiting to be placed: the board's question is answered, and the stat says
-    // which question that is rather than claiming the session is "scheduled".
-    expect(stat("Not on the board")).toBe("0");
+    // Nothing is waiting to be placed, so the queue holds no scheduling job and the strip
+    // counts the session as on the board rather than claiming it is "scheduled".
+    expect(job(/Sessions? to schedule/)).toBeNull();
+    expect(measure("On the board")).toBe("1");
     expect(screen.getByText("Every accepted session is on the board")).toBeInTheDocument();
-    // …and the other question is answered next to it instead of being left to a second screen.
+    // …and the other question is a job of its own, with its own count and its own destination,
+    // instead of being left to a second screen.
+    expect(job(/Board change to publish/)).toBe("1");
     expect(
       screen.getByText(/The board and the published schedule differ on 1 session\./),
     ).toBeInTheDocument();
-    expect(screen.getByText(/1 board change not published yet/)).toBeInTheDocument();
-    expect(stat("Not on the board")).toBe("0");
   });
 
   it("says the two agree when the published snapshot matches the board", async () => {
@@ -420,7 +494,7 @@ describe("the board and the published schedule", () => {
     render(<OverviewPage event={event} query={`?event=${eventId}`} />);
 
     await screen.findByText("Sam Speaker");
-    expect(stat("Not on the board")).toBe("0");
+    expect(job(/Sessions? to schedule/)).toBeNull();
     expect(
       screen.getByText(/The board and the published schedule differ on 1 session\./),
     ).toBeInTheDocument();
@@ -444,9 +518,11 @@ describe("the board and the published schedule", () => {
     render(<OverviewPage event={event} query={`?event=${eventId}`} />);
 
     await screen.findByText("Sam Speaker");
-    expect(stat("Not on the board")).toBe("1");
-    expect(screen.getByText(/1 accepted session not on the agenda board/)).toBeInTheDocument();
-    // It is unplaced *and* unpublished, and the card that lists it still says so.
+    // One job, singular, because there is one of them — the row name branches on the count
+    // rather than printing "1 session(s)".
+    expect(job("Session to schedule")).toBe("1");
+    expect(measure("On the board")).toBe("0");
+    // It is unplaced *and* unpublished, and the region that lists it still says so.
     expect(
       screen.getByText(/The board and the published schedule differ on 1 session\./),
     ).toBeInTheDocument();

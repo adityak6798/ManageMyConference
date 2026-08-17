@@ -19,7 +19,7 @@ export const organizerOverviewWorkspace: WorkspaceModule = {
   label: "Overview",
   group: "home",
   order: 0,
-  icon: <IconDashboard size={16} />,
+  icon: <IconDashboard />,
   personas: ["organizer"],
   canAccess: ({ capabilities }) => capabilities.includes("events:read"),
   header: () => ({ title: "Overview" }),
@@ -39,7 +39,7 @@ export const searchWorkspace: WorkspaceModule = {
   label: "Search",
   group: "home",
   order: 5,
-  icon: <IconSearch size={16} />,
+  icon: <IconSearch />,
   personas: ["organizer", "reviewer", "speaker"],
   canAccess: ({ capabilities }) => capabilities.includes("events:read"),
   header: () => ({
@@ -64,7 +64,7 @@ export const inboxWorkspace: WorkspaceModule = {
   label: "Inbox",
   group: "home",
   order: 6,
-  icon: <IconInbox size={16} />,
+  icon: <IconInbox />,
   personas: ["organizer", "reviewer", "speaker"],
   canAccess: ({ capabilities }) => capabilities.includes("events:read"),
   header: () => ({
@@ -85,9 +85,9 @@ export const auditWorkspace: WorkspaceModule = {
   domain: "platform",
   path: "/audit",
   label: "Activity",
-  group: "Audience",
+  group: "admin",
   order: 9,
-  icon: <IconClock size={16} />,
+  icon: <IconClock />,
   personas: ["organizer"],
   canAccess: ({ capabilities }) => capabilities.includes("events:settings:read"),
   header: () => ({

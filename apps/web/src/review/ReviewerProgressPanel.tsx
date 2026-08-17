@@ -19,6 +19,7 @@ import type { OrganizerReviewWorkspaceDto } from "@greenroom/contracts";
 import { useState } from "react";
 import { remindReviewers } from "../api/review";
 import "../styles/review.css";
+import { Checkbox } from "../ui/fields";
 import { IconReview } from "../ui/icons";
 import { Card, EmptyState, Pill, useActionFeedback } from "../ui/primitives";
 import { fieldErrorsOf, message, type PillTone, ROUND_STATE } from "./shared";
@@ -216,25 +217,26 @@ export function ReviewerProgressPanel({
               <ul className="reminder-picks">
                 {outstandingIn.map((entry) => (
                   <li key={entry.reviewerId}>
-                    <label className="checkbox-label">
-                      <input
-                        type="checkbox"
-                        checked={selected.includes(entry.reviewerId)}
-                        onChange={(event) =>
-                          setSelected((current) =>
-                            event.target.checked
-                              ? [...current, entry.reviewerId]
-                              : current.filter((id) => id !== entry.reviewerId),
-                          )
-                        }
-                      />
-                      {reviewerName(entry.reviewerId)} — {entry.outstanding} outstanding
-                    </label>
+                    {/* The shared checkbox draws a box; `.checkbox-label` around a bare input
+                        inherits the control tier's `appearance: none` and draws nothing, so
+                        every name in this list sat beside an invisible control. */}
+                    <Checkbox
+                      label={`${reviewerName(entry.reviewerId)} — ${entry.outstanding} outstanding`}
+                      checked={selected.includes(entry.reviewerId)}
+                      onChange={(checked) =>
+                        setSelected((current) =>
+                          checked
+                            ? [...current, entry.reviewerId]
+                            : current.filter((id) => id !== entry.reviewerId),
+                        )
+                      }
+                    />
                   </li>
                 ))}
               </ul>
               <div className="toolbar">
                 <button
+                  className="primary"
                   type="button"
                   disabled={busy || !selected.length}
                   onClick={() => {

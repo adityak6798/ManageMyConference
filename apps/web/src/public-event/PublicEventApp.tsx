@@ -14,17 +14,21 @@
 
 // @spec PRD-PUB-001
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CfpApiError, type CfpFormDto, loadCfp } from "../api/cfp";
 import { getPublicEventSnapshot, PublicApiError } from "../api/publication";
 import "../public-event.css";
 import "../styles/public-pages.css";
 import { useLoad } from "../ui/primitives";
 
+import { Field, Select } from "../ui/fields";
+import { IconCalendar, IconSearch, IconSessions, IconSpeakers, IconStar } from "../ui/icons";
 import {
   Avatar,
   Empty,
+  ExternalMark,
   groupByField,
+  PageSkeleton,
   Pill,
   ScheduleGroup,
   SessionCard,
@@ -37,25 +41,53 @@ import { itineraryCalendar, StarButton, useItinerary } from "./itinerary";
 import {
   bySurname,
   CFP_AWARE_VIEWS,
-  calendarDate,
   clockTime,
   countLabel,
   dayKey,
   dayLabel,
   duration,
   eventDates,
+  FILTER_DEFAULTS,
   fullTime,
   linkProps,
   type PublicSession,
   type PublicSpeaker,
   parseEmbedOptions,
+  readFilters,
   SCHEDULE_VIEWS,
   type ScheduleView,
+  shortDate,
   usePublicRoute,
   type View,
+  weekdayLabel,
+  writeFilters,
   zoneAbbreviation,
 } from "./model";
 import { PublicCfpView } from "./PublicCfpView";
+
+/**
+ * A page that has no event to show: the projection failed, or the address names nothing.
+ *
+ * It still wears the shell, so the reader is somewhere rather than nowhere. There is no event
+ * name to put in the header — that is exactly what could not be read — so the product's own
+ * name stands in it, and the body carries the way on.
+ */
+function StatePage({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="public-shell">
+      <header>
+        <a className="brand" href="/">
+          Greenroom
+        </a>
+      </header>
+      <main className="pub-state">
+        <h1>{title}</h1>
+        {children}
+      </main>
+    </div>
+  );
+}
+
 // This routed state owner intentionally exceeds 400 lines: all route branches read one immutable
 // projection and share navigation, filtering, CFP answers, focus, and scroll restoration. Each
 // branch is used once, so extracting it would violate issue #70's higher-priority rule against
@@ -74,14 +106,20 @@ export function PublicEventApp() {
   // Kept apart from `submissionNotice`: "we could not read the call" is not "your
   // proposal was not submitted", and it can now happen on a page that has no form.
   const [cfpUnavailable, setCfpUnavailable] = useState<string | null>(null);
-  const [sessionQuery, setSessionQuery] = useState("");
-  const [trackFilter, setTrackFilter] = useState("all");
-  const [formatFilter, setFormatFilter] = useState("all");
-  const [locationFilter, setLocationFilter] = useState("all");
-  const [speakerQuery, setSpeakerQuery] = useState("");
+  /*
+   * Seeded from the address bar, which is what makes a filtered programme shareable and
+   * survive a reload. `parseRoute` has already told us whether this is an embed, where the
+   * query string belongs to the host page instead.
+   */
+  const seeded = useRef(readFilters(embedded));
+  const [sessionQuery, setSessionQuery] = useState(seeded.current.q);
+  const [trackFilter, setTrackFilter] = useState(seeded.current.track);
+  const [formatFilter, setFormatFilter] = useState(seeded.current.format);
+  const [locationFilter, setLocationFilter] = useState(seeded.current.room);
+  const [speakerQuery, setSpeakerQuery] = useState(seeded.current.q);
   // A grouping is a reading preference, not a filter: it survives a trip to a session
   // and back, and it never triggers a fetch.
-  const [scheduleView, setScheduleView] = useState<ScheduleView>("day");
+  const [scheduleView, setScheduleView] = useState<ScheduleView>(seeded.current.view);
   const mainRef = useRef<HTMLElement>(null);
   /*
    * Embeds are configured by their own URL. Derived during render rather than memoised:
@@ -89,7 +127,15 @@ export function PublicEventApp() {
    * could only ever be a guess at when it changed — and re-parsing four query parameters
    * costs less than being wrong about that.
    */
-  const embedOptions = parseEmbedOptions(window.location.search);
+  /*
+   * Read on an embed and only on an embed. These four parameters are how a *host page*
+   * configures a snippet it pasted into its own HTML, and they were being honoured on the real
+   * site too — where `?track=` silently scoped the whole programme, counts included, through a
+   * knob no visitor was ever shown. That was harmless while nothing else used the query string;
+   * it stops being harmless the moment the visitor's own filters live there, because one `track`
+   * key cannot mean "the host chose this" and "I picked this from the Track menu" at once.
+   */
+  const embedOptions = parseEmbedOptions(embedded ? window.location.search : "");
   const embedTrack = embedOptions.track;
   /*
    * Starring is offered on the real site only. Inside an embed the frame is third-party,
@@ -113,12 +159,38 @@ export function PublicEventApp() {
   // previous view's filtered result set.
   if (filteredView !== section) {
     setFilteredView(section);
-    setSessionQuery("");
-    setTrackFilter("all");
-    setFormatFilter("all");
-    setLocationFilter("all");
-    setSpeakerQuery("");
+    setSessionQuery(FILTER_DEFAULTS.q);
+    setTrackFilter(FILTER_DEFAULTS.track);
+    setFormatFilter(FILTER_DEFAULTS.format);
+    setLocationFilter(FILTER_DEFAULTS.room);
+    setSpeakerQuery(FILTER_DEFAULTS.q);
   }
+
+  /*
+   * The address bar follows the controls, so the filtered list is the thing that gets shared.
+   * `replaceState` rather than `pushState`: a keystroke in the search box is not somewhere the
+   * back button should return to. Inside an embed nothing is written at all — that query string
+   * is the host page's own configuration.
+   */
+  useEffect(() => {
+    if (embedded) return;
+    writeFilters({
+      q: section === "speakers" ? speakerQuery : sessionQuery,
+      track: trackFilter,
+      format: formatFilter,
+      room: locationFilter,
+      view: scheduleView,
+    });
+  }, [
+    embedded,
+    formatFilter,
+    locationFilter,
+    scheduleView,
+    section,
+    sessionQuery,
+    speakerQuery,
+    trackFilter,
+  ]);
 
   /*
    * The live CFP read supplies submission fields, not display metadata. The title, description,
@@ -249,7 +321,12 @@ export function PublicEventApp() {
     const untimed = ordered.filter((item) => !item.startsAt);
     const days: {
       key: string;
+      /** The whole day, for anything that has to name it in one string. */
       label: string;
+      /** The day's name, which is the heading. */
+      weekday: string;
+      /** The day's date, which is its measure. */
+      short: string;
       slots: {
         time: string;
         endsAt: string | undefined;
@@ -261,7 +338,13 @@ export function PublicEventApp() {
       const key = dayKey(startsAt, timezone);
       let day = days.find((entry) => entry.key === key);
       if (!day) {
-        day = { key, label: dayLabel(startsAt, timezone), slots: [] };
+        day = {
+          key,
+          label: dayLabel(startsAt, timezone),
+          weekday: weekdayLabel(startsAt, timezone),
+          short: shortDate(startsAt, timezone),
+          slots: [],
+        };
         days.push(day);
       }
       let slot = day.slots.find((entry) => entry.time === startsAt);
@@ -302,19 +385,35 @@ export function PublicEventApp() {
     };
   }, [embedTrack, projection]);
 
+  /*
+   * A dead end is still a page: the shell, a sentence that says what happened, and something
+   * to press. Both of these used to be two lines of text on a bare ground, leaving the
+   * browser's Back button as the only way on.
+   */
   if (error)
     return (
-      <main className="public-state">
-        <h1>Event unavailable</h1>
-        <p role="alert">{error}</p>
-      </main>
+      <StatePage title="This event page is unavailable">
+        <p className="pub-note" role="alert">
+          {error}
+        </p>
+        <div className="actions">
+          <a className="primary" href={`/events/${slug}`}>
+            Try again
+          </a>
+        </div>
+      </StatePage>
     );
 
   if (!projection || !model)
     return (
-      <main className="public-state">
-        <p role="status">Loading published event…</p>
-      </main>
+      <div className="public-shell">
+        <header>
+          <span className="brand">Greenroom</span>
+        </header>
+        <main className="pub-state">
+          <PageSkeleton label="Loading the event programme" />
+        </main>
+      </div>
     );
 
   const base = `${embedded ? "/embed" : ""}/events/${slug}`;
@@ -328,6 +427,48 @@ export function PublicEventApp() {
       ? projection.speakers.find((item) => item.slug === detail)
       : undefined;
 
+  const navItems = [
+    { href: `${base}/schedule`, label: "Schedule", view: "schedule" as View },
+    { href: `${base}/sessions`, label: "Sessions", view: "sessions" as View },
+    { href: `${base}/speakers`, label: "Speakers", view: "speakers" as View },
+    { href: `${base}/gallery`, label: "Gallery", view: "gallery" as View },
+    { href: `${base}/itinerary`, label: "My itinerary", view: "itinerary" as View },
+    // Not "CFP". An attendee reading a conference site has no reason to know the acronym, and
+    // this is the one destination the site is asking them to act on.
+    { href: `${base}/cfp`, label: "Call for proposals", view: "cfp" as View },
+  ];
+
+  const chrome = (
+    <header>
+      {embedded ? (
+        // Inside an iframe the wordmark is the one way back to the real site, so
+        // it escapes the frame rather than navigating the host's embedded panel.
+        <a className="brand" href={site} target="_blank" rel="noreferrer">
+          {projection.event.name}
+          <ExternalMark />
+          <span className="visually-hidden">(opens the full event site in a new tab)</span>
+        </a>
+      ) : (
+        <a className="brand" {...linkProps(base)}>
+          {projection.event.name}
+        </a>
+      )}
+      {!embedded && (
+        <nav aria-label="Event navigation">
+          {navItems.map((item) => (
+            <a
+              key={item.view}
+              {...linkProps(item.href)}
+              aria-current={section === item.view ? "page" : undefined}
+            >
+              {item.label}
+            </a>
+          ))}
+        </nav>
+      )}
+    </header>
+  );
+
   if (
     (detail && section === "sessions" && !session) ||
     (detail && section === "speakers" && !speaker) ||
@@ -336,10 +477,24 @@ export function PublicEventApp() {
     (detail && (section === "gallery" || section === "itinerary" || section === "schedule"))
   )
     return (
-      <main className="public-state">
-        <h1>Page not found</h1>
-        <p>The requested published item is unavailable.</p>
-      </main>
+      // The projection is in hand here, so a mistyped address keeps the event's own header and
+      // every destination on it, rather than stranding the reader on an unbranded sentence.
+      <div className={embedded ? "public-shell embed" : "public-shell"}>
+        {chrome}
+        <main className="pub-state">
+          <h1>That page is not here</h1>
+          <p className="pub-note">
+            The address you followed does not name anything in this programme. It may have been
+            renamed since the link was written.
+          </p>
+          <div className="actions">
+            <a {...linkProps(`${base}/schedule`)}>Browse the schedule</a>
+            <a className="secondary" {...linkProps(base)}>
+              {projection.event.name}
+            </a>
+          </div>
+        </main>
+      </div>
     );
 
   /*
@@ -415,6 +570,19 @@ export function PublicEventApp() {
       .toLowerCase()
       .includes(needle);
   });
+  /** Whether anything is narrowing the list, and therefore whether there is anything to clear. */
+  const sessionsFiltered =
+    sessionQuery.trim() !== "" ||
+    trackFilter !== FILTER_DEFAULTS.track ||
+    formatFilter !== FILTER_DEFAULTS.format ||
+    locationFilter !== FILTER_DEFAULTS.room;
+  const clearFilters = () => {
+    setSessionQuery(FILTER_DEFAULTS.q);
+    setSpeakerQuery(FILTER_DEFAULTS.q);
+    setTrackFilter(FILTER_DEFAULTS.track);
+    setFormatFilter(FILTER_DEFAULTS.format);
+    setLocationFilter(FILTER_DEFAULTS.room);
+  };
   const formats = [
     ...new Set(projection.sessions.map((item) => item.format).filter(Boolean)),
   ].sort();
@@ -481,15 +649,6 @@ export function PublicEventApp() {
         }.`
       : `${scheduleLabel} view. ${countLabel(projection.sessions.length, "session")}.`;
 
-  const navItems = [
-    { href: `${base}/schedule`, label: "Schedule", view: "schedule" as View },
-    { href: `${base}/sessions`, label: "Sessions", view: "sessions" as View },
-    { href: `${base}/speakers`, label: "Speakers", view: "speakers" as View },
-    { href: `${base}/gallery`, label: "Gallery", view: "gallery" as View },
-    { href: `${base}/itinerary`, label: "My itinerary", view: "itinerary" as View },
-    { href: `${base}/cfp`, label: "CFP", view: "cfp" as View },
-  ];
-
   return (
     <div
       className={embedded ? "public-shell embed" : "public-shell"}
@@ -506,48 +665,27 @@ export function PublicEventApp() {
           Skip to main content
         </a>
       ) : null}
-      <header>
-        {embedded ? (
-          // Inside an iframe the wordmark is the one way back to the real site, so
-          // it escapes the frame rather than navigating the host's embedded panel.
-          <a className="brand" href={site} target="_blank" rel="noreferrer">
-            {projection.event.name}
-            <span className="pub-external" aria-hidden="true">
-              ↗
-            </span>
-            <span className="pub-sr">(opens the full event site in a new tab)</span>
-          </a>
-        ) : (
-          <a className="brand" {...linkProps(base)}>
-            {projection.event.name}
-          </a>
-        )}
-        {!embedded && (
-          <nav aria-label="Event navigation">
-            {navItems.map((item) => (
-              <a
-                key={item.view}
-                {...linkProps(item.href)}
-                aria-current={section === item.view ? "page" : undefined}
-              >
-                {item.label}
-              </a>
-            ))}
-          </nav>
-        )}
-      </header>
+      {chrome}
 
       {/* tabIndex={-1} is a focus target for client-side navigation, not a tab stop. */}
       <main id="public-main" ref={mainRef} tabIndex={-1}>
         {section === "home" && (
           <>
             <div className="pub-hero">
-              {/* A newly published event has no venue yet; the separator goes with it. */}
-              <p className="kicker">
-                {[model.dates, projection.event.venue].filter(Boolean).join(" · ")}
-              </p>
               <h1>{projection.event.name}</h1>
-              <p className="lede">{projection.event.summary}</p>
+              {/*
+                When and where, as the measure it is. It used to be a `kicker` above the title —
+                12px, quiet, decorative — which is the wrong treatment for the two facts a
+                visitor came to check. A newly published event has neither yet, and the
+                separator goes with whichever is missing.
+              */}
+              <p className="pub-hero-when">
+                <span className="figure">{model.dates}</span>
+                {projection.event.venue ? <span>{projection.event.venue}</span> : null}
+              </p>
+              {/* An event published before anybody wrote a summary has an empty one, and an
+                  empty paragraph reserved a line of hero-sized space. */}
+              {projection.event.summary ? <p className="lede">{projection.event.summary}</p> : null}
               <div className="actions">
                 <a {...linkProps(`${base}/schedule`)}>Explore the schedule</a>
                 <a className="secondary" {...linkProps(`${base}/speakers`)}>
@@ -556,15 +694,12 @@ export function PublicEventApp() {
               </div>
             </div>
 
+            {/*
+              What the hero has not already said. Dates and venue were repeated here verbatim,
+              two inches below themselves, which is what four bordered boxes were being used to
+              disguise.
+            */}
             <dl className="pub-facts">
-              <div>
-                <dt>Dates</dt>
-                <dd>{model.dates}</dd>
-              </div>
-              <div>
-                <dt>Venue</dt>
-                <dd>{projection.event.venue}</dd>
-              </div>
               <div>
                 <dt>Time zone</dt>
                 <dd>
@@ -573,46 +708,53 @@ export function PublicEventApp() {
                 </dd>
               </div>
               <div>
-                <dt>Program</dt>
-                <dd>
-                  {countLabel(projection.sessions.length, "session")} ·{" "}
-                  {countLabel(projection.speakers.length, "speaker")}
-                </dd>
+                <dt>Sessions</dt>
+                <dd className="figure">{projection.sessions.length}</dd>
+              </div>
+              <div>
+                <dt>Speakers</dt>
+                <dd className="figure">{projection.speakers.length}</dd>
               </div>
             </dl>
 
             <section className="pub-section" aria-labelledby="home-schedule">
               <div className="pub-section-head">
-                <h2 id="home-schedule">Schedule at a glance</h2>
+                <h2 id="home-schedule">How each day opens</h2>
                 <a {...linkProps(`${base}/schedule`)}>Full schedule</a>
               </div>
-              {model.timed.length === 0 ? (
-                <Empty title="The schedule is not published yet">
+              {model.days.length === 0 ? (
+                <Empty title="The schedule is not published yet" icon={<IconCalendar />}>
                   Session times appear here as soon as the organizers publish the agenda.
                 </Empty>
               ) : (
                 <>
                   <p className="pub-tz">{zoneLine}</p>
+                  {/*
+                    One session per day, which is what "at a glance" means on a programme.
+                    The first four in start order showed a visitor four sessions of Thursday
+                    morning and told them nothing at all about the rest of the conference.
+                  */}
                   <ol className="pub-glance">
-                    {model.timed.slice(0, 4).map((item) => (
-                      <li key={item.slug}>
-                        <div className="pub-glance-when">
-                          <span className="day">
-                            {calendarDate(dayKey(item.startsAt ?? "", model.timezone), {
-                              month: "short",
-                              day: "numeric",
-                            })}
-                          </span>
-                          <time dateTime={item.startsAt}>
-                            {clockTime(item.startsAt ?? "", model.timezone)}
-                          </time>
-                        </div>
-                        <div className="pub-glance-what">
-                          <a {...linkProps(`${base}/sessions/${item.slug}`)}>{item.title}</a>
-                          <p>{[item.room, item.track].filter(Boolean).join(" · ")}</p>
-                        </div>
-                      </li>
-                    ))}
+                    {model.days.map((day) => {
+                      const first = day.slots[0]?.items[0];
+                      if (!first) return null;
+                      return (
+                        <li key={day.key}>
+                          <div className="pub-glance-when">
+                            <span className="figure">
+                              {shortDate(first.startsAt ?? "", model.timezone)}
+                            </span>
+                            <time className="figure" dateTime={first.startsAt}>
+                              {clockTime(first.startsAt ?? "", model.timezone)}
+                            </time>
+                          </div>
+                          <div className="pub-glance-what">
+                            <a {...linkProps(`${base}/sessions/${first.slug}`)}>{first.title}</a>
+                            <p>{[first.room, first.track].filter(Boolean).join(" · ")}</p>
+                          </div>
+                        </li>
+                      );
+                    })}
                   </ol>
                 </>
               )}
@@ -628,7 +770,7 @@ export function PublicEventApp() {
                 )}
               </div>
               {projection.speakers.length === 0 ? (
-                <Empty title="Speakers are still being confirmed">
+                <Empty title="Speakers are still being confirmed" icon={<IconSpeakers />}>
                   The gallery fills in as accepted speakers complete their profiles.
                 </Empty>
               ) : (
@@ -647,7 +789,6 @@ export function PublicEventApp() {
 
             <section className="pub-cta" aria-labelledby="home-cfp">
               <div>
-                <p className="kicker">Call for proposals</p>
                 <h2 id="home-cfp">{cfpTitle}</h2>
                 <p>{cfpDescription}</p>
               </div>
@@ -674,7 +815,7 @@ export function PublicEventApp() {
                       : "Closed"}
                 </Pill>
                 <a className="pub-button" {...linkProps(`${base}/cfp`)}>
-                  {cfpStatus === "open" ? "Submit a proposal" : "Read the CFP"}
+                  {cfpStatus === "open" ? "Submit a proposal" : "Read the call"}
                 </a>
               </div>
             </section>
@@ -684,7 +825,6 @@ export function PublicEventApp() {
         {section === "schedule" && (
           <>
             <div className="pub-head">
-              <p className="kicker">Published schedule</p>
               <h1>Plan your time</h1>
               {/* The zone belongs to the whole itinerary, so it is stated here and
                   nowhere else — the cards below carry bare clock times. */}
@@ -697,7 +837,7 @@ export function PublicEventApp() {
               </p>
             </div>
             {projection.sessions.length === 0 ? (
-              <Empty level={2} title="No sessions published yet">
+              <Empty level={2} title="No sessions published yet" icon={<IconCalendar />}>
                 The published schedule does not have sessions yet. Check back once the organizers
                 place the agenda.
               </Empty>
@@ -711,7 +851,7 @@ export function PublicEventApp() {
                  * the projection already in state — no refetch.
                  */}
                 <fieldset className="pub-viewswitch">
-                  <legend className="pub-sr">Group the schedule by</legend>
+                  <legend className="visually-hidden">Group the schedule by</legend>
                   {SCHEDULE_VIEWS.map((view) => (
                     <button
                       key={view.id}
@@ -723,14 +863,22 @@ export function PublicEventApp() {
                     </button>
                   ))}
                 </fieldset>
-                <p className="pub-sr" role="status">
+                <p className="visually-hidden" role="status">
                   {scheduleSummary}
                 </p>
 
                 {scheduleView === "day" && (
                   <>
                     {model.days.map((day) => (
-                      <ScheduleGroup key={day.key} id={`day-${day.key}`} title={day.label}>
+                      <ScheduleGroup
+                        key={day.key}
+                        id={`day-${day.key}`}
+                        // The date is the day's measure and sits in the rail; the heading is the
+                        // day's name. Together they are what `dayLabel` used to say twice.
+                        measure={day.short}
+                        title={day.weekday}
+                        label={day.label}
+                      >
                         <ol className="pub-slots">
                           {day.slots.map((slot) => (
                             <li className="pub-slot" key={slot.time}>
@@ -843,87 +991,94 @@ export function PublicEventApp() {
         {section === "sessions" && !session && (
           <>
             <div className="pub-head">
-              <p className="kicker">Program</p>
               <h1>Sessions</h1>
               <p className="pub-tz">{zoneLine}</p>
             </div>
             {projection.sessions.length === 0 ? (
-              <Empty level={2} title="No sessions published yet">
+              <Empty level={2} title="No sessions published yet" icon={<IconSessions />}>
                 Accepted sessions appear here once the organizers publish the program.
               </Empty>
             ) : (
               <>
                 <div className="pub-toolbar">
                   <div className="pub-field">
-                    <label htmlFor="pub-session-search">Search sessions</label>
-                    <input
-                      id="pub-session-search"
-                      type="search"
-                      value={sessionQuery}
-                      placeholder="Session or speaker"
-                      onChange={(changeEvent) => setSessionQuery(changeEvent.target.value)}
+                    <Field label="Search sessions" id="pub-session-search">
+                      {(control) => (
+                        <input
+                          {...control}
+                          className="control"
+                          type="search"
+                          value={sessionQuery}
+                          placeholder="Session or speaker"
+                          onChange={(changeEvent) => setSessionQuery(changeEvent.target.value)}
+                        />
+                      )}
+                    </Field>
+                  </div>
+                  <div className="pub-field">
+                    <Select
+                      id="pub-track-filter"
+                      label="Track"
+                      value={trackFilter}
+                      onChange={setTrackFilter}
+                      options={[
+                        { value: "all", label: "All tracks" },
+                        ...model.tracks.map((track) => ({ value: track, label: track })),
+                      ]}
                     />
                   </div>
                   <div className="pub-field">
-                    <label htmlFor="pub-track-filter">Track</label>
-                    <select
-                      id="pub-track-filter"
-                      value={trackFilter}
-                      onChange={(changeEvent) => setTrackFilter(changeEvent.target.value)}
-                    >
-                      <option value="all">All tracks</option>
-                      {model.tracks.map((track) => (
-                        <option key={track} value={track}>
-                          {track}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="pub-field">
-                    <label htmlFor="pub-format-filter">Format</label>
-                    <select
+                    <Select
                       id="pub-format-filter"
+                      label="Format"
                       value={formatFilter}
-                      onChange={(changeEvent) => setFormatFilter(changeEvent.target.value)}
-                    >
-                      <option value="all">All formats</option>
-                      {formats.map((format) => (
-                        <option key={format} value={format}>
-                          {format}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={setFormatFilter}
+                      options={[
+                        { value: "all", label: "All formats" },
+                        ...formats.map((format) => ({ value: format, label: format })),
+                      ]}
+                    />
                   </div>
                   <div className="pub-field">
-                    <label htmlFor="pub-location-filter">Location</label>
-                    <select
+                    <Select
                       id="pub-location-filter"
+                      label="Location"
                       value={locationFilter}
-                      onChange={(changeEvent) => setLocationFilter(changeEvent.target.value)}
-                    >
-                      <option value="all">All locations</option>
-                      {locations.map((location) => (
-                        <option key={location} value={location}>
-                          {location}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={setLocationFilter}
+                      options={[
+                        { value: "all", label: "All locations" },
+                        ...locations.map((location) => ({ value: location, label: location })),
+                      ]}
+                    />
                   </div>
-                  <p className="pub-count" role="status">
-                    Showing {visibleSessions.length} of{" "}
-                    {countLabel(projection.sessions.length, "session")}
-                  </p>
+                  <div className="pub-toolbar-end">
+                    <p className="pub-count" role="status">
+                      Showing {visibleSessions.length} of{" "}
+                      {countLabel(projection.sessions.length, "session")}
+                    </p>
+                    {/*
+                      Offered only while there is something to clear. The empty state below used
+                      to tell a visitor to "reset the track, format and location filters" using a
+                      control that did not exist anywhere on the page.
+                    */}
+                    {sessionsFiltered ? (
+                      <button type="button" className="pub-button is-sm" onClick={clearFilters}>
+                        Clear filters
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
                 {visibleSessions.length === 0 ? (
-                  <Empty level={2} title="No sessions match that filter">
-                    Try a different search term or reset the track, format, and location filters.
+                  <Empty level={2} title="No sessions match that filter" icon={<IconSearch />}>
+                    Nothing in the programme matches every filter at once. Clear them and start from
+                    the whole schedule.
                   </Empty>
                 ) : (
                   // The card titles are h3s, so the flat grid needs an h2 above them or
                   // the page outline jumps a level. It says nothing the toolbar has not
                   // already shown, so it is for screen readers only.
                   <section aria-labelledby="pub-session-list">
-                    <h2 className="pub-sr" id="pub-session-list">
+                    <h2 className="visually-hidden" id="pub-session-list">
                       Session list
                     </h2>
                     <div className="pub-grid">
@@ -957,21 +1112,26 @@ export function PublicEventApp() {
               <a {...linkProps(`${base}/sessions`)}>← All sessions</a>
             </p>
             <div className="pub-head">
-              <p className="pub-tags">
-                <Pill tone="info">{session.track}</Pill>
-                <Pill>{session.format}</Pill>
-              </p>
               <h1>{session.title}</h1>
-              {session.startsAt && (
-                <p className="pub-tz">
-                  <time dateTime={session.startsAt}>
-                    {fullTime(session.startsAt, model.timezone)}
-                  </time>
-                  {model.zone ? ` ${model.zone}` : ""}
-                  {duration(session) ? ` · ${duration(session)}` : ""}
-                  {session.room ? ` · ${session.room}` : ""}
-                </p>
-              )}
+              {/* When, how long, where, which track, which format: one metadata line, in the
+                  order somebody planning a day reads them. Track and format were coloured
+                  chips above the title, which gave two labels the weight of a status. */}
+              <p className="pub-meta">
+                {session.startsAt ? (
+                  <span className="figure">
+                    <time dateTime={session.startsAt}>
+                      {fullTime(session.startsAt, model.timezone)}
+                    </time>
+                    {model.zone ? ` ${model.zone}` : ""}
+                  </span>
+                ) : (
+                  <span>Time to be announced</span>
+                )}
+                {duration(session) ? <span className="figure">{duration(session)}</span> : null}
+                {session.room ? <span>{session.room}</span> : null}
+                {session.track ? <span>{session.track}</span> : null}
+                {session.format ? <span>{session.format}</span> : null}
+              </p>
             </div>
             <p className="lede">{session.abstract}</p>
             {model.speakersOf(session).length > 0 && (
@@ -997,7 +1157,6 @@ export function PublicEventApp() {
         {section === "speakers" && !speaker && (
           <>
             <div className="pub-head">
-              <p className="kicker">People</p>
               <h1>Speakers</h1>
               <p className="pub-tz">
                 {countLabel(projection.speakers.length, "speaker")} presenting{" "}
@@ -1005,36 +1164,47 @@ export function PublicEventApp() {
               </p>
             </div>
             {projection.speakers.length === 0 ? (
-              <Empty level={2} title="No speakers published yet">
+              <Empty level={2} title="No speakers published yet" icon={<IconSpeakers />}>
                 Speaker profiles appear here once the organizers publish the program.
               </Empty>
             ) : (
               <>
                 <div className="pub-toolbar">
                   <div className="pub-field">
-                    <label htmlFor="pub-speaker-search">Search speakers</label>
-                    <input
-                      id="pub-speaker-search"
-                      type="search"
-                      value={speakerQuery}
-                      placeholder="Name or expertise"
-                      onChange={(changeEvent) => setSpeakerQuery(changeEvent.target.value)}
-                    />
+                    <Field label="Search speakers" id="pub-speaker-search">
+                      {(control) => (
+                        <input
+                          {...control}
+                          className="control"
+                          type="search"
+                          value={speakerQuery}
+                          placeholder="Name or expertise"
+                          onChange={(changeEvent) => setSpeakerQuery(changeEvent.target.value)}
+                        />
+                      )}
+                    </Field>
                   </div>
-                  <p className="pub-count" role="status">
-                    Showing {visibleSpeakers.length} of{" "}
-                    {countLabel(projection.speakers.length, "speaker")}
-                  </p>
+                  <div className="pub-toolbar-end">
+                    <p className="pub-count" role="status">
+                      Showing {visibleSpeakers.length} of{" "}
+                      {countLabel(projection.speakers.length, "speaker")}
+                    </p>
+                    {speakerQuery.trim() ? (
+                      <button type="button" className="pub-button is-sm" onClick={clearFilters}>
+                        Clear search
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
                 {visibleSpeakers.length === 0 ? (
-                  <Empty level={2} title="No speakers match that search">
-                    Clear the search box to see the whole gallery.
+                  <Empty level={2} title="No speakers match that search" icon={<IconSearch />}>
+                    Clear the search to see the whole directory.
                   </Empty>
                 ) : (
                   // Same reason as the session grid: an h2 keeps the outline unbroken
                   // above the h3 on every speaker card.
                   <section aria-labelledby="pub-speaker-list">
-                    <h2 className="pub-sr" id="pub-speaker-list">
+                    <h2 className="visually-hidden" id="pub-speaker-list">
                       Speaker list
                     </h2>
                     <div className="pub-gallery">
@@ -1062,7 +1232,6 @@ export function PublicEventApp() {
             <div className="pub-profile">
               <Avatar speaker={speaker} large />
               <div className="pub-head">
-                <p className="kicker">Speaker</p>
                 <h1>{speaker.name}</h1>
                 <SpeakerHeadline speaker={speaker} />
               </div>
@@ -1100,19 +1269,18 @@ export function PublicEventApp() {
         {section === "gallery" && (
           <>
             <div className="pub-head">
-              <p className="kicker">People</p>
               <h1>Speaker gallery</h1>
               <p className="pub-tz">
                 {countLabel(projection.speakers.length, "speaker")}, by surname.
               </p>
             </div>
             {projection.speakers.length === 0 ? (
-              <Empty level={2} title="No speakers published yet">
+              <Empty level={2} title="No speakers published yet" icon={<IconSpeakers />}>
                 Speaker profiles appear here once the organizers publish the program.
               </Empty>
             ) : (
               <section aria-labelledby="pub-gallery-list">
-                <h2 className="pub-sr" id="pub-gallery-list">
+                <h2 className="visually-hidden" id="pub-gallery-list">
                   Speaker gallery
                 </h2>
                 <div className="pub-gallery">
@@ -1133,7 +1301,6 @@ export function PublicEventApp() {
         {section === "itinerary" && (
           <>
             <div className="pub-head">
-              <p className="kicker">Yours</p>
               <h1>My itinerary</h1>
               <p className="pub-tz">{zoneLine}</p>
             </div>
@@ -1153,19 +1320,21 @@ export function PublicEventApp() {
               </p>
             )}
             {itinerarySessions.length === 0 ? (
-              <Empty level={2} title="Nothing starred yet">
+              <Empty level={2} title="Nothing starred yet" icon={<IconStar />}>
                 Star a session from the <a {...linkProps(`${base}/sessions`)}>sessions list</a> or
                 the <a {...linkProps(`${base}/schedule`)}>schedule</a> and it appears here.
               </Empty>
             ) : (
               <>
                 <div className="pub-toolbar">
-                  <p className="pub-count" role="status">
-                    {countLabel(itinerarySessions.length, "session")} in your itinerary
-                  </p>
-                  <button type="button" className="pub-button" onClick={downloadCalendar}>
-                    Download calendar (.ics)
-                  </button>
+                  <div className="pub-toolbar-end">
+                    <p className="pub-count" role="status">
+                      {countLabel(itinerarySessions.length, "session")} in your itinerary
+                    </p>
+                    <button type="button" className="pub-button" onClick={downloadCalendar}>
+                      Download calendar (.ics)
+                    </button>
+                  </div>
                 </div>
                 {itinerary.shareUrl && (
                   <p className="pub-note">
@@ -1174,11 +1343,17 @@ export function PublicEventApp() {
                   </p>
                 )}
                 <section aria-labelledby="pub-itinerary-list">
-                  <h2 className="pub-sr" id="pub-itinerary-list">
+                  <h2 className="visually-hidden" id="pub-itinerary-list">
                     Starred sessions
                   </h2>
                   {itineraryDays.map((day) => (
-                    <ScheduleGroup key={day.key} id={`itinerary-${day.key}`} title={day.label}>
+                    <ScheduleGroup
+                      key={day.key}
+                      id={`itinerary-${day.key}`}
+                      measure={day.short}
+                      title={day.weekday}
+                      label={day.label}
+                    >
                       <div className="pub-grid">
                         {day.slots.flatMap((slot) =>
                           slot.items.map((item) => (
@@ -1253,6 +1428,16 @@ export function PublicEventApp() {
             title={cfpTitle}
             description={cfpDescription}
             timezone={model.timezone}
+            // The call's own page states which event it belongs to, when that event runs and
+            // where: an applicant usually arrives here from a link somebody sent them, not from
+            // the programme, and the column beside the form said nothing about the conference.
+            event={{
+              name: projection.event.name,
+              dates: model.dates,
+              venue: projection.event.venue,
+              zone: model.zone,
+              href: base,
+            }}
           />
         ) : null}
 
@@ -1264,9 +1449,7 @@ export function PublicEventApp() {
               rel="noreferrer"
             >
               Open the full event site
-              <span className="pub-external" aria-hidden="true">
-                ↗
-              </span>
+              <ExternalMark />
             </a>
           </p>
         )}

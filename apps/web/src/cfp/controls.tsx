@@ -90,9 +90,11 @@ function FieldControl({
 }
 
 /**
- * The right-hand pane. It is deliberately built from the tokens the public event
- * pages use — `public-state` swaps the neutral ramp to warm paper — so the organizer
- * is looking at the real thing rather than a console-flavoured mock.
+ * The right-hand pane. It wears `public-state`, the class the live public surfaces wear, so
+ * it picks up their type and their `--accent` derivation and the organizer is looking at the
+ * real thing rather than a console-flavoured mock. There is no second palette behind that
+ * class any more: one ramp runs through the product, and a public page reads as public
+ * through measure, rhythm and the event's own accent colour.
  */
 function PublicFormPreview({
   idPrefix,

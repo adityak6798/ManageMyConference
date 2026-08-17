@@ -1,11 +1,20 @@
 /*
  * Agenda board.
  *
- * The board is a real grid of rooms and time slots, so its styles are about density
- * and drop affordances: cards stay small enough that a whole conference day fits on
- * screen, and every drop target announces itself with a dashed outline rather than a
- * colour change alone. Everything is scoped under `.agenda` so these rules never leak
- * into the shared workspace styles.
+ * The board is the page, so almost everything here is about giving the grid the height and
+ * the width it needs and taking chrome away from around it: one action row, one tab row, one
+ * 40px bar, then the grid. Seven stacked strips used to sit between the tabs and the first
+ * cell — a wrapping filter toolbar, a day switcher, a standing publication rule, a permanent
+ * green "no conflicts" notice, a card titlebar naming the view already selected in the tabs,
+ * and the drag instructions.
+ *
+ * The grid freezes both axes. The time column is the product's cue gutter — `.gutter` in
+ * shell.css, 56px of monospace measure behind a continuous hairline spine — and it is sticky
+ * on the horizontal, as the room headings are on the vertical, because the two questions this
+ * board answers are "when" and "where" and neither may scroll away while the other is read.
+ *
+ * Everything is scoped under `.agenda` so these rules never leak into the shared workspace
+ * styles.
  */
 
 .agenda {
@@ -22,117 +31,137 @@
   color: var(--ink);
 }
 .agenda .tab[aria-selected="true"]:hover {
-  color: var(--green-800);
+  color: var(--green-strong);
 }
 
-.agenda-toolbar {
-  gap: var(--s-3);
-}
-.agenda-toolbar .spacer {
-  flex: 1;
-}
-.agenda-toolbar .search {
-  flex: 1 1 220px;
-  max-width: 320px;
-}
+/* ------------------------ action row --------------------------- */
 
-/* Toolbar controls keep their label on the same line so the strip stays one row deep. */
-.agenda-inline-field {
+/* The two things an organizer presses, and the standing answer to "what is live?". */
+.agenda-actions {
   display: flex;
   align-items: center;
-  gap: var(--s-2);
-  color: var(--ink-2);
-  font-size: var(--text-sm);
-  font-weight: 620;
-  white-space: nowrap;
-}
-.agenda-inline-field select {
-  width: auto;
-  min-width: 130px;
-}
-
-.agenda-day-switcher {
-  display: flex;
-  align-items: center;
+  justify-content: flex-end;
   gap: var(--s-2);
   flex-wrap: wrap;
   min-width: 0;
-  margin: 0;
-  padding: 0;
-  border: 0;
 }
-.agenda-day-switcher-label {
-  float: left;
-  margin-right: var(--s-1);
-  padding: 0;
-  color: var(--muted);
-  font-size: var(--text-xs);
-  font-weight: 620;
-}
-.agenda-day-button {
+
+/*
+ * The publication state, in prose, with its version and age as measures beside it.
+ *
+ * The whole chip used to set in mono, which typeset the sentence "Draft — 2 changes since v1" as
+ * if the words were data. Only the version and the age are figures; they keep the mono face and
+ * the state keeps the UI one.
+ */
+.agenda-publication {
+  margin-right: auto;
   display: inline-flex;
   align-items: center;
   gap: var(--s-2);
-}
-.agenda-day-button[aria-pressed="true"] {
-  border-color: var(--green-700);
-  background: var(--green-50);
-  color: var(--green-800);
-}
-.agenda-day-button .count {
-  min-width: 20px;
-  padding: 1px 6px;
+  min-height: var(--control-h-sm);
+  padding: 0 var(--s-3);
   border-radius: var(--r-full);
   background: var(--neutral-bg);
   color: var(--neutral-fg);
-  font-size: var(--text-2xs);
-  line-height: 1.4;
-  text-align: center;
+  font-size: var(--text-xs);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+}
+.agenda-publication .figure {
+  color: inherit;
+}
+.agenda-publication[data-state="published"] {
+  background: var(--ok-bg);
+  color: var(--ok-fg);
+}
+.agenda-publication[data-state="draft"] {
+  background: var(--warn-bg);
+  color: var(--warn-fg);
 }
 
-.agenda-publication-warning {
+/* "Generate draft" and "Publish schedule" used to be corrected here, because the shell dimmed
+   every disabled button with a blanket `opacity: 0.55` and a disabled primary came out as a
+   washed-out green slab. shell.css now gives every button that draws a shell the control tier's
+   answer — inset ground, hairline border, only the label steps back — so the scoped copy is gone.
+   It had also drifted: it dimmed the label to `--slate` where the shell uses `--ink-4`, and it
+   reached the ghosts in these two containers, which are meant to keep the page behind them. */
+
+/* -------------------------- board bar -------------------------- */
+
+/*
+ * One bar, 40px, sitting directly on the grid.
+ *
+ * Sticky under the topbar rather than at the very top: the topbar is itself sticky at
+ * `top: 0` with `z-index: 20`, so this sits at its height and below it in the stack, and
+ * scrolls under it rather than over it.
+ */
+.agenda-bar {
+  position: sticky;
+  top: var(--topbar-h);
+  z-index: 8;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--s-4);
-  width: 100%;
+  gap: var(--s-3);
+  flex-wrap: wrap;
+  min-height: 40px;
+  padding: var(--s-1) 0;
+  background: var(--paper);
+  border-bottom: 1px solid var(--rule);
 }
-.agenda-publication-warning p,
-.agenda-publication-rule {
-  margin: var(--s-1) 0 0;
+.agenda-bar .spacer {
+  flex: 1 1 auto;
 }
-.agenda-publication-warning .btn {
-  flex: 0 0 auto;
+.agenda-bar .search {
+  flex: 1 1 180px;
+  max-width: 280px;
 }
-.agenda-publication-rule {
-  color: var(--muted);
-  font-size: var(--text-xs);
-}
-@media (max-width: 720px) {
-  .agenda-publication-warning {
-    align-items: flex-start;
-    flex-direction: column;
-  }
+.agenda-bar.is-loading {
+  border-bottom-color: transparent;
 }
 
-.agenda-layout {
-  display: grid;
-  gap: var(--s-4);
-  grid-template-columns: minmax(0, 1fr) minmax(0, 300px);
-  align-items: start;
+/* Which day the board shows: one radiogroup, not a select *and* a button row 60px apart
+   setting the same state under two different names. */
+.agenda-days {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-wrap: wrap;
+  min-width: 0;
 }
-.agenda-layout[data-rail="false"] {
-  grid-template-columns: minmax(0, 1fr);
-}
-@media (max-width: 1080px) {
-  .agenda-layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-.agenda-count {
-  color: var(--muted);
+.agenda-day {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-height: var(--control-h-sm);
+  padding: 0 var(--s-3);
+  border-radius: var(--r-md);
+  color: var(--ink-2);
   font-size: var(--text-sm);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+}
+.agenda-day:hover {
+  background: var(--surface-2);
+}
+.agenda-day[aria-checked="true"] {
+  background: var(--green-soft);
+  color: var(--green-strong);
+  font-weight: var(--fw-semibold);
+}
+.agenda-day .figure {
+  color: var(--slate);
+}
+.agenda-day[aria-checked="true"] .figure {
+  color: var(--green-strong);
+}
+
+.agenda-matches {
+  color: var(--slate);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: var(--fw-medium);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tracking-figure);
   white-space: nowrap;
 }
 
@@ -142,22 +171,40 @@
   display: inline-flex;
   align-items: center;
   gap: var(--s-1);
-  color: var(--ink-2);
+  color: var(--slate);
   font-size: var(--text-xs);
-  font-weight: 620;
+  font-weight: var(--fw-medium);
   white-space: nowrap;
 }
-.agenda-timezone svg {
-  color: var(--ink-3);
-}
 
+/* --------------------------- layout ---------------------------- */
+
+/*
+ * The board is the page, so the board takes the height of the row it is in.
+ *
+ * `align-items: start` sized the grid to its own two rows and left the rail — an empty state with
+ * 48px of padding — standing taller than the schedule beside it. On a fresh event the object the
+ * organizer came for was the shortest thing on the screen. The panel is a column now and the board
+ * grows into whatever the rail claims, which is also where the next placement is going to land.
+ */
+.agenda-layout {
+  display: grid;
+  gap: var(--s-4);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 300px);
+  align-items: stretch;
+}
+.agenda-layout[data-rail="false"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+@media (max-width: 1080px) {
+  .agenda-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 .agenda-panel {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
-}
-
-/* Inline editors in the list view need room for a room or track name. */
-.agenda table.data td select {
-  min-width: 132px;
 }
 .agenda-panel:focus {
   outline: none;
@@ -165,37 +212,148 @@
 
 /* ---------------------------- board ---------------------------- */
 
+/*
+ * The board's own scroll container, with an explicit height.
+ *
+ * `.table-wrap` scrolls horizontally and has no height of its own, so `position: sticky;
+ * top: 0` on the column headings had nothing to stick inside: the room names simply scrolled
+ * off the top of the page with everything else. A bounded box is what makes both axes freeze.
+ */
+.agenda-board-wrap {
+  position: relative;
+  /* Two timeslots are a legitimate schedule and still have to look like the subject of the page:
+     the box holds a floor of its own and takes the rest of the row from `.agenda-panel`. */
+  flex: 1 1 auto;
+  min-height: 320px;
+  max-height: calc(100vh - 300px);
+  overflow: auto;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+}
+/*
+ * The grid fills the box, so the empty part of the board is board.
+ *
+ * A table's height is a minimum, so a full schedule still grows past it and scrolls. With two
+ * slots it means the two rows share the height instead of huddling at the top of a white area
+ * that looks like padding and is not a drop target — every empty cell on screen is one you can
+ * drop a session into, and now it looks like it.
+ */
 .agenda table.board {
   min-width: 100%;
+  height: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
 }
+.agenda table.board th {
+  border-bottom: 1px solid var(--rule);
+}
+/* The row axis. `.gutter` supplies the 56px track and the spine; this adds the freeze. */
 .agenda table.board th[scope="row"] {
-  position: static;
-  width: 1%;
-  white-space: nowrap;
+  position: sticky;
+  top: auto;
+  left: 0;
+  z-index: 2;
+  width: var(--cue-w);
+  padding-top: var(--s-2);
+  padding-bottom: var(--s-2);
+  background: var(--surface);
   vertical-align: top;
-  font-size: var(--text-xs);
-  text-transform: none;
-  letter-spacing: 0;
-  color: var(--ink-2);
+  white-space: nowrap;
+}
+/* The corner sits above both frozen axes. */
+.agenda table.board thead th:first-child {
+  left: 0;
+  z-index: 3;
+}
+.agenda table.board .board-time {
+  display: table-cell;
+  text-align: right;
+}
+.agenda table.board .board-room {
+  width: 140px;
+  border-right: 1px solid var(--rule);
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
+  text-align: left;
+}
+/* The duration is the second half of the measure: how long the row runs, under when it starts. */
+.agenda .board-duration {
+  display: block;
+  margin-top: 2px;
+  color: var(--ink-4);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tracking-figure);
 }
 .agenda table.board td {
   padding: var(--s-2);
   min-width: 170px;
+  border-bottom: 1px solid var(--rule);
   vertical-align: top;
 }
 .agenda table.board tbody tr:hover {
   background: none;
 }
+
+/*
+ * A cell is the drop target, so a cell is what states it.
+ *
+ * `data-over` used to sit on an auto-height `div` inside the cell, which made the highlight on
+ * an empty cell an 18px band in the top-left corner of a 170×80px area — the affordance
+ * misreported where the drop would land.
+ */
 .agenda .board-cell {
-  display: grid;
-  gap: var(--s-1);
-  align-content: start;
+  position: relative;
+  min-height: 44px;
+  min-width: 170px;
 }
 .agenda .board-cell[data-over="true"] {
-  outline: 2px dashed var(--green-600);
-  outline-offset: 2px;
+  background: var(--green-soft);
+  box-shadow: inset 0 0 0 2px var(--green);
+}
+.agenda .board-cell:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+/*
+ * What an empty cell offers, revealed rather than drawn.
+ *
+ * A full board used to print up to 96 em dashes, one per empty cell, which is 96 marks saying
+ * "nothing here" on a surface whose emptiness is already the message. The affordance is the
+ * whole cell, and it appears when the pointer or the keyboard is on it — or whenever something
+ * is being carried, because then every cell is a live target.
+ */
+.agenda .board-drop {
+  position: absolute;
+  inset: var(--s-1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px dashed var(--rule-strong);
   border-radius: var(--r-md);
-  background: var(--green-50);
+  color: var(--ink-4);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 100ms ease;
+}
+.agenda .board-cell:hover > .board-drop,
+.agenda .board-cell:focus-visible > .board-drop,
+.agenda .board-cell[data-holding="true"] > .board-drop {
+  opacity: 1;
+}
+.agenda .board-cell[data-holding="true"]:hover > .board-drop,
+.agenda .board-cell[data-over="true"] > .board-drop {
+  border-color: var(--green);
+  border-style: solid;
+  color: var(--green);
+}
+/* The week board summarises; nothing is dropped on it. */
+.agenda .board-cell[data-static="true"] {
+  min-height: 0;
 }
 
 /* --------------------------- cards ----------------------------- */
@@ -206,36 +364,67 @@
   gap: 2px;
   width: 100%;
   padding: var(--s-2) var(--s-3);
-  border: 1px solid var(--line);
-  border-left: 3px solid var(--line-strong);
+  border-left: 3px solid var(--rule-strong);
   border-radius: var(--r-md);
-  background: var(--surface);
   color: var(--ink);
   font: inherit;
   text-align: left;
-  box-shadow: var(--shadow-sm);
 }
+
+/*
+ * A card you can move looks like a control; a card you cannot does not.
+ *
+ * Both used to be the same white box with the same hairline, so the read-only Week and Track
+ * views offered eight cards a drag that would never start.
+ */
 .agenda .sched-card {
+  border: 1px solid var(--rule);
+  border-left-width: 3px;
+  background: var(--surface);
   cursor: grab;
 }
 .agenda .sched-card:hover {
   background: var(--surface-2);
-  border-color: var(--line-strong);
+  border-color: var(--rule-strong);
 }
 .agenda .sched-card[data-carrying="true"] {
-  border-color: var(--green-600);
-  background: var(--green-50);
+  border-color: var(--green);
+  background: var(--green-soft);
   cursor: grabbing;
 }
+.agenda .sched-static {
+  border: 0;
+  border-left: 3px solid var(--rule-strong);
+  background: var(--surface-2);
+  cursor: default;
+}
+
+/*
+ * Conflict is a ring and a tint, not a fill.
+ *
+ * It used to set `border-color`, which recoloured three edges of the card while the fourth —
+ * the track stripe, set inline — stayed purple: a pink box fighting a coloured edge. An inset
+ * ring is drawn inside the borders, so the track stripe survives intact and says which track
+ * the clashing session belongs to, which is exactly what the reader needs to resolve it.
+ */
 .agenda .sched-card[data-conflict="true"],
 .agenda .sched-static[data-conflict="true"] {
-  border-color: var(--danger-fg);
   background: var(--danger-bg);
+  box-shadow: inset 0 0 0 1px var(--danger-fg);
 }
+
+/* What the search box is pointing at, on the board rather than only in the rail. */
+.agenda [data-match="true"] {
+  box-shadow: inset 0 0 0 2px var(--green);
+}
+.agenda [data-dim="true"] {
+  opacity: 0.35;
+}
+
 .agenda .sched-title {
   color: var(--ink);
   font-size: var(--text-sm);
-  font-weight: 620;
+  font-weight: var(--fw-semibold);
   line-height: var(--leading-snug);
 }
 .agenda .sched-meta {
@@ -243,8 +432,11 @@
   align-items: center;
   gap: var(--s-2);
   flex-wrap: wrap;
-  color: var(--muted);
+  color: var(--slate);
   font-size: var(--text-xs);
+}
+.agenda .sched-grip {
+  color: var(--ink-4);
 }
 
 /*
@@ -269,41 +461,19 @@
   border: 1px solid rgba(15, 26, 21, 0.18);
 }
 
-/* ------------------------- drop targets ------------------------ */
-
-.agenda .dropzone {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--s-1);
-  width: 100%;
-  min-height: 36px;
-  padding: var(--s-1) var(--s-2);
-  border: 1.5px dashed var(--line-strong);
-  border-radius: var(--r-md);
-  background: var(--surface-2);
-  color: var(--ink-3);
-  font-size: var(--text-2xs);
-  font-weight: 650;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
+/* Stacked cards in one cell separate themselves; a `<td>` cannot be a flex container. */
+.agenda .sched-card + .sched-card,
+.agenda .sched-static + .sched-static {
+  margin-top: var(--s-1);
 }
-.agenda .dropzone:hover,
-.agenda .dropzone:focus-visible {
-  border-color: var(--green-600);
-  border-style: solid;
-  background: var(--green-50);
-  color: var(--green-800);
+/* The rail's cards are one line and a grip, so the grip sits beside the title. */
+.agenda .agenda-rail-item .sched-card {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  column-gap: var(--s-2);
 }
-.agenda .board-cell[data-over="true"] .dropzone {
-  border-color: var(--green-600);
-  border-style: solid;
-  background: var(--green-100);
-  color: var(--green-800);
-}
-.agenda .cell-empty {
-  color: var(--ink-4);
-  font-size: var(--text-xs);
+.agenda .agenda-rail-item .sched-unplaced {
+  grid-column: 2;
 }
 
 /* --------------------------- carry ----------------------------- */
@@ -313,12 +483,12 @@
   align-items: center;
   gap: var(--s-3);
   flex-wrap: wrap;
-  padding: var(--s-3) var(--s-4);
-  border: 1px solid var(--green-600);
+  padding: var(--s-2) var(--s-4);
+  border: 1px solid var(--green);
   border-left-width: 3px;
   border-radius: var(--r-md);
-  background: var(--green-50);
-  color: var(--green-800);
+  background: var(--green-soft);
+  color: var(--green-strong);
   font-size: var(--text-sm);
 }
 .agenda-carry .carry-actions {
@@ -327,35 +497,61 @@
   margin-left: auto;
 }
 
-/* ------------------------- conflicts --------------------------- */
+/* --------------------------- list ------------------------------ */
 
-.agenda-conflict-summary {
-  display: grid;
-  gap: var(--s-2);
-  align-items: start;
-}
-.agenda-conflict-summary ul {
-  display: grid;
+/* Every conflict kind a placement has, not only the first one found. */
+.agenda-status-stack {
+  display: flex;
   gap: var(--s-1);
-  margin: 0;
-  padding-left: var(--s-5);
+  flex-wrap: wrap;
 }
-.agenda-conflict-kind {
-  font-weight: 700;
-}
-
 /* ---------------------------- rail ----------------------------- */
 
 .agenda-rail[data-over="true"] {
-  outline: 2px dashed var(--green-600);
+  outline: 2px dashed var(--green);
   outline-offset: 3px;
+}
+/*
+ * The label sits above its select, not beside it.
+ *
+ * In a 300px rail a flex row gave "New placements go to" whatever the select left it — about
+ * 130px — and broke the four words across three lines beside a control it no longer looked
+ * attached to. A field is a caption over a control; that is the shape everywhere else in the
+ * console and it is the shape that fits here.
+ */
+.agenda-rail-track {
+  display: grid;
+  gap: 5px;
+  padding: var(--s-3) var(--s-3) 0;
+  color: var(--slate);
+  font-size: var(--text-xs);
+  font-weight: var(--fw-medium);
+}
+.agenda-rail-track select {
+  min-width: 0;
+}
+/* Inline editors in the list view need room for a room or track name. */
+.agenda table.data td select {
+  min-width: 132px;
 }
 .agenda-rail-list {
   display: grid;
-  gap: var(--s-2);
+  gap: var(--s-1);
   padding: var(--s-3);
   max-height: 520px;
   overflow-y: auto;
+}
+.agenda-rail-skeleton {
+  display: grid;
+  gap: var(--s-2);
+  padding: var(--s-4);
+}
+
+/* An empty state is sized for a page, and this one is 300px wide beside the board. At the shared
+   48px it made "Everything is scheduled" — the least eventful thing this rail can say — twice the
+   height of the schedule it was reporting on. */
+.agenda-rail .empty {
+  padding: var(--s-6) var(--s-4);
 }
 
 /*
@@ -396,8 +592,8 @@
   margin: 0;
 }
 .agenda-rail-chosen {
-  color: var(--muted);
-  font-weight: 620;
+  color: var(--slate);
+  font-weight: var(--fw-medium);
 }
 .agenda-rail-hidden {
   color: var(--warn-fg);
@@ -411,7 +607,7 @@
   border-radius: var(--r-md);
 }
 .agenda-rail-item[data-selected="true"] {
-  background: var(--green-50);
+  background: var(--green-soft);
 }
 .agenda-rail-check {
   margin-top: var(--s-3);
@@ -419,23 +615,23 @@
 
 /* --------------------------- tracks ---------------------------- */
 
-.agenda-track-group + .agenda-track-group {
-  margin-top: var(--s-4);
+.agenda-tracks {
+  display: grid;
+  gap: var(--s-6);
 }
 .agenda-track-head {
   display: flex;
   align-items: center;
   gap: var(--s-2);
   padding-bottom: var(--s-2);
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--rule);
 }
 .agenda-track-head h3 {
   font-size: var(--text-sm);
 }
-.agenda-track-head .count {
+.agenda-track-head .figure {
   margin-left: auto;
-  color: var(--muted);
-  font-size: var(--text-xs);
+  color: var(--slate);
 }
 .agenda-track-swatch {
   width: 12px;
@@ -451,43 +647,142 @@
   padding: 0;
   list-style: none;
 }
-
-/* ------------------------- resources --------------------------- */
-
-.agenda-resources {
-  padding: var(--s-4) var(--s-5);
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--r-lg);
-  box-shadow: var(--shadow-sm);
-}
-.agenda-resources > summary {
-  cursor: pointer;
+.agenda-track-empty {
+  margin: var(--s-3) 0 0;
+  color: var(--slate);
   font-size: var(--text-sm);
-  font-weight: 650;
+}
+
+/* -------------------- generated arrangements ------------------- */
+
+/*
+ * A disclosure, not a second page.
+ *
+ * Assisted arrangements used to stand open in a 450px card directly under the board — empty on
+ * every event that had not generated one, which is every new event — so the board ended a third of
+ * the way down a page of nothing. Closed it costs one row and still answers the only question it
+ * has when shut: how many arrangements exist.
+ */
+.agenda-drafts {
+  border: 1px solid var(--rule);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+}
+.agenda-drafts-summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, auto) auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--s-2) var(--s-3);
+  padding: var(--s-3) var(--s-4);
+  border-radius: var(--r-lg);
+  cursor: pointer;
+}
+/* A `display: grid` summary is no longer a list item, so the browser draws no marker of its own.
+   The chevron is the affordance and it has to be in the markup for the layout to place it. */
+.agenda-drafts-summary::-webkit-details-marker {
+  display: none;
+}
+.agenda-drafts-marker {
+  color: var(--slate);
+  transition: transform 120ms ease;
+}
+.agenda-drafts[open] > .agenda-drafts-summary .agenda-drafts-marker {
+  transform: rotate(90deg);
+}
+.agenda-drafts[open] > .agenda-drafts-summary {
+  border-bottom: 1px solid var(--rule);
+  border-end-start-radius: 0;
+  border-end-end-radius: 0;
+}
+.agenda-drafts-summary:hover {
+  background: var(--surface-2);
+}
+.agenda-drafts-summary:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+.agenda-drafts-heading {
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
+}
+/* How many arrangements there are, as the measure it is. */
+.agenda-drafts-count {
+  min-width: 22px;
+  padding: 1px 7px;
+  border-radius: var(--r-full);
+  background: var(--neutral-bg);
+  color: var(--neutral-fg);
+  text-align: center;
+}
+.agenda-drafts-hint {
+  color: var(--slate);
+  font-size: var(--text-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agenda-drafts-body {
+  display: grid;
+  gap: var(--s-4);
+  padding: var(--s-4);
+}
+.agenda-drafts-empty {
+  max-width: 60ch;
+  color: var(--slate);
+  font-size: var(--text-sm);
+  text-wrap: pretty;
+}
+/* The field takes the width it needs and the action takes the width of its own name; the button
+   used to be a grid child of a `.stack` and stretched the full width of the page. */
+.agenda-drafts-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: var(--s-3);
+  max-width: 520px;
+}
+@media (max-width: 640px) {
+  .agenda-drafts-summary {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+  .agenda-drafts-hint {
+    grid-column: 1 / -1;
+    white-space: normal;
+  }
+  .agenda-drafts-form {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: start;
+  }
+}
+
+/* ------------------- resources drawer -------------------------- */
+
+/*
+ * Rooms, tracks and times, in a drawer opened from the board bar.
+ *
+ * They used to be a `<details>` at the very bottom of the page, under the board, the rail and
+ * the generated arrangements — so the empty board's own advice was "scroll past this empty grid
+ * and open the panel below it". The empty board now opens this directly.
+ */
+.agenda-resources {
+  display: grid;
+  gap: var(--s-6);
 }
 .agenda-resources h3 {
-  margin-top: var(--s-4);
+  margin: 0 0 var(--s-2);
   font-size: var(--text-sm);
 }
 .agenda-resources .resource-row {
-  margin: var(--s-2) 0;
-  padding: var(--s-2) var(--s-3);
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  background: var(--surface-2);
+  margin: 0 0 var(--s-2);
+  padding: 0;
+  border: 0;
+  background: none;
   font-size: var(--text-sm);
 }
-.agenda-resources .resource-row .name {
-  display: flex;
-  align-items: center;
-  gap: var(--s-2);
-  min-width: 0;
-}
-.agenda-resources > .hint {
-  margin: var(--s-1) 0 0;
-  color: var(--muted);
-  font-size: var(--text-xs);
+.agenda-resources .resource-new {
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin-top: var(--s-3);
 }
 
 /* Whatever a row has to say about itself — why a removal will be refused, or why one
@@ -500,43 +795,118 @@
   font-size: var(--text-xs);
 }
 .agenda-resources .resource-row .resource-note {
-  color: var(--muted);
+  color: var(--slate);
 }
 .agenda-resources .resource-row .error-text {
   color: var(--danger-fg);
-  font-weight: 600;
+  font-weight: var(--fw-medium);
 }
 
-/* A timeslot row is a form: two times the organizer types, then its two actions. The
-   buttons sit on the inputs' baseline rather than in the middle of the labelled field,
-   which is why the row aligns to the end rather than to the centre. */
+.agenda-resources .track-row {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+.agenda-resources .track-swatches {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: var(--s-1);
+}
+.agenda-resources .track-swatch {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  border-radius: var(--r-sm);
+  border: 1px solid rgba(15, 26, 21, 0.18);
+}
+.agenda-resources .track-swatch[aria-checked="true"] {
+  box-shadow:
+    0 0 0 2px var(--surface),
+    0 0 0 4px var(--ink);
+}
+
+/* A timeslot row is a day and two times, then its two actions. */
 .agenda-resources .slot-row {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto auto;
-  align-items: end;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr) auto auto;
+  align-items: center;
 }
 .agenda-resources .slot-new {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr) auto;
 }
-.agenda-resources .slot-row .field > label {
+
+/* The two bulk ways to lay out a day, above the one-at-a-time rows they save typing. */
+.agenda-resources .slot-bulk {
+  display: grid;
+  gap: var(--s-2);
+  margin-bottom: var(--s-4);
+  padding: var(--s-3);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+.agenda-resources .slot-generate {
+  grid-template-columns: minmax(0, 1.3fr) repeat(4, minmax(0, 1fr)) auto;
+  align-items: center;
+  margin: 0;
+}
+.agenda-resources .slot-copy {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  margin: 0;
+}
+.agenda-resources .slot-copy-label {
+  color: var(--slate);
   font-size: var(--text-xs);
-}
-.agenda-resources .slot-row input {
-  min-width: 0;
-}
-@media (max-width: 700px) {
-  .agenda-resources .slot-row,
-  .agenda-resources .slot-new {
-    grid-template-columns: minmax(0, 1fr);
-  }
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
 }
 
 /* ------------------------- responsive -------------------------- */
 
 @media (max-width: 780px) {
+  /*
+   * The board stays a grid.
+   *
+   * `table.data` restacks into blocks below this width so no table hides a column behind an
+   * unhinted swipe. That is right for a table of records and wrong for this one: a schedule
+   * grid restacked into a list is no longer a schedule grid. Both axes are frozen and the
+   * container scrolls, so the swipe here is hinted by a time column that stays put.
+   */
+  .agenda table.board {
+    display: table;
+  }
+  .agenda table.board thead {
+    display: table-header-group;
+  }
+  .agenda table.board tbody {
+    display: table-row-group;
+  }
+  /* Every row, not only the body's. `table.data tr { display: block }` catches the heading row
+     too, and restoring only `tbody tr` left the head as one block: the three room names were laid
+     out inside an anonymous cell in column one, which then measured 247px wide and pushed the
+     first room off the right edge. Head and body columns have to be the same columns. */
+  .agenda table.board tr {
+    display: table-row;
+    padding: 0;
+    border-bottom: 0;
+  }
+  .agenda table.board td {
+    display: table-cell;
+    width: auto;
+    padding: var(--s-2);
+    border-bottom: 1px solid var(--rule);
+  }
+  .agenda-board-wrap {
+    max-height: calc(100vh - 220px);
+  }
   .agenda-rail-list {
     max-height: none;
   }
   .agenda-carry .carry-actions {
     margin-left: 0;
+  }
+  .agenda-resources .slot-row,
+  .agenda-resources .slot-new,
+  .agenda-resources .slot-generate,
+  .agenda-resources .slot-copy,
+  .agenda-resources .track-row {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

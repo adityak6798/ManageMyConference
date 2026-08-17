@@ -16,6 +16,7 @@ import { type ReactNode, useState } from "react";
 import "../public-event.css";
 import "../styles/public-pages.css";
 
+import { IconExternal } from "../ui/icons";
 import {
   clockTime,
   dayAndTime,
@@ -25,23 +26,51 @@ import {
   type PublicSpeaker,
 } from "./model";
 
+/**
+ * State, and nothing else.
+ *
+ * The public pages used to carry their own `.pub-pill`, and used it for four different kinds of
+ * thing: whether a call is open, what a proposal's decision is, which track a session is on, and
+ * what format it takes. The last two are metadata — they answer "which one is this", not "what is
+ * happening to it" — and a coloured chip gave them the weight of an alert. They read as plain
+ * text beside the session now, and this is the shared pill, for state.
+ */
 function Pill({
   tone = "neutral",
   children,
 }: {
-  tone?: "neutral" | "ok" | "info" | "warn";
+  tone?: "neutral" | "ok" | "info" | "warn" | "danger";
   children: ReactNode;
 }) {
-  return <span className={`pub-pill ${tone}`}>{children}</span>;
+  return <span className={`pill ${tone}`}>{children}</span>;
 }
 
-const AVATAR_TONES = 5;
+/** The mark on anything that leaves the product, or leaves an embed's frame. */
+function ExternalMark() {
+  return (
+    <span className="pub-external">
+      <IconExternal size={14} />
+    </span>
+  );
+}
 
-/** Stable per-speaker tile colour so a gallery does not reshuffle between loads. */
-function toneIndex(seed: string) {
-  let hash = 7;
-  for (const character of seed) hash = (hash * 31 + (character.codePointAt(0) ?? 0)) % 9973;
-  return hash % AVATAR_TONES;
+/**
+ * The shape of the page that is coming.
+ *
+ * A public page is often somebody's first request against a cold worker, so the wait is real
+ * and "Loading…" is the least useful thing to put in it. One status region carries the whole
+ * announcement; the bars are decoration and are hidden from it.
+ */
+function PageSkeleton({ label }: { label: string }) {
+  return (
+    <div className="pub-skeleton" role="status" aria-label={label}>
+      <span className="pub-skeleton-bar is-title" aria-hidden="true" />
+      <span className="pub-skeleton-bar is-short" aria-hidden="true" />
+      <span className="pub-skeleton-bar" aria-hidden="true" />
+      <span className="pub-skeleton-bar" aria-hidden="true" />
+      <span className="pub-skeleton-bar is-short" aria-hidden="true" />
+    </div>
+  );
 }
 
 function initials(name: string) {
@@ -59,6 +88,12 @@ function initials(name: string) {
  *
  * The image is decorative (`alt=""`): every avatar sits next to the speaker's name, so
  * a description would only make screen readers say the name twice.
+ *
+ * The tile is the same one for everybody. It used to hash the slug into one of five `tone-*`
+ * grounds, four of which were the product's *status* pairs — so a gallery put one speaker on the
+ * warn ground, cream with brown initials, and another on the accent's green, off a palette where
+ * those two colours mean "something is wrong" and "this is the primary action". Identity is not a
+ * status, and the name is written directly underneath.
  */
 function Avatar({ speaker, large }: { speaker: PublicSpeaker; large?: boolean }) {
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
@@ -77,7 +112,7 @@ function Avatar({ speaker, large }: { speaker: PublicSpeaker; large?: boolean })
       />
     );
   return (
-    <span className={`${className} tone-${toneIndex(speaker.slug)}`} aria-hidden="true">
+    <span className={className} aria-hidden="true">
       {initials(speaker.name)}
     </span>
   );
@@ -89,7 +124,7 @@ function SpeakerHeadline({ speaker }: { speaker: PublicSpeaker }) {
   if (!title && !company) return null;
   return (
     <p className="pub-speaker-headline">
-      <span className="pub-sr">Professional headline: </span>
+      <span className="visually-hidden">Professional headline: </span>
       {title && company ? `${title} at ${company}` : title || company}
     </p>
   );
@@ -161,7 +196,7 @@ function SpeakerLinks({ speaker }: { speaker: PublicSpeaker }) {
           <li key={platform}>
             <a href={url} rel="noreferrer noopener" target="_blank">
               {SOCIAL_LABELS[platform] ?? platform}
-              <span className="pub-sr"> — {speaker.name}</span>
+              <span className="visually-hidden"> — {speaker.name}</span>
             </a>
           </li>
         ))}
@@ -191,7 +226,7 @@ function TimeRange({
         <>
           {/* The dash is punctuation for the eye; the screen reader gets a word. */}
           <span aria-hidden="true">–</span>
-          <span className="pub-sr"> to </span>
+          <span className="visually-hidden"> to </span>
           <time dateTime={endsAt}>{clockTime(endsAt, timezone)}</time>
         </>
       )}
@@ -234,7 +269,9 @@ function SessionCard({
   // a placed one whose time simply was not rendered.
   const showPending = Boolean(showTime && !session.startsAt && shows(fields, "time"));
   const showRoom = Boolean(session.room && shows(fields, "room"));
-  const showTags = shows(fields, "track") || shows(fields, "format");
+  const showTrack = Boolean(session.track && shows(fields, "track"));
+  const showFormat = Boolean(session.format && shows(fields, "format"));
+  const hasMeta = showClock || showPending || length || showRoom || showTrack || showFormat;
   return (
     <article className="pub-session">
       <div className="pub-session-head">
@@ -243,19 +280,28 @@ function SessionCard({
         </h3>
         {action}
       </div>
-      {(showClock || showPending || length || showRoom) && (
-        <p className="pub-session-meta">
+      {/*
+        One metadata line for every fact about the card: when, how long, where, which track,
+        which format. They used to be split between a text line and a row of coloured chips,
+        which said that two of the five mattered more. They do not.
+      */}
+      {hasMeta && (
+        <p className="pub-meta">
           {showClock && (
-            <TimeRange
-              startsAt={session.startsAt ?? ""}
-              endsAt={session.endsAt}
-              timezone={timezone}
-              withDay
-            />
+            <span className="figure">
+              <TimeRange
+                startsAt={session.startsAt ?? ""}
+                endsAt={session.endsAt}
+                timezone={timezone}
+                withDay
+              />
+            </span>
           )}
           {showPending && <span>Time to be announced</span>}
-          {length && shows(fields, "time") && <span>{length}</span>}
+          {length && shows(fields, "time") && <span className="figure">{length}</span>}
           {showRoom && <span>{session.room}</span>}
+          {showTrack && <span>{session.track}</span>}
+          {showFormat && <span>{session.format}</span>}
         </p>
       )}
       {shows(fields, "abstract") && <p className="pub-session-abstract">{session.abstract}</p>}
@@ -268,12 +314,6 @@ function SessionCard({
             </li>
           ))}
         </ul>
-      )}
-      {showTags && (
-        <p className="pub-tags">
-          {shows(fields, "track") && <Pill tone="info">{session.track}</Pill>}
-          {shows(fields, "format") && <Pill>{session.format}</Pill>}
-        </p>
       )}
     </article>
   );
@@ -314,13 +354,19 @@ function SpeakerCard({
  * The empty state carries a heading, so it has to slot into the outline of whatever
  * placed it: level 2 when it stands directly under the page's h1, level 3 inside a
  * section that already has an h2. A fixed h3 skipped a level on the section pages.
+ *
+ * The glyph names what is missing rather than standing for emptiness in general — one tray
+ * icon used to appear over the schedule, the gallery, the search results and the itinerary,
+ * which taught a reader nothing about which of them they were looking at.
  */
 function Empty({
   title,
+  icon,
   level = 3,
   children,
 }: {
   title: string;
+  icon: ReactNode;
   level?: 2 | 3;
   children?: ReactNode;
 }) {
@@ -328,20 +374,7 @@ function Empty({
   return (
     <div className="pub-empty">
       <span className="glyph" aria-hidden="true">
-        {/* biome-ignore lint/a11y/noSvgWithoutTitle: decorative glyph; the wrapper is aria-hidden and the heading carries the meaning. */}
-        <svg
-          viewBox="0 0 24 24"
-          width="22"
-          height="22"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.7"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M3 13.5 5.6 5.2A2 2 0 0 1 7.5 4h9a2 2 0 0 1 1.9 1.2L21 13.5V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-          <path d="M3 13.5h5l1.2 2.3h5.6L16 13.5h5" />
-        </svg>
+        {icon}
       </span>
       <Heading>{title}</Heading>
       {children ? <p>{children}</p> : null}
@@ -375,19 +408,42 @@ function groupByField(sessions: PublicSession[], field: "track" | "room") {
     }));
 }
 
-/** One group of the schedule: a sticky heading plus whatever the view puts under it. */
+/**
+ * One group of the schedule: a sticky heading plus whatever the view puts under it.
+ *
+ * `measure` is the figure the group is about, and it sits in the same column as the times of
+ * the rows beneath it, so the heading and its blocks read as one ruled column. A group with no
+ * figure — a track, a room, "every session in start order" — passes nothing and leaves the
+ * column empty, because a measure column that starts carrying ornaments is no longer a measure.
+ */
 function ScheduleGroup({
   id,
   title,
+  measure,
+  label,
   children,
 }: {
   id: string;
   title: string;
+  /** The group's own figure, shown in the measure column. Omitted when it has none. */
+  measure?: string;
+  /**
+   * What the group is called when the two halves cannot be read together. The visible heading
+   * is split across two columns, and "Thursday" on its own would name two different days of a
+   * fortnight-long programme identically.
+   */
+  label?: string;
   children: ReactNode;
 }) {
   return (
     <section className="pub-day" aria-labelledby={id}>
-      <h2 id={id}>{title}</h2>
+      <h2 id={id}>
+        <span className="visually-hidden">{label ?? title}</span>
+        <span className="figure" aria-hidden="true">
+          {measure ?? ""}
+        </span>
+        <span aria-hidden="true">{title}</span>
+      </h2>
       {children}
     </section>
   );
@@ -398,8 +454,10 @@ function ScheduleGroup({
 export {
   Avatar,
   Empty,
+  ExternalMark,
   groupByField,
   initials,
+  PageSkeleton,
   Pill,
   ScheduleGroup,
   SessionCard,
@@ -407,5 +465,4 @@ export {
   SpeakerHeadline,
   SpeakerLinks,
   TimeRange,
-  toneIndex,
 };

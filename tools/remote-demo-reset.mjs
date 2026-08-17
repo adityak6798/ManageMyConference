@@ -73,7 +73,6 @@ function quotedValue(text, key) {
 }
 
 function tableBlocks(text, table) {
-  const heading = `[[${table}]]`;
   return text
     .split(/^\[\[([^\]]+)\]\]\s*$/m)
     .flatMap((part, index, parts) => (index > 0 && parts[index - 1] === table ? [part] : []));

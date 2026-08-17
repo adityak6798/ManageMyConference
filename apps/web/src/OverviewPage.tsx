@@ -7,6 +7,12 @@
  * product's answer to the "who still has open onboarding work" requirement, so it
  * gets a real table rather than a counter.
  *
+ * It leads with the queue of jobs rather than with the numbers, because the numbers were
+ * never the reason anybody opened this page. Four equal-weight tiles said what the event
+ * contained; the run of work says what is waiting, one row per job, with its count in the
+ * cue gutter and its destination as the row itself. The tiles are still here — as one strip
+ * of measures under the queue, where "how is this event going" belongs.
+ *
  * "Scheduled" is two different questions and this page answers both of them by name.
  * The agenda *board* is the organizer's working draft: a session is on it as soon as
  * it is dropped into a slot, which is the question "what still needs placing?" — the
@@ -15,8 +21,8 @@
  * the `.ics`, the public programme and the Schedule column of Sessions & speakers all
  * answer, and it only moves when the agenda is published. Between those two lies a
  * real state — placed but not published — so this page counts it rather than letting
- * the two screens quietly disagree: the stat and the card name the board, and the gap
- * to the published schedule is reported next to them.
+ * the two screens quietly disagree: one job row counts what is unplaced and a second
+ * counts what is placed and unpublished, because the two have different remedies.
  *
  * It composes three independent workspaces (content, review, agenda), so it degrades
  * per source: a panel whose workspace did not answer says so on its own card and the
@@ -31,15 +37,28 @@ import type { getContent } from "./api/content";
 import { getOrganizerOverview } from "./api/overview";
 import type { getOrganizerReview } from "./api/review";
 import { useLinkProps } from "./router";
+import "./styles/overview.css";
 import {
   IconCalendar,
   IconCheck,
+  IconChevronRight,
   IconClock,
   IconReview,
   IconSpeakers,
   IconWarning,
 } from "./ui/icons";
-import { Card, EmptyState, Notice, PageHeader, Pill, Stat } from "./ui/primitives";
+import {
+  Card,
+  EmptyState,
+  GutterList,
+  GutterRow,
+  LoadFailure,
+  PageHeader,
+  Pill,
+  Section,
+  SkeletonPage,
+} from "./ui/primitives";
+import { proposalStatusLabel, proposalStatusTone } from "./ui/vocabulary";
 
 type ContentData = Awaited<ReturnType<typeof getContent>>;
 type ReviewData = Awaited<ReturnType<typeof getOrganizerReview>>;
@@ -120,13 +139,30 @@ function dueLabel({ overdue, days }: { overdue: boolean; days: number }) {
   return `Due in ${days} day${days === 1 ? "" : "s"}`;
 }
 
+/*
+ * When the dashboard last agreed with the server, to the minute.
+ *
+ * Seconds used to be printed, which made the stamp a clock: it changed four times a minute
+ * for as long as the page was open, and every change was read out because the stamp was a
+ * live region. Nobody needs to know that the poll landed at :17 rather than :02 — they need
+ * to know whether they are looking at this morning's numbers.
+ */
 function clockTime(at: number) {
-  return new Date(at).toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    second: "2-digit",
-  });
+  return new Date(at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 }
+
+/** One job in the run of work: what is waiting, how much of it, and where it is done. */
+type Job = {
+  id: string;
+  count: number;
+  /** What the count counts, singular or plural, as the row's own name. */
+  title: string;
+  /** Why it is waiting, in one line. */
+  meta: string;
+  href: string;
+};
+
+const plural = (count: number, one: string, many: string) => (count === 1 ? one : many);
 
 /**
  * The agenda draft is written by the first placement, so an event nobody has scheduled
@@ -207,7 +243,27 @@ export function OverviewPage({
   onPublicationChange?: (publication: { slug: string; state: string } | null) => void;
 }) {
   const [dashboard, setDashboard] = useState<Dashboard>(IDLE);
+  /** Bumped by Try again, so a page that failed outright has a control that is not the browser's. */
+  const [retryToken, setRetryToken] = useState(0);
   const linkProps = useLinkProps();
+
+  /*
+   * A hub destination that keeps the event selection and names the record where the
+   * destination can open one.
+   *
+   * `query` is the shell's own event parameter, so it is parsed rather than concatenated:
+   * every hub URL already carries `?tab=`, and gluing one query string onto another produced
+   * a link that resolved to the hub's first tab with no event at all.
+   */
+  const destination = useCallback(
+    (path: string, params: Record<string, string> = {}) => {
+      const search = new URLSearchParams(query.startsWith("?") ? query.slice(1) : query);
+      for (const [key, value] of Object.entries(params)) search.set(key, value);
+      const rendered = search.toString();
+      return rendered ? `${path}?${rendered}` : path;
+    },
+    [query],
+  );
 
   const load = useCallback(
     async (refresh = false) => {
@@ -252,6 +308,9 @@ export function OverviewPage({
   );
 
   useEffect(() => {
+    // ERROR-INTENT: reading the retry counter makes each increment restart the read cycle,
+    // which is what Try again on the terminal failure asks for.
+    void retryToken;
     let active = true;
     // Polls can overlap and land out of order. Applying an older answer would both
     // resurrect stale numbers and re-stamp them as fresh, so answers are numbered and
@@ -292,7 +351,7 @@ export function OverviewPage({
       active = false;
       clearInterval(timer);
     };
-  }, [load, onPublicationChange]);
+  }, [load, onPublicationChange, retryToken]);
 
   const { content, review, agenda } = dashboard.panels;
   // Recomputed on every read so "overdue" does not go stale while the page is open.
@@ -343,7 +402,6 @@ export function OverviewPage({
       awaiting,
       proposalCount: review.value?.proposals.length ?? 0,
       speakerCount: content.value?.speakers.length ?? 0,
-      speakersWithOpenWork: new Set((openTasks ?? []).map((task) => task.speakerProfileId)),
       conflicts: agenda.value?.conflicts ?? null,
       sessions: content.value?.sessions ?? null,
     };
@@ -361,31 +419,22 @@ export function OverviewPage({
     return (
       <>
         <PageHeader title="Overview" subtitle={event.name} />
-        <Notice tone="error">
-          {requestFailure instanceof Error
-            ? requestFailure.message
-            : "The overview could not be loaded. Reload to try again."}
-        </Notice>
+        <LoadFailure
+          what="the overview"
+          error={
+            requestFailure instanceof Error
+              ? requestFailure.message
+              : "The overview could not be loaded. Reload to try again."
+          }
+          onRetry={() => setRetryToken((token) => token + 1)}
+        />
       </>
     );
 
-  if (nothingLoaded)
-    return (
-      <>
-        <PageHeader title="Overview" subtitle={event.name} />
-        <div className="grid-auto" aria-hidden="true">
-          {[0, 1, 2, 3].map((index) => (
-            <div key={index} className="stat">
-              <div className="skeleton" style={{ height: 14, width: "60%" }} />
-              <div className="skeleton" style={{ height: 30, width: "35%", marginTop: 8 }} />
-            </div>
-          ))}
-        </div>
-        <p className="visually-hidden" role="status">
-          Loading the event overview.
-        </p>
-      </>
-    );
+  // The page is a queue, a strip of measures and three lists, so its first paint is that shape.
+  // It used to be four stat tiles — 120px of a 1,200px page — and everything below them arrived
+  // in one jump.
+  if (nothingLoaded) return <SkeletonPage label="Loading the event overview" />;
 
   const overdue = (model.openTasks ?? []).filter((task) => task.due.overdue).length;
   /**
@@ -409,23 +458,78 @@ export function OverviewPage({
         model.unpublished.length === 1 ? "" : "s"
       }. Use Publish schedule on the agenda board to release the change.`
     : null;
-  const summary = [
-    model.awaiting?.length
-      ? `${model.awaiting.length} proposal${model.awaiting.length === 1 ? "" : "s"} awaiting a decision`
-      : null,
-    model.unplaced?.length
-      ? `${model.unplaced.length} accepted session${model.unplaced.length === 1 ? "" : "s"} not on the agenda board`
-      : null,
-    // Named separately from the line above, because it is a different remedy: these are
-    // already placed, and only publishing the agenda moves them onto the schedule that
-    // Sessions & speakers, the speaker portal and the public programme read.
-    model.unpublished?.length
-      ? `${model.unpublished.length} board change${model.unpublished.length === 1 ? "" : "s"} not published yet`
-      : null,
+
+  const submissionsHref = destination("/program", { tab: "submissions" });
+  const agendaHref = destination("/schedule", { tab: "agenda" });
+  const speakersHref = destination("/people", { tab: "speakers" });
+
+  /*
+   * The run of work, in the order the work would be done.
+   *
+   * Broken before late, late before undecided, undecided before unplaced, unplaced before
+   * unpublished — each row is a job somebody has to do and a link to where it is done. This
+   * replaces a `summary.join(" · ")` sentence that put four unrelated jobs, two links and a full
+   * stop into one paragraph, and left the reader to pick their own next action out of it.
+   */
+  const jobs: Job[] = [
     model.conflicts?.length
-      ? `${model.conflicts.length} scheduling conflict${model.conflicts.length === 1 ? "" : "s"}`
+      ? {
+          id: "conflicts",
+          count: model.conflicts.length,
+          title: plural(model.conflicts.length, "Scheduling conflict", "Scheduling conflicts"),
+          meta: "Two placements share a room, a speaker or a slot.",
+          href: agendaHref,
+        }
       : null,
-  ].filter(Boolean);
+    overdue
+      ? {
+          id: "overdue",
+          count: overdue,
+          title: plural(overdue, "Overdue speaker task", "Overdue speaker tasks"),
+          meta: "Past the deadline the speaker was given.",
+          href: speakersHref,
+        }
+      : null,
+    model.awaiting?.length
+      ? {
+          id: "awaiting",
+          count: model.awaiting.length,
+          title: plural(
+            model.awaiting.length,
+            "Proposal awaiting a decision",
+            "Proposals awaiting a decision",
+          ),
+          meta: "Assign a reviewer, or accept and decline.",
+          href: submissionsHref,
+        }
+      : null,
+    // The board's question, in the board's words: these are accepted and have no slot yet.
+    model.unplaced?.length
+      ? {
+          id: "unplaced",
+          count: model.unplaced.length,
+          title: plural(model.unplaced.length, "Session to schedule", "Sessions to schedule"),
+          meta: "Accepted, with no slot on the agenda board.",
+          href: agendaHref,
+        }
+      : null,
+    // A different remedy from the line above, so a different job: these are already placed,
+    // and only publishing the agenda moves them onto the schedule that Sessions, the speaker
+    // portal and the public programme read.
+    model.unpublished?.length
+      ? {
+          id: "unpublished",
+          count: model.unpublished.length,
+          title: plural(
+            model.unpublished.length,
+            "Board change to publish",
+            "Board changes to publish",
+          ),
+          meta: "Use Publish schedule on the agenda board to release it.",
+          href: agendaHref,
+        }
+      : null,
+  ].filter((job): job is Job => job !== null);
 
   return (
     <>
@@ -434,10 +538,17 @@ export function OverviewPage({
         title="Overview"
         subtitle={`${event.name} · ${event.timezone}`}
         actions={
-          // The dashboard refreshes itself, so it has to say when it last did — otherwise
-          // a stale number is indistinguishable from a current one. A refresh that failed
-          // over data already on screen says so here rather than replacing the page.
-          <p className={anyFailed ? "refreshed-at is-stale" : "refreshed-at"} role="status">
+          /*
+           * The dashboard refreshes itself, so it has to say when it last did — otherwise a
+           * stale number is indistinguishable from a current one.
+           *
+           * Not a live region. It changed every fifteen seconds and was announced every time,
+           * so a screen-reader user was read a timestamp four times a minute for as long as the
+           * page stayed open, interrupting whatever they were actually reading. Nothing here is
+           * an answer to anything the reader did; it is the state of the page, and it is on
+           * screen where somebody who wants it can go and find it.
+           */
+          <p className={anyFailed ? "refreshed-at is-stale" : "refreshed-at"}>
             {anyFailed
               ? dashboard.freshAt
                 ? `Could not refresh — showing data from ${clockTime(dashboard.freshAt)}`
@@ -459,99 +570,135 @@ export function OverviewPage({
             <strong>{event.name}</strong>, currently in {event.timezone}. Nothing else has been
             assumed on your behalf.
           </p>
-          <ol>
-            <li>
-              <strong>Name the event and set its timezone.</strong> Every time on the agenda board,
-              in a calendar invitation and on the public site is rendered in it, so it is the one
-              setting worth fixing before anything depends on it.{" "}
-              <a {...linkProps(`/settings${query}`)}>Open Event settings</a>.
-            </li>
-            <li>
-              <strong>Open the call for proposals.</strong> Compose the form, publish it, and
-              submissions arrive ready to route, review and decide.{" "}
-              <a {...linkProps(`/cfp${query}`)}>Open the call for proposals</a>.
-            </li>
-            <li>
-              <strong>Then the work fills this page.</strong> Accepted sessions want placing on the
-              agenda board, speakers pick up onboarding tasks, and publishing is what moves any of
-              it to the public site and the speaker portal.
-            </li>
-          </ol>
+          {/*
+            A genuine sequence — the second step is not worth doing before the first — so the
+            step number is a measure the row is about rather than an ornament, and it sets in the
+            cue gutter like every other measure in the product. The bare `<ol>` this replaces
+            fell through to the user agent's own list styling: browser-default indent, browser-
+            default marker, browser-default line height, as the literal first thing a new
+            organizer saw.
+          */}
+          <GutterList label="Setting up this event">
+            <GutterRow
+              measure="1"
+              measureLabel="Step"
+              title="Name the event and set its timezone"
+              meta={
+                <>
+                  Every time on the agenda board, in a calendar invitation and on the public site is
+                  rendered in it, so it is the one setting worth fixing before anything depends on
+                  it. <a {...linkProps(`/settings${query}`)}>Open Event settings</a>.
+                </>
+              }
+            />
+            <GutterRow
+              measure="2"
+              measureLabel="Step"
+              title="Open the call for proposals"
+              meta={
+                <>
+                  Compose the form, publish it, and submissions arrive ready to route, review and
+                  decide. <a {...linkProps(`/cfp${query}`)}>Open the call for proposals</a>.
+                </>
+              }
+            />
+            <GutterRow
+              measure="3"
+              measureLabel="Step"
+              title="Then the work fills this page"
+              meta="Accepted sessions want placing on the agenda board, speakers pick up onboarding tasks, and publishing is what moves any of it to the public site and the speaker portal."
+            />
+          </GutterList>
         </Card>
       ) : null}
 
-      <dl className="grid-auto">
-        <Stat
-          label="Awaiting decision"
-          value={model.awaiting ? model.awaiting.length : NO_VALUE}
-          hint={
-            model.awaiting
-              ? `${model.proposalCount} proposal${model.proposalCount === 1 ? "" : "s"} received`
-              : "Abstracts unavailable"
-          }
-          icon={<IconReview size={15} />}
-        />
-        <Stat
-          label="Accepted sessions"
-          value={model.sessions ? model.sessions.length : NO_VALUE}
-          hint={model.sessions ? undefined : "Sessions unavailable"}
-          icon={<IconCheck size={15} />}
-        />
-        <Stat
-          label="Speakers with open tasks"
-          value={model.openTasks ? model.speakersWithOpenWork.size : NO_VALUE}
-          hint={
-            model.openTasks
-              ? overdue
-                ? `${overdue} task${overdue === 1 ? "" : "s"} overdue`
-                : // "All on track" over an event with no speakers at all is a reassurance about
-                  // nothing, which is exactly how a first-run dashboard reads as a broken one.
-                  unstarted
-                  ? "No speakers yet"
-                  : "All on track"
-              : "Speaker onboarding unavailable"
-          }
-          icon={<IconSpeakers size={15} />}
-          attention={overdue > 0}
-        />
-        {/* The board's question, said in the board's words. The published schedule is the
-            other question, and its answer is the hint rather than the headline: placing a
-            session is the work this stat is counting, publishing it is the next step. */}
-        <Stat
-          label="Not on the board"
-          value={model.unplaced ? model.unplaced.length : NO_VALUE}
-          hint={
-            model.unplaced
-              ? model.conflicts?.length
-                ? `${model.conflicts.length} agenda conflict(s)`
-                : model.unpublished?.length
-                  ? `${model.unpublished.length} board change(s) not published`
-                  : "The board matches the published schedule"
-              : "Agenda unavailable"
-          }
-          icon={<IconCalendar size={15} />}
-          attention={Boolean(model.conflicts?.length)}
-        />
+      {/*
+        The run of work, first, and the only region on this page that is a queue.
+
+        The page opened with four equal-weight tiles and a run-on sentence that joined every
+        outstanding job with " · ", so "3 proposals awaiting a decision" carried the same weight
+        as "1 scheduling conflict" and as the two links stranded on the end of the paragraph.
+        One row per job, its count in the gutter, its destination as the row itself.
+      */}
+      <Section
+        title="What needs you now"
+        description="Every job waiting on you, most urgent first."
+        labelledBy="overview-queue"
+      >
+        {jobs.length ? (
+          <GutterList label="Work waiting on you">
+            {jobs.map((job) => (
+              <GutterRow
+                key={job.id}
+                measure={job.count}
+                title={
+                  /* The whole row is the target — see `.row-link.is-row-target` in shell.css —
+                     so the chevron stays beside the words instead of being pinned to the far
+                     edge of a 1,150px row with the title it belongs to a thousand pixels away. */
+                  <a className="row-link is-row-target" {...linkProps(job.href)}>
+                    {job.title}
+                    <IconChevronRight size={16} />
+                  </a>
+                }
+                meta={job.meta}
+              />
+            ))}
+          </GutterList>
+        ) : anyFailed ? (
+          <EmptyState title="This queue is incomplete" icon={<IconWarning size={20} />}>
+            One of this page&rsquo;s sources did not answer, so work it knows about is missing here.
+            The panels below say which one.
+          </EmptyState>
+        ) : unstarted ? (
+          <EmptyState title="Nothing is waiting yet" icon={<IconCalendar size={20} />}>
+            Publish the call for proposals and the work arrives here: proposals to decide, sessions
+            to place, speakers to chase.
+          </EmptyState>
+        ) : (
+          <EmptyState title="Nothing is waiting on you" icon={<IconCheck size={20} />}>
+            Every proposal has a decision, every accepted session has a slot, and the board matches
+            the published schedule.
+          </EmptyState>
+        )}
+      </Section>
+
+      {/*
+        How the event is going, which is a different question from what needs doing — so it reads
+        as one line of measures under the queue rather than as four tiles above it. A source that
+        did not answer prints a dash rather than a zero: "no proposals" and "we could not read the
+        proposals" are opposite facts.
+      */}
+      <dl className="measure-strip">
+        <div>
+          <dt>Proposals received</dt>
+          <dd>{review.value ? model.proposalCount : NO_VALUE}</dd>
+        </div>
+        <div>
+          <dt>Awaiting decision</dt>
+          <dd>{model.awaiting ? model.awaiting.length : NO_VALUE}</dd>
+        </div>
+        <div>
+          <dt>Accepted sessions</dt>
+          <dd>{model.sessions ? model.sessions.length : NO_VALUE}</dd>
+        </div>
+        <div>
+          <dt>On the board</dt>
+          <dd>
+            {model.sessions && model.unplaced
+              ? model.sessions.length - model.unplaced.length
+              : NO_VALUE}
+          </dd>
+        </div>
+        <div>
+          <dt>Speakers</dt>
+          <dd>{content.value ? model.speakerCount : NO_VALUE}</dd>
+        </div>
       </dl>
 
-      {summary.length ? (
-        <Notice tone={model.conflicts?.length ? "warn" : "info"}>
-          <IconWarning size={15} />
-          <span>
-            {summary.join(" · ")}
-            {". "}
-            <a {...linkProps(`/abstracts${query}`)}>Review abstracts</a>
-            {" · "}
-            <a {...linkProps(`/agenda${query}`)}>Open the agenda</a>
-          </span>
-        </Notice>
-      ) : null}
-
-      <Card
+      <Section
+        title="Speaker onboarding"
+        description="Every open task assigned to a speaker, soonest deadline first."
         labelledBy="outstanding-tasks"
-        title="Outstanding speaker onboarding"
-        hint="Every open task assigned to a speaker, soonest deadline first."
-        tight
       >
         {!model.openTasks ? (
           <PanelUnavailable what="Speaker onboarding" />
@@ -571,41 +718,48 @@ export function OverviewPage({
             <table className="data">
               <thead>
                 <tr>
+                  {/* The deadline is what every row of this table is about, so it is the
+                      measure the cue gutter carries. */}
+                  <th scope="col" className="gutter">
+                    Due
+                  </th>
                   <th scope="col">Speaker</th>
                   <th scope="col">Task</th>
-                  <th scope="col">Due</th>
-                  <th scope="col">Status</th>
+                  <th scope="col">Deadline</th>
                 </tr>
               </thead>
               <tbody>
                 {model.openTasks.map((task) => (
                   <tr key={task.id}>
-                    <td className="primary-cell">
-                      {task.speaker?.name ?? "Unassigned speaker"}
+                    <td className="gutter" data-label="Due">
+                      <span className="figure">
+                        {new Date(task.dueAt).toLocaleDateString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                          timeZone: event.timezone,
+                        })}
+                      </span>
+                    </td>
+                    <td className="primary-cell" data-label="Speaker">
+                      {/* Not one cell on the product's landing page used to be clickable.
+                          Every row now goes where its work is done. */}
+                      <a className="row-link" {...linkProps(speakersHref)}>
+                        {task.speaker?.name ?? "Unassigned speaker"}
+                      </a>
                       {task.speaker?.organization ? (
                         <span className="sub">{task.speaker.organization}</span>
                       ) : null}
                     </td>
-                    <td>{task.title}</td>
-                    <td>
-                      {new Date(task.dueAt).toLocaleDateString("en-US", {
-                        month: "short",
-                        day: "numeric",
-                        timeZone: event.timezone,
-                      })}
-                      <span className="sub">{dueLabel(task.due)}</span>
-                    </td>
-                    <td>
-                      {task.due.overdue ? (
-                        <Pill tone="danger">Overdue</Pill>
-                      ) : task.due.days <= 3 ? (
-                        <Pill tone="warn">
-                          <IconClock size={12} />
-                          Due soon
-                        </Pill>
-                      ) : (
-                        <Pill tone="info">Open</Pill>
-                      )}
+                    <td data-label="Task">{task.title}</td>
+                    {/* One pill saying how late or how soon. "Overdue" beside "4 days
+                        overdue" was one fact printed twice in two columns. */}
+                    <td data-label="Deadline">
+                      <Pill
+                        tone={task.due.overdue ? "danger" : task.due.days <= 3 ? "warn" : "neutral"}
+                      >
+                        {task.due.overdue ? null : <IconClock size={12} />}
+                        {dueLabel(task.due)}
+                      </Pill>
                     </td>
                   </tr>
                 ))}
@@ -613,14 +767,13 @@ export function OverviewPage({
             </table>
           </div>
         )}
-      </Card>
+      </Section>
 
       <div className="split">
-        <Card
-          labelledBy="awaiting-decision"
+        <Section
           title="Awaiting decision"
-          hint="Proposals that have not been accepted or declined."
-          tight
+          description="Proposals that have not been accepted or declined."
+          labelledBy="awaiting-decision"
         >
           {!model.awaiting ? (
             <PanelUnavailable what="Abstracts" />
@@ -646,10 +799,31 @@ export function OverviewPage({
                 <tbody>
                   {model.awaiting.map((proposal) => (
                     <tr key={proposal.id}>
-                      <td className="primary-cell">{proposal.title}</td>
-                      <td>{proposal.submitterName}</td>
-                      <td>
-                        <Pill tone="info">{proposal.status.replaceAll("_", " ")}</Pill>
+                      <td className="primary-cell" data-label="Proposal">
+                        {/* The triage queue opens one abstract by id, so the row names it. */}
+                        <a
+                          className="row-link"
+                          {...linkProps(
+                            destination("/program", {
+                              tab: "submissions",
+                              proposal: proposal.id,
+                            }),
+                          )}
+                        >
+                          {proposal.title}
+                        </a>
+                      </td>
+                      <td data-label="Submitter">{proposal.submitterName}</td>
+                      {/*
+                        The event's own word for the status, in the event's own tone. Every
+                        status used to render `tone="info"` with its storage spelling stripped
+                        of underscores, so `under_review` reached the reader as a lower-case
+                        "under review" and an accepted proposal was the colour of a declined one.
+                      */}
+                      <td data-label="Status">
+                        <Pill tone={proposalStatusTone(proposal.status)}>
+                          {proposalStatusLabel(proposal.status, review.value?.statuses)}
+                        </Pill>
                       </td>
                     </tr>
                   ))}
@@ -657,24 +831,23 @@ export function OverviewPage({
               </table>
             </div>
           )}
-        </Card>
+        </Section>
 
-        <Card
+        <Section
           labelledBy="unscheduled"
-          title="Not on the agenda board"
-          // Both halves of the answer sit in the header, so the reader gets them whichever
+          title="Sessions to schedule"
+          // Both halves of the answer sit in the description, so the reader gets them whichever
           // body branch renders: an empty list means the placing is done, which is not the
           // same as the published schedule — or the public — having caught up. The claim is
           // withheld entirely when a source did not answer, rather than asserting agreement
           // between two things this page failed to read.
-          hint={
+          description={
             model.unplaced
               ? `Accepted sessions the working draft gives no slot. ${
                   publishGap ?? "The board and the published schedule agree."
                 }`
               : "Accepted sessions the working draft gives no slot."
           }
-          tight
         >
           {!model.unplaced ? (
             <PanelUnavailable what={content.value ? "The agenda" : "Sessions"} />
@@ -694,13 +867,15 @@ export function OverviewPage({
             <ul className="plain-list">
               {model.unplaced.map((contentSession) => (
                 <li key={contentSession.id}>
-                  <strong>{contentSession.title}</strong>
+                  <a className="row-link" {...linkProps(agendaHref)}>
+                    {contentSession.title}
+                  </a>
                   <span className="sub">{contentSession.format}</span>
                 </li>
               ))}
             </ul>
           )}
-        </Card>
+        </Section>
       </div>
     </>
   );

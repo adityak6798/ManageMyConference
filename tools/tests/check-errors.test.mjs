@@ -33,6 +33,21 @@ test("rejects ignored rejection callbacks", () => {
   assert.deepEqual(inspectText("operation().catch((error) => logger.error(error));"), []);
 });
 
+test("a setter that holds a refusal reports it, and one that holds a handler does not", () => {
+  // A surface may keep a refusal per row rather than at the head of the page. What it stores is
+  // what it renders, so this is a report; refusing it would push a correct component towards an
+  // ERROR-INTENT comment claiming a discard that is not happening.
+  assert.deepEqual(inspectText("try { work(); } catch (error) { setFailure(read(error)); }"), []);
+  assert.deepEqual(
+    inspectText("try { work(); } catch (error) { setRowFailure({ key, failure: read(error) }); }"),
+    [],
+  );
+  assert.deepEqual(inspectText("try { work(); } catch (error) { setLoadError(read(error)); }"), []);
+  // The name has to end in Error or Failure: installing a handler is not reporting one.
+  assert.notEqual(inspectText("try { work(); } catch (error) { setErrorHandler(noop); }"), []);
+  assert.notEqual(inspectText("try { work(); } catch (error) { setFailureCount(0); }"), []);
+});
+
 test("arbitrary catch returns do not count as handling", () => {
   assert.notEqual(inspectText("try { work(); } catch { return fallback; }"), []);
   assert.deepEqual(inspectText("try { work(); } catch (error) { throw error; }"), []);

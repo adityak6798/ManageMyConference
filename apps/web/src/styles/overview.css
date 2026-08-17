@@ -1,0 +1,21 @@
+/*
+ * The organizer's landing surface.
+ *
+ * The page is a workbench, not a report, and it is now assembled entirely from shared furniture:
+ * the queue of jobs is `GutterList`/`GutterRow`, the tables are `table.data`, the regions are
+ * `Section`. This file holds no rules, and that is the finding rather than an oversight — the
+ * three shapes it used to own were each a shared shape wearing a page-specific name.
+ *
+ *   `.overview-job`       -> `.row-link.is-row-target` (shell.css). The chevron was laid out
+ *                            `space-between` across the content column, which pinned it a
+ *                            thousand pixels from the title it belonged to; the shared rule keeps
+ *                            it with the words and makes the row itself the target.
+ *   `.overview-pipeline`  -> `.measure-strip` (shell.css). Its columns were left to `flex-wrap`,
+ *                            so on a phone it broke into rows of two and three that shared no
+ *                            edge and left a separator hanging at the head of every row but the
+ *                            first. The shared rule declares its columns at each width.
+ *   `.overview-row-link`  -> `.row-link` (shell.css). One link treatment for a row title, so the
+ *                            overview, the inbox and the search results agree.
+ *
+ * A rule that is only true of this page still belongs here. There is not one at the moment.
+ */

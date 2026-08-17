@@ -164,9 +164,29 @@
         "reason": "The design system. Eight domains' workspaces render through the same Card, Notice, EmptyState and PageHeader, which is what makes the console read as one product."
       },
       {
+        "path": "apps/web/src/router.ts",
+        "governing": "ARC-DOM-001",
+        "reason": "The console's single client-side router. `useLinkProps` is the one way a surface renders an in-app destination that still survives a middle click, and `navigate` is the one way it moves the reader; a domain that grew its own would take the console back to full page loads on half its links. It is deliberately presentation-only — a path in, history out — and holds no domain rule."
+      },
+      {
         "path": "apps/web/src/ui/icons.tsx",
         "governing": "ARC-DOM-001",
         "reason": "The design system's icon set, imported by every workspace module and by the shell's navigation."
+      },
+      {
+        "path": "apps/web/src/ui/fields.tsx",
+        "governing": "ARC-DOM-001",
+        "reason": "The design system's control tier. Every domain that asks a user for a value — a choice, a date, a flag, a score — renders it through the same Field, Select, Combobox, Checkbox and DateTimeField, which is what holds one height, one focus ring and one set of keyboard rules across pickers that were 73 separate native selects."
+      },
+      {
+        "path": "apps/web/src/ui/menu.tsx",
+        "governing": "ARC-DOM-001",
+        "reason": "The design system's action menu, imported by any workspace with a row of commands. It is separate from fields.tsx because a menu runs actions and holds no value, and that distinction is what stops a surface reaching for a select when it wants a menu."
+      },
+      {
+        "path": "apps/web/src/ui/vocabulary.ts",
+        "governing": "ARC-DOM-001",
+        "reason": "The design system's shared label vocabulary: how the product names a status, a delivery state, a dataset and a capability. It is deliberately presentation-only and holds no domain rule — every domain reads its own state from its own client and asks this module only what to call it, which is what stops the same delivery being 'terminal' in the outbox and 'Failed' in the webhook history, and what keeps a permission from ever reaching a reader as a raw scope token."
       },
       {
         "path": "apps/api/src/transport/http/runtime.ts",

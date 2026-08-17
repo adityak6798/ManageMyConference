@@ -9,8 +9,9 @@
  *
  * 1. Publishing establishes the event's public presence. Once it is live, accepted source
  *    publications refresh the versioned public projection while event/site settings remain
- *    deliberate organizer edits. The panel fingerprints draft and public copies and names
- *    any event/site changes still waiting for an explicit publish.
+ *    deliberate organizer edits. The panel names, in words, which parts of the event have
+ *    moved since the snapshot was taken; the fingerprints that prove it are kept, but behind
+ *    a disclosure, because "Snapshot 1k3f9x2 · draft 8b2e0qa" is evidence rather than an answer.
  * 2. The embed views are the product's distribution story and nothing pointed at them.
  *    Each view gets its address, a paste-ready <iframe> snippet, and a live frame of
  *    the real embed — so "does this work in someone else's page" is answered on screen
@@ -19,12 +20,13 @@
  * Preview never mutates: it is a GET, and the copy says so, because an organizer must
  * be able to look at what publishing *would* do without doing it.
  *
- * Feedback belongs to the control that produced it. The Publication card's toolbar
- * announces directly beneath itself; the embed cards, which sit a full page lower, own
- * their own live regions rather than borrowing that one — see EmbedPanel.
+ * Feedback belongs to the control that produced it. The publication toolbar announces directly
+ * beneath itself; the embed sections, which sit a full page lower, own their own live regions
+ * rather than borrowing that one — see EmbedPanel.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ApiFailure, describeApiFailure } from "./api/config";
 import {
   PublicationApiError,
   type PublicationDto,
@@ -33,6 +35,7 @@ import {
   updatePublicationSettings,
 } from "./api/publication";
 import "./styles/publishing.css";
+import { Checkbox, DateField, Field, Select } from "./ui/fields";
 import {
   IconCalendar,
   IconCheck,
@@ -43,11 +46,29 @@ import {
   IconWarning,
 } from "./ui/icons";
 import { SavedEmbeds } from "./publishing/SavedEmbeds";
-import { Card, EmptyState, Notice, Pill, Tabs, useActionFeedback } from "./ui/primitives";
+import {
+  Card,
+  Drawer,
+  EmptyState,
+  LoadFailure,
+  Notice,
+  Pill,
+  Section,
+  SkeletonPage,
+  Tabs,
+  useActionFeedback,
+} from "./ui/primitives";
 
 type Projection = PublicationDto["draft"];
 
-const EMBED_VIEWS = [
+/**
+ * The embeddable views, and the single place this product names them.
+ *
+ * Exported because the issued-embed panel below used to keep its own four-entry copy, which had
+ * drifted: `sessions` was missing from it, so the view most likely to be handed to a marketing
+ * site could be copied here and never issued or withdrawn.
+ */
+export const EMBED_VIEWS = [
   {
     id: "schedule",
     label: "Schedule",
@@ -109,18 +130,14 @@ function embedQuery(config: EmbedConfig): string {
   return query ? `?${query}` : "";
 }
 
-function describe(reason: unknown, fallback: string): string {
-  if (reason instanceof PublicationApiError)
-    return `${reason.message} Reference: ${reason.envelope.error.correlationId}`;
-  if (reason instanceof Error && reason.message) return `${fallback} (${reason.message})`;
-  return fallback;
-}
+const failureOf = (reason: unknown, fallback: string): ApiFailure =>
+  describeApiFailure(reason, fallback);
 
 /**
  * A short, stable identity for one projection. The publication record carries no
  * version number, so two snapshots taken minutes apart would otherwise be
- * indistinguishable on screen; this makes "the draft is not the published copy"
- * something the organizer can see rather than infer.
+ * indistinguishable; this is the evidence behind the sentence above it, and lives
+ * under "Technical details" rather than in the reader's way.
  */
 function fingerprint(projection: Projection | null): string {
   if (!projection) return "—";
@@ -145,6 +162,12 @@ function changedAreas(draft: Projection, published: Projection | null): string[]
   return areas
     .filter(([, key]) => JSON.stringify(draft[key]) !== JSON.stringify(published[key]))
     .map(([label]) => label);
+}
+
+/** "sessions and speakers", "event details, sessions and speakers" — a list somebody reads aloud. */
+function listed(areas: readonly string[]): string {
+  if (areas.length <= 1) return areas[0] ?? "";
+  return `${areas.slice(0, -1).join(", ")} and ${areas.at(-1)}`;
 }
 
 const escapeAttribute = (value: string) =>
@@ -179,12 +202,14 @@ function ProjectionPreview({ projection, timezone }: { projection: Projection; t
         <div>
           <dt>Public address</dt>
           <dd>
-            <code>/events/{projection.event.slug}</code>
+            <code className="figure">/events/{projection.event.slug}</code>
           </dd>
         </div>
+        {/* A date range and a zone id are measures, so they set in the mono recipe the address
+            above them already uses — three facts in three faces was two too many. */}
         <div>
           <dt>Dates</dt>
-          <dd>
+          <dd className="figure">
             {formatDay(projection.event.startsOn)} – {formatDay(projection.event.endsOn)}
           </dd>
         </div>
@@ -194,23 +219,23 @@ function ProjectionPreview({ projection, timezone }: { projection: Projection; t
         </div>
         <div>
           <dt>Time zone</dt>
-          <dd>{projection.event.timezone}</dd>
+          <dd className="figure">{projection.event.timezone}</dd>
         </div>
       </dl>
 
       <p className="publishing-projection-line">
-        <IconForm size={14} />
+        <IconForm size={20} />
         <span>
           <strong>{projection.cfp.title}</strong> ·{" "}
           {projection.cfp.status === "open" ? "open for submissions" : "closed"} · submissions go to{" "}
-          <code>{projection.cfp.submissionUrl}</code>
+          <code className="figure">{projection.cfp.submissionUrl}</code>
         </span>
       </p>
 
       <div className="publishing-lists">
         <section aria-labelledby={`sessions-${projection.event.slug}`}>
           <h3 id={`sessions-${projection.event.slug}`}>
-            <IconCalendar size={14} />
+            <IconCalendar size={20} />
             {countLabel(projection.sessions.length, "session")}
             <span className="publishing-sub">{timed.length} with a time slot</span>
           </h3>
@@ -248,7 +273,7 @@ function ProjectionPreview({ projection, timezone }: { projection: Projection; t
 
         <section aria-labelledby={`speakers-${projection.event.slug}`}>
           <h3 id={`speakers-${projection.event.slug}`}>
-            <IconSpeakers size={14} />
+            <IconSpeakers size={20} />
             {countLabel(projection.speakers.length, "speaker")}
           </h3>
           {projection.speakers.length === 0 ? (
@@ -303,6 +328,8 @@ function PublicDetailsPanel({
   );
   const [form, setForm] = useState<SettingsForm>(initial);
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<SettingsField, string>>>({});
+  /** A refused save, with the reference on its own line rather than glued to the sentence. */
+  const [failure, setFailure] = useState<ApiFailure | null>(null);
   const [saving, setSaving] = useState(false);
   const feedback = useActionFeedback();
   const { announce } = feedback;
@@ -319,6 +346,7 @@ function PublicDetailsPanel({
   const save = useCallback(async () => {
     setSaving(true);
     setFieldErrors({});
+    setFailure(null);
     try {
       const next = await updatePublicationSettings(
         publication.eventId,
@@ -332,9 +360,9 @@ function PublicDetailsPanel({
           : "Public details saved.",
       );
     } catch (reason: unknown) {
-      // ERROR-INTENT: the announcement and the per-field messages are the user-facing
-      // failure state. A refusal that names fields is put on those fields, because
-      // "already taken" printed above a form of five inputs does not say which one.
+      // ERROR-INTENT: the notice and the per-field messages are the user-facing failure
+      // state. A refusal that names fields is put on those fields, because "already taken"
+      // printed above a form of five inputs does not say which one.
       const fields =
         reason instanceof PublicationApiError ? reason.envelope.error.fieldErrors : undefined;
       if (fields)
@@ -346,117 +374,113 @@ function PublicDetailsPanel({
             ]),
           ),
         );
-      announce("error", describe(reason, "The public details could not be saved."));
+      setFailure(failureOf(reason, "The public details could not be saved."));
     } finally {
       setSaving(false);
     }
   }, [announce, changed, form, onSaved, publication.eventId, publication.state]);
 
-  const describedBy = (field: SettingsField) =>
-    fieldErrors[field] ? `settings-${field}-error` : undefined;
-  const fieldError = (field: SettingsField) =>
-    fieldErrors[field] ? (
-      <p className="publishing-field-error" id={`settings-${field}-error`}>
-        {fieldErrors[field]}
-      </p>
-    ) : null;
-
   return (
-    <Card
+    <Section
       labelledBy="publishing-details"
       title="Public details"
-      hint="What the public page says about the event itself. Saved to the draft, never straight to the live page."
+      description="What the public page says about the event. Saved to the draft, never straight to the live page."
     >
       <form
         className="publishing-details"
         onSubmit={(submitEvent) => {
           submitEvent.preventDefault();
-          // ERROR-INTENT: handlers cannot await; save announces both outcomes.
+          // ERROR-INTENT: handlers cannot await; save renders both outcomes.
           void save();
         }}
       >
-        <div className="field">
-          <label htmlFor="settings-summary">Summary</label>
-          <textarea
-            id="settings-summary"
-            rows={3}
-            maxLength={2000}
-            disabled={!canEdit}
-            value={form.summary}
-            aria-describedby={describedBy("summary")}
-            onChange={(changeEvent) => set("summary")(changeEvent.target.value)}
-            placeholder="One paragraph describing the event to someone who has never heard of it."
-          />
-          {fieldError("summary")}
-        </div>
+        <Field
+          label="Summary"
+          id="settings-summary"
+          error={fieldErrors.summary}
+          disabled={!canEdit}
+        >
+          {(control) => (
+            <textarea
+              {...control}
+              className="control"
+              rows={3}
+              maxLength={2000}
+              value={form.summary}
+              onChange={(changeEvent) => set("summary")(changeEvent.target.value)}
+              placeholder="One paragraph describing the event to someone who has never heard of it."
+            />
+          )}
+        </Field>
 
-        <div className="field">
-          <label htmlFor="settings-venue">Venue</label>
-          <input
-            id="settings-venue"
-            maxLength={200}
-            disabled={!canEdit}
-            value={form.venue}
-            aria-describedby={describedBy("venue")}
-            onChange={(changeEvent) => set("venue")(changeEvent.target.value)}
-            placeholder="Harbor Conference Center, Oakland"
-          />
-          {fieldError("venue")}
-        </div>
+        <Field label="Venue" id="settings-venue" error={fieldErrors.venue} disabled={!canEdit}>
+          {(control) => (
+            <input
+              {...control}
+              className="control"
+              maxLength={200}
+              value={form.venue}
+              onChange={(changeEvent) => set("venue")(changeEvent.target.value)}
+              placeholder="Harbor Conference Center, Oakland"
+            />
+          )}
+        </Field>
 
         <div className="publishing-details-dates">
-          <div className="field">
-            <label htmlFor="settings-startsOn">First day</label>
-            <input
-              id="settings-startsOn"
-              type="date"
-              disabled={!canEdit}
-              value={form.startsOn}
-              aria-describedby={describedBy("startsOn")}
-              onChange={(changeEvent) => set("startsOn")(changeEvent.target.value)}
-            />
-            {fieldError("startsOn")}
-          </div>
-          <div className="field">
-            <label htmlFor="settings-endsOn">Last day</label>
-            <input
-              id="settings-endsOn"
-              type="date"
-              disabled={!canEdit}
-              value={form.endsOn}
-              aria-describedby={describedBy("endsOn")}
-              onChange={(changeEvent) => set("endsOn")(changeEvent.target.value)}
-            />
-            {fieldError("endsOn")}
-          </div>
+          <DateField
+            label="First day"
+            id="settings-startsOn"
+            value={form.startsOn}
+            onChange={set("startsOn")}
+            error={fieldErrors.startsOn}
+            disabled={!canEdit}
+          />
+          <DateField
+            label="Last day"
+            id="settings-endsOn"
+            value={form.endsOn}
+            onChange={set("endsOn")}
+            error={fieldErrors.endsOn}
+            disabled={!canEdit}
+          />
         </div>
         <p className="publishing-sub">
           Leave both dates empty and the public page follows the agenda, showing the first and last
           day anything is scheduled. Typing a date pins it.
         </p>
 
-        <div className="field">
-          <label htmlFor="settings-slug">Public address</label>
-          <input
-            id="settings-slug"
-            maxLength={120}
-            disabled={!canEdit}
-            value={form.slug}
-            aria-describedby={describedBy("slug")}
-            onChange={(changeEvent) => set("slug")(changeEvent.target.value)}
-            pattern="[a-z0-9]+(-[a-z0-9]+)*"
-          />
-          {fieldError("slug")}
-          <p className="publishing-sub">
-            <code>/events/{form.slug || "…"}</code>
-            {publication.state === "published" && form.slug !== initial.slug
-              ? " — visitors keep reaching the current address until you publish again."
-              : " — lowercase words separated by hyphens."}
-          </p>
-        </div>
+        <Field
+          label="Public address"
+          id="settings-slug"
+          error={fieldErrors.slug}
+          disabled={!canEdit}
+          hint={
+            publication.state === "published" && form.slug !== initial.slug
+              ? "Visitors keep reaching the current address until you publish again."
+              : "Lowercase words separated by hyphens."
+          }
+        >
+          {(control) => (
+            <input
+              {...control}
+              className="control"
+              maxLength={120}
+              value={form.slug}
+              onChange={(changeEvent) => set("slug")(changeEvent.target.value)}
+              pattern="[a-z0-9]+(-[a-z0-9]+)*"
+            />
+          )}
+        </Field>
+        <p className="publishing-sub">
+          <code className="figure">/events/{form.slug || "…"}</code>
+        </p>
 
         <div className="toolbar">
-          <button type="submit" disabled={!canEdit || saving || changed.length === 0}>
+          <button
+            className="primary"
+            type="submit"
+            disabled={!canEdit || saving || changed.length === 0}
+          >
             {saving ? "Saving…" : "Save public details"}
           </button>
           {changed.length > 0 && !saving ? (
@@ -466,6 +490,7 @@ function PublicDetailsPanel({
               onClick={() => {
                 setForm(initial);
                 setFieldErrors({});
+                setFailure(null);
               }}
             >
               Discard changes
@@ -473,13 +498,18 @@ function PublicDetailsPanel({
           ) : null}
         </div>
         {feedback.node}
+        {failure ? (
+          <Notice tone="error" reference={failure.reference} onDismiss={() => setFailure(null)}>
+            {failure.message}
+          </Notice>
+        ) : null}
         {canEdit ? null : (
           <p className="publishing-sub">
             Your role on this event can read the public details but not change them.
           </p>
         )}
       </form>
-    </Card>
+    </Section>
   );
 }
 
@@ -501,10 +531,13 @@ const COPIED_MS = 2000;
  *
  * These buttons sit at the bottom of a long page. Announcing into the panel's shared live
  * region put every confirmation — and, worse, every "copying was blocked" failure — inside
- * the Publication card at the top, ~970px above the pointer and off screen, so a copy that
+ * the publication region at the top, ~970px above the pointer and off screen, so a copy that
  * silently failed looked exactly like one that worked. Each section therefore announces
  * under its own toolbar, and the click also changes the button under the pointer, which is
  * the part a sighted organizer actually reads.
+ *
+ * No border of its own: the frame inside it has one, and a bordered box holding a bordered box
+ * holding a bordered box was three depths of container for one address and one snippet.
  */
 function EmbedPanel({ embed, isLive }: { embed: Embed; isLive: boolean }) {
   const feedback = useActionFeedback();
@@ -560,18 +593,19 @@ function EmbedPanel({ embed, isLive }: { embed: Embed; isLive: boolean }) {
         )}
       </p>
 
-      <div className="field">
-        <label htmlFor={`snippet-${embed.id}`}>Paste this into the host page</label>
-        <textarea
-          id={`snippet-${embed.id}`}
-          ref={snippetRef}
-          className="publishing-snippet"
-          readOnly
-          rows={3}
-          value={embed.snippet}
-          onFocus={(focusEvent) => focusEvent.currentTarget.select()}
-        />
-      </div>
+      <Field label="Paste this into the host page" id={`snippet-${embed.id}`}>
+        {(control) => (
+          <textarea
+            {...control}
+            ref={snippetRef}
+            className="control publishing-snippet"
+            readOnly
+            rows={3}
+            value={embed.snippet}
+            onFocus={(focusEvent) => focusEvent.currentTarget.select()}
+          />
+        )}
+      </Field>
 
       <div className="toolbar">
         {/* Both views offer the same two controls, so the visible label alone would give a
@@ -591,7 +625,7 @@ function EmbedPanel({ embed, isLive }: { embed: Embed; isLive: boolean }) {
             void copy("snippet");
           }}
         >
-          {copied === "snippet" ? <IconCheck size={15} /> : <IconLink size={15} />}
+          {copied === "snippet" ? <IconCheck size={20} /> : <IconLink size={20} />}
           {copied === "snippet" ? "Copied" : "Copy snippet"}
         </button>
         <button
@@ -607,7 +641,7 @@ function EmbedPanel({ embed, isLive }: { embed: Embed; isLive: boolean }) {
             void copy("url");
           }}
         >
-          {copied === "url" ? <IconCheck size={15} /> : null}
+          {copied === "url" ? <IconCheck size={20} /> : null}
           {copied === "url" ? "Copied" : "Copy URL"}
         </button>
       </div>
@@ -647,10 +681,12 @@ export function PublishingWorkspace({
   onPublicationChange?: (summary: { slug: string; state: string }) => void;
 }) {
   const [publication, setPublication] = useState<PublicationDto | null>(null);
-  const [loadFailure, setLoadFailure] = useState<string | null>(null);
+  const [loadFailure, setLoadFailure] = useState<ApiFailure | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<"preview" | "publish" | "unpublish" | null>(null);
   const [tab, setTab] = useState("publishing-draft");
+  /** Set by the Unpublish press, cleared by whichever way the question is answered. */
+  const [confirmingUnpublish, setConfirmingUnpublish] = useState(false);
   // The embed configuration is the organizer's composing state, not the publication's:
   // changing it rewrites the snippets on screen and touches nothing on the server.
   const [embedConfig, setEmbedConfig] = useState<EmbedConfig>({
@@ -685,7 +721,7 @@ export function PublishingWorkspace({
       // ERROR-INTENT: the panel refuses to render controls it cannot back with real
       // state; setLoadFailure renders the reason and offers a retry instead.
       if (run.current === generation)
-        setLoadFailure(describe(reason, "The publication could not be loaded."));
+        setLoadFailure(failureOf(reason, "The publication could not be loaded."));
     } finally {
       if (run.current === generation) setLoading(false);
     }
@@ -713,7 +749,7 @@ export function PublishingWorkspace({
       );
     } catch (reason: unknown) {
       // ERROR-INTENT: the announcement is the user-facing preview failure state.
-      announce("error", describe(reason, "The preview could not be composed."));
+      announce("error", failureOf(reason, "The preview could not be composed.").message);
     } finally {
       setBusy(null);
     }
@@ -739,12 +775,12 @@ export function PublishingWorkspace({
         // ERROR-INTENT: the announcement is the user-facing transition failure state.
         announce(
           "error",
-          describe(
+          failureOf(
             reason,
             action === "publish"
               ? "The event could not be published."
               : "The event could not be unpublished.",
-          ),
+          ).message,
         );
       } finally {
         setBusy(null);
@@ -784,44 +820,19 @@ export function PublishingWorkspace({
     };
   }, [embedConfig, eventName, publication]);
 
-  if (loading)
-    return (
-      <Card>
-        <div className="publishing-loading" aria-hidden="true">
-          <div className="skeleton" style={{ height: 18, width: "34%" }} />
-          <div className="skeleton" style={{ height: 96, width: "100%" }} />
-        </div>
-        <p className="visually-hidden" role="status">
-          Loading the publication.
-        </p>
-      </Card>
-    );
+  if (loading) return <SkeletonPage label="Loading the publication" />;
 
   if (loadFailure || !publication || !model)
     return (
-      <Card
-        labelledBy="publishing-unavailable"
-        title="The publication could not be opened"
-        actions={
-          <button
-            type="button"
-            onClick={() => {
-              // ERROR-INTENT: handlers cannot await; load renders both outcomes.
-              void load();
-            }}
-          >
-            Try again
-          </button>
-        }
+      <LoadFailure
+        what="the publication"
+        error={loadFailure?.message ?? null}
+        reference={loadFailure?.reference ?? null}
+        onRetry={load}
       >
-        <Notice tone="error">
-          {loadFailure ?? "The publishing service returned no publication for this event."}
-        </Notice>
-        <p className="publishing-sub">
-          Publishing stays disabled until the current state loads, so a retry cannot overwrite a
-          snapshot this panel never managed to read.
-        </p>
-      </Card>
+        {loadFailure?.message ??
+          "The publishing service returned no publication for this event. Publishing stays disabled until the current state loads, so a retry cannot overwrite a snapshot this panel never managed to read."}
+      </LoadFailure>
     );
 
   const activeProjection = tab === "publishing-published" ? model.published : publication.draft;
@@ -840,12 +851,12 @@ export function PublishingWorkspace({
                 </Pill>
               ) : publication.state === "unpublished" ? (
                 <Pill tone="neutral">
-                  <IconWarning size={12} />
+                  <IconWarning size={20} />
                   Taken down
                 </Pill>
               ) : (
                 <Pill tone="warn">
-                  <IconWarning size={12} />
+                  <IconWarning size={20} />
                   Not published
                 </Pill>
               )}
@@ -853,17 +864,51 @@ export function PublishingWorkspace({
                 <Pill tone="warn">Draft ahead of the published snapshot</Pill>
               ) : model.isLive ? (
                 <Pill tone="ok">
-                  <IconCheck size={12} />
+                  <IconCheck size={20} />
                   Snapshot matches the draft
                 </Pill>
               ) : (
                 <Pill tone="neutral">Draft only</Pill>
               )}
             </div>
+            {/*
+              What has moved, in words. This line used to read
+              "Snapshot 1k3f9x2 · published never · draft 8b2e0qa" — three FNV hashes an
+              organizer can only compare character by character to learn something the
+              panel already knows and can say.
+            */}
             <p className="publishing-meta">
-              Snapshot <code>{model.publishedPrint}</code> · published{" "}
-              {formatStamp(publication.publishedAt)} · draft <code>{model.draftPrint}</code>
+              {model.isLive && model.changed.length
+                ? `Live since ${formatStamp(publication.publishedAt)}. ${listed(model.changed)} ${model.changed.length === 1 ? "has" : "have"} changed since, and need an explicit publish.`
+                : model.isLive
+                  ? `Live since ${formatStamp(publication.publishedAt)}. The published snapshot matches the draft.`
+                  : publication.state === "unpublished"
+                    ? "Taken down. The draft is intact and publishing puts it back."
+                    : "Nothing published yet."}
             </p>
+            <details className="publishing-technical">
+              <summary>Technical details</summary>
+              <dl className="publishing-prints">
+                <div>
+                  <dt>Draft fingerprint</dt>
+                  <dd>
+                    <code className="figure">{model.draftPrint}</code>
+                  </dd>
+                </div>
+                <div>
+                  <dt>Snapshot fingerprint</dt>
+                  <dd>
+                    <code className="figure">{model.publishedPrint}</code>
+                  </dd>
+                </div>
+                <div>
+                  <dt>Projection version</dt>
+                  <dd>
+                    <code className="figure">{publication.projectionVersion ?? 1}</code>
+                  </dd>
+                </div>
+              </dl>
+            </details>
           </div>
 
           <div className="toolbar publishing-actions">
@@ -880,22 +925,12 @@ export function PublishingWorkspace({
             </button>
             {model.isLive ? (
               <a className="btn secondary" href={model.siteHref} target="_blank" rel="noreferrer">
-                <IconGlobe size={15} />
+                <IconGlobe size={20} />
                 Open public site
               </a>
             ) : null}
             <button
-              type="button"
-              className="secondary"
-              disabled={busy !== null || !canPublish || !model.isLive}
-              onClick={() => {
-                // ERROR-INTENT: handlers cannot await; mutate announces both outcomes.
-                void mutate("unpublish");
-              }}
-            >
-              {busy === "unpublish" ? "Unpublishing…" : "Unpublish"}
-            </button>
-            <button
+              className="primary"
               type="button"
               disabled={busy !== null || !canPublish}
               onClick={() => {
@@ -904,6 +939,16 @@ export function PublishingWorkspace({
               }}
             >
               {busy === "publish" ? "Publishing…" : model.isLive ? "Publish changes" : "Publish"}
+            </button>
+            {/* Held apart from the publishing run, and it asks first: taking the event down
+                stops a public address a speaker may already have shared. */}
+            <button
+              type="button"
+              className="danger publishing-unpublish"
+              disabled={busy !== null || !canPublish || !model.isLive}
+              onClick={() => setConfirmingUnpublish(true)}
+            >
+              {busy === "unpublish" ? "Unpublishing…" : "Unpublish"}
             </button>
           </div>
         </div>
@@ -932,8 +977,9 @@ export function PublishingWorkspace({
       </Card>
 
       {model.isLive && model.changed.length ? (
-        <Notice tone="warn">
-          <IconWarning size={15} />
+        /* Publication drift is a standing fact read from the server, not an answer to a press,
+           so it stays polite; `warn` would otherwise announce it on every visit. */
+        <Notice tone="warn" role="status">
           <span>
             Visitors are being served public projection version {publication.projectionVersion ?? 1}
             , activated on {formatStamp(publication.publishedAt)}. Event or site settings have moved
@@ -942,7 +988,6 @@ export function PublishingWorkspace({
         </Notice>
       ) : model.isLive ? (
         <Notice tone="info">
-          <IconCheck size={15} />
           <span>
             The public projection matches the current sources. Publishing establishes the site;
             later accepted schedule, content, and CFP publications refresh it automatically.
@@ -950,7 +995,6 @@ export function PublishingWorkspace({
         </Notice>
       ) : (
         <Notice tone="info">
-          <IconGlobe size={15} />
           <span>
             Nothing is published yet. Preview composes the payload without publishing; Publish
             establishes version one and brings the public page, JSON feed, and embeds online.
@@ -960,11 +1004,10 @@ export function PublishingWorkspace({
 
       <PublicDetailsPanel publication={publication} canEdit={canPublish} onSaved={adopt} />
 
-      <Card
+      <Section
         labelledBy="publishing-preview"
         title="Preview"
-        hint="Composed from the live draft. Opening this page never publishes anything."
-        tight
+        description="Composed from the live draft. Opening this page never publishes anything."
       >
         <div className="publishing-tabs">
           <Tabs
@@ -997,12 +1040,12 @@ export function PublishingWorkspace({
             </EmptyState>
           )}
         </div>
-      </Card>
+      </Section>
 
-      <Card
+      <Section
         labelledBy="publishing-embeds"
         title="Embeds"
-        hint="Copy a hosted URL or snippet for another site. Preview a frame only when you need it."
+        description="Copy a hosted URL or snippet for another site. Preview a frame only when you need it."
       >
         {/*
           One configuration, applied to every snippet below. It is deliberately not stored:
@@ -1010,76 +1053,90 @@ export function PublishingWorkspace({
           afterwards, so an organizer can hand out two differently configured snippets from
           the same event without this screen having to remember either.
         */}
-        <fieldset className="publishing-embed-config">
-          <legend>Configure the snippets</legend>
+        <div className="publishing-embed-config">
           <div className="publishing-embed-options">
-            <div className="field">
-              <label htmlFor="embed-track">Limit to one track</label>
-              <select
-                id="embed-track"
-                value={embedConfig.track}
-                onChange={(changeEvent) =>
-                  setEmbedConfig((current) => ({ ...current, track: changeEvent.target.value }))
-                }
-              >
-                <option value="">Every track</option>
-                {model.tracks.map((track) => (
-                  <option key={track} value={track}>
-                    {track}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="field">
-              <label htmlFor="embed-accent">Accent colour</label>
-              <input
-                id="embed-accent"
-                type="color"
-                value={embedConfig.accent || "#6257d9"}
-                onChange={(changeEvent) =>
-                  setEmbedConfig((current) => ({ ...current, accent: changeEvent.target.value }))
-                }
-              />
-              {embedConfig.accent ? (
-                <button
-                  type="button"
-                  className="link"
-                  onClick={() => setEmbedConfig((current) => ({ ...current, accent: "" }))}
-                >
-                  Use the host page's colours
-                </button>
-              ) : null}
-            </div>
-          </div>
-
-          <div className="field">
-            <span className="publishing-legend">Fields on each session card</span>
-            <div className="publishing-embed-fields">
-              {EMBED_FIELDS.map((field) => (
-                <label key={field.id} className="publishing-check">
+            {/*
+              The empty value is an answer — "every track" — not the absence of one, so it is the
+              selected option rather than a placeholder. Passed as `null` it took the placeholder
+              ink reserved for an unanswered field, which is the same grey a disabled control uses:
+              a picker showing its real, correct choice looked switched off.
+            */}
+            <Select
+              label="Limit to one track"
+              value={embedConfig.track}
+              onChange={(next) => setEmbedConfig((current) => ({ ...current, track: next }))}
+              options={[
+                { value: "", label: "Every track" },
+                ...model.tracks.map((track) => ({ value: track, label: track })),
+              ]}
+            />
+            <Field
+              label="Accent colour"
+              id="embed-accent"
+              hint="Left unset, the embed inherits the host page's colours."
+            >
+              {(control) => (
+                <div className="inline">
                   <input
-                    type="checkbox"
-                    checked={embedConfig.fields.includes(field.id)}
+                    {...control}
+                    className="control publishing-accent"
+                    type="color"
+                    // The swatch an unset colour opens on is the product's own green, not the
+                    // violet this shipped with: a picker resting on a colour that appears
+                    // nowhere else in Greenroom reads as a choice somebody already made.
+                    value={embedConfig.accent || "#0e5c3d"}
                     onChange={(changeEvent) =>
                       setEmbedConfig((current) => ({
                         ...current,
-                        fields: changeEvent.target.checked
+                        accent: changeEvent.target.value,
+                      }))
+                    }
+                  />
+                  {embedConfig.accent ? (
+                    <button
+                      type="button"
+                      className="link"
+                      onClick={() => setEmbedConfig((current) => ({ ...current, accent: "" }))}
+                    >
+                      Use the host page's colours
+                    </button>
+                  ) : null}
+                </div>
+              )}
+            </Field>
+          </div>
+
+          <Field
+            label="Fields on each session card"
+            labelAs="group"
+            hint={
+              embedConfig.fields.length === 0
+                ? "Nothing selected, so the cards print every field."
+                : `The cards print only: ${embedConfig.fields.join(", ")}.`
+            }
+          >
+            {(_control, labelId) => (
+              // biome-ignore lint/a11y/useSemanticElements: `Field` already renders this group's caption and its id; a <fieldset> here would add a second grouping semantic, and its default min-inline-size: min-content stops the grid track shrinking.
+              <div className="publishing-embed-fields" role="group" aria-labelledby={labelId}>
+                {EMBED_FIELDS.map((field) => (
+                  <Checkbox
+                    key={field.id}
+                    label={field.label}
+                    checked={embedConfig.fields.includes(field.id)}
+                    onChange={(checked) =>
+                      setEmbedConfig((current) => ({
+                        ...current,
+                        fields: checked
                           ? [...current.fields, field.id]
                           : current.fields.filter((candidate) => candidate !== field.id),
                       }))
                     }
                   />
-                  {field.label}
-                </label>
-              ))}
-            </div>
-            <p className="publishing-sub">
-              {embedConfig.fields.length === 0
-                ? "Nothing selected, so the cards print every field."
-                : `The cards print only: ${embedConfig.fields.join(", ")}.`}
-            </p>
-          </div>
-        </fieldset>
+                ))}
+              </div>
+            )}
+          </Field>
+        </div>
 
         <div className="publishing-embeds">
           {model.embeds.map((embed) => (
@@ -1095,13 +1152,50 @@ export function PublishingWorkspace({
             {model.apiUrl}
           </a>
         </div>
-      </Card>
+      </Section>
       {/*
-       * The embed cards above compose a URL to copy and nothing remembers it. This panel is the
+       * The embed sections above compose a URL to copy and nothing remembers it. This panel is the
        * other half issue #192's residual epic asked for: an embed with a name you can find later
        * and an address you can withdraw without unpublishing the whole event.
        */}
       <SavedEmbeds eventId={eventId} canManage={canPublish} />
+
+      <Drawer
+        open={confirmingUnpublish}
+        title={`Take ${eventName} off the web?`}
+        busy={busy === "unpublish"}
+        onClose={() => setConfirmingUnpublish(false)}
+        footer={
+          <>
+            <button
+              type="button"
+              className="danger primary"
+              disabled={busy !== null}
+              onClick={() => {
+                setConfirmingUnpublish(false);
+                // ERROR-INTENT: handlers cannot await; mutate announces both outcomes.
+                void mutate("unpublish");
+              }}
+            >
+              Take it down
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              disabled={busy !== null}
+              onClick={() => setConfirmingUnpublish(false)}
+            >
+              Keep it published
+            </button>
+          </>
+        }
+      >
+        <p>
+          <code>{model.siteUrl}</code> stops resolving, and so does the JSON feed and every embed
+          pasted into somebody else's page — including any address a speaker has already shared. The
+          draft is kept, and publishing again brings the same address back.
+        </p>
+      </Drawer>
     </>
   );
 }

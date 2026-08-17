@@ -197,3 +197,24 @@ export async function createReportSchedule(
     envelope.error.fieldErrors ?? {},
   );
 }
+
+/**
+ * Stop a standing delivery.
+ *
+ * The route has existed since reporting shipped and no browser called it, so a schedule created
+ * by a mistyped cadence or a departed recipient could only be removed by hand in the database —
+ * and it kept mailing an expiring link every week until somebody did.
+ */
+export async function deleteReportSchedule(
+  eventId: string,
+  reportId: string,
+  scheduleId: string,
+  fetcher: typeof fetch = fetch,
+) {
+  const response = await fetcher(`${base(eventId)}/${reportId}/schedules/${scheduleId}`, {
+    method: "DELETE",
+  });
+  if (response.ok) return;
+  const envelope = (await response.json()) as ApiErrorEnvelope;
+  throw new ReportApiError(envelope.error.correlationId, envelope.error.message);
+}

@@ -11,9 +11,9 @@ export const abstractsWorkspace: WorkspaceModule = {
   domain: "review",
   path: "/abstracts",
   label: "Abstracts",
-  group: "Program",
+  group: "operate",
   order: 1,
-  icon: <IconReview size={16} />,
+  icon: <IconReview />,
   personas: ["organizer"],
   canAccess: ({ capabilities }) => capabilities.includes("review:manage"),
   header: () => ({
@@ -36,7 +36,7 @@ export const reviewsWorkspace: WorkspaceModule = {
   label: "Review assignments",
   group: "home",
   order: 0,
-  icon: <IconReview size={16} />,
+  icon: <IconReview />,
   personas: ["reviewer"],
   canAccess: ({ capabilities }) => capabilities.includes("review:evaluate"),
   header: () => ({
@@ -65,8 +65,11 @@ export const programSubmissionsTab: HubTabModule = {
   hub: "program",
   tab: "submissions",
   label: "Submissions",
-  order: 20,
-  icon: <IconReview size={16} />,
+  // First in the Program hub, because a hub opens on its first tab and this is the daily
+  // queue. Forms is the once-per-event form builder, and opening the console on it put a
+  // configuration surface in front of the work every single morning.
+  order: 10,
+  icon: <IconReview />,
   personas: ["organizer"],
   legacyPaths: ["/abstracts"],
   canAccess: ({ capabilities }) => capabilities.includes("review:manage"),

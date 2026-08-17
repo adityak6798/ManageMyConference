@@ -81,9 +81,36 @@ function stubApi(routes: (url: string, init?: RequestInit) => Promise<Response> 
 
 const writes = (calls: Call[]) => calls.filter((call) => call.method !== "GET");
 
-/** The `<li>` for one question, found by the control only that question owns. */
+/*
+ * The composer is three panes: a rail of the form's parts, the list of what is in the selected
+ * part, and the inspector holding the one item being edited. A question's editor is no longer
+ * inline in its row — ten questions were about 4,000px of permanently open controls — so these
+ * helpers say which part is open and which question is selected.
+ */
+
+/** The part of the composer holding the form's own title, description and submission window. */
+async function openFormDetails() {
+  fireEvent.click(await screen.findByRole("button", { name: /^Form details/ }));
+}
+
+/** The part of the composer the workspace opens on: the list of questions. */
+async function openQuestions() {
+  fireEvent.click(await screen.findByRole("button", { name: /^Questions/ }));
+}
+
+/** The part of the composer holding the routing rules. */
+async function openRouting() {
+  fireEvent.click(await screen.findByRole("button", { name: /^Routing/ }));
+}
+
+/** Select one question, whose editor is then the inspector. */
+async function selectQuestion(label: string) {
+  fireEvent.click(await screen.findByRole("button", { name: label }));
+}
+
+/** The `<li>` for one question in the list, found by the control that selects it. */
 const question = (label: string) =>
-  screen.getByRole("button", { name: `Remove ${label}` }).closest("li") as HTMLElement;
+  screen.getByRole("button", { name: label }).closest("li") as HTMLElement;
 
 afterEach(() => {
   cleanup();
@@ -103,6 +130,7 @@ describe("publishing what is on screen", () => {
     });
     render(<CfpWorkspace eventId={eventId} organizer timezone={TIMEZONE} />);
 
+    await openFormDetails();
     fireEvent.change(await screen.findByLabelText("Form title"), {
       target: { value: "Call for talks" },
     });
@@ -133,6 +161,7 @@ describe("publishing what is on screen", () => {
     });
     render(<CfpWorkspace eventId={eventId} organizer timezone={TIMEZONE} />);
 
+    await openFormDetails();
     fireEvent.change(await screen.findByLabelText("Form title"), { target: { value: "Renamed" } });
     fireEvent.click(screen.getByRole("button", { name: "Publish CFP" }));
 
@@ -140,13 +169,14 @@ describe("publishing what is on screen", () => {
     // A refused save must abort the publish; promoting the stored draft here would ship the
     // version the organizer was trying to replace.
     expect(writes(calls).map((call) => call.url)).toEqual([`/api/events/${eventId}/cfp`]);
-    // The server names the question by index; the organizer has to be shown which one.
-    expect(
-      within(question("Session abstract")).getByText("Give this question a label."),
-    ).toBeInTheDocument();
-    expect(
-      within(question("Proposal title")).queryByText("Give this question a label."),
-    ).toBeNull();
+    // The server names the question by index; the organizer has to be shown which one. The row
+    // carries the mark so the failure is findable from the list, and the sentence itself is in
+    // the inspector, with the control that fixes it.
+    await openQuestions();
+    expect(within(question("Session abstract")).getByText("!")).toBeInTheDocument();
+    expect(within(question("Proposal title")).queryByText("!")).toBeNull();
+    await selectQuestion("Session abstract");
+    expect(screen.getByText("Give this question a label.")).toBeInTheDocument();
   });
 
   it("reports a stale draft and reloads only when the organizer chooses recovery", async () => {
@@ -171,6 +201,7 @@ describe("publishing what is on screen", () => {
     });
     render(<CfpWorkspace eventId={eventId} organizer timezone={TIMEZONE} />);
 
+    await openFormDetails();
     fireEvent.change(await screen.findByLabelText("Form title"), {
       target: { value: "My unsaved edit" },
     });
@@ -186,27 +217,82 @@ describe("publishing what is on screen", () => {
   });
 });
 
+/*
+ * The composer is a form builder, and the two things it kept getting wrong were both about
+ * what it showed rather than what it sent: the whole editor for every question at once, and a
+ * publication state that reported "Published · open" for a form nobody had an address to reach.
+ */
+describe("the composer's own shape", () => {
+  const published = form({
+    status: "open",
+    version: 4,
+    publishedAt: "2026-08-01T12:00:00.000Z",
+    publishedStatus: "open",
+    effectiveStatus: "open",
+    fields: [field(), field({ id: "abstract", label: "Session abstract" })],
+  });
+
+  it("says a published form is unreachable rather than reporting it as open", async () => {
+    // The publication preview 404s: this event has no public page, so the form it "published"
+    // has nowhere to live. The status card used to report "Published · open" regardless.
+    stubApi((url) =>
+      url.startsWith("/api/events/") || url.startsWith("/api/public/events/")
+        ? jsonResponse({ cfp: published })
+        : undefined,
+    );
+    render(<CfpWorkspace eventId={eventId} organizer timezone={TIMEZONE} />);
+
+    // The publication state is still what it is; the missing address is a second fact.
+    expect(await screen.findByText("Published · open")).toBeInTheDocument();
+    expect(screen.getByText("No public address")).toBeInTheDocument();
+    expect(
+      screen.getByText(/no public page yet, so nobody can reach it. Publish the event under/),
+    ).toBeInTheDocument();
+  });
+
+  it("holds one question's editor at a time, not every question's at once", async () => {
+    stubApi((url) =>
+      url.startsWith("/api/events/") ? jsonResponse({ cfp: published }) : undefined,
+    );
+    render(<CfpWorkspace eventId={eventId} organizer timezone={TIMEZONE} />);
+
+    // Both questions are in the list — the list is the form's shape…
+    expect(await screen.findByRole("button", { name: "Proposal title" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Session abstract" })).toBeInTheDocument();
+    // …and exactly one of them is open in the inspector. Ten questions used to render ten full
+    // editors, which is roughly 4,000px of permanently open controls.
+    expect(screen.getAllByLabelText("Question label")).toHaveLength(1);
+    expect(screen.getByLabelText("Question label")).toHaveValue("Proposal title");
+
+    await selectQuestion("Session abstract");
+    expect(screen.getAllByLabelText("Question label")).toHaveLength(1);
+    expect(screen.getByLabelText("Question label")).toHaveValue("Session abstract");
+  });
+});
+
 describe("building the question list", () => {
   const twoQuestions = () =>
     form({ fields: [field(), field({ id: "abstract", label: "Session abstract" })] });
 
-  it("adds only contract-backed types from a searchable keyboard dialog", async () => {
+  it("offers the four contract-backed types as named cards, and edits what it adds", async () => {
     stubApi((url) => (url.startsWith("/api/events/") ? jsonResponse({ cfp: form() }) : undefined));
     render(<CfpWorkspace eventId={eventId} organizer timezone={TIMEZONE} />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Add question" }));
     const dialog = screen.getByRole("dialog", { name: "Add a question" });
+    // Four types, each with what it collects. A search box over four options costs a keystroke
+    // to reach what is already on screen, so it is gone.
     expect(within(dialog).getByRole("button", { name: /Short text/ })).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: /Long text/ })).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: /Email/ })).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: /Single select/ })).toBeInTheDocument();
-    fireEvent.change(within(dialog).getByRole("searchbox", { name: "Search question types" }), {
-      target: { value: "single" },
-    });
-    expect(within(dialog).queryByRole("button", { name: /Short text/ })).toBeNull();
+    expect(within(dialog).queryByRole("searchbox")).toBeNull();
+
     fireEvent.click(within(dialog).getByRole("button", { name: /Single select/ }));
     expect(screen.queryByRole("dialog", { name: "Add a question" })).toBeNull();
+    // The question that was just added is the one the inspector is editing.
     expect(screen.getByDisplayValue("New question")).toBeInTheDocument();
+    expect(screen.getByLabelText("Field type")).toHaveValue("select");
   });
 
   it("posts the order the organizer arranged, not the order the server sent", async () => {
@@ -218,7 +304,10 @@ describe("building the question list", () => {
     });
     render(<CfpWorkspace eventId={eventId} organizer timezone={TIMEZONE} />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Move Proposal title down" }));
+    // The keyboard's half of the drag handle. Two Move buttons per row were 2n controls for one
+    // gesture, and they read as part of the question rather than as a way to arrange the form.
+    const row = await screen.findByRole("button", { name: "Proposal title" });
+    fireEvent.keyDown(row, { key: "ArrowDown", ctrlKey: true });
     fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
 
     await waitFor(() => expect(writes(calls)).toHaveLength(1));
@@ -282,10 +371,9 @@ describe("building the question list", () => {
     });
     render(<CfpWorkspace eventId={eventId} organizer timezone={TIMEZONE} />);
 
-    await screen.findByRole("button", { name: "Remove Session abstract" });
-    const abstract = question("Session abstract");
-    fireEvent.click(await within(abstract).findByLabelText("Show this question conditionally"));
-    expect(within(abstract).getByLabelText("Match")).toHaveValue("notEmpty");
+    await selectQuestion("Session abstract");
+    fireEvent.click(await screen.findByLabelText("Show this question conditionally"));
+    expect(screen.getByLabelText("Match")).toHaveValue("notEmpty");
     fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
 
     await waitFor(() => expect(writes(calls)).toHaveLength(1));
@@ -311,6 +399,7 @@ describe("building the question list", () => {
     });
     render(<CfpWorkspace eventId={eventId} organizer timezone={TIMEZONE} />);
 
+    await openRouting();
     const routingCard = await screen.findByRole("region", { name: "Submission routing" });
     fireEvent.click(within(routingCard).getByRole("button", { name: "Add routing rule" }));
     expect(within(routingCard).getByLabelText("Match")).toHaveValue("in");
@@ -361,6 +450,7 @@ describe("building the question list", () => {
     });
     render(<CfpWorkspace eventId={eventId} organizer timezone={TIMEZONE} />);
 
+    await openRouting();
     const routingCard = await screen.findByRole("region", { name: "Submission routing" });
     const destination = within(routingCard).getByLabelText("Triage status");
     // The stored value is still the control's value, so the organizer sees which rule is wrong.
@@ -410,6 +500,7 @@ describe("building the question list", () => {
     });
     render(<CfpWorkspace eventId={eventId} organizer timezone={TIMEZONE} />);
 
+    await openRouting();
     const routingCard = await screen.findByRole("region", { name: "Submission routing" });
     const destination = within(routingCard).getByLabelText("Triage status");
     expect(destination).toHaveValue("under_review");
@@ -427,14 +518,14 @@ describe("building the question list", () => {
     );
     render(<CfpWorkspace eventId={eventId} organizer timezone={TIMEZONE} />);
 
-    await screen.findByRole("button", { name: "Remove Session abstract" });
-    const abstract = question("Session abstract");
-    fireEvent.click(await within(abstract).findByLabelText("Show this question conditionally"));
-    fireEvent.change(within(abstract).getByLabelText("Match"), { target: { value: "equals" } });
+    await selectQuestion("Session abstract");
+    fireEvent.click(await screen.findByLabelText("Show this question conditionally"));
+    fireEvent.change(screen.getByLabelText("Match"), { target: { value: "equals" } });
     fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
 
+    // The refusal lands in the inspector, beside the control that produced it.
     expect(
-      await within(abstract).findByText("Choose the answer that shows Session abstract."),
+      await screen.findByText("Choose the answer that shows Session abstract."),
     ).toBeInTheDocument();
     expect(writes(calls)).toHaveLength(0);
   });
@@ -482,13 +573,19 @@ describe("the live form beside the draft", () => {
     renderDiverged();
 
     await screen.findByText("Draft ahead of live");
-    expect(screen.getByText("Call for proposals 2027")).toBeInTheDocument();
-    expect(screen.queryByText("Call for proposals 2026")).toBeNull();
+    // The preview is what an organizer checks, not what they work in: as a permanent column it
+    // took half the page from the form being composed, so it opens on demand.
+    fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+    const preview = await screen.findByRole("dialog", { name: "Public form" });
+    expect(within(preview).getByText("Call for proposals 2027")).toBeInTheDocument();
+    expect(within(preview).queryByText("Call for proposals 2026")).toBeNull();
 
-    fireEvent.click(screen.getByRole("tab", { name: "Live form" }));
+    fireEvent.click(within(preview).getByRole("tab", { name: "Live form" }));
 
-    expect(screen.getByText("Call for proposals 2026")).toBeInTheDocument();
-    expect(screen.getByText(/This is exactly what applicants see right now/)).toBeInTheDocument();
+    expect(within(preview).getByText("Call for proposals 2026")).toBeInTheDocument();
+    expect(
+      within(preview).getByText(/This is exactly what applicants see right now/),
+    ).toBeInTheDocument();
   });
 });
 

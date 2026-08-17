@@ -13,8 +13,17 @@
 
 import type { PipelineStageDto, StageCategoryDto } from "@greenroom/contracts";
 import { type FormEvent, useMemo, useState } from "react";
+import { Select } from "../ui/fields";
+import { IconDashboard } from "../ui/icons";
 import { EmptyState, Pill } from "../ui/primitives";
 
+/*
+ * The category list, as the shared listbox reads it.
+ *
+ * The native control this replaces had to fold the consequence into the option text — "Open —
+ * Still being worked" — because an `<option>` can hold one string. The listbox has a second slot
+ * for exactly that, so the label is the word and the hint is the sentence.
+ */
 const CATEGORIES: { value: StageCategoryDto; label: string; hint: string }[] = [
   { value: "open", label: "Open", hint: "Still being worked" },
   { value: "won", label: "Won", hint: "Speaking, or as good as" },
@@ -148,7 +157,9 @@ export function PipelineStageEditor({
   return (
     <div className="stage-editor">
       {stages.length === 0 ? (
-        <EmptyState title="No stages yet">Add the first column of this event's board.</EmptyState>
+        <EmptyState icon={<IconDashboard size={20} />} title="No stages yet">
+          Add the first column of this event's board.
+        </EmptyState>
       ) : (
         <ol className="stage-list">
           {draft.map((stage, index) => {
@@ -169,23 +180,14 @@ export function PipelineStageEditor({
                     onChange={(event) => edit(index, { label: event.target.value })}
                   />
                 </div>
-                <div className="field">
-                  <label htmlFor={`stage-category-${stage.key}`}>Counts as</label>
-                  <select
-                    id={`stage-category-${stage.key}`}
-                    value={stage.category}
-                    disabled={busy || locked}
-                    onChange={(event) =>
-                      edit(index, { category: event.target.value as StageCategoryDto })
-                    }
-                  >
-                    {CATEGORIES.map(({ value, label, hint }) => (
-                      <option key={value} value={value}>
-                        {label} — {hint}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                <Select
+                  id={`stage-category-${stage.key}`}
+                  label="Counts as"
+                  value={stage.category}
+                  disabled={busy || locked}
+                  onChange={(value) => edit(index, { category: value as StageCategoryDto })}
+                  options={CATEGORIES}
+                />
                 <span className="stage-held">
                   <Pill tone={held ? "info" : "neutral"}>
                     {held} {held === 1 ? "prospect" : "prospects"}
@@ -261,23 +263,17 @@ export function PipelineStageEditor({
               ? `${counts.get(target.key)} prospect${counts.get(target.key) === 1 ? "" : "s"} stand here and must move somewhere.`
               : "Nobody stands here, so nothing moves."}
           </p>
-          <div className="field">
-            <label htmlFor="stage-migrate-to">Move them to</label>
-            <select
-              id="stage-migrate-to"
-              value={migrateTo}
-              disabled={busy}
-              onChange={(event) => setMigrateTo(event.target.value)}
-            >
-              {destinations.map((stage) => (
-                <option key={stage.key} value={stage.key}>
-                  {stage.label}
-                </option>
-              ))}
-            </select>
-          </div>
+          <Select
+            id="stage-migrate-to"
+            label="Move them to"
+            value={migrateTo}
+            disabled={busy}
+            onChange={setMigrateTo}
+            options={destinations.map((stage) => ({ value: stage.key, label: stage.label }))}
+          />
           <div className="stage-remove-actions">
             <button
+              className="danger"
               type="button"
               disabled={busy || !migrateTo}
               onClick={() => {
@@ -307,28 +303,26 @@ export function PipelineStageEditor({
             onChange={(event) => setNewLabel(event.target.value)}
           />
         </div>
-        <div className="field">
-          <label htmlFor="stage-new-category">Counts as</label>
-          <select
-            id="stage-new-category"
-            value={newCategory}
-            disabled={busy}
-            onChange={(event) => setNewCategory(event.target.value as StageCategoryDto)}
-          >
-            {CATEGORIES.map(({ value, label, hint }) => (
-              <option key={value} value={value}>
-                {label} — {hint}
-              </option>
-            ))}
-          </select>
-        </div>
+        <Select
+          id="stage-new-category"
+          label="Counts as"
+          value={newCategory}
+          disabled={busy}
+          onChange={(value) => setNewCategory(value as StageCategoryDto)}
+          options={CATEGORIES}
+        />
         <button type="submit" className="secondary" disabled={busy || !newLabel.trim()}>
           Add stage
         </button>
       </form>
 
       <div className="stage-save">
-        <button type="button" disabled={busy || !dirty} onClick={() => onSave(draft)}>
+        <button
+          className="primary"
+          type="button"
+          disabled={busy || !dirty}
+          onClick={() => onSave(draft)}
+        >
           Save board
         </button>
         {dirty ? (

@@ -1,5 +1,6 @@
 import type { UpdateSpeakerProfileInput } from "@greenroom/contracts";
 import { type FormEvent, useMemo, useRef, useState } from "react";
+import { describeApiFailure } from "../api/config";
 import {
   clearSpeakerProfilePhoto,
   contentFieldErrors,
@@ -22,7 +23,6 @@ import {
   shortDate,
   type SpeakerProfile,
   type Workspace,
-  withReference,
 } from "./shared";
 
 type ProfileDraft = {
@@ -155,9 +155,9 @@ export function SpeakerOutreach({
         result.ok ? "success" : "error",
         result.ok
           ? `${editingProfile.name}’s canonical profile was saved.`
-          : withReference(
-              "That profile could not be saved. Reload it before trying again.",
+          : describeApiFailure(
               result.error,
+              "That profile could not be saved. Reload it before trying again.",
             ),
       );
     });
@@ -180,7 +180,7 @@ export function SpeakerOutreach({
           ? assetId
             ? `${editingProfile.name}’s headshot was selected.`
             : `${editingProfile.name}’s headshot was removed.`
-          : withReference("That headshot choice could not be saved.", result.error),
+          : describeApiFailure(result.error, "That headshot choice could not be saved."),
       );
     });
   }
@@ -203,7 +203,7 @@ export function SpeakerOutreach({
       if (!result.ok) {
         inviteFeedback.announce(
           "error",
-          withReference("Those invitations could not be sent.", result.error),
+          describeApiFailure(result.error, "Those invitations could not be sent."),
         );
         return;
       }
@@ -261,7 +261,7 @@ export function SpeakerOutreach({
         result.ok ? "success" : "error",
         result.ok
           ? `Requested “${title}” from ${speaker.name}.`
-          : withReference("That task could not be requested.", result.error),
+          : describeApiFailure(result.error, "That task could not be requested."),
       );
     });
   }
@@ -285,7 +285,7 @@ export function SpeakerOutreach({
         result.ok ? "success" : "error",
         result.ok
           ? `Logged “${subject}” to ${speaker.name}.`
-          : withReference("That message could not be recorded.", result.error),
+          : describeApiFailure(result.error, "That message could not be recorded."),
       );
     });
   }
@@ -355,7 +355,12 @@ export function SpeakerOutreach({
                   {/* Enabled whenever somebody is ticked, and it explains what it could not do in
                   its answer rather than by greying itself out: a speaker with no address is a
                   state the organizer has to be told about, not one to hide the button over. */}
-                  <button type="button" disabled={busy || chosen.length === 0} onClick={invite}>
+                  <button
+                    className="primary"
+                    type="button"
+                    disabled={busy || chosen.length === 0}
+                    onClick={invite}
+                  >
                     <IconSend size={15} />
                     {/* The count only once there is one: "Invite 0 speakers" reads as an offer to do
                     nothing rather than as "choose somebody first". */}
@@ -559,7 +564,7 @@ export function SpeakerOutreach({
                         ))}
                       </fieldset>
                       <div className="form-actions profile-form-wide">
-                        <button type="submit" disabled={busy}>
+                        <button className="primary" type="submit" disabled={busy}>
                           Save canonical profile
                         </button>
                       </div>
@@ -674,7 +679,7 @@ export function SpeakerOutreach({
                 </p>
                 <FieldErrors id="task-due-error" messages={taskErrors.dueAt} />
               </div>
-              <button type="submit" aria-disabled={busy}>
+              <button className="primary" type="submit" aria-disabled={busy}>
                 <IconTask size={15} />
                 Request this task
               </button>

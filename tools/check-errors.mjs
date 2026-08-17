@@ -70,7 +70,16 @@ function handledCatch(block, text) {
     if (ts.isThrowStatement(node)) handled = true;
     if (ts.isCallExpression(node)) {
       const called = node.expression.getText();
-      if (/^(?:logger\.(?:error|warn)|setError|reportError)$/.test(called)) handled = true;
+      /*
+       * A state setter that holds a refusal reports it: the value it stores is what the surface
+       * renders, in a `Notice`, a `LoadFailure`, or a row's own error slot. `setError` was the
+       * only spelling recognised, so a surface that keeps its refusal per row — `setRowFailure`
+       * — read to this gate as a silent discard, and the only way past it was an ERROR-INTENT
+       * comment claiming a discard that was not happening. The name must *end* in Error or
+       * Failure, so `setErrorHandler` is still not a report.
+       */
+      if (/^(?:logger\.(?:error|warn)|reportError|set(?:[A-Z]\w*)?(?:Error|Failure))$/.test(called))
+        handled = true;
       // `<name>Feedback.announce("error", …)` renders the failure next to the control that
       // caused it and publishes it to a live region, so it reports rather than suppresses.
       // The first argument must be the literal "error": announcing a success in a catch

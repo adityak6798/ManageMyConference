@@ -12,17 +12,38 @@ import type { ReviewerQueueDto } from "@greenroom/contracts";
 import { type FormEvent, Fragment, useState } from "react";
 import { declareReviewConflict, saveReviewEvaluation } from "../api/review";
 import "../styles/review.css";
-import { IconCheck, IconWarning } from "../ui/icons";
-import { Card, Notice, Pill, useActionFeedback } from "../ui/primitives";
+import { Field, SegmentedControl, type SelectOption } from "../ui/fields";
+import { Card, Notice, useActionFeedback } from "../ui/primitives";
 import { SuggestionPanel } from "./SuggestionPanel";
 import { message } from "./shared";
 
 type QueueItem = ReviewerQueueDto["assignments"][number];
+type Criterion = NonNullable<QueueItem["plan"]>["criteria"][number];
+
+/**
+ * The values one criterion admits, as segments.
+ *
+ * A bounded scale is a row of choices, not a list to open: the reviewer is choosing between five
+ * things they can already see. The native `<select>` this replaces cost four interactions per
+ * criterion — open, read, move, commit — on the highest-volume control in the product.
+ */
+function criterionOptions(criterion: Criterion): readonly SelectOption[] {
+  if (!criterion.type || criterion.type === "numeric")
+    return Array.from({ length: criterion.maxScore - criterion.minScore + 1 }, (_, index) => {
+      const value = String(criterion.minScore + index);
+      return { value, label: value };
+    });
+  return "options" in criterion
+    ? criterion.options.map((option) => ({ value: String(option), label: String(option) }))
+    : [];
+}
+
 export function EvaluationCard({
   eventId,
   item,
   reload,
   suggestionsEnabled,
+  next = null,
   readOnlyReason = null,
 }: {
   eventId: string;
@@ -30,6 +51,8 @@ export function EvaluationCard({
   reload: () => Promise<void>;
   /** Whether this deployment has an assistant at all. False hides the panel entirely. */
   suggestionsEnabled: boolean;
+  /** The abstract to offer once this one is submitted, so finishing is not a dead end. */
+  next?: { title: string; onOpen: () => void } | null;
   /**
    * Why this assignment cannot be worked on, or `null` when it can.
    *
@@ -124,9 +147,22 @@ export function EvaluationCard({
         hint="Only organizers see your scores and notes."
       >
         {feedback.node}
-        <Notice tone="success">
-          <IconCheck size={15} />
-          <span>Evaluation submitted. Scores and conflicts are now locked.</span>
+        <Notice
+          tone="success"
+          // The way on. Submitting used to end the flow with a full stop and leave the reviewer
+          // to work out from the queue which abstract they had not done yet.
+          action={
+            next ? (
+              <button type="button" className="primary" onClick={next.onOpen}>
+                Next: {next.title}
+              </button>
+            ) : null
+          }
+        >
+          <span>
+            Evaluation submitted. Scores and conflicts are now locked.
+            {next ? "" : " Nothing else is waiting in your queue."}
+          </span>
         </Notice>
         <dl className="review-scores">
           {completed.scores.map((score) => (
@@ -155,8 +191,10 @@ export function EvaluationCard({
         hint="Only organizers see your scores and notes."
       >
         {feedback.node}
-        <Notice tone="warn">
-          <IconWarning size={15} />
+        {/* A standing condition, not a response to anything the reviewer just did: the conflict
+            was already declared when this card was opened. `warn` interrupts by default, which
+            would announce it on every mount, so this one stays polite. */}
+        <Notice tone="warn" role="status">
           <span>
             Conflict declared: {item.conflict.reason}. This assignment can no longer be scored.
           </span>
@@ -229,81 +267,73 @@ export function EvaluationCard({
           {criteria.map((criterion) => {
             const value = scores[criterion.id];
             const missing = attempted && value === undefined;
+            const numeric = !criterion.type || criterion.type === "numeric";
+            const guidance = `${criterion.description} · Weight ${criterion.weight ?? 1}`;
+            const clear = () =>
+              setScores((current) => {
+                const nextScores = { ...current };
+                delete nextScores[criterion.id];
+                return nextScores;
+              });
             return (
               <div
                 className={`criterion${criterion.type === "text" ? " criterion-text" : ""}`}
                 key={criterion.id}
               >
-                <div className="field">
-                  <label htmlFor={`score-${criterion.id}`}>{criterion.name}</label>
-                  <p className="hint" id={`hint-${criterion.id}`}>
-                    {criterion.description} · Weight {criterion.weight ?? 1}
-                  </p>
-                </div>
-                <div className="criterion-input">
-                  {criterion.type === "text" ? (
-                    <textarea
-                      id={`score-${criterion.id}`}
-                      aria-describedby={`hint-${criterion.id}`}
-                      aria-required="true"
-                      aria-invalid={missing}
-                      maxLength={criterion.maxLength}
-                      value={value === undefined ? "" : String(value)}
-                      onChange={(event) =>
-                        setScores((current) => {
-                          const next = { ...current };
-                          if (!event.target.value.trim()) delete next[criterion.id];
-                          else next[criterion.id] = event.target.value;
-                          return next;
-                        })
-                      }
-                    />
-                  ) : (
-                    <select
-                      id={`score-${criterion.id}`}
-                      aria-describedby={`hint-${criterion.id}`}
-                      aria-required="true"
-                      aria-invalid={missing}
-                      value={value === undefined ? "" : String(value)}
-                      onChange={(event) =>
-                        setScores((current) => {
-                          const next = { ...current };
-                          if (event.target.value === "") delete next[criterion.id];
-                          else
-                            next[criterion.id] =
-                              !criterion.type || criterion.type === "numeric"
-                                ? Number(event.target.value)
-                                : event.target.value;
-                          return next;
-                        })
-                      }
-                    >
-                      <option value="">Not scored</option>
-                      {(!criterion.type || criterion.type === "numeric"
-                        ? Array.from(
-                            { length: criterion.maxScore - criterion.minScore + 1 },
-                            (_, index) => criterion.minScore + index,
-                          )
-                        : "options" in criterion
-                          ? criterion.options
-                          : []
-                      ).map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                  {value === undefined ? (
-                    <Pill tone={missing ? "danger" : "neutral"}>
-                      {criterion.type === "text" ? "Not answered" : "Not scored"}
-                    </Pill>
-                  ) : criterion.type === "text" ? (
-                    <Pill tone="ok">Answered</Pill>
-                  ) : (
-                    <Pill tone="ok">{value}</Pill>
-                  )}
-                </div>
+                {criterion.type === "text" ? (
+                  <Field
+                    label={criterion.name}
+                    hint={guidance}
+                    id={`score-${criterion.id}`}
+                    required
+                    {...(missing ? { error: "Answer this criterion before saving." } : {})}
+                  >
+                    {(control) => (
+                      <textarea
+                        {...control}
+                        className="control"
+                        maxLength={criterion.maxLength}
+                        value={value === undefined ? "" : String(value)}
+                        onChange={(event) =>
+                          setScores((current) => {
+                            const nextScores = { ...current };
+                            if (!event.target.value.trim()) delete nextScores[criterion.id];
+                            else nextScores[criterion.id] = event.target.value;
+                            return nextScores;
+                          })
+                        }
+                      />
+                    )}
+                  </Field>
+                ) : (
+                  /*
+                   * The scale, on screen, one key away.
+                   *
+                   * This is the highest-volume interaction in the product — a reviewer works
+                   * through a queue giving four or five criteria a score each — and it was the
+                   * slowest control the platform offers for a bounded 1–5 scale. As segments the
+                   * whole scale is visible, the digit keys select directly, the arrows move
+                   * within the group, and clearing a score back to "not scored" is an explicit
+                   * control rather than a blank option in a list.
+                   */
+                  <SegmentedControl
+                    id={`score-${criterion.id}`}
+                    label={criterion.name}
+                    hint={guidance}
+                    numeric={numeric}
+                    options={criterionOptions(criterion)}
+                    value={value === undefined ? null : String(value)}
+                    onChange={(chosen) =>
+                      setScores((current) => ({
+                        ...current,
+                        [criterion.id]: numeric ? Number(chosen) : chosen,
+                      }))
+                    }
+                    onClear={clear}
+                    clearLabel={`Clear ${criterion.name}`}
+                    {...(missing ? { error: "Give this criterion a score before saving." } : {})}
+                  />
+                )}
               </div>
             );
           })}
@@ -338,6 +368,7 @@ export function EvaluationCard({
             Save draft
           </button>
           <button
+            className="primary"
             type="button"
             disabled={busy || !item.plan || Boolean(readOnlyReason)}
             aria-describedby={unscored.length ? "score-guard" : undefined}
@@ -385,7 +416,7 @@ export function EvaluationCard({
             </p>
           </div>
           <div className="toolbar">
-            <button type="submit" disabled={busy}>
+            <button className="primary" type="submit" disabled={busy}>
               Confirm conflict
             </button>
             <button

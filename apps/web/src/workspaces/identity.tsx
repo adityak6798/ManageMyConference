@@ -8,20 +8,20 @@
  * Owned by the `identity-access` domain. @spec PRD-IAM-001 PRD-IAM-002
  */
 import { MembersWorkspace } from "../MembersWorkspace";
-import { IconSettings } from "../ui/icons";
+import { IconMembers } from "../ui/icons";
 import type { HubTabModule, WorkspaceModule } from "./contract";
 
 export const membersWorkspace: WorkspaceModule = {
   domain: "identity-access",
   path: "/members",
   label: "Members",
-  group: "Audience",
+  group: "reach",
   /**
    * Fractional, so this sits beside the other organization-scoped surface without renumbering
    * `communications` (order 6) — the same reason the speaker directory took 5.5.
    */
   order: 5.7,
-  icon: <IconSettings size={16} />,
+  icon: <IconMembers />,
   personas: ["organizer"],
   /**
    * Two conditions the browser can check, and one it deliberately cannot.

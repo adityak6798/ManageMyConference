@@ -4,6 +4,7 @@
 /** Browser evidence for GAP-031's highest-risk surfaces. @spec PRD-IAM-002 PRD-OPS-004 */
 import { readFile } from "node:fs/promises";
 import { resolveWorktreeEnvironment } from "../../../tools/worktree-env.mjs";
+import { chooseOption, confirmInDrawer } from "./controls";
 import { expect, test } from "./fixtures";
 
 const DEMO_EVENT = "00000000-0000-4000-8000-000000000001";
@@ -67,7 +68,10 @@ test("a report exports every format and its anonymous share stops at revocation"
   expect(
     (await page.request.post("/api/demo-session", { data: { persona: "organizer" } })).ok(),
   ).toBe(true);
-  await page.goto(`/settings?event=${DEMO_EVENT}&tab=reports`);
+  // Reports is a destination rather than a Settings tab: it answers a question about the event
+  // being run, not something configured once, and as tab six of Settings it was three clicks
+  // away from every surface that raises the question.
+  await page.goto(`/reports?event=${DEMO_EVENT}`);
   await expect(page.getByRole("heading", { level: 1, name: "Reports" })).toBeVisible();
 
   await page.getByRole("button", { name: "Run", exact: true }).click();
@@ -141,9 +145,11 @@ test("a report exports every format and its anonymous share stops at revocation"
   ).toBe(true);
 
   await page.getByRole("button", { name: "Create a 72-hour link" }).click();
-  const issued = page.getByText("This link is shown once:");
-  await expect(issued).toBeVisible();
-  const url = (await issued.locator("code").innerText()).trim();
+  // Only the digest is stored, so this is the one moment the address exists on a screen: it is
+  // handed over as a copyable secret rather than as a `<code>` nobody can select cleanly.
+  await expect(page.getByText("Copy this address now")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Copy Share address" })).toBeVisible();
+  const url = (await page.locator(".secret-value").first().innerText()).trim();
   expect(url).toMatch(/\/reports\/[A-Za-z0-9_-]+$/);
 
   const visitor = await browser.newContext({ storageState: { cookies: [], origins: [] } });
@@ -154,10 +160,22 @@ test("a report exports every format and its anonymous share stops at revocation"
   await expect(shared.getByRole("heading", { level: 1, name: reportName })).toBeVisible();
   await expect(shared.getByRole("table")).toBeVisible();
 
+  // Revoking is the whole of revoking access and cannot be undone, so it asks first.
   await page.getByRole("button", { name: "Revoke" }).click();
-  await expect(page.getByRole("status")).toContainText("Share link revoked");
+  await confirmInDrawer(page, "Revoke this share link?", "Revoke the link");
+  await expect(page.getByRole("status").filter({ hasText: "Share link revoked" })).toBeVisible();
   await shared.reload();
-  await expect(shared.getByText("That share link is not available.")).toBeVisible();
+  /*
+   * The rows are gone, and the page does not say why.
+   *
+   * Expired, revoked, out of views and password-protected all look the same from here on
+   * purpose — telling a holder which refusal they met tells them something about a link they
+   * are not entitled to. So what is asserted is that the report is no longer served.
+   */
+  await expect(shared.getByRole("heading", { level: 1, name: reportName })).toHaveCount(0);
+  await expect(
+    shared.getByRole("heading", { level: 1, name: "This report needs a password" }),
+  ).toBeVisible();
   await visitor.close();
 });
 
@@ -178,13 +196,16 @@ test("an organization portal publishes, records consent, and disappears when wit
   await page.getByLabel("Public address").fill(slug);
   await page.getByLabel("Landing heading").fill("One doorway for the community");
   await page.getByRole("button", { name: "Create portal" }).click();
-  await expect(page.getByRole("status")).toContainText("Site created");
+  // Filtered: the editor drawer carries a standing notice of its own in a second live region.
+  await expect(page.getByRole("status").filter({ hasText: "Site created" })).toBeVisible();
 
   await page.getByLabel("New notice version").fill("We use this address only for registration.");
   await page.getByRole("button", { name: "Publish notice version" }).click();
-  await expect(page.getByRole("status")).toContainText("Privacy notice published");
+  await expect(
+    page.getByRole("status").filter({ hasText: "Privacy notice published" }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Publish", exact: true }).click();
-  await expect(page.getByRole("status")).toContainText("Portal published");
+  await expect(page.getByRole("status").filter({ hasText: "Portal published" })).toBeVisible();
 
   const visitor = await browser.newContext({ storageState: { cookies: [], origins: [] } });
   const publicPage = await visitor.newPage();
@@ -200,11 +221,14 @@ test("an organization portal publishes, records consent, and disappears when wit
 
   await page.getByRole("button", { name: "Show who consented" }).click();
   await expect(page.getByRole("cell", { name: `riley-${stamp}@example.test` })).toBeVisible();
+  // Taking a portal down stops a public address resolving, so it is destructive and it asks
+  // which address first.
   await page.getByRole("button", { name: "Unpublish" }).click();
-  await expect(page.getByRole("status")).toContainText("Portal withdrawn");
+  await confirmInDrawer(page, `Take ${name} down?`, "Take it down");
+  await expect(page.getByRole("status").filter({ hasText: "Portal withdrawn" })).toBeVisible();
   await publicPage.reload();
   await expect(
-    publicPage.getByRole("heading", { level: 1, name: "Portal unavailable" }),
+    publicPage.getByRole("heading", { level: 1, name: "This portal is not available" }),
   ).toBeVisible();
   await visitor.close();
 });
@@ -216,25 +240,29 @@ test("a persisted embed is issued, served anonymously, and withdrawn independent
     (await page.request.post("/api/demo-session", { data: { persona: "organizer" } })).ok(),
   ).toBe(true);
   await page.goto(`/publish?event=${DEMO_EVENT}&tab=embeds`);
-  const issuedHeading = page.getByRole("heading", { name: "Issued embeds" });
-  const issued = page.locator("section.card").filter({ has: issuedHeading });
+  // A `Section`, not a `Card`: the default page region is a label, a line of description and
+  // content, and a card is for one distinct object or state.
+  const issued = page.getByRole("region", { name: "Issued embeds" });
   const name = `Closure embed ${Date.now()}`;
   await issued.getByLabel("Name").fill(name);
-  await issued.getByLabel("Output").selectOption("json");
+  await chooseOption(page, issued.getByLabel("Output"), "JSON");
   await issued.getByRole("button", { name: "Issue embed" }).click();
-  await expect(issued.getByRole("status")).toContainText("Embed issued");
-  const url = (
-    await issued.getByText("This address is shown once").locator("code").innerText()
-  ).trim();
+  await expect(issued.getByRole("status").filter({ hasText: "Embed issued" })).toBeVisible();
+  // Shown once, in the row that produced it, as a copyable secret: only the digest is stored.
+  await expect(issued.getByText("This address is shown once")).toBeVisible();
+  const url = (await issued.locator(".secret-value").first().innerText()).trim();
   const anonymous = await page.request.get(new URL(url).pathname);
   expect(anonymous.ok(), await anonymous.text()).toBe(true);
   expect(anonymous.headers()["content-type"]).toContain("application/json");
 
+  // Withdrawing is permanent for that address — every host page still pointing at it stops
+  // working — so it asks which embed first.
   await issued
     .getByRole("row", { name: new RegExp(name) })
     .getByRole("button", { name: "Withdraw" })
     .click();
-  await expect(issued.getByRole("status")).toContainText(`Withdrew ${name}`);
+  await confirmInDrawer(page, `Withdraw ${name}?`, "Withdraw it");
+  await expect(issued.getByRole("status").filter({ hasText: `Withdrew ${name}` })).toBeVisible();
   expect((await page.request.get(new URL(url).pathname)).status()).toBe(404);
 });
 

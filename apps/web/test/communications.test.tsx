@@ -28,6 +28,20 @@ const composeFixture = (url: string): Promise<Response> | null => {
   return null;
 };
 
+/**
+ * Move the console to the second event.
+ *
+ * The event switcher is a WAI-ARIA select-only combobox rather than a native `<select>`, so it is
+ * driven by opening the listbox and choosing an option. `fireEvent.change` on the trigger is
+ * silently a no-op, which leaves every "after the organizer switches events" assertion testing
+ * nothing.
+ */
+function switchToSecondEvent() {
+  const switcher = screen.getByRole("combobox", { name: "Event workspace" });
+  fireEvent.keyDown(switcher, { key: "ArrowDown" });
+  fireEvent.click(screen.getByRole("option", { name: /Workshop/ }));
+}
+
 describe("communications history", () => {
   beforeEach(() => {
     // The outbox is its own route now and loads its history on mount.
@@ -145,7 +159,12 @@ describe("communications history", () => {
     );
     render(<App />);
     await screen.findByRole("button", { name: "Refresh outbox" });
-    expect(await screen.findByText("terminal", { exact: true })).toBeInTheDocument();
+    // "Stopped", not "terminal": the wire spelling is a storage word, and the row underneath
+    // now says what it means — nothing will try again until somebody retries it.
+    expect(
+      await screen.findByText("No further attempt will be made until somebody retries it."),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText("Stopped", { exact: true }).length).toBeGreaterThan(0);
     expect(screen.getByText("Provider rejected the delivery")).toHaveAttribute(
       "title",
       "PROVIDER_REJECTED",
@@ -157,10 +176,10 @@ describe("communications history", () => {
       await screen.findByText(/Attempt 1: Terminal failure — Provider rejected the delivery/),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Retry delivery to session:42" })).toBeEnabled();
-    fireEvent.change(screen.getByRole("combobox", { name: "Event workspace" }), {
-      target: { value: secondEventId },
-    });
-    expect(screen.queryByText("terminal", { exact: true })).not.toBeInTheDocument();
+    switchToSecondEvent();
+    expect(
+      screen.queryByText("No further attempt will be made until somebody retries it."),
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Retry delivery to session:42" }),
     ).not.toBeInTheDocument();
@@ -242,9 +261,7 @@ describe("communications history", () => {
       );
       render(<App />);
       await screen.findByRole("button", { name: "Refresh outbox" });
-      fireEvent.change(screen.getByRole("combobox", { name: "Event workspace" }), {
-        target: { value: secondEventId },
-      });
+      switchToSecondEvent();
       if (outcome === "success")
         resolveHistory(
           new Response(
@@ -378,9 +395,7 @@ describe("communications history", () => {
     render(<App />);
     await screen.findByRole("button", { name: "Refresh outbox" });
     fireEvent.click(await screen.findByRole("button", { name: "Retry delivery to session:retry" }));
-    fireEvent.change(screen.getByRole("combobox", { name: "Event workspace" }), {
-      target: { value: secondEventId },
-    });
+    switchToSecondEvent();
     rejectRetry(new Error("event A retry unavailable"));
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Refresh outbox" })).toBeEnabled(),

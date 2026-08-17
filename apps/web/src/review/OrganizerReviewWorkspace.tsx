@@ -9,8 +9,21 @@ import {
   transitionProposals,
 } from "../api/review";
 import "../styles/review.css";
-import { IconInbox, IconReview } from "../ui/icons";
-import { Card, EmptyState, Notice, Pill, Tabs, useActionFeedback, useLoad } from "../ui/primitives";
+import { Checkbox, Field, Select } from "../ui/fields";
+import { IconChevronDown, IconChevronRight, IconInbox, IconReview } from "../ui/icons";
+import { Menu } from "../ui/menu";
+import {
+  Card,
+  Drawer,
+  EmptyState,
+  LoadFailure,
+  Notice,
+  Pill,
+  SkeletonRows,
+  Tabs,
+  useActionFeedback,
+  useLoad,
+} from "../ui/primitives";
 import { ReviewerProgressPanel } from "./ReviewerProgressPanel";
 import { RoundsPanel } from "./RoundsPanel";
 import { RubricForm } from "./RubricForm";
@@ -111,7 +124,6 @@ export function OrganizerReviewWorkspace({
   const [decisionErrors, setDecisionErrors] = useState<Record<string, string[]>>({});
   const feedback = useActionFeedback();
   const decisionFeedback = useActionFeedback();
-  const detailRef = useRef<HTMLDivElement>(null);
   const decisionDialog = useRef<HTMLDialogElement>(null);
 
   /* Filters, selection and detail are organizer work-in-progress. Keep them in the address so a
@@ -164,7 +176,7 @@ export function OrganizerReviewWorkspace({
   const {
     data,
     error,
-    loading,
+    isRefreshing,
     reload: load,
   } = useLoad(eventId, fetchWorkspace, describeLoadFailure);
 
@@ -206,10 +218,6 @@ export function OrganizerReviewWorkspace({
       return sort === "score-desc" ? rightScore - leftScore : leftScore - rightScore;
     });
   }, [data, search, sort, tab, track]);
-
-  useEffect(() => {
-    if (openId) detailRef.current?.focus();
-  }, [openId]);
 
   async function act(action: () => Promise<unknown>, success: string) {
     setBusy(true);
@@ -301,10 +309,10 @@ export function OrganizerReviewWorkspace({
         "success",
         only
           ? outcome === "accepted"
-            ? `“${only.title}” is accepted. It is now a session in Sessions & speakers with ${only.submitter?.name ?? only.submitterName} linked as its speaker.`
+            ? `“${only.title}” is accepted. It is now a session under Schedule → Sessions with ${only.submitter?.name ?? only.submitterName} linked as its speaker.`
             : `“${only.title}” is ${OUTCOME_LABEL[outcome].toLowerCase()}. The outcome is recorded against this abstract.`
           : outcome === "accepted"
-            ? `${proposals.length} abstracts are accepted. Each is now a session in Sessions & speakers with its own submitter linked as its speaker.`
+            ? `${proposals.length} abstracts are accepted. Each is now a session under Schedule → Sessions with its own submitter linked as its speaker.`
             : `${proposals.length} abstracts are ${OUTCOME_LABEL[outcome].toLowerCase()}. The outcome is recorded against each of them.`,
       );
     } catch (reason) {
@@ -324,22 +332,13 @@ export function OrganizerReviewWorkspace({
     }
   }
 
-  if (error) return <Notice tone="error">{error}</Notice>;
+  if (error) return <LoadFailure what="abstract triage" error={error} onRetry={load} />;
 
   if (!data)
     return (
-      <>
-        <Card tight>
-          <div className="triage-skeleton" aria-hidden="true">
-            {[0, 1, 2, 3, 4].map((row) => (
-              <div key={row} className="skeleton" style={{ height: 18 }} />
-            ))}
-          </div>
-        </Card>
-        <p className="visually-hidden" role="status">
-          Loading abstract triage.
-        </p>
-      </>
+      <Card>
+        <SkeletonRows rows={5} label="Loading abstract triage" />
+      </Card>
     );
 
   const counts = new Map<string, number>();
@@ -834,7 +833,16 @@ export function OrganizerReviewWorkspace({
 
   return (
     <>
-      {loading ? <p role="status">Updating abstract triage…</p> : null}
+      {/*
+        A reload over a queue already on screen is not a line of text.
+        "Updating abstract triage…" was a paragraph that appeared and disappeared on every
+        decision, pushing the whole page down one line and back up again while the organizer was
+        aiming at the next row. The queue card carries `aria-busy` instead — the shell paints a
+        2px sweep along its top edge — and the sentence stays for screen readers only.
+      */}
+      <p className="visually-hidden" role="status">
+        {isRefreshing ? "Updating abstract triage." : ""}
+      </p>
       {/*
         Where a reviewer comes from, said on the surface that needs one.
         Assigning and distributing are both disabled with an empty reviewer team, and an organizer
@@ -868,91 +876,93 @@ export function OrganizerReviewWorkspace({
         id={`panel-${activeTab}`}
         role="tabpanel"
         aria-labelledby={`tab-${activeTab}`}
+        // The queue says it is busy where the queue is, and the shell paints a 2px sweep along
+        // its top edge. The sentence that used to do this job appeared and disappeared above the
+        // tabs on every decision, moving the whole page a line down and back up again.
+        aria-busy={isRefreshing || undefined}
       >
         <Card tight>
+          {/*
+            Two halves, and the split is the point: everything on the left narrows what is on
+            screen, everything on the right acts on it. They used to be one run of nine controls
+            in which "Track" and "Export XLSX" sat side by side with the same weight, so there
+            was no way to tell a filter from an action without reading every label.
+          */}
           <div className="toolbar triage-toolbar">
-            <div className="field triage-search">
-              <label htmlFor="triage-search">Search abstracts</label>
-              <input
-                id="triage-search"
-                type="search"
-                value={search}
-                placeholder="Title, submitter, or answer text"
-                onChange={(event) => setSearch(event.target.value)}
+            <div className="triage-filters">
+              <Field label="Search abstracts" id="triage-search">
+                {(control) => (
+                  <input
+                    {...control}
+                    className="control"
+                    type="search"
+                    value={search}
+                    placeholder="Title, submitter, or answer text"
+                    onChange={(event) => setSearch(event.target.value)}
+                  />
+                )}
+              </Field>
+              <Select
+                id="triage-track"
+                label="Track"
+                value={track}
+                onChange={setTrack}
+                hint="Select all applies only to this track."
+                options={[
+                  { value: "all", label: "All tracks" },
+                  ...tracks.map((item) => ({ value: item, label: item })),
+                ]}
+              />
+              {/*
+                Three orderings, not a toggle. The control used to swap between submission order
+                and *descending* aggregate, so the strongest abstract was reachable and the
+                weakest was not — and an organizer looking for what to decline needs the other
+                end of the list.
+              */}
+              <Select
+                id="triage-sort"
+                label="Order"
+                value={sort}
+                onChange={(value) => setSort(value as typeof sort)}
+                options={[
+                  { value: "submitted", label: "Submission order" },
+                  { value: "score-desc", label: "Highest aggregate first" },
+                  { value: "score-asc", label: "Lowest aggregate first" },
+                ]}
               />
             </div>
-            <div className="field triage-track">
-              <label htmlFor="triage-track">Track</label>
-              <select
-                id="triage-track"
-                value={track}
-                onChange={(event) => setTrack(event.target.value)}
-              >
-                <option value="all">All tracks</option>
-                {tracks.map((item) => (
-                  <option key={item} value={item}>
-                    {item}
-                  </option>
-                ))}
-              </select>
-              <p className="hint">Select all below applies only to this track.</p>
-            </div>
-            <p className="triage-count">
-              Showing {rows.length} of {data.proposals.length}
-            </p>
             {/*
-              Select-all, moved out of the table header by `#206`'s sweep. It lived in `<thead>`,
-              and `review.css` hides that row below 780px so the table can reflow into cards —
-              which removed the only way to select every abstract on a phone.
-
-              The short visible label with the sentence as its accessible name is that sweep's
-              shape and is kept: this lane first put the whole sentence on screen, which made the
-              label 369px wide inside a 390px viewport and panned the console sideways.
+              One export, two formats. Two buttons of equal weight asked the organizer to decide
+              between file formats before they had decided to export at all; the press is
+              "export", and the format is a choice attached to it.
             */}
-            {rows.length ? (
-              <label className="triage-select-all">
-                <input
-                  type="checkbox"
-                  aria-label="Select every abstract in this view"
-                  checked={allVisibleSelected}
-                  onChange={(event) =>
-                    setSelected(event.target.checked ? rows.map(({ id }) => id) : [])
-                  }
+            <div className="triage-tools">
+              <div className="triage-export">
+                <button type="button" className="secondary" onClick={() => exportResults("csv")}>
+                  Export results
+                </button>
+                <Menu
+                  label="Choose an export format"
+                  align="end"
+                  triggerClassName="secondary triage-export-more"
+                  trigger={<IconChevronDown size={16} />}
+                  items={[
+                    {
+                      id: "csv",
+                      label: "Export CSV",
+                      hint: "Opens anywhere",
+                      onSelect: () => exportResults("csv"),
+                    },
+                    {
+                      id: "xlsx",
+                      label: "Export XLSX",
+                      hint: "One sheet, typed columns",
+                      onSelect: () => exportResults("xlsx"),
+                    },
+                  ]}
                 />
-                Select all
-              </label>
-            ) : null}
-            {/*
-              Three orderings, not a toggle. The control used to swap between submission order and
-              *descending* aggregate, so the strongest abstract was reachable and the weakest was
-              not — and an organizer looking for what to decline needs the other end of the list.
-            */}
-            <div className="field triage-sort">
-              <label htmlFor="triage-sort">Order</label>
-              <select
-                id="triage-sort"
-                value={sort}
-                onChange={(event) => setSort(event.target.value as typeof sort)}
-              >
-                <option value="submitted">Submission order</option>
-                <option value="score-desc">Highest aggregate first</option>
-                <option value="score-asc">Lowest aggregate first</option>
-              </select>
+              </div>
             </div>
-            <button type="button" className="secondary small" onClick={() => exportResults("csv")}>
-              Export CSV
-            </button>
-            <button type="button" className="secondary small" onClick={() => exportResults("xlsx")}>
-              Export XLSX
-            </button>
-            <button
-              type="button"
-              className="secondary small"
-              disabled={busy}
-              onClick={startNextRound}
-            >
-              Start next round
-            </button>
           </div>
 
           {/*
@@ -962,37 +972,36 @@ export function OrganizerReviewWorkspace({
             hard-coded 20 — a capability nobody could reach.
           */}
           <div className="toolbar triage-round-bar">
-            <div className="field">
-              <label htmlFor="triage-round">Working in round</label>
-              <select
-                id="triage-round"
-                value={activeRound?.sequence ?? ""}
-                disabled={!rounds.length}
-                onChange={(event) => setRound(Number(event.target.value))}
-              >
-                {rounds.map((item) => (
-                  <option key={item.sequence} value={item.sequence}>
-                    {item.name} — {ROUND_STATE[item.state].label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="field">
-              <label htmlFor="triage-cap">Max abstracts per reviewer</label>
-              <input
-                id="triage-cap"
-                type="number"
-                min={1}
-                max={100}
-                value={cap}
-                onChange={(event) =>
-                  setCap(Math.min(100, Math.max(1, Number(event.target.value) || 1)))
-                }
-              />
-              <p className="hint">
-                Distribution stops assigning work when a reviewer reaches this limit.
-              </p>
-            </div>
+            <Select
+              id="triage-round"
+              label="Working in round"
+              value={activeRound ? String(activeRound.sequence) : null}
+              disabled={!rounds.length}
+              onChange={(value) => setRound(Number(value))}
+              options={rounds.map((item) => ({
+                value: String(item.sequence),
+                label: `${item.name} — ${ROUND_STATE[item.state].label}`,
+              }))}
+            />
+            <Field
+              label="Max abstracts per reviewer"
+              id="triage-cap"
+              hint="Distribution stops assigning work when a reviewer reaches this limit."
+            >
+              {(control) => (
+                <input
+                  {...control}
+                  className="control"
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={cap}
+                  onChange={(event) =>
+                    setCap(Math.min(100, Math.max(1, Number(event.target.value) || 1)))
+                  }
+                />
+              )}
+            </Field>
             {activeRound ? (
               <p className="triage-round-summary">
                 {activeRound.anonymized ? "Blind" : "Open"} review ·{" "}
@@ -1002,12 +1011,32 @@ export function OrganizerReviewWorkspace({
                   : "every event reviewer"}
               </p>
             ) : null}
+            {/* Beside the bar it operates on. It advances the abstracts in the selected status
+                into the next round, using this round's pool and this cap — three facts that all
+                live here, while the control lived up in the search toolbar. */}
+            <button type="button" className="secondary" disabled={busy} onClick={startNextRound}>
+              Start next round
+            </button>
+            {/*
+              Why that button will refuse, inside the bar it belongs to.
+
+              It used to render below the bar as a full-width band of `--warn-bg`, which made a
+              standing condition of the round — true before anybody presses anything — the
+              loudest thing on a page whose real warnings are notices. A sentence that explains a
+              control is a caption on that control's own row.
+            */}
+            {nextRoundBlocked ? (
+              <p className="triage-next-round-hint">
+                <strong>To start the next round:</strong> {nextRoundBlocked}
+              </p>
+            ) : null}
           </div>
-          {assignmentBlocked ? <Notice tone="warn">{assignmentBlocked}</Notice> : null}
-          {nextRoundBlocked ? (
-            <p className="triage-next-round-hint">
-              <strong>To start the next round:</strong> {nextRoundBlocked}
-            </p>
+          {/* A standing condition of the round, not an event: `warn` now interrupts by default,
+              and this sentence is already on screen before anybody acts. */}
+          {assignmentBlocked ? (
+            <Notice tone="warn" role="status">
+              {assignmentBlocked}
+            </Notice>
           ) : null}
           {/* A download the browser handles silently is indistinguishable from a dead button. */}
           {exported ? (
@@ -1017,88 +1046,126 @@ export function OrganizerReviewWorkspace({
             </p>
           ) : null}
 
-          {selected.length ? (
-            <fieldset className="triage-bulk">
-              <legend className="visually-hidden">Actions for the selected abstracts</legend>
-              <p className="selection-count">
-                {selected.length} selected
-                <button
-                  type="button"
-                  className="ghost small"
-                  onClick={() => setSelected([])}
-                  disabled={busy}
-                >
-                  Clear
-                </button>
-              </p>
-              <ProposalActions
-                idPrefix="bulk"
-                statusLabel="Move selection to"
-                reviewerLabel="Assign selection to"
-                statuses={data.statuses}
-                // The round's pool, not the event's directory: a name offered here that the
-                // round does not admit is an assignment the organizer would be refused for.
-                reviewers={roundReviewers}
-                busy={busy}
-                onTransition={(toStatus) => transition(selected, toStatus, true)}
-                onAssign={(reviewerId) => assign(selected, reviewerId, true)}
-              />
-              <button
-                type="button"
-                className="secondary"
-                disabled={busy}
-                onClick={() => distribute(selected)}
-              >
-                Distribute selection
-              </button>
+          {/*
+            The selection bar, which is where everything about the selection now lives —
+            including making one.
+
+            Select-all was in the table header until `#206` found that the phone layout hides
+            that row, then in the search toolbar, where it read as a filter. It belongs with the
+            actions it enables, so the bar is present whenever there are rows and grows its
+            actions once something is checked. "Showing N of M" moved here too: it describes the
+            set these controls act on.
+          */}
+          {rows.length ? (
+            <fieldset className={selected.length ? "triage-bulk" : "triage-bulk is-idle"}>
+              <legend className="visually-hidden">The selected abstracts, and what to do</legend>
               {/*
-               * The bulk accept an organizer was reaching for when they picked "Accepted" in the
-               * pipeline select. It opens the same confirmation a single row does and posts the
-               * same decision route, which takes the whole selection in one request — so the
-               * selection ends up with recorded decisions and real sessions, not a green pill.
-               */}
-              <fieldset className="field triage-decide">
-                {/* Each button names what it decides, so the legend is the visual grouping
+                The shared box. A bare `<input type="checkbox">` inherits `appearance: none` from
+                controls.css, so this once rendered as the words "Select all" beside a blank 13px
+                gap — the one control that turns four rows into a selection looked like it was not
+                there. It was then rebuilt out of the `.choice` classes by hand, with a copy of the
+                tick glyph, purely because `<Checkbox>` named itself from the two words printed
+                beside it and this control's name is a sentence. `ariaLabel` says that now.
+              */}
+              <Checkbox
+                className="triage-select-all"
+                label="Select all"
+                ariaLabel="Select every abstract in this view"
+                checked={allVisibleSelected}
+                onChange={(checked) => setSelected(checked ? rows.map(({ id }) => id) : [])}
+              />
+              <p className="selection-count">
+                {selected.length ? (
+                  <>
+                    {selected.length} selected
+                    <button
+                      type="button"
+                      className="ghost small"
+                      onClick={() => setSelected([])}
+                      disabled={busy}
+                    >
+                      Clear
+                    </button>
+                  </>
+                ) : (
+                  <span className="triage-count">
+                    Showing {rows.length} of {data.proposals.length}
+                  </span>
+                )}
+              </p>
+              {selected.length ? (
+                <>
+                  <ProposalActions
+                    idPrefix="bulk"
+                    statusLabel="Move selection to"
+                    reviewerLabel="Assign selection to"
+                    statuses={data.statuses}
+                    // The round's pool, not the event's directory: a name offered here that the
+                    // round does not admit is an assignment the organizer would be refused for.
+                    reviewers={roundReviewers}
+                    busy={busy}
+                    onTransition={(toStatus) => transition(selected, toStatus, true)}
+                    onAssign={(reviewerId) => assign(selected, reviewerId, true)}
+                  />
+                  <button
+                    type="button"
+                    className="secondary"
+                    disabled={busy}
+                    onClick={() => distribute(selected)}
+                  >
+                    Distribute selection
+                  </button>
+                  {/*
+                   * The bulk accept an organizer was reaching for when they picked "Accepted" in the
+                   * pipeline select. It opens the same confirmation a single row does and posts the
+                   * same decision route, which takes the whole selection in one request — so the
+                   * selection ends up with recorded decisions and real sessions, not a green pill.
+                   */}
+                  <fieldset className="field triage-decide">
+                    {/* Each button names what it decides, so the legend is the visual grouping
                     rather than the only thing that identifies them. */}
-                <legend className="group-label">Decide selection</legend>
-                <div className="triage-action-row">
-                  <button
-                    type="button"
-                    aria-haspopup="dialog"
-                    disabled={busy}
-                    onClick={() => openDecisionFor(selected, "accepted")}
-                  >
-                    Accept selection
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary"
-                    aria-haspopup="dialog"
-                    disabled={busy}
-                    onClick={() => openDecisionFor(selected, "waitlisted")}
-                  >
-                    Waitlist selection
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary"
-                    aria-haspopup="dialog"
-                    disabled={busy}
-                    onClick={() => openDecisionFor(selected, "revision_requested")}
-                  >
-                    Request revisions
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary"
-                    aria-haspopup="dialog"
-                    disabled={busy}
-                    onClick={() => openDecisionFor(selected, "declined")}
-                  >
-                    Decline selection
-                  </button>
-                </div>
-              </fieldset>
+                    <legend className="group-label">Decide selection</legend>
+                    <div className="triage-action-row">
+                      <button
+                        className="primary"
+                        type="button"
+                        aria-haspopup="dialog"
+                        disabled={busy}
+                        onClick={() => openDecisionFor(selected, "accepted")}
+                      >
+                        Accept selection
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary"
+                        aria-haspopup="dialog"
+                        disabled={busy}
+                        onClick={() => openDecisionFor(selected, "waitlisted")}
+                      >
+                        Waitlist selection
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary"
+                        aria-haspopup="dialog"
+                        disabled={busy}
+                        onClick={() => openDecisionFor(selected, "revision_requested")}
+                      >
+                        Request revisions
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary"
+                        aria-haspopup="dialog"
+                        disabled={busy}
+                        onClick={() => openDecisionFor(selected, "declined")}
+                      >
+                        Decline selection
+                      </button>
+                    </div>
+                  </fieldset>
+                </>
+              ) : null}
             </fieldset>
           ) : null}
 
@@ -1151,13 +1218,16 @@ export function OrganizerReviewWorkspace({
                     return (
                       <tr key={proposal.id} className={proposal.id === openId ? "is-open" : ""}>
                         <td className="select-cell" data-label="Select">
-                          <input
-                            type="checkbox"
-                            aria-label={`Select ${proposal.title}`}
+                          {/* The shared checkbox, which draws a box; the bare input this replaces
+                              rendered as an invisible 13px gap at the head of every row. The
+                              abstract is named for a screen reader and not printed again in the
+                              cell, where the title is already the next column. */}
+                          <Checkbox
+                            label={<span className="visually-hidden">Select {proposal.title}</span>}
                             checked={selected.includes(proposal.id)}
-                            onChange={(event) =>
+                            onChange={(checked) =>
                               setSelected((current) =>
-                                event.target.checked
+                                checked
                                   ? [...current, proposal.id]
                                   : current.filter((id) => id !== proposal.id),
                               )
@@ -1168,11 +1238,8 @@ export function OrganizerReviewWorkspace({
                           <button
                             type="button"
                             className="cell-link"
-                            aria-expanded={proposal.id === openId}
-                            aria-controls="proposal-detail"
-                            onClick={() =>
-                              setOpenId((current) => (current === proposal.id ? null : proposal.id))
-                            }
+                            aria-haspopup="dialog"
+                            onClick={() => setOpenId(proposal.id)}
                           >
                             {proposal.title}
                           </button>
@@ -1199,39 +1266,36 @@ export function OrganizerReviewWorkspace({
                             <span className="empty-text">Not scored</span>
                           )}
                         </td>
+                        {/*
+                         * What was decided, and one way in to decide it.
+                         *
+                         * This cell carried four buttons per row — around 240 of them on a
+                         * sixty-row queue — which is what forced the table to scroll sideways
+                         * and what made every row look like four things to do. The decision is
+                         * made where the abstract is: the drawer holds the outcomes, beside the
+                         * text the organizer is deciding on.
+                         */}
                         <td className="decision-cell" data-label="Decision">
-                          {decided ? (
-                            <Pill tone={decided.outcome === "accepted" ? "ok" : "danger"}>
-                              {OUTCOME_LABEL[decided.outcome]}
-                            </Pill>
-                          ) : null}
-                          {/*
-                           * Only the outcomes that would change something. A row already
-                           * recorded as accepted offered "Accept" beside an "Accepted" pill,
-                           * which reads as an available action and does nothing — and the
-                           * reverse, declining an acceptance, is offered because it is a real
-                           * correction, with the dialog stating that the session it created
-                           * is not withdrawn by it.
-                           */}
-                          <span className="decision-buttons">
-                            {(["accepted", "waitlisted", "revision_requested", "declined"] as const)
-                              .filter((choice) => decided?.outcome !== choice)
-                              .map((choice) => (
-                                <button
-                                  key={choice}
-                                  type="button"
-                                  className={choice === "accepted" ? "small" : "secondary small"}
-                                  aria-haspopup="dialog"
-                                  disabled={busy}
-                                  onClick={() => openDecisionFor([proposal.id], choice)}
-                                >
-                                  {decided
-                                    ? `${OUTCOME_ACTION[choice]} instead`
-                                    : OUTCOME_ACTION[choice]}
-                                  <span className="visually-hidden"> {proposal.title}</span>
-                                </button>
-                              ))}
-                          </span>
+                          {/* The flex row is this wrapper, not the cell: a `<td>` set to
+                              `display: flex` leaves the table's box tree, which is why the row
+                              hairlines used to stop short of this column. */}
+                          <div className="decision-cell-row">
+                            {decided ? (
+                              <Pill tone={decided.outcome === "accepted" ? "ok" : "danger"}>
+                                {OUTCOME_LABEL[decided.outcome]}
+                              </Pill>
+                            ) : null}
+                            <button
+                              type="button"
+                              className="secondary small"
+                              aria-haspopup="dialog"
+                              disabled={busy}
+                              onClick={() => setOpenId(proposal.id)}
+                            >
+                              {decided ? "Change" : "Decide"}
+                              <span className="visually-hidden"> {proposal.title}</span>
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -1309,22 +1373,55 @@ export function OrganizerReviewWorkspace({
         ) : null}
       </dialog>
 
-      {open ? (
-        // The wrapper is only a focus target; the card inside carries the accessible name.
-        <div className="proposal-detail" id="proposal-detail" ref={detailRef} tabIndex={-1}>
-          <Card
-            labelledBy="proposal-detail-title"
-            title={open.title}
-            hint={`Submitted by ${open.submitterName}`}
-            actions={
-              <>
-                <Pill tone={statusTone(open.status)}>{labelFor(open.status)}</Pill>
-                <button type="button" className="secondary small" onClick={() => setOpenId(null)}>
-                  Close
-                </button>
-              </>
-            }
-          >
+      {/*
+       * The abstract, over the queue rather than below it.
+       *
+       * This was a full-width card appended *after* the whole table, so opening row 30 of 200
+       * inserted a panel roughly 4,000px beneath the viewport: a mouse user clicked a title and
+       * saw nothing happen at all. The drawer opens where the eye already is and brings the
+       * focus trap, the inert backdrop and Escape with it. `openId` still lives in the address,
+       * so the abstract somebody is reading survives a refresh and can be sent to a colleague.
+       */}
+      <Drawer
+        open={Boolean(open)}
+        title={open?.title ?? ""}
+        {...(open ? { description: `Submitted by ${open.submitterName}` } : {})}
+        onClose={() => setOpenId(null)}
+      >
+        {open ? (
+          <>
+            <p className="detail-status">
+              <Pill tone={statusTone(open.status)}>{labelFor(open.status)}</Pill>
+            </p>
+            {/*
+             * The decision, beside the text it is about.
+             *
+             * Only the outcomes that would change something: a row already recorded as accepted
+             * offered "Accept" beside an "Accepted" pill, which reads as an available action and
+             * does nothing. The reverse — declining an acceptance — is offered because it is a
+             * real correction, with the confirmation stating that the session it created is not
+             * withdrawn by it.
+             */}
+            <fieldset className="field triage-decide">
+              <legend className="group-label">Decide this abstract</legend>
+              <div className="triage-action-row">
+                {(["accepted", "waitlisted", "revision_requested", "declined"] as const)
+                  .filter((choice) => openDecision?.outcome !== choice)
+                  .map((choice) => (
+                    <button
+                      key={choice}
+                      type="button"
+                      className={choice === "accepted" ? "primary" : "secondary"}
+                      aria-haspopup="dialog"
+                      disabled={busy}
+                      onClick={() => openDecisionFor([open.id], choice)}
+                    >
+                      {openDecision ? `${OUTCOME_ACTION[choice]} instead` : OUTCOME_ACTION[choice]}
+                      <span className="visually-hidden"> {open.title}</span>
+                    </button>
+                  ))}
+              </div>
+            </fieldset>
             <ProposalAnswers answers={open.answers} />
             {(open.coAuthors ?? []).length ? (
               <p className="detail-reviewers">
@@ -1378,9 +1475,9 @@ export function OrganizerReviewWorkspace({
               onTransition={(toStatus) => transition([open.id], toStatus, false)}
               onAssign={(reviewerId) => assign([open.id], reviewerId, false)}
             />
-          </Card>
-        </div>
-      ) : null}
+          </>
+        ) : null}
+      </Drawer>
 
       <div className="review-block">
         <RoundsPanel
@@ -1394,9 +1491,14 @@ export function OrganizerReviewWorkspace({
       </div>
 
       <details className="review-setup">
+        {/* The product's own chevron, because the platform's ▶ is the one mark on this page
+            drawn by the operating system rather than by the icon set. */}
         <summary>
-          Evaluation setup
-          <span className="setup-summary-hint">Scoring criteria and the status pipeline</span>
+          <IconChevronRight size={16} className="setup-caret" />
+          <span>
+            Evaluation setup
+            <span className="setup-summary-hint">Scoring criteria and the status pipeline</span>
+          </span>
         </summary>
         <div className="review-setup-body">
           <RubricForm

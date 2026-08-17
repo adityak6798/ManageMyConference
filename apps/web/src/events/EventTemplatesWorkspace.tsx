@@ -38,8 +38,6 @@ import {
   applyEventTemplate,
   captureEventTemplateVersion,
   duplicateEventTemplate,
-  EventTemplateApiError,
-  type EventTemplateApplicationDto,
   type EventTemplateDetailDto,
   getEventTemplate,
   listEventTemplates,
@@ -53,9 +51,21 @@ import {
   type TemplateApplicationResultDto,
   updateEventTemplate,
 } from "../api/event-templates";
+import { describeApiFailure } from "../api/config";
 import "../styles/events.css";
-import { IconCalendar, IconCheck, IconInbox, IconWarning } from "../ui/icons";
-import { Card, EmptyState, Notice, Pill, useActionFeedback } from "../ui/primitives";
+import { IconCopy, IconInbox } from "../ui/icons";
+import {
+  Card,
+  EmptyState,
+  GutterList,
+  GutterRow,
+  LoadFailure,
+  Notice,
+  Pill,
+  Section,
+  SkeletonPage,
+  useActionFeedback,
+} from "../ui/primitives";
 
 type Feedback = ReturnType<typeof useActionFeedback>;
 type SliceEntry = SlicePreviewDto["copies"][number];
@@ -118,11 +128,8 @@ const TONES: Record<string, "ok" | "neutral" | "warn" | "danger"> = {
   failed: "danger",
 };
 
-function describe(reason: unknown, fallback: string): string {
-  if (reason instanceof EventTemplateApiError)
-    return `${reason.message} Reference: ${reason.envelope.error.correlationId}`;
-  return reason instanceof Error && reason.message ? `${fallback} (${reason.message})` : fallback;
-}
+const describe = (reason: unknown, fallback: string): string =>
+  describeApiFailure(reason, fallback).message;
 
 /**
  * Both words are named rather than derived: the noun this surface counts most is "category",
@@ -250,20 +257,13 @@ export function EventTemplatesWorkspace({
   const [reviewed, setReviewed] = useState<ReviewedPlan | null>(null);
   const [result, setResult] = useState<TemplateApplicationResultDto | null>(null);
   /**
-   * What this event has already been configured from, and how each of those went.
-   *
-   * Kept beside the templates rather than folded into them, because it answers a different
-   * question: the library is what this organization *could* clone, and this is what has already
-   * happened to the event in front of the organizer.
-   */
-  const [applications, setApplications] = useState<EventTemplateApplicationDto[]>([]);
-  /**
    * The categories this event still owes, folded server-side across every application.
    *
-   * Held apart from `applications` because it answers a different question and is not derivable
-   * from that list here: the fold is a domain rule (`outstandingConfiguration`) with two readers
-   * — this workspace and the operational inbox — and a rule with two readers must not live in
-   * either of them (issue #203).
+   * The full application list used to be held beside this and read by nothing — the per-category
+   * fold replaced every use of it (issue #203) and the state stayed. What matters is not derivable
+   * from that list here anyway: the fold is a domain rule (`outstandingConfiguration`) with two
+   * readers — this workspace and the operational inbox — and a rule with two readers must not
+   * live in either of them.
    */
   const [outstanding, setOutstanding] = useState<OutstandingConfigurationCategoryDto[]>([]);
   /** A history this page could not read, reported in place of the card rather than everywhere. */
@@ -319,7 +319,6 @@ export function EventTemplatesWorkspace({
       }),
     );
     if (generation !== run.current) return;
-    setApplications("found" in configured ? configured.found.applications : []);
     setOutstanding("found" in configured ? configured.found.outstanding : []);
     setHistoryError("failure" in configured ? configured.failure : null);
   }, [eventId]);
@@ -560,54 +559,23 @@ export function EventTemplatesWorkspace({
     }, repairFeedback);
   }
 
-  if (loading)
-    return (
-      <Card>
-        <div className="template-loading" aria-hidden="true">
-          <div className="skeleton" style={{ height: 18, width: "34%" }} />
-          <div className="skeleton" style={{ height: 96, width: "100%" }} />
-        </div>
-        <p className="visually-hidden" role="status">
-          Loading the event templates.
-        </p>
-      </Card>
-    );
+  if (loading) return <SkeletonPage label="Loading the event templates" />;
 
   if (error)
     return (
-      <Card
-        labelledBy="event-templates-unavailable"
-        title="The templates could not be opened"
-        actions={
-          <button
-            type="button"
-            onClick={() => {
-              // ERROR-INTENT: handlers cannot await; load renders both of its outcomes.
-              void load();
-            }}
-          >
-            Try again
-          </button>
-        }
-      >
-        <Notice tone="error">{error}</Notice>
-        <p className="template-note">
-          Nothing is offered until the organization's templates load, so a retry cannot apply a
-          template this surface never managed to read.
-        </p>
-      </Card>
+      <LoadFailure what="the templates" error={error} onRetry={load}>
+        {error} Nothing is offered until the organization's templates load, so a retry cannot apply
+        a template this surface never managed to read.
+      </LoadFailure>
     );
 
   return (
     <>
       {historyError ? (
-        <Card labelledBy="event-template-history-unavailable" title="Template history unavailable">
-          <Notice tone="error">{historyError}</Notice>
-          <p className="template-note">
-            The templates below are unaffected — this is only the record of what has already been
-            applied to {eventName}, so a clone made now would still be reported in full.
-          </p>
-        </Card>
+        <LoadFailure what="this event's template history" error={historyError} onRetry={load}>
+          {historyError} The templates below are unaffected — this is only the record of what has
+          already been applied to {eventName}, so a clone made now would still be reported in full.
+        </LoadFailure>
       ) : null}
 
       {incomplete.length ? (
@@ -629,8 +597,10 @@ export function EventTemplatesWorkspace({
                   className="template-stack"
                   key={`${category.templateVersionId}:${category.key}`}
                 >
-                  <Notice tone="warn">
-                    <IconWarning size={15} />
+                  {/* Read from storage on arrival — often by somebody who did not run the clone —
+                      so it is a standing condition rather than an interruption. A page that opens
+                      with five of these would otherwise announce five alerts. */}
+                  <Notice tone="warn" role="status">
                     <span>
                       {/* "could not be configured" rather than "was not configured": the label is
                           a category name and most of them are plural — "Rooms and time slots was
@@ -659,6 +629,7 @@ export function EventTemplatesWorkspace({
                   />
                   <div className="toolbar">
                     <button
+                      className="secondary"
                       type="button"
                       disabled={busy || !canApply || archived}
                       onClick={() => {
@@ -695,68 +666,84 @@ export function EventTemplatesWorkspace({
       */}
       {repairFeedback.node}
 
-      <Card
+      <Section
         labelledBy="event-templates-library"
         title="Templates"
-        hint={`Every reusable template this organization holds. Applying one writes into ${eventName}; capturing one only reads.`}
+        description={`Every reusable template this organization holds. Applying one writes into ${eventName}; capturing one only reads.`}
       >
         {rows.length === 0 ? (
-          <EmptyState title="No templates yet" icon={<IconInbox size={20} />}>
+          <EmptyState title="No templates yet" icon={<IconCopy size={20} />}>
             Save {eventName}'s configuration below and it becomes version 1 of the first template
             this organization can clone from.
           </EmptyState>
         ) : (
-          <ul className="plain-list template-list">
+          /*
+           * The library is a list of rows with a measure, so it carries the cue gutter: the
+           * version a template stands at is the one figure that decides whether it is the
+           * template somebody remembers. It used to be a heading row with an arrow glyph after
+           * the name, which said "this opens" in a typeface rather than in the layout.
+           */
+          <GutterList label="Templates in this organization" className="template-list">
             {rows.map(({ template, versions: held }) => {
               const latest = held[0];
               return (
-                <li key={template.id}>
-                  <div className="section-heading">
+                <GutterRow
+                  key={template.id}
+                  measure={`v${latest?.version ?? 0}`}
+                  measureLabel="Newest version"
+                  active={template.id === selectedId}
+                  title={
                     <button
                       type="button"
                       className="ghost template-open"
-                      aria-current={template.id === selectedId ? "true" : undefined}
                       onClick={() => setSelectedId(template.id)}
                     >
-                      <span>{template.name}</span>
-                      <span aria-hidden="true">→</span>
+                      {template.name}
                     </button>
+                  }
+                  meta={
+                    <>
+                      {countLabel(held.length, "version", "versions")}
+                      {latest
+                        ? ` · newest captured from ${latest.sourceEventName} on ${stampedDay(latest.createdAt)}`
+                        : ""}
+                    </>
+                  }
+                  status={
                     <Pill tone={template.state === "active" ? "ok" : "neutral"}>
                       {template.state === "active" ? "Active" : "Archived"}
                     </Pill>
-                  </div>
-                  <span className="sub">
-                    {countLabel(held.length, "version", "versions")}
-                    {latest
-                      ? ` · newest captured from ${latest.sourceEventName} on ${stampedDay(latest.createdAt)}`
-                      : ""}
-                  </span>
-                </li>
+                  }
+                />
               );
             })}
-          </ul>
+          </GutterList>
         )}
-      </Card>
+      </Section>
 
-      <Card
+      <Section
         labelledBy="event-templates-save"
         title="Save this event as a template"
-        hint={`Reads ${eventName}'s configuration and stores it as version 1 of a new template. Nothing on this event changes.`}
+        description={`Reads ${eventName}'s configuration and stores it as version 1 of a new template. Nothing on this event changes.`}
       >
         {canAuthor ? (
-          <form onSubmit={save}>
+          <form className="template-save-form" onSubmit={save}>
             <div className="field">
               <label htmlFor="event-template-new-name">Template name</label>
               <div className="form-row">
+                {/* The shared control shell rather than the bare-element fallback in shell.css:
+                    this input sits in a row with a button and a form measure, and the fallback is
+                    there for controls nobody has reached yet, not for new work. */}
                 <input
                   id="event-template-new-name"
+                  className="control"
                   value={newName}
                   onChange={(changeEvent) => setNewName(changeEvent.target.value)}
                   placeholder="Annual summit starter"
                   required
                   maxLength={120}
                 />
-                <button type="submit" disabled={busy || !newName.trim()}>
+                <button className="primary" type="submit" disabled={busy || !newName.trim()}>
                   Save template
                 </button>
               </div>
@@ -769,7 +756,7 @@ export function EventTemplatesWorkspace({
             an event's configuration on behalf of the whole organization.
           </p>
         )}
-      </Card>
+      </Section>
 
       {selected ? (
         <>
@@ -946,7 +933,6 @@ export function EventTemplatesWorkspace({
               </div>
 
               <Notice tone="info">
-                <IconCalendar size={15} />
                 <span>
                   These two days are part of the clone rather than a fact about {eventName}: an
                   event here carries no dates of its own, so there is nothing to prefill them from
@@ -957,6 +943,7 @@ export function EventTemplatesWorkspace({
 
               <div className="toolbar">
                 <button
+                  className="primary"
                   type="submit"
                   disabled={busy || isArchived || !version || !startsOn || !endsOn}
                 >
@@ -975,12 +962,10 @@ export function EventTemplatesWorkspace({
           </Card>
         </>
       ) : (
-        <Card labelledBy="event-template-none" title="Nothing selected">
-          <EmptyState title="Open a template to preview it" icon={<IconInbox size={20} />}>
-            Choosing one above shows its versions, what applying it would copy into {eventName}, and
-            the two days the clone lands on.
-          </EmptyState>
-        </Card>
+        <EmptyState title="Open a template to preview it" icon={<IconInbox size={20} />}>
+          Choosing one above shows its versions, what applying it would copy into {eventName}, and
+          the two days the clone lands on.
+        </EmptyState>
       )}
 
       {reviewed ? (
@@ -1012,6 +997,7 @@ export function EventTemplatesWorkspace({
 
             <div className="toolbar">
               <button
+                className="primary"
                 type="button"
                 disabled={busy || !canApply || isArchived}
                 onClick={() => {
@@ -1040,11 +1026,6 @@ export function EventTemplatesWorkspace({
           {/* tabIndex={-1} is the focus target for the outcome of the apply button, not a tab stop. */}
           <div className="template-stack" ref={resultRef} tabIndex={-1}>
             <Notice tone={resultVerdict.tone}>
-              {resultVerdict.tone === "success" ? (
-                <IconCheck size={15} />
-              ) : (
-                <IconWarning size={15} />
-              )}
               <span>
                 Categories are written one at a time, and nothing in this system spans a transaction
                 across them. A category that fails does <strong>not</strong> roll back the

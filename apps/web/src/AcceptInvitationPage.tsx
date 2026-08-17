@@ -17,19 +17,31 @@
  * @spec PRD-IAM-001 PRD-IAM-002
  */
 import { type FormEvent, useEffect, useState } from "react";
-import { acceptInvitation, MembershipApiError } from "./api/membership";
-import { Card, EmptyState, Notice, PageHeader } from "./ui/primitives";
+import { type ApiFailure, describeApiFailure } from "./api/config";
+import { acceptInvitation } from "./api/membership";
+import { Card, Notice, Outcome, PageHeader } from "./ui/primitives";
 
-const describe = (reason: unknown) =>
-  reason instanceof MembershipApiError
-    ? `${reason.message} Reference: ${reason.correlationId}`
-    : "Something went wrong. Please retry; if it continues, contact support.";
-
-export function AcceptInvitationPage({ search }: { search: string }) {
+export function AcceptInvitationPage({
+  search,
+  durableSession,
+}: {
+  search: string;
+  /**
+   * Whether this browser holds a real account rather than a demo persona.
+   *
+   * The route refuses a persona outright — `authentication === "session"` is the whole of rule 1
+   * in docs/architecture/authorization.md — and the transport reports that refusal with the
+   * standard 401 sentence, "Sign in to continue.". To somebody who has just signed in and
+   * pressed Accept, that is both untrue and a dead end: the form stays on screen, the token is
+   * still in it, and pressing again says the same thing. So the surface answers before the
+   * press, the way the API-clients workspace answers the same rule.
+   */
+  durableSession: boolean;
+}) {
   const fromLink = new URLSearchParams(search).get("token") ?? "";
   const [token, setToken] = useState(fromLink);
   const [busy, setBusy] = useState(false);
-  const [failure, setFailure] = useState<string | null>(null);
+  const [failure, setFailure] = useState<ApiFailure | null>(null);
   const [accepted, setAccepted] = useState(false);
 
   // The link carries the token, so a visitor who followed one should not have to press anything
@@ -46,7 +58,7 @@ export function AcceptInvitationPage({ search }: { search: string }) {
     } catch (reason) {
       // ERROR-INTENT: rendered as the surface's recoverable state rather than rethrown — the
       // refusal is the answer here, and it carries the correlation reference a report needs.
-      setFailure(describe(reason));
+      setFailure(describeApiFailure(reason, "The invitation could not be accepted."));
     } finally {
       setBusy(false);
     }
@@ -57,18 +69,44 @@ export function AcceptInvitationPage({ search }: { search: string }) {
       <>
         <PageHeader eyebrow="Invitation" title="You're in" />
         <Card>
-          <EmptyState title="The invitation is accepted">
+          <Outcome
+            tone="success"
+            title="The invitation is accepted"
+            action={
+              /*
+                A full document load rather than a client navigation: the shell was built from a
+                session read that predates this membership, so its navigation and event list are
+                both stale until the session is read again.
+              */
+              <button className="primary" type="button" onClick={() => window.location.assign("/")}>
+                Open the workspace
+              </button>
+            }
+          >
             Your access is live from your next request. Open the workspace to see what you can now
             reach.
-          </EmptyState>
-          {/*
-            A full document load rather than a client navigation: the shell was built from a
-            session read that predates this membership, so its navigation and event list are both
-            stale until the session is read again.
-          */}
-          <button type="button" onClick={() => window.location.assign("/")}>
-            Open the workspace
-          </button>
+          </Outcome>
+        </Card>
+      </>
+    );
+
+  if (!durableSession)
+    return (
+      <>
+        <PageHeader
+          eyebrow="Invitation"
+          title="Accept an invitation"
+          subtitle="You are accepting as the account you are signed in with."
+        />
+        <Card>
+          {/* The refusal and the way out are one thing to read, as on API clients. */}
+          <Notice tone="warn" role="status">
+            <span>
+              A demo identity cannot accept an invitation: it is temporary, and the membership it
+              would create is real. Sign in with the address the invitation was sent to, then
+              follow this link again — it still carries the token.
+            </span>
+          </Notice>
         </Card>
       </>
     );
@@ -86,16 +124,21 @@ export function AcceptInvitationPage({ search }: { search: string }) {
             <label htmlFor="invitation-token">Invitation token</label>
             <input
               id="invitation-token"
+              className="control"
               value={token}
               onChange={(changed) => setToken(changed.target.value)}
               required
             />
           </div>
-          <button type="submit" disabled={busy || token.trim() === ""}>
+          <button className="primary" type="submit" disabled={busy || token.trim() === ""}>
             Accept
           </button>
         </form>
-        {failure ? <Notice tone="error">{failure}</Notice> : null}
+        {failure ? (
+          <Notice tone="error" reference={failure.reference}>
+            {failure.message}
+          </Notice>
+        ) : null}
         {/*
           No "not now" control: this surface renders inside the shell, so its sidebar is the way
           out and a second one would only be another thing to explain.

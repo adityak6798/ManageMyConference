@@ -59,10 +59,18 @@ try {
     await page.goto(baseURL);
     await page.getByRole("button", { name: "Continue as organizer" }).click();
     await page.getByRole("main").waitFor();
+    /*
+     * The four routes, as the console addresses them.
+     *
+     * These were `/cfp` and `/agenda`, which are the workspace paths the hubs replaced: the
+     * console now redirects them, so every capture was taken mid-redirect or on the hub's first
+     * tab by accident. A capture that does not name the URL it was taken at cannot be checked
+     * against the product, and the landing page prints these routes under each picture.
+     */
     const captures = [
       ["overview", `/?event=${event}`],
-      ["forms", `/cfp?event=${event}`],
-      ["agenda", `/agenda?event=${event}&view=room`],
+      ["forms", `/program?tab=forms&event=${event}`],
+      ["agenda", `/schedule?tab=agenda&event=${event}&view=room`],
       ["public-event", "/events/greenroom-demo-summit"],
     ];
     for (const [name, route] of captures) {
@@ -71,7 +79,11 @@ try {
         const text = document.body.innerText;
         return (
           document.querySelector("h1") !== null &&
-          !document.querySelector(".skeleton") &&
+          // Every loading placeholder the product draws, by the prefix they share: the single
+          // `.skeleton` bar became `.skeleton-rows`, `-stats`, `-form` and `-page`, so matching
+          // the exact old class name silently stopped waiting for anything at all.
+          !document.querySelector('[class*="skeleton"]') &&
+          !document.querySelector(".landing-boot") &&
           !text.includes("Loading your workspace") &&
           !text.includes("Loading Greenroom")
         );

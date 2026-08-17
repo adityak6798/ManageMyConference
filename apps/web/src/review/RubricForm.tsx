@@ -12,7 +12,7 @@ import type { OrganizerReviewWorkspaceDto } from "@greenroom/contracts";
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { configureReviewPlan } from "../api/review";
 import "../styles/review.css";
-import { IconPlus, IconWarning } from "../ui/icons";
+import { IconPlus } from "../ui/icons";
 import { Notice, useActionFeedback } from "../ui/primitives";
 
 import { message } from "./shared";
@@ -128,7 +128,6 @@ export function RubricForm({
         </div>
         {edited.current ? (
           <Notice tone="warn" role="alert">
-            <IconWarning size={15} />
             <span>
               Reviewers were assigned while you were editing, so your unsaved changes were not
               applied. What is below is the rubric in force.
@@ -334,7 +333,7 @@ export function RubricForm({
           <IconPlus size={14} />
           Add criterion
         </button>
-        <button type="submit" disabled={busy}>
+        <button className="primary" type="submit" disabled={busy}>
           Save rubric
         </button>
         <button type="button" className="ghost" onClick={reset} disabled={busy || !data.plan}>

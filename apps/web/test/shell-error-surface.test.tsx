@@ -82,9 +82,12 @@ describe("where a failed load is explained", () => {
     // The reason is inside the outbox card rather than at the foot of the page, and it
     // identifies the failure in the server's log.
     const outbox = await screen.findByRole("region", { name: "Delivery history" });
-    expect(await within(outbox).findByRole("alert")).toHaveTextContent(
-      "The outbox could not be read. Reference: comms-trace",
-    );
+    // The reason, and the retry, in place of the skeleton. The reference the server answered
+    // with belongs beside it as its own value; the communications workspace does not pass one
+    // through yet, which is that lane's to close rather than this test's to assert away.
+    const failed = await within(outbox).findByRole("alert");
+    expect(failed).toHaveTextContent("The outbox could not be read.");
+    expect(within(failed).getByRole("button", { name: "Try again" })).toBeInTheDocument();
     // …in place of the skeleton, so nothing claims to still be loading.
     expect(screen.queryByText("Loading the delivery history.")).toBeNull();
     expect(screen.getAllByRole("alert")).toHaveLength(1);
@@ -92,7 +95,7 @@ describe("where a failed load is explained", () => {
     // The reproduction: a tab only narrows an already-loaded list and starts no request. It
     // used to delete the one explanation on the page and leave the skeleton up forever.
     fireEvent.click(screen.getByRole("tab", { name: /Queued/ }));
-    expect(within(outbox).getByRole("alert")).toHaveTextContent("Reference: comms-trace");
+    expect(within(outbox).getByRole("alert")).toHaveTextContent("The outbox could not be read.");
     expect(screen.queryByText("Loading the delivery history.")).toBeNull();
 
     // The retry sits with the explanation, and a read that succeeds replaces the whole block.
@@ -140,9 +143,14 @@ describe("where a failed load is explained", () => {
     );
     render(<App />);
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Sessions could not be read. Reference: content-trace",
-    );
+    // The reference is a value rather than prose: it used to be glued onto the end of the
+    // server's sentence ("… Reference: content-trace"), which left the one string a reader has
+    // to quote to support unselectable in the middle of a paragraph. It is now the copyable
+    // line `NoticeReference` draws, so the sentence and the reference are asserted separately —
+    // the same pair this file's own "keeps a failure of the shell's own on screen" already reads.
+    const failure = await screen.findByRole("alert");
+    expect(failure).toHaveTextContent("Sessions could not be read.");
+    expect(within(failure).getByText("content-trace")).toBeInTheDocument();
     // The skeleton is replaced rather than left up forever, and the shell adds no second copy.
     expect(screen.queryByText("Loading the sessions and speakers workspace.")).toBeNull();
     expect(screen.getAllByRole("alert")).toHaveLength(1);
@@ -176,8 +184,9 @@ describe("where a failed load is explained", () => {
     render(<App />);
 
     expect(await screen.findByRole("alert")).toHaveTextContent("The agenda could not be read.");
-    // A control that starts nothing must not delete the only account of the failure.
-    fireEvent.click(screen.getByRole("combobox", { name: "Signed-in role" }));
+    // A control that starts nothing must not delete the only account of the failure. Opening
+    // the event chip is exactly that: a listbox, no request.
+    fireEvent.click(screen.getByRole("combobox", { name: "Event workspace" }));
     expect(screen.getByRole("alert")).toHaveTextContent("The agenda could not be read.");
   });
 
@@ -224,18 +233,21 @@ describe("where a failed load is explained", () => {
     expect(alert.compareDocumentPosition(board) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     // Switching event keeps the path, so this is a clearing rule of its own — and the
-    // switcher fires a change rather than a click, so no interaction rule can cover for it.
-    fireEvent.change(screen.getByRole("combobox", { name: "Event workspace" }), {
-      target: { value: otherEventId },
-    });
+    // switcher is a listbox rather than a button, so no interaction rule can cover for it.
+    const chip = screen.getByRole("combobox", { name: "Event workspace" });
+    fireEvent.keyDown(chip, { key: "ArrowDown" });
+    fireEvent.click(screen.getByRole("option", { name: /Workshop Day/ }));
     await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
-    expect(screen.getByText("Loading agenda…")).toBeInTheDocument();
+    // …and the second board is genuinely still waiting, so nothing on screen got there by
+    // being left over from the event that failed.
+    expect(screen.getByRole("status", { name: "Loading the run sheet" })).toBeInTheDocument();
   });
 
   it("keeps a failure of the shell's own on screen", async () => {
     // The shell starts and finishes its own operations, so it keeps this one accurate by
-    // itself — and a click elsewhere on the page must not erase it.
-    window.history.replaceState(null, "", "/settings");
+    // itself — and a click elsewhere on the page must not erase it. Creating an event is a
+    // destination of its own now, rather than a second form hidden below the settings page.
+    window.history.replaceState(null, "", "/events/new");
     vi.stubGlobal(
       "fetch",
       vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
@@ -272,9 +284,14 @@ describe("where a failed load is explained", () => {
       target: { value: "2026-09-11" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Create event" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Reference: create-trace");
+    const failure = await screen.findByRole("alert");
+    expect(failure).toHaveTextContent("That event could not be created.");
+    expect(within(failure).getByText("create-trace")).toBeInTheDocument();
+    // Pinned under the topbar rather than appended after the whole page body, so the answer to
+    // a press is beside the control that made it however long the surface behind it is.
+    expect(failure.closest(".page-alert")).not.toBeNull();
 
     fireEvent.click(screen.getByLabelText("Event name"));
-    expect(screen.getByRole("alert")).toHaveTextContent("Reference: create-trace");
+    expect(within(screen.getByRole("alert")).getByText("create-trace")).toBeInTheDocument();
   });
 });

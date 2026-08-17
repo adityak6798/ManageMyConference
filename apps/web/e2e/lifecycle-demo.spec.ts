@@ -1,5 +1,6 @@
 // @acceptance ACC-DEMO-SMOKE ACC-OPS
 import AxeBuilder from "@axe-core/playwright";
+import { switchPersona } from "./controls";
 import { expect, type Locator, type Page, test } from "./fixtures";
 
 const SLUG = "greenroom-demo-summit";
@@ -118,7 +119,7 @@ async function expectNoHorizontalOverflow(page: Page, surface: string) {
  * this surface has landed. That direction is the whole point. `toBeVisible()` on a selector that
  * matches nothing fails; `toHaveCount(0)` on the same selector passes. A wait that cannot tell
  * "there is nothing to wait for here" from "it has not arrived yet" is not a wait, which is the
- * same trap `openEveryToolPanel` documents below on the other side of the fetch.
+ * same trap `openEveryDisclosure` documents below on the other side of the fetch.
  *
  * A surface with no entry throws rather than falling back to something generic, so a nav
  * destination added later joins this table loudly instead of joining the audit unwaited-for.
@@ -155,115 +156,62 @@ const READY: Readonly<Record<string, (page: Page) => Locator>> = {
       })
       .first(),
 
-  // Overview's stats are `<div class="skeleton">` until all three reads answer; this card is in
-  // the loaded return only.
+  /*
+   * The organizer console, by hub.
+   *
+   * The sweep below discovers destinations from the sidebar, and the sidebar is nine job hubs and
+   * two utilities rather than twenty workspace routes. Each entry names the *first* tab of its
+   * hub, because that is what a hub URL with no `tab` opens on.
+   */
+  // Overview's stats are `<div class="skeleton">` until all three reads answer; this section is
+  // in the loaded return only.
   "organizer /": (page) =>
-    page.getByRole("heading", { level: 2, name: "Outstanding speaker onboarding", exact: true }),
-  "organizer /abstracts": (page) =>
-    page.getByRole("heading", { level: 2, name: "Reviewer progress", exact: true }),
-  "organizer /sessions": (page) =>
-    page.getByRole("heading", { level: 2, name: "Accepted sessions", exact: true }),
-  // No accessible name to hold on to: the board's toolbar counter is rendered past both the
-  // "Loading agenda…" gate and the "no agenda yet" one, so it is the board itself.
-  "organizer /agenda": (page) => page.locator(".agenda-count"),
-  "organizer /cfp": (page) =>
-    page.getByRole("heading", { level: 2, name: "Publication", exact: true }),
-  "organizer /program": (page) =>
-    page.getByRole("heading", { level: 2, name: "Publication", exact: true }),
-  // The Card around the pipeline is painted with skeletons inside it, so the card is not the
-  // signal — `.pipeline-board` replaces those skeletons and exists only in the loaded branch.
-  "organizer /speakers": (page) => page.locator(".pipeline-board"),
-  "organizer /people": (page) => page.locator(".pipeline-board"),
-  "organizer /schedule": (page) =>
-    page.getByRole("heading", { level: 2, name: "Accepted sessions", exact: true }),
-  // Same shape, and the empty directory is a loaded directory: both are the branch that replaces
-  // the skeletons, and only one of the two is ever on screen.
-  "organizer /speaker-directory": (page) =>
-    page
-      .locator("table.crm-table")
-      .or(page.getByRole("heading", { name: /No contacts (yet|match these filters)/ })),
-  "organizer /members": (page) =>
-    page.getByRole("heading", { level: 2, name: "Recent identity activity", exact: true }),
-  /*
-   * Roles paint a `Loading roles…` card until the read answers, and both branches that replace it
-   * are loaded branches: an event with composed roles shows the table, one without shows the empty
-   * state. Waiting for either is waiting for the read; waiting for the card's own title would not
-   * be, because the title is on screen in the loading branch too.
-   */
-  "organizer /roles": (page) =>
-    page
-      .locator("table.data")
-      .first()
-      .or(page.getByRole("heading", { name: "No custom roles yet" })),
-  /*
-   * The demo organizer is a throwaway persona, and this workspace refuses those before it fetches
-   * anything (#206) — so its list never loads here and there is no loaded list to wait for. The
-   * refusal *is* what this audit measures, and naming it is the honest entry; a real-session
-   * organizer sees the client table instead, and `api-clients.spec.ts` is where that is audited.
-   */
-  "organizer /integrations/api-clients": (page) =>
-    page.getByRole("link", { name: "Sign in with Google" }),
-  /*
-   * Webhooks answer `503 WEBHOOK_UNAVAILABLE` wherever the deployment carries no egress
-   * configuration, which is every local checkout — so what loads here is the "not configured"
-   * state, and that state *is* what this audit measures. Named rather than counted as covered, the
-   * same way the api-clients refusal above is. A configured deployment shows the subscription
-   * table instead, and no suite in this repository audits that.
-   */
-  "organizer /integrations/webhooks": (page) =>
-    page
-      .getByRole("heading", { name: "Webhooks are unavailable in this deployment" })
-      .or(page.getByRole("heading", { name: "No webhooks yet" })),
-  // The outbox card is painted before its read answers; only the hint counts what arrived.
-  "organizer /communications": (page) =>
-    page.locator("p.hint").filter({ hasText: /\d+ deliver(y|ies) loaded/ }),
-  "organizer /publishing": (page) =>
-    page.getByRole("heading", { level: 2, name: "Publication", exact: true }),
-  "organizer /publish": (page) =>
-    page.getByRole("heading", { level: 2, name: "Publication", exact: true }),
-  // Portals have the same two loaded branches as the directory above — a table of portals, or the
-  // empty state that replaces it — and a `Loading sites…` card before either.
-  "organizer /sites": (page) =>
-    page
-      .locator("table.data")
-      .first()
-      .or(page.getByRole("heading", { name: "No portals yet" })),
-  "organizer /event-templates": (page) =>
-    page.getByRole("heading", { level: 2, name: "Templates", exact: true }),
-  /*
-   * `/search` fetches nothing on mount — it is a form and a resting announcement until somebody
-   * submits — so this waits for that resting state rather than implying a read it never makes.
-   * Stated positively for the same reason as everywhere else here: an absent form would fail.
-   */
-  "organizer /search": (page) =>
-    page.locator("p.palette-announce").filter({ hasText: "Enter a search to begin." }),
+    page.getByRole("heading", { level: 2, name: "Speaker onboarding", exact: true }),
   "organizer /inbox": (page) =>
     page
-      .locator("p.palette-announce")
+      .locator("p.hint")
       .filter({ hasText: /\d+ items? (is|are) waiting on this event\./ }),
   /*
    * Reports render the builder only once the catalogue answers, and the Columns checkboxes *are*
    * the catalogue — one per field of the selected dataset — so this waits for the content rather
    * than for the form around it.
-   *
-   * Deliberately not the dataset `<option>`s, which was the first attempt and failed twice over:
-   * an option inside a closed `<select>` is never visible to a visibility assertion, and
-   * `getByRole("combobox")` finds the shell's own event switcher in the banner long before it
-   * finds anything this workspace rendered.
    */
   "organizer /reports": (page) =>
     page.getByRole("group", { name: "Columns" }).getByRole("checkbox").first(),
+  // Program opens on Submissions, the daily queue: the table, or the empty state that replaces it.
+  "organizer /program": (page) =>
+    page.locator("table.triage-table").or(page.getByRole("heading", { name: /^No abstracts/ })),
+  // The Card around the pipeline is painted with skeletons inside it, so the card is not the
+  // signal — `.pipeline-board` replaces those skeletons and exists only in the loaded branch.
+  "organizer /people": (page) => page.locator(".pipeline-board"),
+  "organizer /schedule": (page) =>
+    page.getByRole("heading", { level: 2, name: "Accepted sessions", exact: true }),
+  // The outbox region is painted before its read answers; only its description counts what
+  // arrived — before that it says "Loading the outbox…".
+  "organizer /communications": (page) =>
+    page.locator("p.section-description").filter({ hasText: /\d+ deliver(y|ies) loaded/ }),
+  "organizer /publish": (page) =>
+    page.getByRole("heading", { level: 2, name: "Publication", exact: true }),
+  // Creating an event is a destination of its own, and it is the shell's own form: nothing is
+  // fetched for it, so its first field is the whole of "ready".
+  "organizer /events/new": (page) => page.getByLabel("Event name", { exact: true }),
+  // Settings opens on Event, which is the shell's own state with nothing fetched.
+  "organizer /settings": (page) =>
+    page.getByRole("heading", { level: 2, name: "Event details", exact: true }),
   /*
-   * `/audit` is the surface the old wait was named for and did not cover: it renders no skeleton
-   * and no loading gate, so the toolbar, the caption and an empty `<tbody>` are on screen from the
-   * first frame and the audit measured a table with no rows in it. The live region is the only
-   * thing on the page that distinguishes "reading" from "read".
+   * Two console surfaces the sidebar does not offer, audited by the journeys that reach them.
+   * `/search` fetches nothing on mount — it is a form and a resting announcement until somebody
+   * submits — so this waits for that resting state rather than implying a read it never makes.
+   */
+  "organizer /search": (page) =>
+    page.locator("p.hint").filter({ hasText: "Enter a search to begin." }),
+  /*
+   * `/audit` renders no skeleton and no loading gate, so the toolbar, the caption and an empty
+   * `<tbody>` are on screen from the first frame. The live region is the only thing on the page
+   * that distinguishes "reading" from "read".
    */
   "organizer /audit": (page) =>
-    page.locator("p.palette-announce").filter({ hasText: /\d+ records? loaded\./ }),
-  // The shell's own surface: its form is state this document already holds, with nothing fetched.
-  "organizer /settings": (page) =>
-    page.getByRole("heading", { level: 2, name: "Current event", exact: true }),
+    page.locator("p.hint").filter({ hasText: /\d+ records? loaded\./ }),
   "reviewer assignments": (page) => page.locator(".review-main"),
   // The task card's title counts the outstanding tasks, so the name moves; the id does not.
   "speaker portal": (page) => page.locator("#speaker-tasks-title"),
@@ -318,29 +266,39 @@ async function settled(page: Page, surface: string) {
  * click-per-panel would make the sweep depend on each summary's hit target. Whether the
  * disclosure *works* is asserted separately, and in the unit suite.
  *
- * The wait is the whole mechanism. The first version of this helper ran ~25ms after the
- * navigation, while the panels first exist ~50ms in, so it found zero of them on every run — and
- * because it only verified a count it had itself computed as zero, it reported success while the
- * axe sweep went on auditing a page with all seven tools closed. A helper that cannot tell "there
- * are no panels here" from "the panels have not rendered yet" is not a check.
+ * The wait is the whole mechanism — `settled` above. The first version of this helper ran ~25ms
+ * after the navigation, while the panels first exist ~50ms in, so it found zero of them on every
+ * run and reported success while the sweep audited a page with all seven tools closed. A helper
+ * that cannot tell "there are no panels here" from "the panels have not rendered yet" is not a
+ * check.
+ *
+ * It opens every `<details>`, not only `details.tool-panel`. Most of what that class named has
+ * become a drawer — a `<dialog>` that renders nothing until it is opened — so a locator scoped to
+ * the old class would now find nothing on most hubs and say nothing about it. Drawer contents are
+ * audited by `auditDrawer` below, which opens the ones the sweep can no longer reach.
  */
-async function openEveryToolPanel(page: Page, surface: string, expected?: number) {
+async function openEveryDisclosure(page: Page, surface: string) {
   await settled(page, surface);
-  // `networkidle` is not enough on its own here. These destinations are reached by clicking a
-  // nav link, so the SPA never starts a document load and the idle state is already satisfied
-  // before the workspace fetch has even been issued. A route that says how many panels it has
-  // waits for them to exist; that wait is what makes the count meaningful.
-  if (expected !== undefined)
-    await expect(page.locator("details.tool-panel")).toHaveCount(expected);
-  const opened = await page.evaluate(() => {
-    const panels = [...document.querySelectorAll<HTMLDetailsElement>("details.tool-panel")];
-    for (const panel of panels) panel.open = true;
-    return panels.length;
+  await page.evaluate(() => {
+    for (const panel of document.querySelectorAll<HTMLDetailsElement>("details")) panel.open = true;
   });
-  // Routes with no tool panels are legitimate; a route that is supposed to have them says how
-  // many, so "found none" fails here instead of passing quietly into the audit.
-  if (expected !== undefined) expect(opened, "tool panels found to expand").toBe(expected);
-  await expect(page.locator("details.tool-panel:not([open])")).toHaveCount(0);
+  await expect(page.locator("details:not([open])")).toHaveCount(0);
+}
+
+/**
+ * Audit one drawer, opened by the control that offers it.
+ *
+ * A `<dialog>` renders nothing until it is shown, so content that moved out of an inline panel
+ * and into a drawer left the sweep above entirely. These are the two largest of those: the
+ * agenda's rooms/tracks/times editor and the call for proposals' public preview.
+ */
+async function auditDrawer(page: Page, opener: string, drawer: string, label: string) {
+  await page.getByRole("button", { name: opener, exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: drawer });
+  await expect(dialog).toBeVisible();
+  await expectNoAxeViolations(page, label);
+  await dialog.getByRole("button", { name: `Close ${drawer}` }).click();
+  await expect(dialog).toBeHidden();
 }
 
 async function openOrganizer(page: Page) {
@@ -416,9 +374,12 @@ test("audits every organizer destination and the Wave 2 evaluator surfaces", asy
   );
   expect(destinations.length).toBeGreaterThanOrEqual(7);
   for (const destination of destinations) {
+    // Addressed by href rather than by name. A destination with work waiting carries the count
+    // in its own text — "Inbox5 waiting5" — so an exact name match finds nothing precisely when
+    // the destination has something to say, and the href is what this loop is enumerating anyway.
     await page
       .getByRole("navigation", { name: "Workspace navigation" })
-      .getByRole("link", { name: destination.label, exact: true })
+      .locator(`a[href="${destination.href}"]`)
       .click();
     await expect(page).toHaveURL(destination.href);
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
@@ -426,15 +387,11 @@ test("audits every organizer destination and the Wave 2 evaluator surfaces", asy
     // A closed <details> renders nothing, and axe skips what is not rendered. #144 moved seven
     // tools — the CSV import form, the Accelevents controls, the workflow selects and textareas,
     // the bulk-assignment list, the deliverables inputs, the edit-history table, the speaker
-    // checklist editor (#176) and the whole
-    // resource editor — into closed panels, which would have quietly narrowed this audit to the
-    // dashboard while the scorecard still called the destination clean. They are opened first so
-    // the sweep covers at least what it covered when they were expanded Cards.
-    await openEveryToolPanel(
-      page,
-      organizerSurface(destination.href),
-      destination.href.startsWith("/schedule") ? 10 : undefined,
-    );
+    // checklist editor (#176) and the whole resource editor — into closed panels, which would
+    // have quietly narrowed this audit to the dashboard while the scorecard still called the
+    // destination clean. They are opened first so the sweep covers at least what it covered when
+    // they were expanded Cards.
+    await openEveryDisclosure(page, organizerSurface(destination.href));
     await expectNoAxeViolations(page, `organizer ${destination.label}`);
   }
 
@@ -466,9 +423,21 @@ test("audits every organizer destination and the Wave 2 evaluator surfaces", asy
   await page.goto("/schedule?tab=agenda");
   await expect(page.getByRole("button", { name: "Generate draft" })).toBeVisible();
   await expect(page.getByText("2 of 2 scheduled")).toBeVisible();
+  /*
+   * The two drawers the sweep above can no longer reach.
+   *
+   * A `<dialog>` renders nothing until it is shown, so the rooms/tracks/times editor and the
+   * public-form preview left the sweep when they stopped being inline panels. They are the
+   * largest two, and both are dense forms — exactly what an automated rule set is for.
+   */
+  await auditDrawer(page, "Rooms and times", "Rooms, tracks and times", "agenda resources drawer");
+  await page.goto("/program?tab=forms");
+  await auditDrawer(page, "Preview", "Public form", "call for proposals preview drawer");
+
+  await page.goto("/schedule?tab=agenda");
   // The room board shows one day at a time, so every event day is exposed without making an
   // organizer infer that a session on day two is hidden inside the Day select.
-  await page.getByRole("button", { name: "Wed, Sep 2 1 scheduled sessions" }).click();
+  await page.getByRole("radio", { name: "Wed, Sep 2 1 scheduled sessions" }).click();
   await expect(
     page.getByRole("button", {
       name: /Accessible by default\. Workshop lab, 10:00–11:00/,
@@ -532,9 +501,10 @@ test("audits the command palette, its focus return, and its 390px layout", async
 
 test("audits reviewer and speaker shells including evaluator-grade content", async ({ page }) => {
   await openOrganizer(page);
-  const role = page.getByRole("combobox", { name: "Signed-in role" });
 
-  await role.selectOption("reviewer");
+  // The persona picker moved inside the account control, where everything about who is signed in
+  // now lives, and is drawn only on a demo deployment.
+  await switchPersona(page, "Reviewer");
   await expect(page.getByRole("heading", { level: 1, name: "Review assignments" })).toBeVisible();
   await expect(
     page.getByRole("heading", { name: "Designing for the hallway track" }),
@@ -542,7 +512,7 @@ test("audits reviewer and speaker shells including evaluator-grade content", asy
   await expect(page.getByText("Relevance", { exact: true }).first()).toBeVisible();
   await expectNoAxeViolations(page, "reviewer assignments");
 
-  await role.selectOption("speaker");
+  await switchPersona(page, "Speaker");
   await expect(page.getByRole("heading", { level: 1, name: "Speaker portal" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Speaker resources" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Speaker handbook" })).toBeVisible();
@@ -613,15 +583,12 @@ test("audits every public and embed surface, focus transition, landmarks, and mo
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
     await expectNoHorizontalOverflow(page, organizerSurface(path));
   }
-  const openRoleControl = async () => {
-    const role = page.getByRole("combobox", { name: "Signed-in role" });
-    if (!(await role.isVisible())) await page.locator(".account-menu summary").click();
-    return role;
-  };
-  await (await openRoleControl()).selectOption("reviewer");
+  // The persona picker lives inside the account control at every width, so `switchPersona` opens
+  // it first; there is no narrow-layout special case left for this to carry.
+  await switchPersona(page, "Reviewer");
   await expect(page.getByRole("heading", { name: "Review assignments" })).toBeVisible();
   await expectNoHorizontalOverflow(page, "reviewer assignments");
-  await (await openRoleControl()).selectOption("speaker");
+  await switchPersona(page, "Speaker");
   await expect(page.getByRole("heading", { name: "Speaker portal" })).toBeVisible();
   await expectNoHorizontalOverflow(page, "speaker portal");
 });

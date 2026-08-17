@@ -14,6 +14,7 @@
  * This spec mutates nothing. Every route it touches is a read.
  */
 
+import { switchPersona } from "./controls";
 import { fillAdditionalEvent } from "./event-creation";
 import { expect, type Page, test } from "./fixtures";
 
@@ -22,9 +23,21 @@ async function openConsoleAs(page: Page, persona: "organizer" | "reviewer") {
   await page.getByRole("button", { name: "Continue as organizer" }).click();
   await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toBeVisible();
   if (persona === "organizer") return;
-  await page.getByRole("combobox", { name: "Signed-in role" }).selectOption("reviewer");
+  await switchPersona(page, "Reviewer");
   await expect(page.getByRole("heading", { level: 1, name: "Review assignments" })).toBeVisible();
 }
+
+/**
+ * A sidebar destination, matched on its label alone.
+ *
+ * A nav item that has work waiting carries the count in its own accessible name — "Inbox 7
+ * waiting 7" — so an exact match on the label finds nothing precisely when the destination has
+ * something to say.
+ */
+const navLink = (page: Page, label: string) =>
+  page
+    .getByRole("navigation", { name: "Workspace navigation" })
+    .getByRole("link", { name: new RegExp(`^${label}\\b`) });
 
 const palette = (page: Page) => page.getByRole("dialog", { name: "Search this event" });
 
@@ -44,7 +57,16 @@ test("an organizer reaches a session from the keyboard alone and lands on it", a
   // is one the deterministic seed holds, so an empty listbox is a defect rather than a correct
   // answer about a word nobody wrote.
   await page.keyboard.type("Accessible by default");
+  /*
+   * The *session*, named by its kind, not merely something whose text holds the query.
+   *
+   * The palette's last row is now "See all results for “…”", which carries the reader to the
+   * full-page search surface — and quotes the query, so it matches a bare title regex. It is
+   * present the moment the query is long enough to search, before any result has come back, so
+   * a looser locator was satisfied by the placeholder and pressed Enter on it.
+   */
   const option = palette(page)
+    .getByRole("group", { name: "Sessions, speakers and tasks" })
     .getByRole("option", { name: /Accessible by default/ })
     .first();
   await expect(option).toBeVisible();
@@ -113,10 +135,7 @@ test("the inbox states what is waiting on the seeded event, and a dismissal roun
 }) => {
   await openConsoleAs(page, "organizer");
 
-  await page
-    .getByRole("navigation", { name: "Workspace navigation" })
-    .getByRole("link", { name: "Inbox", exact: true })
-    .click();
+  await navLink(page, "Inbox").click();
   await expect(page.getByRole("heading", { level: 1, name: "Inbox" })).toBeVisible();
 
   /*
@@ -169,19 +188,14 @@ test("a brand-new event's inbox says its public page is not live", async ({ page
    */
   const name = `Greenroom Inbox Trial ${Date.now()}`;
   await openConsoleAs(page, "organizer");
-  await page.goto("/settings?tab=event");
   await fillAdditionalEvent(page, { name });
   await page.getByRole("button", { name: "Create event" }).click();
   // Wait for the created event to become the active selection, not merely to appear somewhere
-  // in the option list; navigating while creation is still refreshing would reopen the old event.
-  await expect(
-    page.getByRole("combobox", { name: "Event workspace" }).locator("option:checked"),
-  ).toHaveText(name);
+  // in the list; navigating while creation is still refreshing would reopen the old event. The
+  // switcher's trigger prints the selection, so its own text is what says which event is open.
+  await expect(page.getByRole("combobox", { name: "Event workspace" })).toContainText(name);
 
-  await page
-    .getByRole("navigation", { name: "Workspace navigation" })
-    .getByRole("link", { name: "Inbox", exact: true })
-    .click();
+  await navLink(page, "Inbox").click();
   await expect(page.getByRole("heading", { level: 1, name: "Inbox" })).toBeVisible();
 
   const publication = page.getByRole("region", { name: "Publication" });
@@ -222,7 +236,6 @@ test("the activity timeline records a real mutation with the organizer who made 
    */
   const name = `Greenroom Activity Trial ${Date.now()}`;
   await openConsoleAs(page, "organizer");
-  await page.goto("/settings?tab=event");
   await fillAdditionalEvent(page, { name });
   await page.getByRole("button", { name: "Create event" }).click();
   await expect(page.getByRole("combobox", { name: "Event workspace" })).toContainText(name);
@@ -238,12 +251,25 @@ test("the activity timeline records a real mutation with the organizer who made 
   await page.goto(`/schedule?event=${eventId}&tab=agenda`);
   await expect(page.getByRole("heading", { level: 1, name: "Agenda" })).toBeVisible();
   await page.getByRole("button", { name: "Create agenda" }).click();
-  await page.locator("summary").filter({ hasText: "Manage rooms, tracks, and times" }).click();
-  await page.getByLabel("New timeslot start").fill("2026-11-04T09:00");
-  await page.getByLabel("New timeslot end").fill("2026-11-04T10:00");
-  await page.getByRole("button", { name: "Add timeslot" }).click();
+  // Rooms, tracks and times moved into a drawer opened from the board bar: the board is the
+  // page, and its inventory is what somebody opens when they need to change it. Exact, because
+  // an empty board offers the same drawer from its own empty state — "Set up rooms and times".
+  await page.getByRole("button", { name: "Rooms and times", exact: true }).click();
+  const resources = page.getByRole("dialog", { name: "Rooms, tracks and times" });
+  // A slot is a day and two clock times now, not two datetime-locals: the day is stated once,
+  // because both ends of a slot are on it.
+  await resources.getByLabel("New timeslot day").fill("2026-11-04");
+  await resources.getByLabel("New timeslot start").fill("09:00");
+  await resources.getByLabel("New timeslot end").fill("10:00");
+  await resources.getByRole("button", { name: "Add timeslot" }).click();
   await expect(page.getByRole("status")).toContainText("Timeslot added.");
+  await resources.getByRole("button", { name: "Done" }).click();
   await page.getByRole("button", { name: "Publish schedule" }).click();
+  // Publication is irreversible, so the board asks first and previews what becomes public.
+  await page
+    .getByRole("dialog", { name: "Publish the schedule" })
+    .getByRole("button", { name: "Publish schedule" })
+    .click();
   await expect(page.getByRole("status")).toContainText("Published version 1");
 
   await page.goto(`/settings?event=${eventId}&tab=activity`);
@@ -262,7 +288,8 @@ test("the activity timeline records a real mutation with the organizer who made 
   await page.goto(`/publish?event=${eventId}&tab=event-site`);
   await expect(page.getByRole("heading", { level: 1, name: "Publishing" })).toBeVisible();
   await page.getByRole("button", { name: "Publish", exact: true }).click();
-  await expect(page.getByText("Snapshot matches the draft")).toBeVisible();
+  // Exact: the paragraph under the state pill repeats the phrase, so a substring matches both.
+  await expect(page.getByText("Snapshot matches the draft", { exact: true })).toBeVisible();
 
   await page.goto(`/settings?event=${eventId}&tab=activity`);
   const site = page.getByRole("row", { name: /Publishing event published/ });
@@ -277,9 +304,5 @@ test("a role without events:settings:read is not offered the activity timeline",
 
   // The log names who did what to an event, which is the administrative view of it rather than
   // something every role on the event may read.
-  await expect(
-    page
-      .getByRole("navigation", { name: "Workspace navigation" })
-      .getByRole("link", { name: "Activity", exact: true }),
-  ).toHaveCount(0);
+  await expect(navLink(page, "Activity")).toHaveCount(0);
 });

@@ -189,9 +189,11 @@ describe("PublishingWorkspace", () => {
       selector: "#snippet-schedule",
     });
 
-    fireEvent.change(screen.getByLabelText("Limit to one track"), {
-      target: { value: "Main stage" },
-    });
+    // A WAI-ARIA select-only combobox rather than a native <select>: it is opened, and an
+    // option is chosen.
+    const track = screen.getByRole("combobox", { name: "Limit to one track" });
+    fireEvent.keyDown(track, { key: "ArrowDown" });
+    fireEvent.click(screen.getByRole("option", { name: "Main stage" }));
     fireEvent.click(screen.getByRole("checkbox", { name: "Times" }));
 
     // The configuration lives in the URL rather than on the server, so the organizer can
@@ -346,6 +348,13 @@ describe("PublishingWorkspace", () => {
     renderWorkspace();
 
     fireEvent.click(await screen.findByRole("button", { name: "Unpublish" }));
+    // Taking the event off the web stops an address a speaker may already have shared, so the
+    // press asks first and names what stops resolving.
+    expect(
+      await screen.findByRole("heading", { name: "Take Greenroom Summit off the web?" }),
+    ).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Take it down" }));
 
     expect(await screen.findByText(/now return the not-published response/)).toHaveAttribute(
       "role",
@@ -477,12 +486,14 @@ describe("PublishingWorkspace", () => {
       fireEvent.click(form.save);
 
       const message = await screen.findByText("That public address is already taken.", {
-        selector: ".publishing-field-error",
+        selector: ".error-text",
       });
       expect(message).toBeVisible();
       // Named by the input, so a screen reader reaches the refusal from the field it is about
       // rather than only from the announcement at the end of the form.
-      expect(form.slug).toHaveAccessibleDescription("That public address is already taken.");
+      // The hint stays part of the description, so the assertion is that the refusal joins it
+      // rather than replaces it.
+      expect(form.slug).toHaveAccessibleDescription(/That public address is already taken\./);
     });
 
     it("is read-only for a role that may read but not update settings", async () => {
@@ -510,7 +521,10 @@ describe("PublishingWorkspace", () => {
     );
     renderWorkspace();
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Reference: trace-9");
+    // The reference is a value on its own line with a copy control, not a ULID glued onto the
+    // end of a sentence where it cannot be selected.
+    expect(await screen.findByRole("alert")).toHaveTextContent("trace-9");
+    expect(screen.getByRole("button", { name: "Copy the reference" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled();
     expect(screen.queryByRole("button", { name: "Publish" })).toBeNull();
   });

@@ -69,11 +69,18 @@ test("a real-session organizer creates a client and sees its credential only onc
   await page.getByLabel("Client name").fill("Schedule exporter");
   await page.getByRole("button", { name: "Create client" }).click();
 
-  await expect(page.getByText("Copy this credential now. It is shown once.")).toBeVisible();
+  // The credential is handed over as a copyable secret rather than as a sentence: it is stored
+  // only as a hash, so the notice names the client it belongs to and the control beside the value
+  // is what gets it onto the clipboard.
+  await expect(
+    page.getByText("Copy Schedule exporter's credential now", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Copy API credential" })).toBeVisible();
   await expect(page.getByText(CREDENTIAL, { exact: true })).toBeVisible();
 
   await page.reload();
   await expect(page.getByRole("heading", { level: 1, name: "Integrations" })).toBeVisible();
-  await expect(page.getByRole("cell", { name: "Schedule exporter" })).toBeVisible();
+  // Exact: the row's Actions cell is named after the same client — "Rotate Schedule exporter".
+  await expect(page.getByRole("cell", { name: "Schedule exporter", exact: true })).toBeVisible();
   await expect(page.getByText(CREDENTIAL, { exact: true })).toHaveCount(0);
 });

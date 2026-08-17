@@ -5,7 +5,7 @@
  * rather than a listbox option. What it must never do is render a section heading over an
  * answer it did not get — the omitted and the failed sections are named on screen.
  */
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SearchWorkspace } from "../src/platform/SearchWorkspace";
 
@@ -147,6 +147,11 @@ describe("the search workspace", () => {
 
     search("keynote");
 
-    expect(await screen.findByText(/Reference: ref-4/)).toBeInTheDocument();
+    // The message stays a sentence and the reference is its own selectable value, rather than
+    // a ULID glued onto the end of a paragraph nobody can drag through.
+    const failure = await screen.findByRole("alert");
+    expect(failure).toHaveTextContent("Access denied.");
+    expect(within(failure).getByText("ref-4")).toBeInTheDocument();
+    expect(within(failure).getByRole("button", { name: "Search again" })).toBeInTheDocument();
   });
 });

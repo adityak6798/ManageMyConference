@@ -146,6 +146,18 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+/**
+ * Open one abstract, where the decision is taken.
+ *
+ * The four outcome buttons used to sit in every row of the table — around 240 of them on a
+ * sixty-row queue. They live in the abstract's own drawer now, beside the text being decided on,
+ * and the row carries the recorded outcome and one way in.
+ */
+async function openAbstract(title: string) {
+  fireEvent.click(await screen.findByRole("button", { name: title }));
+  return screen.getByRole("dialog", { name: title });
+}
+
 describe("accepting a triaged proposal", () => {
   it("accepts in one call and announces the resolved title", async () => {
     let decided = false;
@@ -167,9 +179,8 @@ describe("accepting a triaged proposal", () => {
     });
     render(<OrganizerReviewWorkspace eventId={eventId} />);
 
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Accept Typed boundaries at scale" }),
-    );
+    await openAbstract("Typed boundaries at scale");
+    fireEvent.click(screen.getByRole("button", { name: "Accept Typed boundaries at scale" }));
 
     // The confirmation names what is being accepted and who becomes its speaker, and takes
     // focus so the keyboard follows the control it opened.
@@ -212,9 +223,8 @@ describe("accepting a triaged proposal", () => {
     });
     render(<OrganizerReviewWorkspace eventId={eventId} />);
 
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Accept Typed boundaries at scale" }),
-    );
+    await openAbstract("Typed boundaries at scale");
+    fireEvent.click(screen.getByRole("button", { name: "Accept Typed boundaries at scale" }));
     fireEvent.click(screen.getByRole("button", { name: "Confirm acceptance" }));
 
     const alert = await screen.findByRole("alert");
@@ -251,9 +261,8 @@ describe("accepting a triaged proposal", () => {
     });
     render(<OrganizerReviewWorkspace eventId={eventId} />);
 
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Accept Typed boundaries at scale" }),
-    );
+    await openAbstract("Typed boundaries at scale");
+    fireEvent.click(screen.getByRole("button", { name: "Accept Typed boundaries at scale" }));
     fireEvent.click(screen.getByRole("button", { name: "Confirm acceptance" }));
 
     await waitFor(() => expect(sent).toHaveLength(1));
@@ -284,9 +293,8 @@ describe("accepting a triaged proposal", () => {
     );
     render(<OrganizerReviewWorkspace eventId={eventId} />);
 
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Accept Typed boundaries at scale" }),
-    );
+    await openAbstract("Typed boundaries at scale");
+    fireEvent.click(screen.getByRole("button", { name: "Accept Typed boundaries at scale" }));
 
     const confirm = await screen.findByRole("button", { name: "Confirm acceptance" });
     expect(confirm).toBeDisabled();
@@ -318,9 +326,8 @@ describe("accepting a triaged proposal", () => {
     });
     render(<OrganizerReviewWorkspace eventId={eventId} />);
 
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Decline Typed boundaries at scale" }),
-    );
+    await openAbstract("Typed boundaries at scale");
+    fireEvent.click(screen.getByRole("button", { name: "Decline Typed boundaries at scale" }));
     fireEvent.click(screen.getByRole("button", { name: "Confirm decline" }));
 
     await waitFor(() => expect(sent).toHaveLength(1));
@@ -532,8 +539,8 @@ describe("the decision column on a row that is already decided", () => {
         : undefined,
     );
     render(<OrganizerReviewWorkspace eventId={eventId} />);
-    // The row's own title link, which every row carries whatever its decision.
-    return screen.findByRole("button", { name: "Typed boundaries at scale" });
+    // The abstract's own drawer, which is where the outcomes are offered.
+    return openAbstract("Typed boundaries at scale");
   };
 
   it("drops the outcome already recorded and offers only the reversal", async () => {
@@ -569,10 +576,11 @@ describe("the decision column on a row that is already decided", () => {
     // Declining does not delete content, so the organizer is told what survives the reversal.
     expect(screen.getByText(/a session and a speaker already exist for it/)).toBeVisible();
     expect(screen.getByText(/does not remove them/)).toBeVisible();
-    // ...and it names the control by the word actually printed on the other screen. The row
-    // action in Sessions & speakers reads "Withdraw"; this sentence used to send the organizer
-    // looking for a "delete the session" button that does not exist there.
-    expect(screen.getByText(/use Withdraw in Sessions & speakers/)).toBeVisible();
+    // ...and it names both the control and the screen by what is actually printed on them. The
+    // row action reads "Withdraw", not "delete the session"; the screen is Schedule → Sessions,
+    // not "Sessions & speakers", which the hub cutover removed.
+    expect(screen.getByText(/use Withdraw under Schedule → Sessions/)).toBeVisible();
+    expect(document.body.textContent).not.toContain("Sessions & speakers");
     expect(document.body.textContent).not.toContain("delete the session");
 
     // Escape is the dialog's own affordance and must put it away.

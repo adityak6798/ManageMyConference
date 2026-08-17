@@ -11,9 +11,9 @@ export const communicationsWorkspace: WorkspaceModule = {
   domain: "communications-integrations",
   path: "/communications",
   label: "Communications",
-  group: "Audience",
+  group: "reach",
   order: 6,
-  icon: <IconSend size={16} />,
+  icon: <IconSend />,
   personas: ["organizer"],
   // The actor-level capability *and* organizer role on this event: delivery history is
   // event-scoped, so a capability held through some other event must not open it here.

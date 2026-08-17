@@ -19,7 +19,8 @@ import {
   updateReviewRound,
 } from "../api/review";
 import "../styles/review.css";
-import { IconPlus, IconReview, IconWarning } from "../ui/icons";
+import { Checkbox } from "../ui/fields";
+import { IconPlus, IconReview } from "../ui/icons";
 import { Card, EmptyState, Notice, Pill, useActionFeedback } from "../ui/primitives";
 import { fieldErrorsOf, message, type Round, ROUND_STATE, roundDate } from "./shared";
 
@@ -344,7 +345,7 @@ export function RoundsPanel({
             ) : null}
           </div>
           <div className="toolbar">
-            <button type="submit" disabled={busy || !newName.trim()}>
+            <button className="primary" type="submit" disabled={busy || !newName.trim()}>
               Create round
             </button>
             <button
@@ -397,8 +398,13 @@ export function RoundsPanel({
                       {ROUND_STATE[round.state].label}
                     </Pill>
                   </td>
+                  {/* One measure, in the product's measure face, kept on one line: the window
+                      used to break after the arrow and print its open end on a line of its own,
+                      which reads as two cells rather than one span of dates. */}
                   <td data-label="Window">
-                    {roundDate(round.opensAt)} → {roundDate(round.closesAt)}
+                    <span className="figure round-window">
+                      {roundDate(round.opensAt)} → {roundDate(round.closesAt)}
+                    </span>
                   </td>
                   {/* The policy stated as what a reviewer actually sees, not as a flag name. */}
                   <td data-label="Reviewers see">
@@ -419,51 +425,66 @@ export function RoundsPanel({
                   <td className="num" data-label="Assigned">
                     {countIn(round.sequence)}
                   </td>
-                  <td data-label="Actions">
-                    <button
-                      type="button"
-                      className="ghost small"
-                      disabled={busy || countIn(round.sequence) === 0}
-                      onClick={() => {
-                        // ERROR-INTENT: invite reports failures through the shared panel feedback.
-                        void invite(round.sequence, "new");
-                      }}
-                    >
-                      Invite new
-                    </button>
-                    <button
-                      type="button"
-                      className="ghost small"
-                      disabled={busy || countIn(round.sequence) === 0}
-                      onClick={() => {
-                        // ERROR-INTENT: invite reports failures through the shared panel feedback.
-                        void invite(round.sequence, "all");
-                      }}
-                    >
-                      Invite all
-                    </button>
-                    <button
-                      type="button"
-                      className="ghost small"
-                      disabled={busy}
-                      onClick={() => {
-                        // ERROR-INTENT: duplicate reports failures through the shared panel feedback.
-                        void duplicate(round);
-                      }}
-                    >
-                      Duplicate<span className="visually-hidden"> {round.name}</span>
-                    </button>
-                    <button
-                      type="button"
-                      className="ghost small"
-                      disabled={busy}
-                      onClick={() => (editing === round.sequence ? setEditing(null) : open(round))}
-                      aria-expanded={editing === round.sequence}
-                      aria-controls="round-editor"
-                    >
-                      Edit
-                      <span className="visually-hidden"> {round.name}</span>
-                    </button>
+                  {/*
+                    One line, with the action an organizer actually reaches for stated first.
+
+                    These four ghost buttons wrapped into a 2×2 block whose shape changed with the
+                    window, so the end of every row read as a paragraph of links and nothing said
+                    which of the four is the ordinary one. Editing the round is that one, and it
+                    is the only one drawn as a button; the rest stay quiet beside it.
+                  */}
+                  <td className="round-actions" data-label="Actions">
+                    {/* One element in the cell, so the phone layout — where the cell is a
+                        label/value grid — puts the whole group in the value column instead of
+                        dealing the four buttons alternately into both. */}
+                    <div className="round-actions-row">
+                      <button
+                        type="button"
+                        className="secondary small"
+                        disabled={busy}
+                        onClick={() =>
+                          editing === round.sequence ? setEditing(null) : open(round)
+                        }
+                        aria-expanded={editing === round.sequence}
+                        aria-controls="round-editor"
+                      >
+                        Edit
+                        <span className="visually-hidden"> {round.name}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost small"
+                        disabled={busy || countIn(round.sequence) === 0}
+                        onClick={() => {
+                          // ERROR-INTENT: invite reports failures through the shared panel feedback.
+                          void invite(round.sequence, "new");
+                        }}
+                      >
+                        Invite new
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost small"
+                        disabled={busy || countIn(round.sequence) === 0}
+                        onClick={() => {
+                          // ERROR-INTENT: invite reports failures through the shared panel feedback.
+                          void invite(round.sequence, "all");
+                        }}
+                      >
+                        Invite all
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost small"
+                        disabled={busy}
+                        onClick={() => {
+                          // ERROR-INTENT: duplicate reports failures through the shared panel feedback.
+                          void duplicate(round);
+                        }}
+                      >
+                        Duplicate<span className="visually-hidden"> {round.name}</span>
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -477,7 +498,6 @@ export function RoundsPanel({
           <h4>Editing “{terms.name}”</h4>
           {rounds.find((round) => round.sequence === editing)?.state === "closed" ? (
             <Notice tone="info">
-              <IconWarning size={15} />
               <span>
                 This round is closed, so its window, scorecard, blind-review policy and pool are
                 frozen — an aggregate already read must not be re-explained by different terms.
@@ -567,14 +587,14 @@ export function RoundsPanel({
           </div>
           <fieldset className="field">
             <legend className="group-label">Blind review</legend>
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={terms.anonymized}
-                onChange={(event) => setTerms({ ...terms, anonymized: event.target.checked })}
-              />
-              Hide the author and co-authors from this round's reviewers
-            </label>
+            {/* The shared checkbox draws a box. `.checkbox-label` wraps a bare input, which the
+                control tier's `appearance: none` leaves with nothing drawn at all — the sentence
+                sat beside a blank gap that could not be seen to be on or off. */}
+            <Checkbox
+              label="Hide the author and co-authors from this round's reviewers"
+              checked={terms.anonymized}
+              onChange={(anonymized) => setTerms({ ...terms, anonymized })}
+            />
             <p className="hint">
               This is enforced in the reviewer's queue itself — a blind round sends no author, no
               contact details and no co-author list, rather than hiding them on screen. Organizer
@@ -626,14 +646,11 @@ export function RoundsPanel({
               onChange={(event) => setTerms({ ...terms, visibleFieldIds: event.target.value })}
             />
             <p className="hint">Leave empty to show every non-authorship answer.</p>
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={terms.filesVisible}
-                onChange={(event) => setTerms({ ...terms, filesVisible: event.target.checked })}
-              />
-              Permit uploaded proposal files when the CFP supports them
-            </label>
+            <Checkbox
+              label="Permit uploaded proposal files when the CFP supports them"
+              checked={terms.filesVisible}
+              onChange={(filesVisible) => setTerms({ ...terms, filesVisible })}
+            />
             <label htmlFor="round-proposal-cap">Maximum evaluations per proposal</label>
             <input
               id="round-proposal-cap"
@@ -689,15 +706,12 @@ export function RoundsPanel({
           </fieldset>
           <fieldset className="field">
             <legend className="group-label">Scorecard</legend>
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={terms.ownScorecard}
-                disabled={!data.plan}
-                onChange={(event) => setTerms({ ...terms, ownScorecard: event.target.checked })}
-              />
-              Give this round its own copy of the scorecard
-            </label>
+            <Checkbox
+              label="Give this round its own copy of the scorecard"
+              checked={terms.ownScorecard}
+              disabled={!data.plan}
+              onChange={(ownScorecard) => setTerms({ ...terms, ownScorecard })}
+            />
             <p className="hint">
               {terms.ownScorecard
                 ? "Scores and weighted aggregates in this round use its own criteria. Turning this off hands the round back to the event plan."
@@ -732,21 +746,18 @@ export function RoundsPanel({
               <ul className="round-pool">
                 {assignable.map((reviewer) => (
                   <li key={reviewer.id}>
-                    <label className="checkbox-label">
-                      <input
-                        type="checkbox"
-                        checked={pool.includes(reviewer.id)}
-                        disabled={terms.poolMode === "event"}
-                        onChange={(event) =>
-                          setPool((current) =>
-                            event.target.checked
-                              ? [...current, reviewer.id]
-                              : current.filter((id) => id !== reviewer.id),
-                          )
-                        }
-                      />
-                      {reviewer.name}
-                    </label>
+                    <Checkbox
+                      label={reviewer.name}
+                      checked={pool.includes(reviewer.id)}
+                      disabled={terms.poolMode === "event"}
+                      onChange={(checked) =>
+                        setPool((current) =>
+                          checked
+                            ? [...current, reviewer.id]
+                            : current.filter((id) => id !== reviewer.id),
+                        )
+                      }
+                    />
                   </li>
                 ))}
               </ul>
@@ -763,7 +774,7 @@ export function RoundsPanel({
             ) : null}
           </fieldset>
           <div className="toolbar">
-            <button type="submit" disabled={busy}>
+            <button className="primary" type="submit" disabled={busy}>
               Save round
             </button>
             <button

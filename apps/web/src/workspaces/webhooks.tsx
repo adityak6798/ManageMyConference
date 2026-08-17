@@ -10,17 +10,17 @@
  * @spec PRD-INT-001
  */
 import { WebhooksWorkspace } from "../WebhooksWorkspace";
-import { IconSettings } from "../ui/icons";
+import { IconWebhook } from "../ui/icons";
 import type { HubTabModule, WorkspaceModule } from "./contract";
 
 export const webhooksWorkspace: WorkspaceModule = {
   domain: "communications-integrations",
   path: "/integrations/webhooks",
   label: "Webhooks",
-  group: "Audience",
+  group: "reach",
   /** Directly after API clients, the other half of the integrations pair. */
   order: 5.9,
-  icon: <IconSettings size={16} />,
+  icon: <IconWebhook />,
   personas: ["organizer"],
   canAccess: ({ capabilities, session }) =>
     capabilities.includes("communications:manage") && (session?.organizations.length ?? 0) > 0,

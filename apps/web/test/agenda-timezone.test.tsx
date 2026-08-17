@@ -9,7 +9,7 @@
  */
 
 import type { EventDto } from "@greenroom/contracts";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgendaWorkspace } from "../src/agenda/AgendaWorkspace";
 
@@ -97,9 +97,9 @@ describe("AgendaWorkspace timezone rendering", () => {
     expect(screen.queryByRole("rowheader", { name: "04:00–05:00" })).not.toBeInTheDocument();
 
     // 21:00 local is September 2nd in UTC, so a UTC bucket would split these into two
-    // days and hide the evening slot behind the day picker.
-    expect(screen.getByRole("option", { name: "Tue, Sep 1" })).toBeInTheDocument();
-    expect(screen.queryByRole("option", { name: "Wed, Sep 2" })).not.toBeInTheDocument();
+    // days and hide the evening slot behind the day picker. One local day means no day
+    // switcher at all — there is nothing to switch between.
+    expect(screen.queryByRole("radiogroup", { name: "Day" })).not.toBeInTheDocument();
 
     // The board says which zone it is in, so a reader is never left guessing.
     expect(zoneLabel()).toHaveTextContent("Times are shown in America/Los_Angeles (PDT)");
@@ -132,13 +132,19 @@ describe("AgendaWorkspace timezone rendering", () => {
     );
     expect(screen.queryByRole("rowheader", { name: "09:00–10:00" })).not.toBeInTheDocument();
     expect(zoneLabel()).toHaveTextContent("Times are shown in America/New_York (EDT)");
-    // Midnight Eastern belongs to the next day, so Eastern really does split these two.
-    expect(screen.getByRole("option", { name: "Wed, Sep 2" })).toBeInTheDocument();
-    // Every day is also exposed without opening the select. A session on another day should not
-    // look missing merely because the room board initially shows the event's first day.
+    // Midnight Eastern belongs to the next day, so Eastern really does split these two — and
+    // now that there are two, the bar offers one day switcher rather than a `<select>` and an
+    // `aria-pressed` button row 60px apart, setting the same state under two different names.
+    const dayPicker = screen.getByRole("radiogroup", { name: "Day" });
+    expect(within(dayPicker).getAllByRole("radio")).toHaveLength(2);
+    // Every day carries how much is already on it, so a session on another day never looks
+    // missing merely because the room board opens on the event's first day.
     expect(
-      screen.getByRole("button", { name: "Wed, Sep 2 0 scheduled sessions" }),
+      within(dayPicker).getByRole("radio", { name: "Wed, Sep 2 0 scheduled sessions" }),
     ).toBeInTheDocument();
+    expect(
+      within(dayPicker).getByRole("radio", { name: "Tue, Sep 1 1 scheduled sessions" }),
+    ).toHaveAttribute("aria-checked", "true");
     expect(onError).not.toHaveBeenCalled();
   });
 
@@ -188,7 +194,16 @@ describe("AgendaWorkspace timezone rendering", () => {
       "href",
       "/?tab=sessions",
     );
-    expect(screen.getByRole("button", { name: "Publish schedule (0 public)" })).toBeVisible();
+    // The count is a preview of what publishing will do, so it belongs in the confirmation
+    // rather than in the label: an action's name says what it does, not how much of it.
+    const publish = screen.getByRole("button", { name: "Publish schedule" });
+    expect(publish).toBeVisible();
+    fireEvent.click(publish);
+    expect(
+      await screen.findByText(
+        "0 of 1 scheduled session will appear on the public page; the rest are not published in Sessions.",
+      ),
+    ).toBeInTheDocument();
   });
 
   /*

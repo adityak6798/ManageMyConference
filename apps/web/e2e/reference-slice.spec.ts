@@ -1,5 +1,6 @@
 // @acceptance ACC-IDENTITY-EVENTS
 
+import { confirmInDrawer, filterAndCommit, switchEvent, switchPersona } from "./controls";
 import { fillAdditionalEvent } from "./event-creation";
 import { expect, test } from "./fixtures";
 
@@ -12,7 +13,11 @@ test("signs in, switches events and roles, creates, and reloads an event", async
   // requires the reference to appear. Asserting it there keeps the property proven instead of
   // deleting the assertion along with the screen that used to carry it.
   await page.goto("/agenda");
-  await expect(page.getByRole("alert")).toContainText("Reference:");
+  const refused = page.getByRole("alert");
+  await expect(refused).toContainText("Sign in to continue.");
+  // The reference is beside the sentence rather than glued onto it: an identifier read
+  // character by character is a value to quote, so it sets as a measure with a copy control.
+  await expect(refused.getByRole("button", { name: "Copy the reference" })).toBeVisible();
 
   await page.goto("/");
   await page.getByRole("button", { name: "Continue as organizer" }).click();
@@ -32,19 +37,19 @@ test("signs in, switches events and roles, creates, and reloads an event", async
   await expect(switcher).toContainText("Greenroom Demo Summit");
   await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toBeVisible();
 
-  await switcher.selectOption({ label: "Greenroom Workshop Day" });
+  await switchEvent(page, "Greenroom Workshop Day");
   // The selected event is carried in the URL so a workspace view is shareable.
   await expect(page).toHaveURL(/\?event=/);
 
   await page.goto("/settings?tab=event");
   await expect(page.getByRole("heading", { level: 1, name: "Event" })).toBeVisible();
-  await page.getByLabel("Current event name").fill("Greenroom Workshop Day Renamed");
+  await page.getByLabel("Event name", { exact: true }).fill("Greenroom Workshop Day Renamed");
   // The timezone is chosen from the browser's own zone list rather than typed: a free-text box
   // let a typo through to the public site, the agenda board and every `.ics` invite (#206).
   // Exact, because the create form below carries a second control whose label contains this one.
-  const timezone = page.getByLabel("Event timezone", { exact: true });
-  await expect(timezone).toHaveRole("combobox");
-  await timezone.selectOption("America/Chicago");
+  // A filtering combobox, not a native select: roughly 400 zones is the one list length a
+  // select popup is worst at. Typing narrows, Enter commits the single remaining match.
+  await filterAndCommit(page, page.getByLabel("Event timezone", { exact: true }), "America/Chicago");
   await page.getByRole("button", { name: "Save event settings" }).click();
   await expect(switcher).toContainText("Greenroom Workshop Day Renamed");
   // The page subtitle prints the stored zone, so this asserts what was saved rather than what
@@ -73,9 +78,17 @@ test("signs in, switches events and roles, creates, and reloads an event", async
 
   await page.reload();
   await expect(page.getByRole("combobox", { name: "Event workspace" })).toContainText(eventName);
+  // Creating an event is its own destination now, so the reader is still on the form that made
+  // it; the overview is where the event states its name and its zone.
+  await page
+    .getByRole("navigation", { name: "Workspace navigation" })
+    .getByRole("link", { name: "Overview" })
+    .click();
   await expect(page.getByText(`${eventName} \u00b7 Europe/Berlin`)).toBeVisible();
 
-  await page.getByRole("combobox", { name: "Signed-in role" }).selectOption("reviewer");
+  // The persona picker moved inside the account control, where everything about who is signed
+  // in now lives, and is only drawn on a demo deployment — the route behind it 404s elsewhere.
+  await switchPersona(page, "Reviewer");
   await expect(page.getByRole("link", { name: /Review assignments/ })).toBeVisible();
   await expect(page.getByRole("button", { name: "Create event" })).toHaveCount(0);
   await expect(page.getByRole("link", { name: /Event settings/ })).toHaveCount(0);
@@ -86,11 +99,16 @@ test("a demo persona signs out and returns to the landing page", async ({ page }
   await page.getByRole("button", { name: "Continue as organizer" }).click();
   await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toBeVisible();
 
-  await page.getByRole("button", { name: "Sign out" }).click();
-  await expect(page.getByRole("link", { name: "Try the demo" }).first()).toBeVisible();
+  // Signing out lives behind the account control, with everything else about who is signed in.
+  await page.getByRole("button", { name: /^Account and access for / }).click();
+  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  // The marketing page's primary door *starts* the demo rather than linking to a page showing a
+  // strict subset of what is already on screen, so it is a button and it says what it does.
+  const door = page.getByRole("button", { name: "Open the demo as an organizer" });
+  await expect(door.first()).toBeVisible();
 
   await page.reload();
-  await expect(page.getByRole("link", { name: "Try the demo" }).first()).toBeVisible();
+  await expect(door.first()).toBeVisible();
   await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toHaveCount(0);
 });
 
@@ -105,12 +123,16 @@ test("publishes a clean agenda, explains draft conflicts, and keeps publication 
     `/schedule?event=${new URL(page.url()).searchParams.get("event")}&tab=agenda&view=room`,
   );
   await expect(page.getByRole("heading", { level: 1, name: "Agenda" })).toBeVisible();
-  await expect(page.getByText("No conflicts. This draft is ready to publish.")).toBeVisible();
 
   await page.getByRole("button", { name: "Publish schedule" }).click();
+  // Publication is irreversible, so the board asks first and previews what becomes public.
+  await confirmInDrawer(page, "Publish the schedule", "Publish schedule");
   // The publication counter advances with every run against a shared fixture, so assert
   // that a version was published rather than pinning the number.
-  await expect(page.getByRole("status")).toContainText(/Published version \d+/);
+  // Filtered: while the draft has conflicts, the standing summary is a second polite region.
+  await expect(
+    page.getByRole("status").filter({ hasText: /Published version \d+/ }),
+  ).toBeVisible();
 
   // Start the experiment by moving the seeded day-two session into Unscheduled. The
   // browser journey restores that exact placement before it exits, so other specs still
@@ -120,7 +142,9 @@ test("publishes a clean agenda, explains draft conflicts, and keeps publication 
     .getByRole("row", { name: /Accessible by default/ })
     .getByRole("button", { name: "Unschedule" })
     .click();
-  await expect(page.getByRole("status")).toContainText("moved back to Unscheduled");
+  await expect(
+    page.getByRole("status").filter({ hasText: "moved back to Unscheduled" }),
+  ).toBeVisible();
   await page.getByRole("tab", { name: /^Room/ }).click();
 
   // The conflict is made the way an organizer would make one: the second session is
@@ -130,10 +154,10 @@ test("publishes a clean agenda, explains draft conflicts, and keeps publication 
   const card = page.getByRole("button", { name: /Accessible by default\. Not scheduled/ });
   await card.focus();
   await card.press("Enter");
+  // The drop target is the whole board cell, which is a `gridcell` in ARIA terms — an inner
+  // strip meant the drag-over highlight reported the wrong area of a 170×80px target.
   await page
-    .getByRole("button", {
-      name: /Place .*\. Already holds 1 session/,
-    })
+    .getByRole("gridcell", { name: /Place .*\. Holds 1 session/ })
     .first()
     .press("Enter");
   await expect(page.getByText("Room double-booked", { exact: false }).first()).toBeVisible();
@@ -165,23 +189,27 @@ test("publishes a clean agenda, explains draft conflicts, and keeps publication 
     .getByRole("row", { name: /Accessible by default/ })
     .getByRole("button", { name: "Unschedule" })
     .click();
-  await expect(page.getByRole("status")).toContainText("moved back to Unscheduled");
-  await expect(page.getByText("No conflicts. This draft is ready to publish.")).toBeVisible();
+  await expect(
+    page.getByRole("status").filter({ hasText: "moved back to Unscheduled" }),
+  ).toBeVisible();
+  // The board bar no longer repeats "no conflicts" — the Conflicts tab carries that at zero
+  // vertical cost — so the answer is read where an organizer goes to look for it.
+  await page.getByRole("tab", { name: /^Conflicts/ }).click();
+  await expect(page.getByRole("heading", { name: "No conflicts" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Publish schedule" })).toBeEnabled();
 
   // Put the session back on its seeded second day with the same keyboard path used above.
   await page.getByRole("tab", { name: /^Room/ }).click();
-  await page
-    .getByRole("combobox", { name: "Day", exact: true })
-    .selectOption({ label: "Wed, Sep 2" });
+  // The day picker is a radiogroup drawn on the board bar, not a select in a filter toolbar.
+  await page.getByRole("radio", { name: /Wed, Sep 2/ }).click();
   const restore = page.getByRole("button", { name: /Accessible by default\. Not scheduled/ });
   await restore.focus();
   await restore.press("Enter");
   await page
-    .getByRole("button", { name: /Place .* in Workshop lab/ })
+    .getByRole("gridcell", { name: /Place .* in Workshop lab/ })
     .first()
     .press("Enter");
-  await expect(page.getByRole("status")).toContainText(
-    /“Accessible by default” placed in Workshop lab/,
-  );
+  await expect(
+    page.getByRole("status").filter({ hasText: /“Accessible by default” placed in Workshop lab/ }),
+  ).toBeVisible();
 });

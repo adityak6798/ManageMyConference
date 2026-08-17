@@ -1,5 +1,15 @@
 // @acceptance ACC-AGENDA ACC-PUBLIC ACC-REVIEW ACC-SPEAKER
+import { switchEvent } from "./controls";
 import { expect, type Page, test } from "./fixtures";
+
+/**
+ * The first paint of a workspace, which is now a skeleton rather than a sentence.
+ *
+ * The wait is announced by one live region carrying the label; the bars beside it are decoration
+ * and stay out of the accessibility tree. So the wait is found by the region's name, not by text
+ * on the page — there is none.
+ */
+const loading = (page: Page, what: string) => page.getByRole("status", { name: what });
 
 const DEMO_EVENT = "00000000-0000-4000-8000-000000000001";
 const WORKSHOP_EVENT = "00000000-0000-4000-8000-000000000002";
@@ -23,9 +33,10 @@ test("an older event response cannot replace the newly selected event", async ({
   });
 
   await page.goto(`/schedule?event=${DEMO_EVENT}&tab=sessions`);
-  await expect(page.getByText("Loading the sessions and speakers workspace.")).toBeVisible();
-  await page.getByRole("combobox", { name: "Event workspace" }).selectOption(WORKSHOP_EVENT);
-  await expect(page.getByText("Loading the sessions and speakers workspace.")).toBeVisible();
+  const wait = loading(page, "Loading the sessions and speakers workspace.");
+  await expect(wait).toBeVisible();
+  await switchEvent(page, "Greenroom Workshop Day");
+  await expect(wait).toBeVisible();
   await expect(page.getByRole("heading", { level: 1, name: "Sessions" })).toBeVisible();
   await expect(page.getByText("Designing the calm conference")).toHaveCount(0);
   await page.waitForTimeout(1_100);
@@ -49,10 +60,19 @@ test("filtering and a bulk reload preserve rubric typing and selection", async (
     await criterion.fill("Relevance to attendees");
     await page.getByRole("checkbox", { name: "Select Workshop proposal" }).check();
 
+    /*
+     * Through a filter that matches nothing and back again.
+     *
+     * The selection bar now lives with the rows it acts on, so a tab with none of them draws no
+     * bar at all — controls that would operate on abstracts nobody can see are worse than no
+     * controls. What has to survive the round trip is the state, and that is what is asserted on
+     * the way back rather than on the empty tab.
+     */
     await page.getByRole("tab", { name: /^Accepted/ }).click();
+    await expect(page.getByRole("heading", { name: /No abstracts/ })).toBeVisible();
     await expect(criterion).toHaveValue("Relevance to attendees");
-    await expect(page.getByText("1 selected")).toBeVisible();
     await page.getByRole("tab", { name: /^All/ }).click();
+    await expect(page.getByText("1 selected")).toBeVisible();
     await page.getByLabel("Move selection to").selectOption("under_review");
     await page.getByRole("button", { name: "Move", exact: true }).click();
     await expect(page.getByRole("tabpanel").getByRole("status")).toContainText(
@@ -160,7 +180,9 @@ test("opening an event with no agenda performs no write until Create agenda", as
   await expect(page.getByRole("button", { name: "Add room" })).toHaveCount(0);
   expect(writes).toEqual([]);
   await page.getByRole("button", { name: "Create agenda" }).click();
-  await expect(page.getByText("Manage rooms, tracks, and times", { exact: true })).toBeVisible();
+  // Exact: an empty board offers the same drawer from its own empty state, named for the job —
+  // "Set up rooms and times" — and a substring match resolves to both controls.
+  await expect(page.getByRole("button", { name: "Rooms and times", exact: true })).toBeVisible();
   expect(writes).toHaveLength(1);
   expect(writes[0]).toContain("PUT");
 });

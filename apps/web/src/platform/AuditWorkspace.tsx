@@ -15,16 +15,10 @@
  */
 import type { AuditRecordDto } from "@greenroom/contracts";
 import { useCallback, useEffect, useState } from "react";
-import { ResponseContractError } from "../api/config";
-import { getAuditTimeline, PlatformApiError } from "../api/platform";
-import { Card, EmptyState, Notice, Pill } from "../ui/primitives";
-
-function describeFailure(reason: unknown): string {
-  if (reason instanceof PlatformApiError)
-    return `${reason.envelope.error.message} Reference: ${reason.envelope.error.correlationId}`;
-  if (reason instanceof ResponseContractError) return reason.message;
-  return "The timeline could not be read. Please retry.";
-}
+import { type ApiFailure, describeApiFailure } from "../api/config";
+import { getAuditTimeline } from "../api/platform";
+import { IconClock } from "../ui/icons";
+import { Card, EmptyState, LoadFailure, Pill, SkeletonRows } from "../ui/primitives";
 
 /** A person is not a program, and the badge is the only place that distinction is visible. */
 function sourceTone(source: AuditRecordDto["source"]) {
@@ -54,12 +48,12 @@ export function AuditWorkspace({ eventId }: { eventId: string }) {
   const [records, setRecords] = useState<AuditRecordDto[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [failure, setFailure] = useState<ApiFailure | null>(null);
 
   const read = useCallback(
     async (from?: string) => {
       setLoading(true);
-      setError(null);
+      setFailure(null);
       try {
         const page = await getAuditTimeline(eventId, from ? { cursor: from } : {});
         // Appended rather than replaced: this is one continuous list the reader is walking down,
@@ -69,7 +63,7 @@ export function AuditWorkspace({ eventId }: { eventId: string }) {
       } catch (reason: unknown) {
         // ERROR-INTENT: rendered rather than discarded — the message goes above the list, and
         // whatever already loaded stays on screen.
-        setError(describeFailure(reason));
+        setFailure(describeApiFailure(reason, "The timeline could not be read."));
       } finally {
         setLoading(false);
       }
@@ -84,14 +78,23 @@ export function AuditWorkspace({ eventId }: { eventId: string }) {
 
   return (
     <>
-      {error ? <Notice tone="error">{error}</Notice> : null}
+      {failure ? (
+        <LoadFailure
+          what="the timeline"
+          error={failure.message}
+          reference={failure.reference}
+          onRetry={() => read()}
+        />
+      ) : null}
 
-      {/* `aria-live` without `role="status"`: a second polite region is the trap ACC-AGENDA
-          records, and this page is mounted inside a shell that may already own one. */}
-      <p className="palette-announce" aria-live="polite">
-        {loading
-          ? "Reading the timeline…"
-          : `${records.length} ${records.length === 1 ? "record" : "records"} loaded.`}
+      {/*
+        `aria-live` without `role="status"`: a second polite region is the trap ACC-AGENDA
+        records, and this page is mounted inside a shell that may already own one. It stays
+        silent while the skeleton below is up, because that skeleton is itself a live region and
+        two of them announcing one wait is the same defect from the other side.
+      */}
+      <p className="hint" aria-live="polite">
+        {loading ? "" : `${records.length} ${records.length === 1 ? "record" : "records"} loaded.`}
       </p>
 
       {/*
@@ -117,13 +120,19 @@ export function AuditWorkspace({ eventId }: { eventId: string }) {
           </button>
         }
       >
-        {records.length === 0 && !loading ? (
-          <div className="audit-empty">
-            <EmptyState title="Nothing recorded yet">
-              Activity will appear here as people review proposals, update the schedule, and publish
-              the event.
-            </EmptyState>
-          </div>
+        {records.length === 0 && loading ? (
+          <SkeletonRows rows={4} label="Reading what happened on this event" />
+        ) : records.length === 0 ? (
+          /*
+            The shared compact shape, asked for by name. This surface used to restate it locally
+            in platform.css (`.audit-empty .empty`), which is how one component came to render two
+            different left-aligned states on two pages of the same console. `terse` defaults on
+            for a state with no body copy; this one has a sentence, so it says so.
+          */
+          <EmptyState terse icon={<IconClock size={20} />} title="Nothing recorded yet">
+            Activity will appear here as people review proposals, update the schedule, and publish
+            the event.
+          </EmptyState>
         ) : (
           <div className="table-wrap">
             <table className="audit-table">

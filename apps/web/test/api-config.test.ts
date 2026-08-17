@@ -53,6 +53,49 @@ describe("response contract decoding", () => {
     });
   });
 
+  it("separates a handled refusal's sentence from the reference, in both client shapes", async () => {
+    const { describeApiFailure } = await import("../src/api/config");
+    // The envelope shape (IdentityApiError, CfpApiError, ReviewApiError, …).
+    expect(
+      describeApiFailure(
+        { envelope: { error: { message: "That round is closed.", correlationId: "01JABC" } } },
+        "The queue could not be loaded.",
+      ),
+    ).toEqual({ message: "That round is closed.", reference: "01JABC" });
+    // The flat shape (MembershipApiError, CrmApiError, SiteApiError, …).
+    expect(
+      describeApiFailure(
+        Object.assign(new Error("That member is already invited."), { correlationId: "01JDEF" }),
+        "The member list could not be loaded.",
+      ),
+    ).toEqual({ message: "That member is already invited.", reference: "01JDEF" });
+  });
+
+  it("does not quote a fault the reader cannot act on", async () => {
+    const { describeApiFailure } = await import("../src/api/config");
+    // An unhandled fault's message was written for a developer, so the caller's sentence wins.
+    expect(
+      describeApiFailure(new TypeError("Failed to fetch"), "The agenda could not be loaded."),
+    ).toEqual({ message: "The agenda could not be loaded.", reference: null });
+    expect(describeApiFailure(undefined, "The agenda could not be loaded.").reference).toBeNull();
+    // "unavailable" is what ResponseContractError says when the response carried no
+    // correlation header; printing it would ask somebody to quote a value that does not exist.
+    expect(
+      describeApiFailure(
+        { message: "The browser could not read it.", correlationId: "unavailable" },
+        "x",
+      ).reference,
+    ).toBeNull();
+  });
+
+  it("does not print the reference twice when a message already carries one", async () => {
+    const { describeApiFailure, ResponseContractError } = await import("../src/api/config");
+    expect(describeApiFailure(new ResponseContractError("01JGHI", ["cfp.fields"]), "x")).toEqual({
+      message: "The browser could not read the server response (cfp.fields).",
+      reference: "01JGHI",
+    });
+  });
+
   it("turns a malformed body into the same traceable contract error", async () => {
     const { decodeResponse } = await import("../src/api/config");
     const response = new Response("not json", {

@@ -14,25 +14,33 @@
 
 import type { CommunicationsHistoryDto, EventDto } from "@greenroom/contracts";
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
-import {
-  CommunicationsApiError,
-  getCommunicationsHistory,
-  retryDelivery,
-} from "./api/communications";
+import { getCommunicationsHistory, retryDelivery } from "./api/communications";
 import { ComposePanel } from "./communications/ComposePanel";
+import { type ApiFailure, describeApiFailure } from "./api/config";
 import "./styles/communications.css";
-import { IconCheck, IconClock, IconInbox, IconSend, IconWarning } from "./ui/icons";
-import { Card, EmptyState, Notice, Tabs, useActionFeedback } from "./ui/primitives";
+import { IconChevronDown, IconChevronRight, IconSend } from "./ui/icons";
+import {
+  EmptyState,
+  LoadFailure,
+  Pill,
+  Section,
+  SkeletonRows,
+  Tabs,
+  useActionFeedback,
+} from "./ui/primitives";
+import { DELIVERY_STATE_CONSEQUENCE, DELIVERY_STATE_TERMS } from "./ui/vocabulary";
 
 type HistoryEntry = CommunicationsHistoryDto["history"][number];
 type DeliveryState = HistoryEntry["delivery"]["state"];
 
-const STATES: { id: DeliveryState; label: string; icon: React.ReactNode }[] = [
-  { id: "queued", label: "Queued", icon: <IconInbox size={12} /> },
-  { id: "retrying", label: "Retrying", icon: <IconClock size={12} /> },
-  { id: "succeeded", label: "Succeeded", icon: <IconCheck size={12} /> },
-  { id: "terminal", label: "Terminal", icon: <IconWarning size={12} /> },
-];
+/*
+ * The four states, named once for the whole product.
+ *
+ * This file used to keep its own list, so the same delivery was "Terminal" here, "Failed" in the
+ * webhook history and `terminal` in the row underneath — three words for one fact, none of which
+ * said what it means: nothing will try again until somebody retries it.
+ */
+const STATES: DeliveryState[] = ["queued", "retrying", "succeeded", "terminal"];
 
 /** Only these two states are recoverable; the API rejects a retry on the others. */
 const RECOVERABLE = new Set<DeliveryState>(["retrying", "terminal"]);
@@ -45,15 +53,28 @@ const stampedTime = (instant: string) =>
     minute: "2-digit",
   });
 
+/*
+ * A template, named the way this product names things rather than the way storage does.
+ *
+ * The column printed `template-speaker-task-v1` — a row key, in the same weight as the
+ * recipient beside it. Everything in that string is already on screen: the version has its own
+ * line underneath, and `template-` is true of every row. What is left is the message, so that
+ * is what the cell says; the key stays on the cell's `title` for anybody matching it against a
+ * configuration file.
+ */
+const templateName = (id: string) =>
+  technicalLabel(id.replace(/^template[-_]/, "").replace(/[-_]v\d+$/, "")) || id;
+
 function templateLabel({ delivery }: HistoryEntry) {
   if (delivery.templateId)
     return {
-      name: delivery.templateId,
+      name: templateName(delivery.templateId),
+      key: delivery.templateId,
       detail: delivery.templateVersion === null ? null : `Version ${delivery.templateVersion}`,
     };
   if (delivery.projectionVersion !== null)
-    return { name: "Projection", detail: `Version ${delivery.projectionVersion}` };
-  return { name: "—", detail: null };
+    return { name: "Projection", key: null, detail: `Version ${delivery.projectionVersion}` };
+  return { name: "—", key: null, detail: null };
 }
 
 function lastError({ attempts }: HistoryEntry) {
@@ -75,11 +96,8 @@ function technicalLabel(value: string) {
   return `${words.charAt(0).toUpperCase()}${words.slice(1)}`;
 }
 
-function readError(reason: unknown, fallback: string) {
-  if (reason instanceof CommunicationsApiError)
-    return `${reason.message} Reference: ${reason.envelope.error.correlationId}`;
-  return reason instanceof Error ? reason.message : fallback;
-}
+const readError = (reason: unknown, fallback: string) =>
+  describeApiFailure(reason, fallback).message;
 
 interface CommunicationsWorkspaceProps {
   event: EventDto;
@@ -95,7 +113,7 @@ export function CommunicationsWorkspace({ event }: CommunicationsWorkspaceProps)
   // Why the outbox is not on screen. Only the read that leaves this surface empty is held
   // here; a refused refresh of an outbox already rendered is announced beside the control
   // that asked for it instead, because that is where the operator is looking.
-  const [loadFailure, setLoadFailure] = useState<string | null>(null);
+  const [loadFailure, setLoadFailure] = useState<ApiFailure | null>(null);
   const eventIdRef = useRef(event.id);
   // `load` is memoized and drives the mount effect, so it cannot read render state; this
   // mirror answers "is there an outbox on screen to put the message beside?".
@@ -122,12 +140,12 @@ export function CommunicationsWorkspace({ event }: CommunicationsWorkspaceProps)
         setCursor(page.nextCursor);
       } catch (reason: unknown) {
         if (eventIdRef.current !== requestedEventId) return;
-        const message = readError(reason, "The outbox could not be loaded.");
+        const failure = describeApiFailure(reason, "The outbox could not be loaded.");
         // ERROR-INTENT: an outbox that is on screen keeps its rows and takes the refusal next
         // to the control that asked for the refresh; an outbox that never arrived renders the
         // refusal in its own place, because there is nothing else on this surface to explain.
-        if (loadedRef.current) feedback.announce("error", message);
-        else setLoadFailure(message);
+        if (loadedRef.current) feedback.announce("error", failure);
+        else setLoadFailure(failure);
       } finally {
         setBusy(false);
       }
@@ -182,9 +200,9 @@ export function CommunicationsWorkspace({ event }: CommunicationsWorkspaceProps)
   const tabs = [
     { id: "all", label: "All", count: history?.length ?? 0 },
     ...STATES.map((state) => ({
-      id: state.id,
-      label: state.label,
-      count: counts.get(state.id) ?? 0,
+      id: state,
+      label: DELIVERY_STATE_TERMS[state].label,
+      count: counts.get(state) ?? 0,
     })),
   ];
 
@@ -201,10 +219,10 @@ export function CommunicationsWorkspace({ event }: CommunicationsWorkspaceProps)
           void load();
         }}
       />
-      <Card
+      <Section
         labelledBy="communications-title"
         title="Delivery history"
-        hint={
+        description={
           history
             ? `${history.length} ${history.length === 1 ? "delivery" : "deliveries"} loaded${
                 recoverable.length ? ` · ${recoverable.length} awaiting recovery` : ""
@@ -223,11 +241,10 @@ export function CommunicationsWorkspace({ event }: CommunicationsWorkspaceProps)
               void load();
             }}
           >
-            <IconSend size={15} />
+            <IconSend size={20} />
             {busy ? "Refreshing…" : "Refresh outbox"}
           </button>
         }
-        tight
       >
         <div className="comms-toolbar">
           {feedback.node}
@@ -238,40 +255,17 @@ export function CommunicationsWorkspace({ event }: CommunicationsWorkspaceProps)
           {history === null && loadFailure ? (
             // The failure takes the skeleton's place: the outbox is the only thing this
             // surface has to say, so when it cannot be read that *is* the page.
-            <div className="comms-failure">
-              <Notice tone="error">{loadFailure}</Notice>
-              <EmptyState
-                title="The delivery history could not be loaded"
-                icon={<IconWarning size={20} />}
-                action={
-                  <button
-                    type="button"
-                    className="secondary"
-                    disabled={busy}
-                    onClick={() => {
-                      // ERROR-INTENT: handlers cannot await; load renders or announces its failure.
-                      void load();
-                    }}
-                  >
-                    {busy ? "Trying again…" : "Try again"}
-                  </button>
-                }
-              >
-                No delivery was changed by this. Try again, and quote the reference above if it
-                keeps failing.
-              </EmptyState>
-            </div>
+            <LoadFailure
+              what="the delivery history"
+              error={loadFailure.message}
+              reference={loadFailure.reference}
+              retryLabel={busy ? "Trying again…" : "Try again"}
+              onRetry={load}
+            >
+              {loadFailure.message} No delivery was changed by this.
+            </LoadFailure>
           ) : history === null ? (
-            <div className="comms-skeletons">
-              <div aria-hidden="true">
-                {[0, 1, 2, 3].map((index) => (
-                  <div key={index} className="skeleton" style={{ height: 40 }} />
-                ))}
-              </div>
-              <p className="visually-hidden" role="status">
-                Loading the delivery history.
-              </p>
-            </div>
+            <SkeletonRows rows={4} label="Loading the delivery history" />
           ) : visible.length === 0 ? (
             <EmptyState
               title={history.length ? "No deliveries in this state" : "The outbox is empty"}
@@ -285,7 +279,7 @@ export function CommunicationsWorkspace({ event }: CommunicationsWorkspaceProps)
               }
             >
               {history.length
-                ? "Nothing is queued, retrying, succeeded, or terminal in this filter."
+                ? "Nothing is queued, retrying, delivered, or stopped in this filter."
                 : "Speaker invitations, reviewer assignments, and projection pushes appear here as soon as they are triggered."}
             </EmptyState>
           ) : (
@@ -293,13 +287,15 @@ export function CommunicationsWorkspace({ event }: CommunicationsWorkspaceProps)
               <table className="data comms-table">
                 <thead>
                   <tr>
+                    {/* The cue gutter: the one figure a delivery row is about is how many times
+                        it has been tried, and the count is also what opens the attempt history. */}
+                    <th scope="col" className="gutter">
+                      Tries
+                    </th>
                     <th scope="col">Recipient</th>
                     <th scope="col">Channel</th>
                     <th scope="col">Template</th>
                     <th scope="col">State</th>
-                    <th scope="col" className="num">
-                      Attempts
-                    </th>
                     <th scope="col">Last error</th>
                     <th scope="col">
                       <span className="visually-hidden">Recovery</span>
@@ -309,42 +305,18 @@ export function CommunicationsWorkspace({ event }: CommunicationsWorkspaceProps)
                 <tbody>
                   {visible.map((entry) => {
                     const { delivery, attempts } = entry;
-                    const state = STATES.find((item) => item.id === delivery.state);
+                    const term = DELIVERY_STATE_TERMS[delivery.state];
                     const template = templateLabel(entry);
                     const error = lastError(entry);
                     const open = expanded[delivery.id] === true;
                     return (
                       <Fragment key={delivery.id}>
                         <tr className={open ? "is-open" : undefined}>
-                          <td className="primary-cell" data-label="Recipient">
-                            {delivery.recipientRef}
-                            <span className="sub">{technicalLabel(delivery.triggerType)}</span>
-                          </td>
-                          <td className="comms-channel" data-label="Channel">
-                            {delivery.channel}
-                          </td>
-                          <td data-label="Template">
-                            {template.name}
-                            {template.detail ? (
-                              <span className="sub">{template.detail}</span>
-                            ) : null}
-                          </td>
-                          <td data-label="State">
-                            <span className={`delivery-state state-${delivery.state}`}>
-                              {state?.icon}
-                              {delivery.state}
-                            </span>
-                            <span className="sub">
-                              {delivery.state === "queued" || delivery.state === "retrying"
-                                ? `Next attempt ${stampedTime(delivery.nextAttemptAt)}`
-                                : `Updated ${stampedTime(delivery.updatedAt)}`}
-                            </span>
-                          </td>
-                          <td className="num" data-label="Attempts">
+                          <td className="gutter" data-label="Tries">
                             {attempts.length ? (
                               <button
                                 type="button"
-                                className="ghost small comms-expand"
+                                className="ghost comms-expand"
                                 aria-expanded={open}
                                 aria-controls={`attempts-${delivery.id}`}
                                 onClick={() =>
@@ -354,18 +326,47 @@ export function CommunicationsWorkspace({ event }: CommunicationsWorkspaceProps)
                                   }))
                                 }
                               >
-                                {attempts.length}
+                                <span className="figure">{attempts.length}</span>
                                 <span className="visually-hidden">
                                   {open ? "Hide" : "Show"} attempt history for{" "}
                                   {delivery.recipientRef}
                                 </span>
                                 <span aria-hidden="true" className="comms-chevron">
-                                  {open ? "▾" : "▸"}
+                                  {open ? (
+                                    <IconChevronDown size={10} />
+                                  ) : (
+                                    <IconChevronRight size={10} />
+                                  )}
                                 </span>
                               </button>
                             ) : (
-                              <span className="comms-muted">0</span>
+                              <span className="figure comms-muted">0</span>
                             )}
+                          </td>
+                          <td className="primary-cell" data-label="Recipient">
+                            {delivery.recipientRef}
+                            <span className="sub">{technicalLabel(delivery.triggerType)}</span>
+                          </td>
+                          <td className="comms-channel" data-label="Channel">
+                            {delivery.channel}
+                          </td>
+                          <td data-label="Template" title={template.key ?? undefined}>
+                            {template.name}
+                            {template.detail ? (
+                              <span className="sub">{template.detail}</span>
+                            ) : null}
+                          </td>
+                          <td data-label="State">
+                            <Pill tone={term.tone}>{term.label}</Pill>
+                            <span className="sub">
+                              {delivery.state === "queued" || delivery.state === "retrying"
+                                ? `Next attempt ${stampedTime(delivery.nextAttemptAt)}`
+                                : `Updated ${stampedTime(delivery.updatedAt)}`}
+                            </span>
+                            {/* What the state means for somebody deciding whether to act. */}
+                            <span className="sub">
+                              {DELIVERY_STATE_CONSEQUENCE[delivery.state]}
+                            </span>
                           </td>
                           <td data-label="Last error">
                             {error ? (
@@ -455,7 +456,7 @@ export function CommunicationsWorkspace({ event }: CommunicationsWorkspaceProps)
             </button>
           </div>
         ) : null}
-      </Card>
+      </Section>
     </div>
   );
 }

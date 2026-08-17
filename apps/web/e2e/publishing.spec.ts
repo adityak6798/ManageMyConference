@@ -13,6 +13,7 @@
  * in the product, with no seeded projection behind it, can be given a public page at all.
  */
 
+import { confirmInDrawer } from "./controls";
 import { fillAdditionalEvent } from "./event-creation";
 import { expect, test } from "./fixtures";
 
@@ -29,7 +30,6 @@ test("creates an event, previews without publishing, publishes, and takes it dow
 
   await page.goto("/");
   await page.getByRole("button", { name: "Continue as organizer" }).click();
-  await page.goto("/settings?tab=event");
   await fillAdditionalEvent(page, { name });
   await page.getByRole("button", { name: "Create event" }).click();
   await expect(page.getByRole("combobox", { name: "Event workspace" })).toContainText(name);
@@ -52,13 +52,21 @@ test("creates an event, previews without publishing, publishes, and takes it dow
   expect(eventId, "the workspace URL must carry the selected event").toBeTruthy();
   // Missing agendas are read-only until the organizer explicitly creates one.
   await page.getByRole("button", { name: "Create agenda" }).click();
-  // The created board names the editor in its own copy, so address the disclosure.
-  await page.locator("summary").filter({ hasText: "Manage rooms, tracks, and times" }).click();
-  await page.getByLabel("New timeslot start").fill("2026-11-04T09:00");
-  await page.getByLabel("New timeslot end").fill("2026-11-04T10:00");
-  await page.getByRole("button", { name: "Add timeslot" }).click();
+  // Rooms, tracks and times live in a drawer opened from the board bar: the board is the page,
+  // and its inventory is what somebody opens when they need to change it. Exact, because an
+  // empty board offers the same drawer from its own empty state — "Set up rooms and times".
+  await page.getByRole("button", { name: "Rooms and times", exact: true }).click();
+  const resources = page.getByRole("dialog", { name: "Rooms, tracks and times" });
+  // A slot is a day and two clock times: the day is stated once, because both ends are on it.
+  await resources.getByLabel("New timeslot day").fill("2026-11-04");
+  await resources.getByLabel("New timeslot start").fill("09:00");
+  await resources.getByLabel("New timeslot end").fill("10:00");
+  await resources.getByRole("button", { name: "Add timeslot" }).click();
   await expect(page.getByRole("status")).toContainText("Timeslot added.");
+  await resources.getByRole("button", { name: "Done" }).click();
   await page.getByRole("button", { name: "Publish schedule" }).click();
+  // Publication is irreversible, so the board asks first and previews what becomes public.
+  await confirmInDrawer(page, "Publish the schedule", "Publish schedule");
   await expect(page.getByRole("status")).toContainText("Published version 1");
 
   await page.goto(`/publish?event=${eventId}&tab=event-site`);
@@ -124,7 +132,8 @@ test("creates an event, previews without publishing, publishes, and takes it dow
     "Published. Accepted schedule, content, and CFP publications now refresh every public surface automatically.",
   );
   await expect(page.getByText("Published", { exact: true })).toBeVisible();
-  await expect(page.getByText("Snapshot matches the draft")).toBeVisible();
+  // Exact: the paragraph under the state pill repeats the phrase, so a substring matches both.
+  await expect(page.getByText("Snapshot matches the draft", { exact: true })).toBeVisible();
   // The public URL becomes a link the organizer can follow, not a code span.
   const publicLink = page.locator(".publishing-url a").first();
   await expect(publicLink).toHaveAttribute("href", `/events/${slug}`);
@@ -184,11 +193,15 @@ test("creates an event, previews without publishing, publishes, and takes it dow
     "href",
     `/events/${slug}`,
   );
+  // Taking a public address down stops it resolving for everybody, including anybody holding a
+  // link a speaker shared, so it asks which address first.
   await page.getByRole("button", { name: "Unpublish" }).click();
+  await confirmInDrawer(page, `Take ${name} off the web?`, "Take it down");
   await expect(publicationStatus).toContainText(
     "Unpublished. The public page, feed, and embeds now return the not-published response.",
   );
-  await expect(page.getByText("Taken down")).toBeVisible();
+  // Exact: the line under the state pill repeats the phrase, so a substring matches both.
+  await expect(page.getByText("Taken down", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Unpublish" })).toBeDisabled();
 
   const afterUnpublish = await page.request.get(`/api/public/events/${slug}`);
@@ -196,7 +209,10 @@ test("creates an event, previews without publishing, publishes, and takes it dow
   expect((await afterUnpublish.json()).error.message).toBe("This event is not published.");
   for (const path of [`/events/${slug}`, `/embed/events/${slug}/schedule`]) {
     await page.goto(path);
-    await expect(page.getByRole("heading", { name: "Event unavailable" })).toBeVisible();
+    // A dead end is a whole page: the shell, what happened, and something to press.
+    await expect(
+      page.getByRole("heading", { level: 1, name: "This event page is unavailable" }),
+    ).toBeVisible();
   }
 
   expect(crashes, "the public site must never render through an uncaught error").toEqual([]);

@@ -47,17 +47,63 @@ type Carry = {
 
 type Cell = { key: string; roomId: string; slotId: string };
 
-/** A start/end pair exactly as the two `datetime-local` inputs of one row hold it. */
-type SlotForm = { start: string; end: string };
+/**
+ * One timeslot row as its three inputs hold it: a calendar day, and two times of day.
+ *
+ * It used to be two `datetime-local` values, which meant retyping the date on every row of
+ * every day — 48 hand-typed datetimes for a three-day, eight-slot event. A slot belongs to one
+ * day by construction, so the day is asked for once and the times are times.
+ */
+type SlotForm = { day: string; start: string; end: string };
 
 /** The length a new timeslot is offered at, and the grid its default start snaps to. */
 const HOUR_MS = 3_600_000;
+const MINUTE_MS = 60_000;
 /** `datetime-local` yields `YYYY-MM-DDTHH:mm`, plus seconds this board does not use. */
 const LOCAL_INPUT = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/;
 /** The key the not-yet-created timeslot row uses in the form and error maps. */
 const NEW_SLOT = "new";
-/** The colour a track is born with; the organizer can recolour it afterwards. */
-const DEFAULT_TRACK_COLOR = "#6257d9";
+
+/*
+ * The track palette.
+ *
+ * Every track used to be born `#6257d9` — one off-palette indigo, written once at creation and
+ * never modified, because nothing in the product could modify it. So the Track view promised a
+ * colour-coded programme while every card on the board carried the same purple stripe. These
+ * seven are the ramp a stripe can actually be read at: all cool or muted enough to sit under one
+ * neutral ground, all separated in hue rather than only in lightness, and all dark enough to
+ * clear 3:1 against `--surface` as a 3px edge. They are literal hex because the API stores the
+ * colour (`#rrggbb`) rather than a token name.
+ */
+const TRACK_COLORS = [
+  { value: "#0e5c3d", name: "Green" },
+  { value: "#1f6f8b", name: "Teal" },
+  { value: "#3d5a99", name: "Indigo" },
+  { value: "#6b4b87", name: "Plum" },
+  { value: "#a3563d", name: "Clay" },
+  { value: "#8a6d1f", name: "Ochre" },
+  { value: "#4c6b2f", name: "Olive" },
+] as const;
+/** The colour a track is born with when the board has none yet. */
+const DEFAULT_TRACK_COLOR = TRACK_COLORS[0].value;
+
+/**
+ * The next unused swatch, so a second track never looks like the first.
+ *
+ * Successive rather than random: an organizer adding four tracks in a row gets four colours they
+ * can tell apart, and adding one to a board that already spans the palette starts round again
+ * rather than refusing.
+ */
+function nextTrackColor(used: readonly { color: string }[]): string {
+  const taken = new Set(used.map(({ color }) => color.toLowerCase()));
+  const free = TRACK_COLORS.find(({ value }) => !taken.has(value));
+  return (free ?? TRACK_COLORS[used.length % TRACK_COLORS.length] ?? TRACK_COLORS[0]).value;
+}
+
+/** What a swatch is called, for a reader who cannot see it. */
+function trackColorName(color: string): string {
+  return TRACK_COLORS.find(({ value }) => value === color.toLowerCase())?.name ?? "Custom";
+}
 
 const VIEWS = ["list", "day", "week", "room", "track", "conflicts"] as const;
 type ViewId = (typeof VIEWS)[number];
@@ -69,15 +115,6 @@ const VIEW_LABELS: Record<ViewId, string> = {
   room: "Room",
   track: "Track",
   conflicts: "Conflicts",
-};
-
-const VIEW_TITLES: Record<ViewId, string> = {
-  list: "Every placement, earliest first",
-  day: "One column per time slot",
-  week: "Days across, time down",
-  room: "Rooms across, time down",
-  track: "Grouped by track",
-  conflicts: "Everything blocking publication",
 };
 
 const CONFLICT_LABELS: Record<Conflict["kind"], string> = {
@@ -203,6 +240,78 @@ function clockFor(timezone: string): Clock {
   };
 }
 
+/** `YYYY-MM-DD`, `count` calendar days later. Days are counted, never milliseconds added. */
+function addDays(day: string, count: number): string {
+  const [year, month, dayOfMonth] = day.split("-").map(Number);
+  if (year === undefined || month === undefined || dayOfMonth === undefined) return day;
+  const moved = new Date(Date.UTC(year, month - 1, dayOfMonth + count));
+  return moved.toISOString().slice(0, 10);
+}
+
+/** `HH:mm`, `minutes` later on the same clock, wrapping past midnight. */
+function addMinutes(time: string, minutes: number): string {
+  const [hour, minute] = time.split(":").map(Number);
+  if (hour === undefined || minute === undefined) return time;
+  const total = (((hour * 60 + minute + minutes) % 1440) + 1440) % 1440;
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+}
+
+/**
+ * How long a slot runs, as the one figure the board's gutter carries beneath its start.
+ *
+ * Minutes below an hour, hours above it, and both only when both are non-zero: "45m", "1h",
+ * "1h 30m". A duration is a measure, so it is set in the mono figure face like every other.
+ */
+function durationLabel(startsAt: string, endsAt: string): string {
+  const minutes = Math.round((Date.parse(endsAt) - Date.parse(startsAt)) / MINUTE_MS);
+  if (!Number.isFinite(minutes) || minutes <= 0) return "";
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest ? `${hours}h ${rest}m` : `${hours}h`;
+}
+
+/** One run of evenly spaced timeslots, as wall-clock day/start/end triples. */
+type SlotRunForm = {
+  day: string;
+  start: string;
+  end: string;
+  /** How long each slot runs, in minutes. */
+  length: string;
+  /** The gap left between one slot and the next, in minutes. */
+  gap: string;
+};
+
+/**
+ * Lay a run of slots across a stretch of one day.
+ *
+ * Returns wall-clock pairs rather than instants: the caller owns the zone, and the whole point
+ * of this board is that nothing invents a date. Stops at the first slot that would run past
+ * `end`, so a 90-minute length in a 4-hour window yields two slots and no ragged third.
+ */
+function planSlotRun(form: SlotRunForm): readonly { day: string; start: string; end: string }[] {
+  const length = Number(form.length);
+  const gap = Number(form.gap || "0");
+  const minutes = (time: string) => {
+    const [hour, minute] = time.split(":").map(Number);
+    return hour === undefined || minute === undefined ? Number.NaN : hour * 60 + minute;
+  };
+  const from = minutes(form.start);
+  const until = minutes(form.end);
+  if (!Number.isFinite(from) || !Number.isFinite(until) || !Number.isFinite(length)) return [];
+  if (length <= 0 || gap < 0 || until <= from) return [];
+  const planned: { day: string; start: string; end: string }[] = [];
+  // Bounded by the window rather than by a `while (true)`: a zero-length step would otherwise
+  // be an infinite loop rather than an empty answer.
+  for (let at = from; at + length <= until; at += length + gap)
+    planned.push({
+      day: form.day,
+      start: addMinutes("00:00", at),
+      end: addMinutes("00:00", at + length),
+    });
+  return planned;
+}
+
 /** Instants order the same in every zone, so ordering compares the moment, not the text. */
 const byInstant = (left: string, right: string) => {
   const delta = Date.parse(left) - Date.parse(right);
@@ -262,8 +371,10 @@ function readViewFromUrl(): ViewId {
   return isViewId(requested) ? requested : "room";
 }
 
-export type { Carry, Cell, Clock, Conflict, Draft, Placement, Slot, SlotForm, ViewId };
+export type { Carry, Cell, Clock, Conflict, Draft, Placement, Slot, SlotForm, SlotRunForm, ViewId };
 export {
+  addDays,
+  addMinutes,
   byInstant,
   byStart,
   CONFLICT_LABELS,
@@ -271,15 +382,19 @@ export {
   cellKey,
   clockFor,
   DEFAULT_TRACK_COLOR,
+  durationLabel,
   errorsByRow,
   HOUR_MS,
   inUseNote,
   isViewId,
   LOCAL_INPUT,
   NEW_SLOT,
+  nextTrackColor,
+  planSlotRun,
   readViewFromUrl,
   resolveZone,
+  TRACK_COLORS,
+  trackColorName,
   VIEW_LABELS,
-  VIEW_TITLES,
   VIEWS,
 };

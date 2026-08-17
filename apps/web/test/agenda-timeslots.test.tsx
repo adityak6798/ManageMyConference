@@ -7,6 +7,12 @@
  * looking at had no slots, and there was no way to correct a slot afterwards. These are
  * jsdom tests because the whole question is what leaves the browser — which instants the
  * PUT body carries for a given zone and a given pair of typed wall-clock times.
+ *
+ * A row is a day and two times of day now, not two datetimes: a slot belongs to one day by
+ * construction, and retyping the date on every row of every day cost a three-day, eight-slot
+ * event 48 hand-typed datetimes. The arithmetic under test is unchanged — the same wall-clock
+ * reading has to leave as the same instant — so these assertions are about the same thing they
+ * always were, read off three inputs instead of two.
  */
 import type { EventDto } from "@greenroom/contracts";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -124,6 +130,12 @@ function slotsOf(sent: Sent[]) {
   return body?.slots ?? [];
 }
 
+/** Open the rooms, tracks and times drawer the board bar leads to. */
+async function openResources() {
+  fireEvent.click(await screen.findByRole("button", { name: "Rooms and times" }));
+  await screen.findByRole("dialog", { name: "Rooms, tracks and times" });
+}
+
 describe("AgendaWorkspace timeslot editing", () => {
   const onError = vi.fn<(message: string) => void>();
 
@@ -143,13 +155,12 @@ describe("AgendaWorkspace timeslot editing", () => {
   it("defaults the first timeslot of a slotless event to the next hour on its own clock", async () => {
     const sent = stubFetch(emptyDraft);
     render(<AgendaWorkspace event={eventIn("America/New_York")} onError={onError} />);
+    await openResources();
 
     // The next whole hour *in New York*, not in UTC and not a date from another event.
-    const start = await screen.findByLabelText<HTMLInputElement>("New timeslot start");
-    expect(start.value).toBe("2026-08-11T15:00");
-    expect(screen.getByLabelText<HTMLInputElement>("New timeslot end").value).toBe(
-      "2026-08-11T16:00",
-    );
+    expect(screen.getByLabelText<HTMLInputElement>("New timeslot day").value).toBe("2026-08-11");
+    expect(screen.getByLabelText<HTMLInputElement>("New timeslot start").value).toBe("15:00");
+    expect(screen.getByLabelText<HTMLInputElement>("New timeslot end").value).toBe("16:00");
 
     fireEvent.click(screen.getByRole("button", { name: "Add timeslot" }));
 
@@ -168,11 +179,16 @@ describe("AgendaWorkspace timeslot editing", () => {
   it("posts the times the operator typed, read on the event's clock", async () => {
     const sent = stubFetch(emptyDraft);
     render(<AgendaWorkspace event={eventIn("America/Los_Angeles")} onError={onError} />);
+    await openResources();
 
-    const start = await screen.findByLabelText("New timeslot start");
-    fireEvent.change(start, { target: { value: "2026-10-05T09:30" } });
+    fireEvent.change(screen.getByLabelText("New timeslot day"), {
+      target: { value: "2026-10-05" },
+    });
+    fireEvent.change(screen.getByLabelText("New timeslot start"), {
+      target: { value: "09:30" },
+    });
     fireEvent.change(screen.getByLabelText("New timeslot end"), {
-      target: { value: "2026-10-05T10:45" },
+      target: { value: "10:45" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Add timeslot" }));
 
@@ -187,27 +203,28 @@ describe("AgendaWorkspace timeslot editing", () => {
   it("suggests the end of the last slot when the event already has one", async () => {
     stubFetch(withSlot);
     render(<AgendaWorkspace event={eventIn("America/New_York")} onError={onError} />);
+    await openResources();
 
     // 17:00Z is 13:00 in New York; the next slot starts where the last one ended.
-    const start = await screen.findByLabelText<HTMLInputElement>("New timeslot start");
-    expect(start.value).toBe("2026-09-01T13:00");
-    expect(screen.getByLabelText<HTMLInputElement>("New timeslot end").value).toBe(
-      "2026-09-01T14:00",
-    );
+    expect(screen.getByLabelText<HTMLInputElement>("New timeslot day").value).toBe("2026-09-01");
+    expect(screen.getByLabelText<HTMLInputElement>("New timeslot start").value).toBe("13:00");
+    expect(screen.getByLabelText<HTMLInputElement>("New timeslot end").value).toBe("14:00");
   });
 
   it("edits an existing timeslot and sends only that slot's new instants", async () => {
     const sent = stubFetch(withSlot);
     render(<AgendaWorkspace event={eventIn("America/New_York")} onError={onError} />);
+    await openResources();
 
     // The row is filled from the server, on the event's clock: 16:00Z is 12:00 Eastern.
-    const start = await screen.findByLabelText<HTMLInputElement>(/^Start of /);
-    expect(start.value).toBe("2026-09-01T12:00");
-    const save = screen.getByRole("button", { name: /^Save / });
+    const start = screen.getByLabelText<HTMLInputElement>(/^Start of /);
+    expect(start.value).toBe("12:00");
+    expect(screen.getByLabelText<HTMLInputElement>(/^Day of /).value).toBe("2026-09-01");
+    const save = screen.getByRole("button", { name: /^Save Tue, Sep 1/ });
     expect(save).toBeDisabled();
 
-    fireEvent.change(start, { target: { value: "2026-09-01T09:15" } });
-    fireEvent.change(screen.getByLabelText(/^End of /), { target: { value: "2026-09-01T10:15" } });
+    fireEvent.change(start, { target: { value: "09:15" } });
+    fireEvent.change(screen.getByLabelText(/^End of /), { target: { value: "10:15" } });
     expect(save).toBeEnabled();
     fireEvent.click(save);
 
@@ -225,19 +242,46 @@ describe("AgendaWorkspace timeslot editing", () => {
   it("refuses an end that is not after the start without calling the API", async () => {
     const sent = stubFetch(emptyDraft);
     render(<AgendaWorkspace event={eventIn("America/New_York")} onError={onError} />);
+    await openResources();
 
-    fireEvent.change(await screen.findByLabelText("New timeslot start"), {
-      target: { value: "2026-10-05T11:00" },
+    fireEvent.change(screen.getByLabelText("New timeslot day"), {
+      target: { value: "2026-10-05" },
     });
-    fireEvent.change(screen.getByLabelText("New timeslot end"), {
-      target: { value: "2026-10-05T10:00" },
-    });
+    fireEvent.change(screen.getByLabelText("New timeslot start"), { target: { value: "11:00" } });
+    fireEvent.change(screen.getByLabelText("New timeslot end"), { target: { value: "10:00" } });
     fireEvent.click(screen.getByRole("button", { name: "Add timeslot" }));
 
+    // Reading it as the next morning would turn a typo into a 23-hour slot, which is worse
+    // than refusing it.
     expect(await screen.findByRole("alert")).toHaveTextContent("End must be after start.");
     expect(screen.getByLabelText("New timeslot end")).toHaveAttribute("aria-invalid", "true");
     expect(sent).toHaveLength(0);
     expect(onError).not.toHaveBeenCalled();
+  });
+
+  /*
+   * A day and two times can still say "this runs past midnight", which two datetimes said by
+   * construction. An end at or before the start is the next morning when that makes a slot short
+   * enough to be one, and the row it comes back as reads exactly the same way.
+   */
+  it("reads an end before the start as the next morning, up to twelve hours", async () => {
+    const sent = stubFetch(emptyDraft);
+    render(<AgendaWorkspace event={eventIn("America/New_York")} onError={onError} />);
+    await openResources();
+
+    fireEvent.change(screen.getByLabelText("New timeslot day"), {
+      target: { value: "2026-10-05" },
+    });
+    fireEvent.change(screen.getByLabelText("New timeslot start"), { target: { value: "22:00" } });
+    fireEvent.change(screen.getByLabelText("New timeslot end"), { target: { value: "01:00" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add timeslot" }));
+
+    await waitFor(() => expect(sent).toHaveLength(1));
+    // 22:00 Eastern on the 5th is 02:00Z on the 6th; 01:00 on the 6th is 05:00Z.
+    expect(slotsOf(sent)[0]).toMatchObject({
+      startsAt: "2026-10-06T02:00:00.000Z",
+      endsAt: "2026-10-06T05:00:00.000Z",
+    });
   });
 
   it("shows the server's field error on the row that caused it", async () => {
@@ -257,16 +301,16 @@ describe("AgendaWorkspace timeslot editing", () => {
         ),
     );
     render(<AgendaWorkspace event={eventIn("America/New_York")} onError={onError} />);
+    await openResources();
 
-    const start = await screen.findByLabelText(/^Start of /);
-    fireEvent.change(start, { target: { value: "2026-09-01T09:15" } });
-    fireEvent.click(screen.getByRole("button", { name: /^Save / }));
+    fireEvent.change(screen.getByLabelText(/^Start of /), { target: { value: "09:15" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Save Tue, Sep 1/ }));
 
     await waitFor(() => expect(sent).toHaveLength(1));
     const message = await screen.findByRole("alert");
     expect(message).toHaveTextContent("Timeslot not saved. End must be after start");
     // The row keeps the operator's text and points at the reason it was rejected.
-    expect(screen.getByLabelText<HTMLInputElement>(/^Start of /).value).toBe("2026-09-01T09:15");
+    expect(screen.getByLabelText<HTMLInputElement>(/^Start of /).value).toBe("09:15");
     expect(screen.getByLabelText(/^End of /)).toHaveAttribute("aria-invalid", "true");
     // A field error is not a workspace failure; the page-level alert stays quiet.
     expect(onError).not.toHaveBeenCalled();
@@ -281,14 +325,15 @@ describe("AgendaWorkspace timeslot editing", () => {
   it("keeps every other row's typed times when one row is saved", async () => {
     const sent = stubStoringFetch(withTwoSlots);
     render(<AgendaWorkspace event={eventIn("America/New_York")} onError={onError} />);
+    await openResources();
 
-    const starts = await screen.findAllByLabelText<HTMLInputElement>(/^Start of /);
+    const starts = screen.getAllByLabelText<HTMLInputElement>(/^Start of /);
     // 16:00Z and 17:00Z are 12:00 and 13:00 in New York.
-    expect(starts.map((input) => input.value)).toEqual(["2026-09-01T12:00", "2026-09-01T13:00"]);
-    fireEvent.change(starts[0] as HTMLInputElement, { target: { value: "2026-09-01T09:30" } });
-    fireEvent.change(starts[1] as HTMLInputElement, { target: { value: "2026-09-01T13:45" } });
+    expect(starts.map((input) => input.value)).toEqual(["12:00", "13:00"]);
+    fireEvent.change(starts[0] as HTMLInputElement, { target: { value: "09:30" } });
+    fireEvent.change(starts[1] as HTMLInputElement, { target: { value: "13:45" } });
 
-    fireEvent.click(screen.getAllByRole("button", { name: /^Save / })[0] as HTMLElement);
+    fireEvent.click(screen.getAllByRole("button", { name: /^Save Tue, Sep 1/ })[0] as HTMLElement);
     await waitFor(() => expect(sent).toHaveLength(1));
     // Only the row that was saved is in the write; the other keeps its stored times.
     expect(slotsOf(sent)).toEqual([
@@ -307,11 +352,11 @@ describe("AgendaWorkspace timeslot editing", () => {
 
     const after = screen.getAllByLabelText<HTMLInputElement>(/^Start of /);
     // The saved row shows what the server now holds…
-    expect(after[0]?.value).toBe("2026-09-01T09:30");
+    expect(after[0]?.value).toBe("09:30");
     // …and the row nobody saved still holds the time the operator typed into it.
-    expect(after[1]?.value).toBe("2026-09-01T13:45");
+    expect(after[1]?.value).toBe("13:45");
 
-    const saves = screen.getAllByRole("button", { name: /^Save / });
+    const saves = screen.getAllByRole("button", { name: /^Save Tue, Sep 1/ });
     expect(saves[0]).toBeDisabled();
     expect(saves[1]).toBeEnabled();
 
@@ -337,33 +382,83 @@ describe("AgendaWorkspace timeslot editing", () => {
   it("keeps a typed row when a different timeslot is added or removed", async () => {
     const sent = stubStoringFetch(withTwoSlots);
     render(<AgendaWorkspace event={eventIn("America/New_York")} onError={onError} />);
+    await openResources();
 
-    const typed = (await screen.findAllByLabelText<HTMLInputElement>(/^Start of /))[1];
+    const typed = screen.getAllByLabelText<HTMLInputElement>(/^Start of /)[1];
     if (!typed) throw new Error("the second timeslot row is missing");
-    fireEvent.change(typed, { target: { value: "2026-09-01T13:45" } });
+    fireEvent.change(typed, { target: { value: "13:45" } });
 
     fireEvent.click(screen.getByRole("button", { name: "Add timeslot" }));
     await waitFor(() => expect(sent).toHaveLength(1));
-    expect(screen.getAllByLabelText<HTMLInputElement>(/^Start of /)[1]?.value).toBe(
-      "2026-09-01T13:45",
-    );
+    expect(screen.getAllByLabelText<HTMLInputElement>(/^Start of /)[1]?.value).toBe("13:45");
 
     // Removing the *first* row is not an answer about the second one either.
-    fireEvent.click(screen.getAllByRole("button", { name: /^Remove / })[0] as HTMLElement);
-    await waitFor(() => expect(sent).toHaveLength(2));
-    expect(screen.getAllByLabelText<HTMLInputElement>(/^Start of /)[0]?.value).toBe(
-      "2026-09-01T13:45",
+    fireEvent.click(
+      screen.getAllByRole("button", { name: /^Remove Tue, Sep 1/ })[0] as HTMLElement,
     );
+    await waitFor(() => expect(sent).toHaveLength(2));
+    expect(screen.getAllByLabelText<HTMLInputElement>(/^Start of /)[0]?.value).toBe("13:45");
     expect(onError).not.toHaveBeenCalled();
   });
 
   it("removes a timeslot without inventing a replacement", async () => {
     const sent = stubFetch(withSlot);
     render(<AgendaWorkspace event={eventIn("America/New_York")} onError={onError} />);
+    await openResources();
 
-    fireEvent.click(await screen.findByRole("button", { name: /^Remove / }));
+    fireEvent.click(screen.getByRole("button", { name: /^Remove Tue, Sep 1/ }));
 
     await waitFor(() => expect(sent).toHaveLength(1));
     expect(slotsOf(sent)).toEqual([]);
+  });
+
+  /*
+   * A three-day, eight-slot event used to cost 48 hand-typed datetimes. It costs one run and
+   * two copies now, and the run is the part that has to get the arithmetic right: each slot's
+   * start and end are wall-clock readings on the event's own day, converted the same way a
+   * hand-typed row is.
+   */
+  it("lays a run of slots across a stretch of one day", async () => {
+    const sent = stubFetch(emptyDraft);
+    render(<AgendaWorkspace event={eventIn("America/New_York")} onError={onError} />);
+    await openResources();
+
+    fireEvent.change(screen.getByLabelText("Generate slots on"), {
+      target: { value: "2026-09-01" },
+    });
+    fireEvent.change(screen.getByLabelText("Generate slots from"), { target: { value: "09:00" } });
+    fireEvent.change(screen.getByLabelText("Generate slots until"), { target: { value: "11:00" } });
+    fireEvent.change(screen.getByLabelText("Slot length in minutes"), { target: { value: "45" } });
+    fireEvent.change(screen.getByLabelText("Break between slots in minutes"), {
+      target: { value: "15" },
+    });
+
+    // 09:00–09:45, 10:00–10:45; a third would run past 11:00, so it is not offered.
+    fireEvent.click(screen.getByRole("button", { name: "Generate 2 slots" }));
+    await waitFor(() => expect(sent).toHaveLength(1));
+    expect(slotsOf(sent)).toMatchObject([
+      { startsAt: "2026-09-01T13:00:00.000Z", endsAt: "2026-09-01T13:45:00.000Z" },
+      { startsAt: "2026-09-01T14:00:00.000Z", endsAt: "2026-09-01T14:45:00.000Z" },
+    ]);
+    expect(await screen.findByRole("status")).toHaveTextContent("2 time slots added.");
+  });
+
+  it("copies the day on screen onto another date", async () => {
+    const sent = stubFetch(withTwoSlots);
+    render(<AgendaWorkspace event={eventIn("America/New_York")} onError={onError} />);
+    await openResources();
+
+    fireEvent.change(screen.getByLabelText("Copy this day's slots to"), {
+      target: { value: "2026-09-02" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Copy slots" }));
+
+    await waitFor(() => expect(sent).toHaveLength(1));
+    // The two existing slots, plus the same two wall-clock times a day later.
+    expect(slotsOf(sent)).toHaveLength(4);
+    expect(slotsOf(sent).slice(2)).toMatchObject([
+      { startsAt: "2026-09-02T16:00:00.000Z", endsAt: "2026-09-02T17:00:00.000Z" },
+      { startsAt: "2026-09-02T17:00:00.000Z", endsAt: "2026-09-02T18:00:00.000Z" },
+    ]);
   });
 });

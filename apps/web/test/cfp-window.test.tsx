@@ -17,6 +17,17 @@ import { PublicCfpView } from "../src/public-event/PublicCfpView";
 const eventId = "00000000-0000-4000-8000-000000000001";
 const LA = "America/Los_Angeles";
 
+/**
+ * Open the part of the composer that holds the form's own settings.
+ *
+ * The composer opens on Questions, which is what an organizer comes back to; the submission
+ * window is live state attached to the form itself, so it sits in the inspector beside the
+ * form's title and description rather than as a card of its own above the editor.
+ */
+async function openFormDetails() {
+  fireEvent.click(await screen.findByRole("button", { name: /^Form details/ }));
+}
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
@@ -70,6 +81,7 @@ describe("a deadline is entered in the event's timezone", () => {
       }),
     );
     render(<CfpWorkspace eventId={eventId} organizer timezone={LA} />);
+    await openFormDetails();
     const deadline = await screen.findByLabelText("Deadline");
     await waitFor(() => expect(screen.getByLabelText("Opens")).toHaveValue(""));
     fireEvent.change(deadline, { target: { value: "2026-03-08T02:30" } });
@@ -138,6 +150,7 @@ describe("the organizer's window controls", () => {
       }),
     );
     render(<CfpWorkspace eventId={eventId} organizer timezone={LA} />);
+    await openFormDetails();
 
     /*
      * Waited for the composer to settle before typing.
@@ -191,11 +204,15 @@ describe("the organizer's window controls", () => {
       vi.fn(() => jsonResponse({ cfp: form() })),
     );
     render(<CfpWorkspace eventId={eventId} organizer timezone={LA} />);
+    await openFormDetails();
     // An organizer who cannot find out why Reopen did nothing will conclude the product is broken.
     expect(
       await screen.findByText(/cannot open one whose deadline has passed/),
     ).toBeInTheDocument();
-    expect(screen.getByText(new RegExp(LA))).toBeInTheDocument();
+    // The zone is now stated on each field rather than once in the paragraph above them, so it
+    // is announced with the control an organizer is actually typing into.
+    expect(screen.getByLabelText("Deadline")).toHaveAccessibleDescription(new RegExp(LA));
+    expect(screen.getByLabelText("Opens")).toHaveAccessibleDescription(new RegExp(LA));
   });
 
   it("reports the state applicants are in, not the one the publication flag suggests", async () => {
@@ -214,6 +231,7 @@ describe("the organizer's window controls", () => {
       ),
     );
     render(<CfpWorkspace eventId={eventId} organizer timezone={LA} />);
+    await openFormDetails();
     expect(
       await screen.findByText(/deadline has passed, so applicants cannot submit/),
     ).toBeInTheDocument();
@@ -231,7 +249,7 @@ describe("a saved window converges on the state the server computed", () => {
    * Every assertion here is about state the **server** returned. Nothing recomputes a window
    * against the browser's clock, which is the other half of what these tests protect.
    */
-  const composer = (options: {
+  const composer = async (options: {
     initial: Record<string, unknown>;
     afterSave: Record<string, unknown> | "refuse";
   }) => {
@@ -265,6 +283,7 @@ describe("a saved window converges on the state the server computed", () => {
       }),
     );
     render(<CfpWorkspace eventId={eventId} organizer timezone={LA} />);
+    await openFormDetails();
     return { reads };
   };
 
@@ -297,7 +316,7 @@ describe("a saved window converges on the state the server computed", () => {
   };
 
   it("renders the closed state at once when the saved deadline is already past", async () => {
-    const test = composer({
+    const test = await composer({
       initial: { effectiveStatus: "open", publishedStatus: "open" },
       afterSave: {
         closesAt: "2026-08-01T00:00:00.000Z",
@@ -331,7 +350,7 @@ describe("a saved window converges on the state the server computed", () => {
 
   it("renders the reopened state when the deadline moves back into the future", async () => {
     // The other direction, which a fix that only ever added a closed banner would fail.
-    composer({
+    await composer({
       initial: {
         closesAt: "2026-08-01T00:00:00.000Z",
         publishedStatus: "open",
@@ -362,7 +381,7 @@ describe("a saved window converges on the state the server computed", () => {
      * an organizer who had closed the call and then scheduled an opening date that a deadline
      * they never set had gone by.
      */
-    composer({
+    await composer({
       initial: { publishedStatus: "closed", effectiveStatus: "closed" },
       afterSave: {
         opensAt: "2027-01-01T00:00:00.000Z",
@@ -401,7 +420,7 @@ describe("a saved window converges on the state the server computed", () => {
      * query, so it is stated here: the announcement is the only text beginning "Submission window
      * saved. Nothing is published yet".
      */
-    composer({
+    await composer({
       initial: {
         // A form nobody has published: `status` is the editable row's, and `changeState` is the
         // only writer of `open`/`closed` — it sets the publication in the same write, so an open
@@ -437,7 +456,7 @@ describe("a saved window converges on the state the server computed", () => {
      * organizer who is told the call is shut, and whose applicants are still submitting, has been
      * given the one wrong answer this whole surface exists to avoid.
      */
-    composer({
+    await composer({
       initial: { effectiveStatus: "open", publishedStatus: "open" },
       afterSave: "refuse",
     });

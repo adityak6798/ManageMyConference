@@ -12,13 +12,19 @@
  * not exist violated the crm_prospects.owner_id foreign key and surfaced as a 500, so the UI
  * offers only identities the server will accept — and renders the server's refusal on the
  * owner control when it disagrees anyway.
+ *
+ * The two owner controls are the only native `<select>` elements left on this surface, and they
+ * stay native deliberately: the refusal above is delivered as `aria-invalid` plus a described-by
+ * error on the element that was refused, and that wiring — including the acceptance tests that
+ * read the element's own `options` and `value` — is the contract between this form and the
+ * server's field errors. Stage, and every select in the stage editor beside it, is the shared
+ * listbox.
  */
 
 import type { ProspectDto, ProspectOwnerDto } from "@greenroom/contracts";
 import type { PipelineStageDto, StageCategoryDto } from "@greenroom/contracts";
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  CrmApiError,
   convertProspect,
   createProspect,
   crmFieldErrors,
@@ -29,11 +35,24 @@ import {
   savePipelineStages,
   updateProspect,
 } from "./api/crm";
+import { type ApiFailure, describeApiFailure } from "./api/config";
+import { Inspector } from "./crm/inspector";
 import { PipelineBoard } from "./crm/PipelineBoard";
 import { PipelineStageEditor } from "./crm/PipelineStageEditor";
 import "./styles/crm.css";
-import { IconCheck, IconClock, IconPlus, IconSpeakers, IconWarning } from "./ui/icons";
-import { Card, EmptyState, Notice, Pill, Stat, Tabs, useActionFeedback } from "./ui/primitives";
+import { Select } from "./ui/fields";
+import { IconCheck, IconClock, IconPlus, IconSpeakers } from "./ui/icons";
+import {
+  Card,
+  EmptyState,
+  LoadFailure,
+  Notice,
+  Pill,
+  SkeletonRows,
+  Stat,
+  Tabs,
+  useActionFeedback,
+} from "./ui/primitives";
 
 type PillTone = "neutral" | "ok" | "warn" | "danger" | "info" | "strong";
 
@@ -64,6 +83,24 @@ const ACTIVITY_TONES: Record<ProspectDto["activities"][number]["kind"], PillTone
   conversion: "ok",
 };
 
+/**
+ * What each entry in the timeline is, written out.
+ *
+ * The kind is a wire enum, and printing it with its hyphen swapped for a space ("stage change")
+ * is a title-cased token rather than a name — the same defect `ui/vocabulary.ts` exists to end.
+ * These stay local because an outreach activity is the CRM's own vocabulary and no other surface
+ * renders one.
+ */
+const ACTIVITY_LABELS: Record<ProspectDto["activities"][number]["kind"], string> = {
+  note: "Note",
+  email: "Email",
+  call: "Call",
+  meeting: "Meeting",
+  engagement: "Engagement",
+  "stage-change": "Moved stage",
+  conversion: "Converted",
+};
+
 const localDateTimeValue = (instant: string | null) => {
   if (!instant) return "";
   const date = new Date(instant);
@@ -87,10 +124,15 @@ const isOverdue = (prospect: ProspectDto, now: number) =>
   prospect.nextActionAt !== null &&
   new Date(prospect.nextActionAt).getTime() < now;
 
-function readCrmError(reason: unknown, fallback: string) {
-  if (reason instanceof CrmApiError) return `${reason.message} Reference: ${reason.correlationId}`;
-  return reason instanceof Error ? reason.message : fallback;
-}
+/*
+ * The reference travels beside the sentence, never inside it.
+ *
+ * This used to answer "…could not be saved. Reference: 01JD…", which buries the one value the
+ * reader is asked to quote in the one part of the message nobody reads character by character.
+ * `Notice`, `LoadFailure` and `useActionFeedback` all take an `ApiFailure` and render its
+ * reference as a selectable measure with its own copy control.
+ */
+const readCrmError = (reason: unknown, fallback: string) => describeApiFailure(reason, fallback);
 
 function FieldErrors({ id, messages }: { id: string; messages: readonly string[] }) {
   if (!messages.length) return null;
@@ -107,7 +149,7 @@ export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: s
   const [prospects, setProspects] = useState<ProspectDto[]>([]);
   const [owners, setOwners] = useState<ProspectOwnerDto[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<ApiFailure | null>(null);
   const [tab, setTab] = useState("all");
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState("");
@@ -166,7 +208,7 @@ export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: s
 
   useEffect(() => {
     let active = true;
-    setError("");
+    setError(null);
     setLoading(true);
     setSelectedId("");
     setConfirmingConvert(false);
@@ -205,21 +247,37 @@ export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: s
     [ownerOptions],
   );
 
+  /*
+   * Who is overdue, as a set rather than as a count.
+   *
+   * The "Overdue next actions" tile names a number; the board below it has to be able to say
+   * which cards that number is. Derived once here so there is one answer to "is this overdue"
+   * on the surface, rather than a tile counting by one rule and a board marking by another.
+   */
+  const overdueIds = useMemo(
+    () =>
+      new Set(
+        prospects.filter((prospect) => isOverdue(prospect, now)).map((prospect) => prospect.id),
+      ),
+    [prospects, now],
+  );
+
   const counts = useMemo(() => {
     const byStage = new Map<string, number>();
     for (const prospect of prospects)
       byStage.set(prospect.stage, (byStage.get(prospect.stage) ?? 0) + 1);
-    return {
-      all: prospects.length,
-      overdue: prospects.filter((prospect) => isOverdue(prospect, now)).length,
-      byStage,
-    };
-  }, [prospects, now]);
+    return { all: prospects.length, overdue: overdueIds.size, byStage };
+  }, [prospects, overdueIds]);
 
   const visible = useMemo(() => {
     const query = search.trim().toLowerCase();
     return prospects.filter((prospect) => {
-      if (tab === "overdue" ? !isOverdue(prospect, now) : tab !== "all" && prospect.stage !== tab)
+      // The same set the tile counts, the board marks and the gutter colours: one derivation of
+      // "overdue" on this surface, so the tab cannot select a different population from the one
+      // its own count names.
+      if (
+        tab === "overdue" ? !overdueIds.has(prospect.id) : tab !== "all" && prospect.stage !== tab
+      )
         return false;
       if (!query) return true;
       return (
@@ -231,7 +289,7 @@ export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: s
         )
       );
     });
-  }, [prospects, tab, search, now]);
+  }, [prospects, tab, search, overdueIds]);
 
   const timeline = useMemo(
     () =>
@@ -353,9 +411,13 @@ export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: s
       });
       setNote("");
       await reload();
+      // The stage as the organizer named it, not as the wire spells it. `moveProspect` already
+      // announced the label; this one announced the key, so the same move read two ways
+      // depending on whether it was made on the board or in the form.
+      const landed = stages.find(({ key }) => key === stage)?.label ?? stage;
       detailFeedback.announce(
         "success",
-        `Saved. ${selected.name} is in the ${stage} stage, owned by ${ownerName(assignedOwner)}.`,
+        `Saved. ${selected.name} is in ${landed}, owned by ${ownerName(assignedOwner)}.`,
       );
     } catch (reason) {
       setAssignedOwnerErrors(crmFieldErrors(reason).ownerId ?? []);
@@ -414,11 +476,20 @@ export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: s
 
   if (error)
     return (
-      <Card>
-        <EmptyState title="The pipeline could not be loaded" icon={<IconWarning size={20} />}>
-          {error}
-        </EmptyState>
-      </Card>
+      <LoadFailure
+        what="the speaker pipeline"
+        error={error.message}
+        reference={error.reference}
+        onRetry={() => {
+          setError(null);
+          setLoading(true);
+          return reload()
+            .catch((reason: unknown) =>
+              setError(readCrmError(reason, "Could not load the speaker pipeline.")),
+            )
+            .finally(() => setLoading(false));
+        }}
+      />
     );
 
   return (
@@ -529,7 +600,7 @@ export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: s
                   </div>
                 </div>
                 <div className="crm-form-actions">
-                  <button type="submit" disabled={busy}>
+                  <button className="primary" type="submit" disabled={busy}>
                     {busy ? "Adding…" : "Add prospect"}
                   </button>
                   <button type="button" className="secondary" onClick={() => setComposing(false)}>
@@ -539,7 +610,13 @@ export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: s
               </form>
             ) : null}
             {pipelineFeedback.node}
-            <div className="toolbar">
+            {/*
+              One rail: what is being searched, how it is being read, and the way into the board's
+              own settings. These were three stacked rows — a search box stretched to the full
+              1100px of the card, a segmented switch below it, and "Configure stages" sitting
+              inside that switch as though it were a third view.
+            */}
+            <div className="toolbar crm-pipeline-rail">
               <div className="field search">
                 <label className="visually-hidden" htmlFor="crm-search">
                   Search prospects
@@ -552,28 +629,30 @@ export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: s
                   placeholder="Search name or contact email"
                 />
               </div>
-            </div>
-            {/* One switch, two readings of the same pipeline. The tabs below filter the table
-                and are hidden with it: a board already shows every stage at once, so a stage
-                filter over it would be a control with nothing to do. */}
-            <fieldset className="pipeline-views">
-              <legend className="visually-hidden">Pipeline view</legend>
-              <button
-                type="button"
-                className={view === "board" ? "secondary is-active" : "secondary"}
-                aria-pressed={view === "board"}
-                onClick={() => setView("board")}
-              >
-                Board
-              </button>
-              <button
-                type="button"
-                className={view === "table" ? "secondary is-active" : "secondary"}
-                aria-pressed={view === "table"}
-                onClick={() => setView("table")}
-              >
-                Table
-              </button>
+              {/* One switch, two readings of the same pipeline. The tabs below filter the table
+                  and are hidden with it: a board already shows every stage at once, so a stage
+                  filter over it would be a control with nothing to do. */}
+              <fieldset className="pipeline-views">
+                <legend className="visually-hidden">Pipeline view</legend>
+                <button
+                  type="button"
+                  className={view === "board" ? "secondary is-active" : "secondary"}
+                  aria-pressed={view === "board"}
+                  onClick={() => setView("board")}
+                >
+                  Board
+                </button>
+                <button
+                  type="button"
+                  className={view === "table" ? "secondary is-active" : "secondary"}
+                  aria-pressed={view === "table"}
+                  onClick={() => setView("table")}
+                >
+                  Table
+                </button>
+              </fieldset>
+              {/* Not a third view. Editing the stages is a different act from choosing how to
+                  read them, so it stands outside the switch rather than inside its frame. */}
               <button
                 type="button"
                 className="ghost"
@@ -582,7 +661,7 @@ export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: s
               >
                 {configuring ? "Close stage settings" : "Configure stages"}
               </button>
-            </fieldset>
+            </div>
             {view === "table" ? (
               <Tabs items={tabs} active={tab} onSelect={setTab} label="Pipeline stage" />
             ) : null}
@@ -609,15 +688,8 @@ export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: s
 
           {view === "board" ? (
             loading ? (
-              <div className="crm-skeletons">
-                <div aria-hidden="true">
-                  {[0, 1, 2].map((index) => (
-                    <div key={index} className="skeleton" style={{ height: 120 }} />
-                  ))}
-                </div>
-                <p className="visually-hidden" role="status">
-                  Loading the sourcing board.
-                </p>
+              <div className="crm-loading">
+                <SkeletonRows rows={3} label="Loading the sourcing board" />
               </div>
             ) : (
               <PipelineBoard
@@ -625,6 +697,7 @@ export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: s
                 prospects={prospects}
                 selectedId={selectedId}
                 busy={busy}
+                overdueIds={overdueIds}
                 onOpen={open}
                 onMove={(prospect, target) => {
                   // ERROR-INTENT: handlers cannot await; moveProspect announces both outcomes.
@@ -641,15 +714,8 @@ export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: s
             hidden={view !== "table"}
           >
             {loading ? (
-              <div className="crm-skeletons">
-                <div aria-hidden="true">
-                  {[0, 1, 2].map((index) => (
-                    <div key={index} className="skeleton" style={{ height: 44 }} />
-                  ))}
-                </div>
-                <p className="visually-hidden" role="status">
-                  Loading the speaker pipeline.
-                </p>
+              <div className="crm-loading">
+                <SkeletonRows rows={4} label="Loading the speaker pipeline" />
               </div>
             ) : visible.length === 0 ? (
               <EmptyState
@@ -668,7 +734,7 @@ export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: s
                       Show every prospect
                     </button>
                   ) : (
-                    <button type="button" onClick={() => setComposing(true)}>
+                    <button className="primary" type="button" onClick={() => setComposing(true)}>
                       <IconPlus size={15} />
                       New prospect
                     </button>
@@ -681,9 +747,22 @@ export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: s
               </EmptyState>
             ) : (
               <div className="table-wrap">
+                {/*
+                  The table view answers "who is stuck", so the figure every row is about is when
+                  its next action falls due — which is why this is the CRM's cue gutter.
+
+                  It used to sit at the far right of the "Next action" cell as a `<Pill>` with a
+                  clock glyph in it, one row's worth of red furniture per overdue prospect, while
+                  the leading edge of the table carried nothing at all. The measure column states
+                  it once, in the same face and the same 56px track the audit log and the board
+                  use, and the pill comes off.
+                */}
                 <table className="data crm-table">
                   <thead>
                     <tr>
+                      <th scope="col" className="gutter">
+                        Due
+                      </th>
                       <th scope="col">Prospect</th>
                       <th scope="col">Stage</th>
                       <th scope="col">Owner</th>
@@ -695,17 +774,32 @@ export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: s
                   </thead>
                   <tbody>
                     {visible.map((prospect) => {
-                      const overdue = isOverdue(prospect, now);
+                      const overdue = overdueIds.has(prospect.id);
                       const meta = stages.find(({ key }) => key === prospect.stage);
                       const primary =
                         prospect.contacts.find((contact) => contact.isPrimary) ??
                         prospect.contacts[0];
                       return (
+                        /* `aria-selected` rather than a local `.is-selected` class: the shared
+                           table system owns the one selection treatment, and this workspace's
+                           own copy of it was one of the three that disagreed. */
                         <tr
                           key={prospect.id}
-                          className={prospect.id === selectedId ? "is-selected" : undefined}
+                          aria-selected={prospect.id === selectedId ? true : undefined}
                         >
-                          <td className="primary-cell">
+                          <td className={overdue ? "gutter is-overdue" : "gutter"} data-label="Due">
+                            <span className="figure">
+                              <span className="visually-hidden">
+                                {prospect.nextActionAt
+                                  ? overdue
+                                    ? "Overdue since "
+                                    : "Next action due "
+                                  : "No next action scheduled"}
+                              </span>
+                              {prospect.nextActionAt ? shortDate(prospect.nextActionAt) : "—"}
+                            </span>
+                          </td>
+                          <td className="primary-cell" data-label="Prospect">
                             <button
                               type="button"
                               className="ghost crm-row-open"
@@ -716,7 +810,7 @@ export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: s
                             </button>
                             {primary ? <span className="sub">{primary.email}</span> : null}
                           </td>
-                          <td>
+                          <td data-label="Stage">
                             <Pill tone={meta ? CATEGORY_TONE[meta.category] : "neutral"}>
                               {meta?.label ?? prospect.stage}
                             </Pill>
@@ -724,25 +818,14 @@ export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: s
                               <span className="sub">Speaker linked</span>
                             ) : null}
                           </td>
-                          <td>{ownerName(prospect.ownerId)}</td>
-                          <td>
+                          <td data-label="Owner">{ownerName(prospect.ownerId)}</td>
+                          <td data-label="Next action">
                             {prospect.nextAction ?? "No next action scheduled"}
-                            {prospect.nextActionAt ? (
-                              <span className="sub">
-                                {overdue ? (
-                                  <Pill tone="danger">
-                                    <IconClock size={12} />
-                                    Overdue {shortDate(prospect.nextActionAt)}
-                                  </Pill>
-                                ) : (
-                                  `Due ${shortDate(prospect.nextActionAt)}`
-                                )}
-                              </span>
-                            ) : null}
+                            {overdue ? <span className="sub is-overdue">Overdue</span> : null}
                           </td>
-                          <td className="num">
-                            {prospect.activities.length}
-                            <span className="sub">{shortDate(prospect.updatedAt)}</span>
+                          <td className="num" data-label="Activity">
+                            <span className="figure">{prospect.activities.length}</span>
+                            <span className="sub figure">{shortDate(prospect.updatedAt)}</span>
                           </td>
                         </tr>
                       );
@@ -754,248 +837,257 @@ export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: s
           </div>
         </Card>
 
-        {selected ? (
-          <Card
+        {/*
+          Opening a prospect moves focus into the panel and the panel stays in view: it is a
+          sticky column with its own scroll, and a drawer once the split has collapsed.
+
+          Beside the table it renders even when nothing is chosen, because an empty second
+          column is what says the column is there. Under the *board* it is the full width of the
+          page, and an empty full-width card is 300px of nothing between the cards an organizer
+          came to read and the bottom of the screen — so there it appears with the prospect.
+        */}
+        {view === "board" && !selected ? null : (
+          <Inspector
+            open={Boolean(selected)}
+            focusKey={selectedId}
             labelledBy="crm-detail"
-            title={selected.name}
-            hint={`Owned by ${ownerName(selected.ownerId)}`}
-            actions={
-              <button type="button" className="ghost" onClick={() => setSelectedId("")}>
-                Close
-              </button>
-            }
+            title={selected ? selected.name : "Prospect detail"}
+            {...(selected ? { hint: `Owned by ${ownerName(selected.ownerId)}` } : {})}
+            closeLabel="Close prospect"
+            onClose={() => setSelectedId("")}
           >
-            <div className="crm-detail">
-              {detailFeedback.node}
+            {selected ? (
+              <div className="crm-detail">
+                {detailFeedback.node}
 
-              {selected.speakerId ? (
-                <Notice tone="success">
-                  <IconCheck size={15} />
-                  <span>
-                    Converted on {stampedTime(selected.convertedAt ?? selected.updatedAt)}.
-                    Converted prospects are read-only so the outreach history stays intact.
-                  </span>
-                </Notice>
-              ) : null}
+                {selected.speakerId ? (
+                  <Notice tone="success">
+                    <span>
+                      Converted on {stampedTime(selected.convertedAt ?? selected.updatedAt)}.
+                      Converted prospects are read-only so the outreach history stays intact.
+                    </span>
+                  </Notice>
+                ) : null}
 
-              <section aria-labelledby="crm-contacts">
-                <h3 id="crm-contacts">Contacts</h3>
-                <ul className="crm-contacts">
-                  {selected.contacts.map((contact) => (
-                    <li key={contact.id}>
-                      <span className="crm-contact-name">{contact.name}</span>
-                      <a href={`mailto:${contact.email}`}>{contact.email}</a>
-                      {contact.isPrimary ? <Pill tone="info">Primary</Pill> : null}
-                    </li>
-                  ))}
-                </ul>
+                <section aria-labelledby="crm-contacts">
+                  <h3 id="crm-contacts">Contacts</h3>
+                  <ul className="crm-contacts">
+                    {selected.contacts.map((contact) => (
+                      <li key={contact.id}>
+                        <span className="crm-contact-name">{contact.name}</span>
+                        <a href={`mailto:${contact.email}`}>{contact.email}</a>
+                        {contact.isPrimary ? <Pill tone="info">Primary</Pill> : null}
+                      </li>
+                    ))}
+                  </ul>
+                  {selected.speakerId ? null : (
+                    <details className="crm-details">
+                      <summary>Add another contact</summary>
+                      <form onSubmit={addContact}>
+                        <div className="field">
+                          <label htmlFor="crm-contact-name">Contact name</label>
+                          <input
+                            id="crm-contact-name"
+                            value={contactName}
+                            onChange={(changeEvent) => setContactName(changeEvent.target.value)}
+                            required
+                            maxLength={160}
+                          />
+                        </div>
+                        <div className="field">
+                          <label htmlFor="crm-contact-email">Additional contact email</label>
+                          <input
+                            id="crm-contact-email"
+                            type="email"
+                            value={contactEmail}
+                            onChange={(changeEvent) => setContactEmail(changeEvent.target.value)}
+                            required
+                          />
+                        </div>
+                        <button type="submit" className="secondary" disabled={busy}>
+                          Add contact
+                        </button>
+                      </form>
+                    </details>
+                  )}
+                </section>
+
                 {selected.speakerId ? null : (
-                  <details className="crm-details">
-                    <summary>Add another contact</summary>
-                    <form onSubmit={addContact}>
-                      <div className="field">
-                        <label htmlFor="crm-contact-name">Contact name</label>
-                        <input
-                          id="crm-contact-name"
-                          value={contactName}
-                          onChange={(changeEvent) => setContactName(changeEvent.target.value)}
-                          required
-                          maxLength={160}
-                        />
-                      </div>
-                      <div className="field">
-                        <label htmlFor="crm-contact-email">Additional contact email</label>
-                        <input
-                          id="crm-contact-email"
-                          type="email"
-                          value={contactEmail}
-                          onChange={(changeEvent) => setContactEmail(changeEvent.target.value)}
-                          required
-                        />
-                      </div>
-                      <button type="submit" className="secondary" disabled={busy}>
-                        Add contact
-                      </button>
-                    </form>
-                  </details>
-                )}
-              </section>
-
-              {selected.speakerId ? null : (
-                <section aria-labelledby="crm-working">
-                  <h3 id="crm-working">Stage and next action</h3>
-                  <form onSubmit={save}>
-                    <div className="field">
-                      <label htmlFor="crm-stage">Stage</label>
-                      <select
+                  <section aria-labelledby="crm-working">
+                    <h3 id="crm-working">Stage and next action</h3>
+                    <form onSubmit={save}>
+                      {/* The shared listbox: a native select drew the operating system's own
+                        chevron at the operating system's own height beside inputs the product
+                        draws, which is the mismatch the control tier exists to end. */}
+                      <Select
                         id="crm-stage"
+                        label="Stage"
                         value={stage}
-                        onChange={(changeEvent) =>
-                          setStage(changeEvent.target.value as ProspectDto["stage"])
-                        }
-                      >
-                        {stages
+                        onChange={(next) => setStage(next as ProspectDto["stage"])}
+                        options={stages
                           .filter(({ key }) => key !== CONVERTED)
-                          .map((item) => (
-                            <option key={item.key} value={item.key}>
-                              {item.label}
+                          .map((item) => ({ value: item.key, label: item.label }))}
+                      />
+                      <div className="field">
+                        <label htmlFor="crm-owner">Owner</label>
+                        <select
+                          id="crm-owner"
+                          value={assignedOwner}
+                          onChange={(changeEvent) => {
+                            setAssignedOwner(changeEvent.target.value);
+                            setAssignedOwnerErrors([]);
+                          }}
+                          aria-invalid={Boolean(assignedOwnerErrors.length)}
+                          aria-describedby={
+                            assignedOwnerErrors.length
+                              ? "crm-owner-error crm-owner-hint"
+                              : "crm-owner-hint"
+                          }
+                        >
+                          {ownerOptions.map((owner) => (
+                            <option key={owner.id} value={owner.id}>
+                              {owner.name}
                             </option>
                           ))}
-                      </select>
-                    </div>
-                    <div className="field">
-                      <label htmlFor="crm-owner">Owner</label>
-                      <select
-                        id="crm-owner"
-                        value={assignedOwner}
-                        onChange={(changeEvent) => {
-                          setAssignedOwner(changeEvent.target.value);
-                          setAssignedOwnerErrors([]);
-                        }}
-                        aria-invalid={Boolean(assignedOwnerErrors.length)}
-                        aria-describedby={
-                          assignedOwnerErrors.length
-                            ? "crm-owner-error crm-owner-hint"
-                            : "crm-owner-hint"
-                        }
-                      >
-                        {ownerOptions.map((owner) => (
-                          <option key={owner.id} value={owner.id}>
-                            {owner.name}
-                          </option>
-                        ))}
-                      </select>
-                      <p className="hint" id="crm-owner-hint">
-                        Only organizers and reviewers on this event can own a prospect.
-                      </p>
-                      <FieldErrors id="crm-owner-error" messages={assignedOwnerErrors} />
-                    </div>
-                    <div className="field">
-                      <label htmlFor="crm-next-action">Next action</label>
-                      <input
-                        id="crm-next-action"
-                        value={nextAction}
-                        onChange={(changeEvent) => setNextAction(changeEvent.target.value)}
-                        placeholder="Send formal invitation"
-                        maxLength={300}
-                      />
-                    </div>
-                    <div className="field">
-                      <label htmlFor="crm-next-action-at">Next action due</label>
-                      <input
-                        id="crm-next-action-at"
-                        type="datetime-local"
-                        value={nextActionAt}
-                        onChange={(changeEvent) => setNextActionAt(changeEvent.target.value)}
-                      />
-                    </div>
-                    <div className="field">
-                      <label htmlFor="crm-note">Private note</label>
-                      <input
-                        id="crm-note"
-                        value={note}
-                        onChange={(changeEvent) => setNote(changeEvent.target.value)}
-                        placeholder="Available after 2pm"
-                        maxLength={1000}
-                      />
-                      <p className="hint">
-                        Saved to the timeline alongside the stage change this save records.
-                      </p>
-                    </div>
-                    <button type="submit" disabled={busy}>
-                      {busy ? "Saving…" : "Save prospect"}
-                    </button>
-                  </form>
-                </section>
-              )}
+                        </select>
+                        <p className="hint" id="crm-owner-hint">
+                          Only organizers and reviewers on this event can own a prospect.
+                        </p>
+                        <FieldErrors id="crm-owner-error" messages={assignedOwnerErrors} />
+                      </div>
+                      <div className="field">
+                        <label htmlFor="crm-next-action">Next action</label>
+                        <input
+                          id="crm-next-action"
+                          value={nextAction}
+                          onChange={(changeEvent) => setNextAction(changeEvent.target.value)}
+                          placeholder="Send formal invitation"
+                          maxLength={300}
+                        />
+                      </div>
+                      <div className="field">
+                        <label htmlFor="crm-next-action-at">Next action due</label>
+                        <input
+                          id="crm-next-action-at"
+                          type="datetime-local"
+                          value={nextActionAt}
+                          onChange={(changeEvent) => setNextActionAt(changeEvent.target.value)}
+                        />
+                      </div>
+                      {/* A thousand characters of context about a person, in a control that showed
+                        about sixty of them at a time. The next action stays a single line — it is
+                        one instruction — but a note is prose and is sized like prose. */}
+                      <div className="field">
+                        <label htmlFor="crm-note">Private note</label>
+                        <textarea
+                          className="control"
+                          id="crm-note"
+                          rows={3}
+                          value={note}
+                          onChange={(changeEvent) => setNote(changeEvent.target.value)}
+                          placeholder="Available after 2pm"
+                          maxLength={1000}
+                        />
+                        <p className="hint">
+                          Saved to the timeline alongside the stage change this save records.
+                        </p>
+                      </div>
+                      <button className="primary" type="submit" disabled={busy}>
+                        {busy ? "Saving…" : "Save prospect"}
+                      </button>
+                    </form>
+                  </section>
+                )}
 
-              {selected.speakerId ? null : (
-                <section aria-labelledby="crm-convert">
-                  <h3 id="crm-convert">Convert to speaker</h3>
-                  {confirmingConvert ? (
-                    <>
-                      <Notice tone="warn">
-                        <IconWarning size={15} />
-                        <span>
-                          Convert {selected.name}? This creates a speaker profile from the primary
-                          contact and locks the prospect record.
-                        </span>
-                      </Notice>
-                      <div className="crm-form-actions">
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() => {
-                            // ERROR-INTENT: handlers cannot await; convert announces both outcomes.
-                            void convert(selected);
-                          }}
-                        >
-                          {busy ? "Converting…" : `Yes, convert ${selected.name}`}
-                        </button>
+                {selected.speakerId ? null : (
+                  <section aria-labelledby="crm-convert">
+                    <h3 id="crm-convert">Convert to speaker</h3>
+                    {confirmingConvert ? (
+                      <>
+                        <Notice tone="warn">
+                          <span>
+                            Convert {selected.name}? This creates a speaker profile from the primary
+                            contact and locks the prospect record.
+                          </span>
+                        </Notice>
+                        <div className="crm-form-actions">
+                          <button
+                            className="primary"
+                            type="button"
+                            disabled={busy}
+                            onClick={() => {
+                              // ERROR-INTENT: handlers cannot await; convert announces both outcomes.
+                              void convert(selected);
+                            }}
+                          >
+                            {busy ? "Converting…" : `Yes, convert ${selected.name}`}
+                          </button>
+                          <button
+                            type="button"
+                            className="secondary"
+                            onClick={() => setConfirmingConvert(false)}
+                          >
+                            Keep as a prospect
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <p className="crm-help">
+                          Creates the speaker profile, links it to this prospect, and hands the
+                          onboarding tasks to the speaker portal.
+                        </p>
                         <button
                           type="button"
                           className="secondary"
-                          onClick={() => setConfirmingConvert(false)}
+                          disabled={busy}
+                          onClick={() => setConfirmingConvert(true)}
                         >
-                          Keep as a prospect
+                          <IconCheck size={15} />
+                          Convert to speaker
                         </button>
-                      </div>
-                    </>
+                      </>
+                    )}
+                  </section>
+                )}
+
+                <section aria-labelledby="crm-timeline">
+                  <h3 id="crm-timeline">Activity timeline</h3>
+                  {timeline.length ? (
+                    <ol className="crm-timeline">
+                      {timeline.map((activity) => (
+                        <li key={activity.id}>
+                          <div className="crm-timeline-head">
+                            <Pill tone={ACTIVITY_TONES[activity.kind]}>
+                              {ACTIVITY_LABELS[activity.kind]}
+                            </Pill>
+                            <time dateTime={activity.occurredAt}>
+                              {stampedTime(activity.occurredAt)}
+                            </time>
+                            {/* The shared pill rather than a bespoke outlined tag beside it: the
+                              timeline was drawing two badge shapes on one line to say two
+                              things of the same kind. */}
+                            {activity.private ? <Pill>Private</Pill> : null}
+                          </div>
+                          <p>{activity.summary}</p>
+                        </li>
+                      ))}
+                    </ol>
                   ) : (
-                    <>
-                      <p className="crm-help">
-                        Creates the speaker profile, links it to this prospect, and hands the
-                        onboarding tasks to the speaker portal.
-                      </p>
-                      <button
-                        type="button"
-                        className="secondary"
-                        disabled={busy}
-                        onClick={() => setConfirmingConvert(true)}
-                      >
-                        <IconCheck size={15} />
-                        Convert to speaker
-                      </button>
-                    </>
+                    <p className="crm-help">
+                      No activity recorded yet. Moving the stage or saving a private note adds the
+                      first entry.
+                    </p>
                   )}
                 </section>
-              )}
-
-              <section aria-labelledby="crm-timeline">
-                <h3 id="crm-timeline">Activity timeline</h3>
-                {timeline.length ? (
-                  <ol className="crm-timeline">
-                    {timeline.map((activity) => (
-                      <li key={activity.id}>
-                        <div className="crm-timeline-head">
-                          <Pill tone={ACTIVITY_TONES[activity.kind]}>
-                            {activity.kind.replace("-", " ")}
-                          </Pill>
-                          <time dateTime={activity.occurredAt}>
-                            {stampedTime(activity.occurredAt)}
-                          </time>
-                          {activity.private ? <span className="crm-private">Private</span> : null}
-                        </div>
-                        <p>{activity.summary}</p>
-                      </li>
-                    ))}
-                  </ol>
-                ) : (
-                  <p className="crm-help">
-                    No activity recorded yet. Moving the stage or saving a private note adds the
-                    first entry.
-                  </p>
-                )}
-              </section>
-            </div>
-          </Card>
-        ) : (
-          <Card labelledBy="crm-detail-empty" title="Prospect detail">
-            <EmptyState title="Select a prospect" icon={<IconSpeakers size={20} />}>
-              Open a name from the pipeline to see its contacts, activity timeline, next action, and
-              the convert-to-speaker action.
-            </EmptyState>
-          </Card>
+              </div>
+            ) : (
+              <EmptyState title="Select a prospect" icon={<IconSpeakers size={20} />}>
+                Open a name from the pipeline to see its contacts, activity timeline, next action,
+                and the convert-to-speaker action.
+              </EmptyState>
+            )}
+          </Inspector>
         )}
       </div>
     </div>

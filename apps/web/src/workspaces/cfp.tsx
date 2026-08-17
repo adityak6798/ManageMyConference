@@ -11,9 +11,9 @@ export const cfpWorkspace: WorkspaceModule = {
   domain: "cfp",
   path: "/cfp",
   label: "Call for proposals",
-  group: "Program",
+  group: "operate",
   order: 4,
-  icon: <IconForm size={16} />,
+  icon: <IconForm />,
   personas: ["organizer"],
   canAccess: ({ capabilities }) => capabilities.includes("events:settings:update"),
   header: () => ({
@@ -39,8 +39,10 @@ export const programFormsTab: HubTabModule = {
   hub: "program",
   tab: "forms",
   label: "Forms",
-  order: 10,
-  icon: <IconForm size={16} />,
+  // After Submissions. The form is composed once and published once; the queue of what has
+  // arrived through it is opened every day, and a hub opens on its first tab.
+  order: 20,
+  icon: <IconForm />,
   personas: ["organizer"],
   legacyPaths: ["/cfp"],
   canAccess: ({ capabilities }) => capabilities.includes("events:settings:update"),

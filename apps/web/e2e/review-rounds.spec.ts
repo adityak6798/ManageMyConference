@@ -9,6 +9,7 @@
  * about; this one owns the round model. Both restate the seeded state they assert, because the
  * fixture is shared across the whole suite.
  */
+import { chooseMenuItem, chooseOption } from "./controls";
 import { expect, type Page, test } from "./fixtures";
 
 // One applicant address per spec file; see the note in `00-seed-state.spec.ts`.
@@ -153,16 +154,33 @@ test("a reviewer in round 1 is absent from round 2 until explicitly added", asyn
 
   const roundSelector = page.getByLabel("Working in round");
   // The console opens on the earliest open round, which is where unreviewed abstracts belong.
-  await expect(roundSelector).toHaveValue("1");
-  const detail = page.getByRole("region", { name: "Typed boundaries at scale" });
-  await page.getByRole("button", { name: "Typed boundaries at scale", exact: true }).click();
-  await expect(detail.getByLabel("Assign this abstract to")).toContainText("Ravi Reviewer");
+  // The picker is the shared listbox, so what it holds is the option's text, not an input value.
+  await expect(roundSelector).toContainText("First pass");
+
+  /*
+   * Who the round would let this abstract be assigned to, read from the drawer that holds it.
+   *
+   * The abstract opens in a drawer now, where the eye already is — it used to be a panel inserted
+   * under the table, roughly 4,000px beneath the viewport, so clicking a title appeared to do
+   * nothing at all. A drawer is modal, so it is closed again before anything behind it is touched.
+   */
+  const assignableIn = async (): Promise<string> => {
+    await page.getByRole("button", { name: "Typed boundaries at scale", exact: true }).click();
+    const detail = page.getByRole("dialog", { name: "Typed boundaries at scale" });
+    const offered = (await detail.getByLabel("Assign this abstract to").innerText()).trim();
+    await detail.getByRole("button", { name: "Close Typed boundaries at scale" }).click();
+    await expect(detail).toBeHidden();
+    return offered;
+  };
+
+  expect(await assignableIn()).toContain("Ravi Reviewer");
 
   // Switch to the second round and Ravi is simply not offered — the pool is keyed on the round,
   // so there is nothing to inherit.
-  await roundSelector.selectOption("2");
-  await expect(detail.getByLabel("Assign this abstract to")).not.toContainText("Ravi Reviewer");
-  await expect(detail.getByLabel("Assign this abstract to")).toContainText("Nina Alvarez");
+  await chooseOption(page, roundSelector, "Programme committee");
+  const secondRound = await assignableIn();
+  expect(secondRound).not.toContain("Ravi Reviewer");
+  expect(secondRound).toContain("Nina Alvarez");
 
   // Adding him explicitly is what changes that, and nothing else does.
   const rounds = page.getByRole("region", { name: "Review rounds" });
@@ -174,7 +192,7 @@ test("a reviewer in round 1 is absent from round 2 until explicitly added", asyn
   await editor.getByLabel("Ravi Reviewer").check();
   await rounds.getByRole("button", { name: "Save round" }).click();
   await expect(page.getByRole("status").filter({ hasText: "saved" }).first()).toBeVisible();
-  await expect(detail.getByLabel("Assign this abstract to")).toContainText("Ravi Reviewer");
+  expect(await assignableIn()).toContain("Ravi Reviewer");
 
   // Put the pool back, so the next journey starts where the seed leaves it.
   await restoreSeededRounds(page);
@@ -201,10 +219,11 @@ test("results sort both ways and export with criterion values, comments and co-a
   );
   await expect(table.getByRole("row", { name: /Accessible by default/ })).toContainText("3.5");
 
+  // Three orderings rather than a toggle, offered from the shared listbox.
   const order = page.getByLabel("Order");
-  await order.selectOption("score-desc");
+  await chooseOption(page, order, "Highest aggregate first");
   const descending = await titlesInOrder();
-  await order.selectOption("score-asc");
+  await chooseOption(page, order, "Lowest aggregate first");
   const ascending = await titlesInOrder();
   const positionOf = (rows: string[], title: string) =>
     rows.findIndex((row) => row.includes(title));
@@ -221,7 +240,9 @@ test("results sort both ways and export with criterion values, comments and co-a
   // The export is *inspected*, not merely triggered: the acceptance criterion asks for a file
   // whose contents contain statuses, criterion values, aggregates and co-authors.
   const download = page.waitForEvent("download");
-  await page.getByRole("button", { name: "Export CSV" }).click();
+  // One press is "export"; the format is a choice attached to it rather than two buttons of
+  // equal weight asking which file type before anybody has decided to export at all.
+  await chooseMenuItem(page, "Choose an export format", "Export CSV");
   const file = await download;
   const stream = await file.createReadStream();
   const csv = (
@@ -281,7 +302,7 @@ test("organizer detail shows the exact rating and comment a reviewer submitted",
   await page.goto(TRIAGE);
 
   await page.getByRole("button", { name: "Designing the calm conference", exact: true }).click();
-  const detail = page.getByRole("region", { name: "Designing the calm conference" });
+  const detail = page.getByRole("dialog", { name: "Designing the calm conference" });
   /*
    * Issue #221: the 2026-08-14 evaluator run saw the 4.5 aggregate and the completion count here
    * and no comment at all — the numeric result exposed and the words an organizer decides on

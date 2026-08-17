@@ -91,7 +91,7 @@ export function ApplicantCfpForm({ eventId, form }: { eventId: string; form: Cfp
             disabled={submitting}
           />
           <div className="cfp-public-actions">
-            <button type="submit" disabled={submitting}>
+            <button className="primary" type="submit" disabled={submitting}>
               {submitting ? "Submitting…" : "Submit proposal"}
             </button>
             {notice ? <p role="status">{notice}</p> : null}

@@ -103,9 +103,15 @@ test("a deadline saved in one tab closes and reopens the public call in another,
 
   await page.goto(COMPOSER);
   await expect(page.getByText("Published · open")).toBeVisible();
+  // The window is live state with one control, so it sits beside the form's own details rather
+  // than inside the draft — and the composer opens on Questions, where the work is.
+  await page.getByRole("button", { name: "Form details" }).click();
   // The zone this spec computes its deadlines in is the zone the composer says it is using, so
   // the two cannot drift apart without this failing rather than silently testing another clock.
-  await expect(page.getByText(`Times are ${EVENT_ZONE}, the event’s own timezone.`)).toBeVisible();
+  // The date control states it on the field itself, which is what a screen reader is told.
+  await expect(page.getByLabel("Deadline")).toHaveAccessibleDescription(
+    `Times are in ${EVENT_ZONE}.`,
+  );
   await expect(page.getByText("Applicants can submit now.")).toBeVisible();
 
   // The public page, in its own tab, reading the call before anything has changed.

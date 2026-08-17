@@ -13,17 +13,23 @@
  * **Export is a link.** It carries the same `includePii` the run did, and the server refuses it
  * on the same terms — a download can never contain a column this screen did not show.
  *
+ * **A schedule fires in the event's zone.** The empty state has always promised that; the create
+ * button used to send the *reader's* zone, so an organizer in Berlin scheduling a Pacific event
+ * created a delivery nine hours away from the one the screen described. The zone is now a
+ * parameter of this workspace, printed beside the control that commits it.
+ *
  * @spec PRD-OPS-004 PRD-IAM-002
  */
 import { type FormEvent, useCallback, useMemo, useState } from "react";
+import { describeApiFailure } from "./api/config";
 import {
   createReportSchedule,
   createReportShare,
   deleteReport,
+  deleteReportSchedule,
   listReportSchedules,
   listReportShares,
   listReports,
-  ReportApiError,
   type ReportCatalogue,
   type ReportRunResponse,
   type ReportSchedulesResponse,
@@ -37,12 +43,27 @@ import {
 } from "./api/reports";
 import "./styles/identity.css";
 import "./styles/reports.css";
-import { Card, EmptyState, Notice, Pill, useActionFeedback, useLoad } from "./ui/primitives";
+import { Checkbox, CopyableSecret, Field, Select } from "./ui/fields";
+import { IconClock, IconDashboard, IconLink, IconSearch } from "./ui/icons";
+import {
+  Card,
+  Drawer,
+  EmptyState,
+  GutterList,
+  GutterRow,
+  LoadFailure,
+  Notice,
+  Pill,
+  Section,
+  SkeletonForm,
+  SkeletonRows,
+  useActionFeedback,
+  useLoad,
+} from "./ui/primitives";
+import { REPORT_DATASET_LABELS } from "./ui/vocabulary";
 
 const describe = (reason: unknown) =>
-  reason instanceof ReportApiError
-    ? `${reason.message} Reference: ${reason.correlationId}`
-    : "Something went wrong. Please retry; if it continues, contact support.";
+  describeApiFailure(reason, "The reporting service did not answer.").message;
 
 const OPERATOR_LABEL: Record<string, string> = {
   equals: "is",
@@ -55,17 +76,29 @@ const OPERATOR_LABEL: Record<string, string> = {
   "is-not-empty": "is not empty",
 };
 
+/** The two comparisons that take no value, so the row drops its value box rather than ignoring it. */
+const VALUELESS = new Set(["is-empty", "is-not-empty"]);
+
 interface Filter {
   field: string;
   operator: string;
   value: string;
 }
 
+/** The weekly slot every schedule this screen creates fires in, named once so both readers agree. */
+const WEEKLY_SLOT = { cadence: "weekly", minuteOfDay: 8 * 60, dayOfWeek: 1 } as const;
+
+const clockOf = (minuteOfDay: number) =>
+  `${String(Math.floor(minuteOfDay / 60)).padStart(2, "0")}:${String(minuteOfDay % 60).padStart(2, "0")}`;
+
 export function ReportsWorkspace({
   eventId,
+  timezone,
   canReadPii,
 }: {
   eventId: string;
+  /** The event's zone. A schedule fires in it, so it is never read from the reader's browser. */
+  timezone: string;
   /** Whether to offer the unmasking control. The API refuses it regardless. */
   canReadPii: boolean;
 }) {
@@ -90,6 +123,28 @@ export function ReportsWorkspace({
   const [issuedUrl, setIssuedUrl] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [scheduleRecipients, setScheduleRecipients] = useState("");
+  /**
+   * The report a Delete press is asking about.
+   *
+   * Deleting a report takes its share links and its schedules with it, and neither the rows nor
+   * the links come back. The press opens this rather than doing it.
+   */
+  const [deleting, setDeleting] = useState<{ id: string; name: string; revision: number } | null>(
+    null,
+  );
+  /**
+   * The other two irreversible acts on this surface, and what they are about.
+   *
+   * Revoking a share link and removing a standing delivery are as final as deleting the report
+   * — the address never resolves again, and the recipient list is gone with the schedule — but
+   * both fired on the press while the six deletions around them asked first. A red button that
+   * acts immediately teaches a reader that red buttons on this console are safe to try.
+   */
+  const [confirming, setConfirming] = useState<
+    | { kind: "share"; reportId: string; id: string; expires: string }
+    | { kind: "schedule"; reportId: string; id: string; at: string }
+    | null
+  >(null);
 
   const catalogue = useLoad<string, ReportCatalogue>(
     eventId,
@@ -109,10 +164,20 @@ export function ReportsWorkspace({
     [catalogue.data, dataset],
   );
 
-  if (catalogue.loading && !catalogue.data) return <Card>Loading the report catalogue…</Card>;
-  if (catalogue.error) return <Notice tone="error">{catalogue.error}</Notice>;
+  if (catalogue.error)
+    return (
+      <LoadFailure what="the report catalogue" error={catalogue.error} onRetry={catalogue.reload} />
+    );
   const cat = catalogue.data;
-  if (!cat) return <Card>Loading the report catalogue…</Card>;
+  if (!cat)
+    return (
+      <Card>
+        <SkeletonForm fields={4} label="Loading the report catalogue" />
+      </Card>
+    );
+
+  const datasetFields = activeDataset?.fields ?? [];
+  const selectedReport = saved.data?.reports.find((entry) => entry.id === selected) ?? null;
 
   const run = async (formEvent?: FormEvent) => {
     formEvent?.preventDefault();
@@ -129,7 +194,7 @@ export function ReportsWorkspace({
             .map(({ field, operator, value }) => ({
               field,
               operator,
-              ...(operator === "is-empty" || operator === "is-not-empty" ? {} : { value }),
+              ...(VALUELESS.has(operator) ? {} : { value }),
             })),
           ...(groupBy ? { groupBy } : {}),
           includePii,
@@ -157,6 +222,9 @@ export function ReportsWorkspace({
     );
     setGroupBy(report.query.groupBy ?? "");
     setName(report.name);
+    // A share address belongs to the report that issued it; carrying one across a selection
+    // would offer the previous report's link under this report's name.
+    setIssuedUrl(null);
     setBusy(true);
     try {
       const [ran, sharesResponse, schedulesResponse] = await Promise.all([
@@ -187,96 +255,128 @@ export function ReportsWorkspace({
     }
   };
 
+  /**
+   * Whether this report already has the standing weekly delivery this screen offers.
+   *
+   * The button only ever creates one shape of schedule, so pressing it twice used to create two
+   * identical deliveries — the same rows, to the same people, at the same minute — which nothing
+   * on the screen distinguished afterwards.
+   */
+  const duplicateSchedule = (schedules?.schedules ?? []).some(
+    ({ schedule }) =>
+      schedule.cadence === WEEKLY_SLOT.cadence &&
+      schedule.minuteOfDay === WEEKLY_SLOT.minuteOfDay &&
+      schedule.timezone === timezone,
+  );
+
+  const recipientList = scheduleRecipients
+    .split(",")
+    .map((recipient) => recipient.trim())
+    .filter(Boolean);
+
   return (
     <div className="members reports">
       {feedback}
 
-      <Card
+      <Section
+        labelledBy="reports-build"
         title="Build a report"
-        hint="A report only includes information your role can already view."
+        description="A report only includes information your role can already view."
       >
         <form className="stack" onSubmit={run}>
-          <label>
-            Dataset
-            <select
-              value={activeDataset?.key ?? ""}
-              onChange={(changed) => {
-                setDataset(changed.target.value);
-                setFields([]);
-                setFilters([]);
-                setGroupBy("");
-                setResult(null);
-              }}
-            >
-              {cat.datasets.map((entry) => (
-                <option key={entry.key} value={entry.key}>
-                  {entry.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <fieldset className="report-columns">
-            <legend>Columns</legend>
-            {(activeDataset?.fields ?? []).map((field) => (
-              <label key={field.key} className="report-column-choice">
-                <input
-                  type="checkbox"
-                  checked={fields.length === 0 || fields.includes(field.key)}
-                  onChange={(changed) =>
-                    setFields((current) => {
-                      const all = (activeDataset?.fields ?? []).map((entry) => entry.key);
-                      const base = current.length === 0 ? all : current;
-                      return changed.target.checked
-                        ? [...new Set([...base, field.key])]
-                        : base.filter((key) => key !== field.key);
-                    })
-                  }
-                />
-                {field.label}
-                {field.pii ? <Pill tone="warn">Personal</Pill> : null}
-              </label>
-            ))}
-          </fieldset>
+          <Select
+            label="Dataset"
+            value={activeDataset?.key ?? null}
+            onChange={(next) => {
+              setDataset(next);
+              setFields([]);
+              setFilters([]);
+              setGroupBy("");
+              setResult(null);
+            }}
+            options={cat.datasets.map((entry) => ({ value: entry.key, label: entry.label }))}
+          />
+
+          <Field
+            label="Columns"
+            labelAs="group"
+            hint="Every column is included until you narrow it."
+          >
+            {(_control, labelId) => (
+              // biome-ignore lint/a11y/useSemanticElements: `Field` already renders this group's caption and its id; a <fieldset> here would add a second grouping semantic, and its default min-inline-size: min-content stops the grid track shrinking.
+              <div className="report-columns" aria-labelledby={labelId} role="group">
+                {datasetFields.map((field) => (
+                  <Checkbox
+                    key={field.key}
+                    label={
+                      <span className="report-column-label">
+                        {field.label}
+                        {field.pii ? <Pill tone="warn">Personal</Pill> : null}
+                      </span>
+                    }
+                    checked={fields.length === 0 || fields.includes(field.key)}
+                    onChange={(checked) =>
+                      setFields((current) => {
+                        const all = datasetFields.map((entry) => entry.key);
+                        const base = current.length === 0 ? all : current;
+                        return checked
+                          ? [...new Set([...base, field.key])]
+                          : base.filter((key) => key !== field.key);
+                      })
+                    }
+                  />
+                ))}
+              </div>
+            )}
+          </Field>
+
+          {/*
+            One row per condition, on a real grid.
+            Before this the row was a bare `.actions` div with no rule behind it, so three
+            controls stacked full-width with no gap and the Remove button — the least
+            consequential control on the builder — rendered as the widest thing on it.
+          */}
           {filters.map((filter, index) => (
             // biome-ignore lint/suspicious/noArrayIndexKey: a filter row has no identity but its position
-            <div key={index} className="actions">
-              <select
-                value={filter.field}
-                onChange={(changed) =>
+            <div key={index} className="report-filter">
+              <span className="report-filter-connector" aria-hidden="true">
+                {index === 0 ? "where" : "and"}
+              </span>
+              <Select
+                label={`Field for condition ${index + 1}`}
+                labelHidden
+                placeholder="Choose a field"
+                value={filter.field || null}
+                onChange={(next) =>
+                  setFilters((current) =>
+                    current.map((entry, at) => (at === index ? { ...entry, field: next } : entry)),
+                  )
+                }
+                options={datasetFields.map((field) => ({ value: field.key, label: field.label }))}
+              />
+              <Select
+                label={`Comparison for condition ${index + 1}`}
+                labelHidden
+                value={filter.operator || null}
+                onChange={(next) =>
                   setFilters((current) =>
                     current.map((entry, at) =>
-                      at === index ? { ...entry, field: changed.target.value } : entry,
+                      at === index ? { ...entry, operator: next } : entry,
                     ),
                   )
                 }
-              >
-                <option value="">Choose a field</option>
-                {(activeDataset?.fields ?? []).map((field) => (
-                  <option key={field.key} value={field.key}>
-                    {field.label}
-                  </option>
-                ))}
-              </select>
-              <select
-                value={filter.operator}
-                onChange={(changed) =>
-                  setFilters((current) =>
-                    current.map((entry, at) =>
-                      at === index ? { ...entry, operator: changed.target.value } : entry,
-                    ),
-                  )
-                }
-              >
-                {cat.operators.map((operator) => (
-                  <option key={operator} value={operator}>
-                    {OPERATOR_LABEL[operator] ?? operator}
-                  </option>
-                ))}
-              </select>
-              {filter.operator !== "is-empty" && filter.operator !== "is-not-empty" ? (
+                options={cat.operators.map((operator) => ({
+                  value: operator,
+                  label: OPERATOR_LABEL[operator] ?? operator,
+                }))}
+              />
+              {VALUELESS.has(filter.operator) ? (
+                <p className="report-filter-void">no value needed</p>
+              ) : (
                 <input
+                  className="control"
                   value={filter.value}
-                  aria-label="Filter value"
+                  aria-label={`Value for condition ${index + 1}`}
                   onChange={(changed) =>
                     setFilters((current) =>
                       current.map((entry, at) =>
@@ -285,16 +385,24 @@ export function ReportsWorkspace({
                     )
                   }
                 />
-              ) : null}
+              )}
+              {/*
+                Not danger ink. Dropping a condition from a query nobody has run costs a press of
+                "Add a condition" to undo, and it was the only red control on this console that
+                destroyed nothing — which is what made the two beside it that *are* irreversible
+                look equally safe. Danger is now reserved for the acts that ask first.
+              */}
               <button
+                className="ghost small report-filter-remove"
                 type="button"
                 onClick={() => setFilters((current) => current.filter((_, at) => at !== index))}
               >
                 Remove
+                <span className="visually-hidden"> condition {index + 1}</span>
               </button>
             </div>
           ))}
-          <div className="actions report-filter-actions">
+          <div className="report-filter-actions">
             <button
               type="button"
               className="secondary"
@@ -303,48 +411,57 @@ export function ReportsWorkspace({
                 setFilters((current) => [...current, { field: "", operator: "equals", value: "" }])
               }
             >
-              Add a filter
+              Add a condition
             </button>
           </div>
-          <label>
-            Group by
-            <select value={groupBy} onChange={(changed) => setGroupBy(changed.target.value)}>
-              <option value="">No grouping</option>
-              {(activeDataset?.fields ?? []).map((field) => (
-                <option key={field.key} value={field.key}>
-                  {field.label}
-                </option>
-              ))}
-            </select>
-          </label>
+
+          {/* "No grouping" is the first option, so it is a selected value rather than a
+              placeholder: passed as `null` the trigger showed the right answer in the ink this
+              product reserves for an empty field. */}
+          <Select
+            label="Group by"
+            value={groupBy}
+            onChange={setGroupBy}
+            options={[
+              { value: "", label: "No grouping" },
+              ...datasetFields.map((field) => ({ value: field.key, label: field.label })),
+            ]}
+          />
+
           {canReadPii ? (
-            <label className="report-personal-data">
-              <input
-                type="checkbox"
-                checked={includePii}
-                onChange={(changed) => setIncludePii(changed.target.checked)}
-              />
-              Show unmasked personal data (this action is recorded)
-            </label>
+            <Checkbox
+              label="Show unmasked personal data (this action is recorded)"
+              hint="Names, addresses and phone numbers appear in full, and the export carries them too."
+              checked={includePii}
+              onChange={setIncludePii}
+            />
           ) : (
             <p className="hint">
               Personal columns are masked. Ask an administrator for personal-data report access if
               you need to view them.
             </p>
           )}
-          <div className="report-run-actions">
-            <button type="submit" disabled={busy}>
+
+          <div className="report-run">
+            <button className="primary" type="submit" disabled={busy}>
               Run
             </button>
           </div>
+
           <div className="report-save-row">
-            <input
-              aria-label="Report name"
-              placeholder="Report name"
-              value={name}
-              onChange={(changed) => setName(changed.target.value)}
-            />
+            <Field label="Report name" labelHidden>
+              {(control) => (
+                <input
+                  {...control}
+                  className="control"
+                  placeholder="Report name"
+                  value={name}
+                  onChange={(changed) => setName(changed.target.value)}
+                />
+              )}
+            </Field>
             <button
+              className="secondary"
               type="button"
               disabled={busy || !name.trim()}
               onClick={() =>
@@ -358,17 +475,13 @@ export function ReportsWorkspace({
                       .map(({ field, operator, value }) => ({
                         field,
                         operator,
-                        ...(operator === "is-empty" || operator === "is-not-empty"
-                          ? {}
-                          : { value }),
+                        ...(VALUELESS.has(operator) ? {} : { value }),
                       })),
                     ...(groupBy ? { groupBy } : {}),
                     ...(selected
                       ? {
                           reportId: selected,
-                          expectedRevision:
-                            saved.data?.reports.find((entry) => entry.id === selected)?.revision ??
-                            1,
+                          expectedRevision: selectedReport?.revision ?? 1,
                         }
                       : {}),
                   });
@@ -380,16 +493,21 @@ export function ReportsWorkspace({
             </button>
           </div>
         </form>
-      </Card>
+      </Section>
 
       {result ? <ReportResult result={result} /> : null}
 
       {selected && result?.state === "ok" ? (
-        <Card title="Export" hint="A format applied to the run above — never a second query.">
-          <div className="actions">
+        <Section
+          labelledBy="reports-export"
+          title="Export"
+          description="A format applied to the run above — never a second query."
+        >
+          <div className="toolbar">
             {(["csv", "xlsx", "json"] as const).map((format) => (
               <a
                 key={format}
+                className="btn secondary"
                 href={reportExportUrl(eventId, selected, format, includePii)}
                 download
               >
@@ -397,21 +515,31 @@ export function ReportsWorkspace({
               </a>
             ))}
           </div>
-        </Card>
+        </Section>
       ) : null}
 
       {selected ? (
-        <Card
+        <Section
+          labelledBy="reports-shares"
           title="Share links"
-          hint="A link resolves live data under its own policy. Revoking it is the whole of revoking access."
+          description="A link resolves live data under its own policy. Revoking it is the whole of revoking access."
         >
           {issuedUrl ? (
-            <Notice tone="info">
-              This link is shown once: <code>{issuedUrl}</code>
+            <Notice
+              tone="info"
+              title="Copy this address now"
+              onDismiss={() => setIssuedUrl(null)}
+              dismissLabel="I have copied the share address"
+            >
+              {/* Only the digest is stored, so this is the one moment the address exists on a
+                  screen. It gets a copy button rather than a <code> nobody can select cleanly. */}
+              <CopyableSecret label="Share address" value={issuedUrl} />
+              Anybody holding it sees this report's live rows until it expires or is revoked.
             </Notice>
           ) : null}
-          <div className="actions">
+          <div className="toolbar">
             <button
+              className="secondary"
               type="button"
               disabled={busy}
               onClick={() =>
@@ -429,105 +557,157 @@ export function ReportsWorkspace({
             </button>
           </div>
           {shares && shares.shares.length > 0 ? (
-            <ul>
+            <GutterList label="Share links on this report">
               {shares.shares.map((share) => (
-                <li key={share.id}>
-                  Expires {new Date(share.expiresAt).toLocaleString()} · {share.views} views
-                  {share.viewLimit ? ` of ${share.viewLimit}` : ""}
-                  {share.allowPii ? <Pill tone="warn">Unmasked</Pill> : null}
-                  {share.revokedAt ? (
-                    <Pill tone="neutral">Revoked</Pill>
-                  ) : (
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() =>
-                        act("Share link revoked.", async () => {
-                          await revokeReportShare(eventId, selected, share.id);
-                          setShares(await listReportShares(eventId, selected));
-                        })
-                      }
-                    >
-                      Revoke
-                    </button>
-                  )}
-                </li>
+                <GutterRow
+                  key={share.id}
+                  measure={share.views}
+                  measureLabel="Views so far"
+                  title={`Expires ${new Date(share.expiresAt).toLocaleString()}`}
+                  meta={
+                    <>
+                      {share.views}
+                      {share.viewLimit ? ` of ${share.viewLimit}` : ""} views
+                      {share.allowPii ? " · unmasked" : ""}
+                    </>
+                  }
+                  status={
+                    share.allowPii ? <Pill tone="warn">Unmasked</Pill> : <Pill tone="ok">Live</Pill>
+                  }
+                  actions={
+                    share.revokedAt ? (
+                      <Pill tone="neutral">Revoked</Pill>
+                    ) : (
+                      <button
+                        className="danger small"
+                        type="button"
+                        disabled={busy}
+                        onClick={() =>
+                          setConfirming({
+                            kind: "share",
+                            reportId: selected,
+                            id: share.id,
+                            expires: new Date(share.expiresAt).toLocaleString(),
+                          })
+                        }
+                      >
+                        Revoke
+                        <span className="visually-hidden"> this share link</span>
+                      </button>
+                    )
+                  }
+                />
               ))}
-            </ul>
+            </GutterList>
           ) : (
-            <EmptyState title="No links yet">
+            <EmptyState icon={<IconLink size={20} />} title="No links yet">
               A link carries an expiry, an optional view limit and an optional password, and can be
               revoked at any time.
             </EmptyState>
           )}
-        </Card>
+        </Section>
       ) : null}
 
       {selected ? (
-        <Card
+        <Section
+          labelledBy="reports-schedules"
           title="Scheduled delivery"
-          hint="Recipients are sent an expiring link rather than a copy of the rows."
+          description="Recipients are sent an expiring link rather than a copy of the rows."
         >
-          <label>
-            Recipients
-            <input
-              type="text"
-              value={scheduleRecipients}
-              onChange={(event) => setScheduleRecipients(event.target.value)}
-              placeholder="ops@example.com, producer@example.com"
-            />
-          </label>
-          <p className="hint">Separate up to 20 email addresses with commas.</p>
-          <div className="actions">
+          <Field
+            label="Recipients"
+            hint="Separate up to 20 email addresses with commas."
+            id="report-schedule-recipients"
+          >
+            {(control) => (
+              <input
+                {...control}
+                className="control"
+                type="text"
+                value={scheduleRecipients}
+                onChange={(event) => setScheduleRecipients(event.target.value)}
+                placeholder="ops@example.com, producer@example.com"
+              />
+            )}
+          </Field>
+          <div className="toolbar">
             <button
+              className="secondary"
               type="button"
-              disabled={busy}
+              disabled={busy || duplicateSchedule || recipientList.length === 0}
               onClick={() =>
                 act("Schedule created.", async () => {
                   await createReportSchedule(eventId, selected, {
-                    cadence: "weekly",
-                    minuteOfDay: 8 * 60,
-                    dayOfWeek: 1,
-                    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-                    recipients: scheduleRecipients
-                      .split(",")
-                      .map((recipient) => recipient.trim())
-                      .filter(Boolean),
+                    ...WEEKLY_SLOT,
+                    // The event's zone, which is what the line beside this button names.
+                    timezone,
+                    recipients: recipientList,
                   });
                   setSchedules(await listReportSchedules(eventId, selected));
+                  setScheduleRecipients("");
                 })
               }
             >
               Schedule weekly (Mondays, 08:00)
             </button>
+            <p className="hint">
+              {duplicateSchedule
+                ? "This report already goes out every Monday at 08:00. Remove that schedule to change who receives it."
+                : `Fires at 08:00 ${timezone}, the event's own zone.`}
+            </p>
           </div>
           {schedules && schedules.schedules.length > 0 ? (
-            <ul>
+            <GutterList label="Standing deliveries for this report">
               {schedules.schedules.map(({ schedule, runs }) => (
-                <li key={schedule.id}>
-                  {schedule.cadence} at{" "}
-                  {String(Math.floor(schedule.minuteOfDay / 60)).padStart(2, "0")}:
-                  {String(schedule.minuteOfDay % 60).padStart(2, "0")} {schedule.timezone} ·{" "}
-                  {schedule.recipients.length} recipients
-                  {runs.length > 0 ? (
-                    <span className="sub">
-                      Last run {new Date(runs[0]?.ranAt ?? "").toLocaleString()} —{" "}
-                      {runs[0]?.outcome}
-                    </span>
-                  ) : null}
-                </li>
+                <GutterRow
+                  key={schedule.id}
+                  measure={clockOf(schedule.minuteOfDay)}
+                  measureLabel="Fires at"
+                  title={`${schedule.cadence === "weekly" ? "Every Monday" : schedule.cadence} · ${schedule.timezone}`}
+                  meta={`${schedule.recipients.length} ${schedule.recipients.length === 1 ? "recipient" : "recipients"}${
+                    runs.length > 0
+                      ? ` · last run ${new Date(runs[0]?.ranAt ?? "").toLocaleString()} — ${runs[0]?.outcome}`
+                      : " · not yet run"
+                  }`}
+                  actions={
+                    <button
+                      className="danger small"
+                      type="button"
+                      disabled={busy}
+                      onClick={() =>
+                        setConfirming({
+                          kind: "schedule",
+                          reportId: selected,
+                          id: schedule.id,
+                          at: clockOf(schedule.minuteOfDay),
+                        })
+                      }
+                    >
+                      Remove
+                      <span className="visually-hidden">
+                        {" "}
+                        the {clockOf(schedule.minuteOfDay)} schedule
+                      </span>
+                    </button>
+                  }
+                />
               ))}
-            </ul>
+            </GutterList>
           ) : (
-            <EmptyState title="Not scheduled">
-              A schedule fires once per occurrence in the event's timezone, and records every run.
+            <EmptyState icon={<IconClock size={20} />} title="Not scheduled">
+              A schedule fires once per occurrence in {timezone}, the event's own zone, and records
+              every run.
             </EmptyState>
           )}
-        </Card>
+        </Section>
       ) : null}
 
-      <Card title="Saved reports">
-        {saved.data && saved.data.reports.length > 0 ? (
+      <Section labelledBy="reports-saved" title="Saved reports">
+        {saved.error ? (
+          <LoadFailure what="the saved reports" error={saved.error} onRetry={saved.reload} />
+        ) : !saved.data ? (
+          <SkeletonRows rows={3} label="Loading the saved reports" />
+        ) : saved.data.reports.length > 0 ? (
           <div className="table-wrap">
             <table className="data">
               <caption className="visually-hidden">Saved reports on this event</caption>
@@ -540,30 +720,41 @@ export function ReportsWorkspace({
               </thead>
               <tbody>
                 {saved.data.reports.map((report) => (
-                  <tr key={report.id}>
+                  <tr key={report.id} aria-selected={report.id === selected ? true : undefined}>
                     <td className="primary-cell" data-label="Report">
                       {report.name}
                     </td>
-                    <td data-label="Dataset">{report.dataset}</td>
+                    <td data-label="Dataset">
+                      {REPORT_DATASET_LABELS[report.dataset] ?? report.dataset}
+                    </td>
                     <td data-label="Actions">
-                      <button type="button" disabled={busy} onClick={() => openSaved(report.id)}>
-                        Open
-                      </button>
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() =>
-                          act("Report deleted.", async () => {
-                            await deleteReport(eventId, report.id, report.revision);
-                            if (selected === report.id) {
-                              setSelected(null);
-                              setResult(null);
-                            }
-                          })
-                        }
-                      >
-                        Delete
-                      </button>
+                      <div className="report-row-actions">
+                        <button
+                          className="secondary small"
+                          type="button"
+                          disabled={busy}
+                          onClick={() => openSaved(report.id)}
+                        >
+                          Open
+                        </button>
+                        {/* Separated from Open, and asks before it acts: deleting takes the
+                            report's share links and schedules with it and none of them return. */}
+                        <button
+                          className="danger small"
+                          type="button"
+                          disabled={busy}
+                          onClick={() =>
+                            setDeleting({
+                              id: report.id,
+                              name: report.name,
+                              revision: report.revision,
+                            })
+                          }
+                        >
+                          Delete
+                          <span className="visually-hidden"> {report.name}</span>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -571,11 +762,123 @@ export function ReportsWorkspace({
             </table>
           </div>
         ) : (
-          <EmptyState title="No saved reports">
+          <EmptyState icon={<IconDashboard size={20} />} title="No saved reports">
             Build a report above and give it a name to use it again later.
           </EmptyState>
         )}
-      </Card>
+      </Section>
+
+      <Drawer
+        open={confirming !== null}
+        title={
+          confirming?.kind === "schedule"
+            ? `Stop the ${confirming.at} delivery?`
+            : "Revoke this share link?"
+        }
+        busy={busy}
+        onClose={() => setConfirming(null)}
+        footer={
+          <>
+            <button
+              type="button"
+              className="danger primary"
+              disabled={busy}
+              onClick={() => {
+                const target = confirming;
+                if (!target) return;
+                setConfirming(null);
+                /*
+                 * Both irreversible acts this drawer confirms are started here, and the branch
+                 * chooses the operation rather than the discard: one `void`, so the intent below
+                 * covers both arms. Written as two `void act(…)` statements, the second sat two
+                 * lines past this comment and `tools/check-errors.mjs` read it as an unexplained
+                 * discard — the gate is adjacency-scoped on purpose.
+                 *
+                 * ERROR-INTENT: handlers cannot await; `act` announces both outcomes.
+                 */
+                void (target.kind === "share"
+                  ? act("Share link revoked.", async () => {
+                      await revokeReportShare(eventId, target.reportId, target.id);
+                      setShares(await listReportShares(eventId, target.reportId));
+                    })
+                  : act("Schedule removed.", async () => {
+                      await deleteReportSchedule(eventId, target.reportId, target.id);
+                      setSchedules(await listReportSchedules(eventId, target.reportId));
+                    }));
+              }}
+            >
+              {confirming?.kind === "schedule" ? "Remove the schedule" : "Revoke the link"}
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              disabled={busy}
+              onClick={() => setConfirming(null)}
+            >
+              {confirming?.kind === "schedule" ? "Keep sending it" : "Keep it working"}
+            </button>
+          </>
+        }
+      >
+        {confirming?.kind === "schedule" ? (
+          <p>
+            Nobody receives this report at {confirming.at} again, and the recipient list goes with
+            the schedule. Scheduling it again asks for those addresses from scratch.
+          </p>
+        ) : (
+          <p>
+            The address stops resolving immediately for everybody holding it, including anybody
+            reading it right now, and it cannot be reinstated — it would have expired
+            {confirming ? ` ${confirming.expires}` : ""}. A new link is a new address to hand out.
+          </p>
+        )}
+      </Drawer>
+
+      <Drawer
+        open={deleting !== null}
+        title={deleting ? `Delete “${deleting.name}”?` : "Delete this report"}
+        busy={busy}
+        onClose={() => setDeleting(null)}
+        footer={
+          <>
+            <button
+              type="button"
+              className="danger primary"
+              disabled={busy}
+              onClick={() => {
+                const target = deleting;
+                if (!target) return;
+                setDeleting(null);
+                // ERROR-INTENT: handlers cannot await; `act` announces both outcomes.
+                void act(`Deleted ${target.name}.`, async () => {
+                  await deleteReport(eventId, target.id, target.revision);
+                  if (selected === target.id) {
+                    setSelected(null);
+                    setResult(null);
+                    setShares(null);
+                    setSchedules(null);
+                  }
+                });
+              }}
+            >
+              Delete the report
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              disabled={busy}
+              onClick={() => setDeleting(null)}
+            >
+              Keep it
+            </button>
+          </>
+        }
+      >
+        <p>
+          Every share link issued from this report stops resolving, and any standing weekly delivery
+          stops being sent. Neither the report nor its links can be restored.
+        </p>
+      </Drawer>
     </div>
   );
 }
@@ -583,7 +886,7 @@ export function ReportsWorkspace({
 function ReportResult({ result }: { result: ReportRunResponse }) {
   if (result.state === "unauthorized")
     return (
-      <Notice tone="warn">
+      <Notice tone="warn" role="status">
         Your role does not include access to this information. Choose another dataset or ask an
         administrator for access.
       </Notice>
@@ -591,21 +894,24 @@ function ReportResult({ result }: { result: ReportRunResponse }) {
   if (result.state === "failed") return <Notice tone="error">{result.error.message}</Notice>;
   const { fields, rows, totalRows, groups, meta } = result.result;
   return (
-    <Card title="Result" hint={`${rows.length} of ${totalRows} rows shown`}>
+    <Card labelledBy="reports-result" title="Result" hint={`${rows.length} of ${totalRows} rows`}>
       {meta.maskedFields.length > 0 ? (
-        <Notice tone="info">
+        <Notice tone="info" role="status">
           Masked here: {meta.maskedFields.join(", ")}. A masked value is what you are shown, not
           what the record holds.
         </Notice>
       ) : null}
       {groups.length > 0 ? (
-        <ul>
+        <GutterList label="Grouped counts">
           {groups.map((group) => (
-            <li key={group.value}>
-              {group.value} · {group.count}
-            </li>
+            <GutterRow
+              key={group.value}
+              measure={group.count}
+              measureLabel="Rows"
+              title={group.value}
+            />
           ))}
-        </ul>
+        </GutterList>
       ) : null}
       <div className="table-wrap">
         <table className="data">
@@ -635,8 +941,8 @@ function ReportResult({ result }: { result: ReportRunResponse }) {
         </table>
       </div>
       {rows.length === 0 ? (
-        <EmptyState title="No rows matched">
-          Nothing in this dataset satisfies every filter. Widen one and run again.
+        <EmptyState icon={<IconSearch size={20} />} title="No rows matched">
+          Nothing in this dataset satisfies every condition. Widen one and run again.
         </EmptyState>
       ) : null}
     </Card>

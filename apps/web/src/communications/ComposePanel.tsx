@@ -5,6 +5,13 @@
  * create one, so a template could only be made by hand-crafting a POST and the "Communications"
  * workspace was a read-only window onto rows somebody else had written.
  *
+ * **The message is the subject line.** Everything on this panel is arranged around the sentence a
+ * speaker will read in their inbox. Choosing what to send used to mean picking from a list of
+ * `speaker-welcome · version 3`, and writing one began by asking for a primary key — so the first
+ * thing an organizer did before writing an email was name a database row. The key is still real,
+ * still immutable and still what a delivery records; it is derived from the subject and shown
+ * under Details, where somebody who needs it can change it.
+ *
  * Two things this surface refuses to do. It does not send without saying how many people it is
  * about to send to — the count comes from the server's own recipient resolution, not from a
  * number typed here — and it does not hide the speakers it cannot reach. A send to "the
@@ -21,9 +28,8 @@ import type {
   MessageTemplateDto,
   SpeakerMergeFieldDto,
 } from "@greenroom/contracts";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  CommunicationsApiError,
   createTemplate,
   getMergeFields,
   getRecipients,
@@ -31,8 +37,10 @@ import {
   previewBroadcast,
   sendToSpeakers,
 } from "../api/communications";
+import { type ApiFailure, describeApiFailure } from "../api/config";
+import { Field, Select } from "../ui/fields";
 import { IconSend, IconWarning } from "../ui/icons";
-import { Card, Notice, useActionFeedback } from "../ui/primitives";
+import { EmptyState, LoadFailure, Notice, Section, useActionFeedback } from "../ui/primitives";
 
 interface ComposePanelProps {
   organizationId: string;
@@ -40,12 +48,6 @@ interface ComposePanelProps {
   /** Called after a send so the history beside this panel shows the new deliveries. */
   onSent: () => void;
 }
-
-const readError = (reason: unknown, fallback: string) => {
-  if (reason instanceof CommunicationsApiError)
-    return `${reason.message} Reference: ${reason.envelope.error.correlationId}`;
-  return reason instanceof Error ? reason.message : fallback;
-};
 
 /** The newest version of each key: what "send this template" means without a version picker. */
 const latestByKey = (templates: readonly MessageTemplateDto[]) => {
@@ -56,6 +58,21 @@ const latestByKey = (templates: readonly MessageTemplateDto[]) => {
   }
   return [...newest.values()].sort((left, right) => left.key.localeCompare(right.key));
 };
+
+/**
+ * The storage name a subject implies.
+ *
+ * A key is a stable identity across versions, so it has to be derivable and it has to be stable
+ * once chosen — which is why the disclosure lets it be overridden rather than recomputing it from
+ * every keystroke after the first save.
+ */
+const keyFromSubject = (subject: string) =>
+  subject
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
 
 // @spec PRD-COM-001
 export function ComposePanel({ organizationId, eventId, onSent }: ComposePanelProps) {
@@ -82,14 +99,25 @@ export function ComposePanel({ organizationId, eventId, onSent }: ComposePanelPr
   const [search, setSearch] = useState("");
   const [preview, setPreview] = useState<BroadcastPreviewEntryDto[] | null>(null);
   const [mergeFields, setMergeFields] = useState<SpeakerMergeFieldDto[]>([]);
-  const [loadFailure, setLoadFailure] = useState<string | null>(null);
+  const [loadFailure, setLoadFailure] = useState<ApiFailure | null>(null);
   const [composing, setComposing] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [draft, setDraft] = useState({ key: "", subject: "", body: "" });
+  const [draft, setDraft] = useState({ subject: "", body: "" });
+  /** Null until somebody opens Details and types one: otherwise the subject decides. */
+  const [keyOverride, setKeyOverride] = useState<string | null>(null);
+  /**
+   * A refused save, preview or send.
+   *
+   * Held rather than announced, because `useActionFeedback` carries a sentence and nothing else:
+   * a refusal's correlation reference is the one part of it read character by character, and
+   * glued onto the end of a paragraph it cannot be selected. `Notice` puts it on its own line
+   * with a copy button, and `tone="error"` still interrupts.
+   */
+  const [failure, setFailure] = useState<ApiFailure | null>(null);
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
   const feedback = useActionFeedback();
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: feedback.announce is a fresh closure every render, so depending on it would re-run the mount effect forever.
   const load = useCallback(async () => {
     try {
       const [loadedTemplates, loadedRecipients, fields] = await Promise.all([
@@ -110,7 +138,7 @@ export function ComposePanel({ organizationId, eventId, onSent }: ComposePanelPr
     } catch (reason: unknown) {
       // ERROR-INTENT: this panel renders its own read failure in place of the controls it
       // could not populate; sending is impossible without knowing the recipients anyway.
-      setLoadFailure(readError(reason, "Templates and recipients could not be loaded."));
+      setLoadFailure(describeApiFailure(reason, "Templates and recipients could not be loaded."));
     }
   }, [organizationId, eventId]);
 
@@ -152,12 +180,43 @@ export function ComposePanel({ organizationId, eventId, onSent }: ComposePanelPr
       return next;
     });
 
+  const draftKey = keyOverride ?? keyFromSubject(draft.subject);
+  /** The template this draft would add a version to, if its key is one that already exists. */
+  const supersedes = available.find((template) => template.key === draftKey) ?? null;
+
+  /**
+   * Put a merge token where the caret is.
+   *
+   * The tokens used to be a read-only list under the box, so writing one meant reading it,
+   * remembering the braces and typing it — and a token typed one character wrong is a send the
+   * renderer refuses rather than a message with a gap in it.
+   */
+  function insertToken(token: string) {
+    const snippet = `{{${token}}}`;
+    const node = bodyRef.current;
+    if (!node) {
+      setDraft((current) => ({ ...current, body: `${current.body}${snippet}` }));
+      return;
+    }
+    const start = node.selectionStart ?? node.value.length;
+    const end = node.selectionEnd ?? start;
+    const next = `${node.value.slice(0, start)}${snippet}${node.value.slice(end)}`;
+    setDraft((current) => ({ ...current, body: next }));
+    const caret = start + snippet.length;
+    // After React has written the new value back, or the caret lands in the old string.
+    requestAnimationFrame(() => {
+      node.focus();
+      node.setSelectionRange(caret, caret);
+    });
+  }
+
   async function publish() {
     setBusy(true);
+    setFailure(null);
     try {
       const created = await createTemplate({
         organizationId,
-        key: draft.key.trim(),
+        key: draftKey,
         // No version. The server allocates the next one next to the constraint that arbitrates
         // it, so two organizers publishing the same key at once both succeed with consecutive
         // versions instead of one being refused for proposing a number this panel guessed.
@@ -168,16 +227,17 @@ export function ComposePanel({ organizationId, eventId, onSent }: ComposePanelPr
       await load();
       setSelectedKey(created.key);
       setComposing(false);
-      setDraft({ key: "", subject: "", body: "" });
+      setDraft({ subject: "", body: "" });
+      setKeyOverride(null);
       feedback.announce(
         "success",
-        `Saved ${created.key} version ${created.version}. Earlier versions stay readable.`,
+        `Saved “${created.subject ?? created.key}” as version ${created.version}. Earlier versions stay readable.`,
       );
     } catch (reason: unknown) {
       // ERROR-INTENT: announced beside the form that produced it, so the draft survives.
       // Re-read first so the list behind the panel reflects whatever else has been published.
       await load();
-      feedback.announce("error", readError(reason, "The template could not be saved."));
+      setFailure(describeApiFailure(reason, "The message could not be saved."));
     } finally {
       setBusy(false);
     }
@@ -193,6 +253,7 @@ export function ComposePanel({ organizationId, eventId, onSent }: ComposePanelPr
   async function resolve() {
     if (!selected) return;
     setBusy(true);
+    setFailure(null);
     try {
       const resolved = await previewBroadcast({
         organizationId,
@@ -210,7 +271,7 @@ export function ComposePanel({ organizationId, eventId, onSent }: ComposePanelPr
       // value names itself here, which is the whole reason the preview happens server-side.
       setPreview(null);
       setConfirming(false);
-      feedback.announce("error", readError(reason, "The message could not be resolved."));
+      setFailure(describeApiFailure(reason, "The message could not be resolved."));
     } finally {
       setBusy(false);
     }
@@ -219,6 +280,7 @@ export function ComposePanel({ organizationId, eventId, onSent }: ComposePanelPr
   async function send() {
     if (!selected) return;
     setBusy(true);
+    setFailure(null);
     try {
       const result = await sendToSpeakers({
         organizationId,
@@ -233,9 +295,10 @@ export function ComposePanel({ organizationId, eventId, onSent }: ComposePanelPr
       onSent();
       // What happened, not what was attempted. A repeat send of the same template version
       // writes nothing, and saying "queued" about it would promise mail that will never go.
+      const named = selected.subject ?? selected.key;
       const queued = result.enqueued
-        ? `Queued ${result.enqueued} ${result.enqueued === 1 ? "delivery" : "deliveries"} for ${selected.key} version ${selected.version}. The outbox sends ${result.enqueued === 1 ? "it" : "them"} on its next run.`
-        : `Nothing new to send: every reachable speaker already has ${selected.key} version ${selected.version}. Save a new version to send a correction.`;
+        ? `Queued ${result.enqueued} ${result.enqueued === 1 ? "delivery" : "deliveries"} for “${named}”. The outbox sends ${result.enqueued === 1 ? "it" : "them"} on its next run.`
+        : `Nothing new to send: every reachable speaker already has version ${selected.version} of “${named}”. Save a new version to send a correction.`;
       const repeated =
         result.enqueued && result.alreadySent
           ? ` ${result.alreadySent} already had this version and ${result.alreadySent === 1 ? "was" : "were"} not sent again.`
@@ -256,17 +319,21 @@ export function ComposePanel({ organizationId, eventId, onSent }: ComposePanelPr
       setConfirming(false);
       setPreview(null);
       await load();
-      feedback.announce("error", readError(reason, "The send was refused."));
+      setFailure(describeApiFailure(reason, "The send was refused."));
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <Card
+    <Section
       labelledBy="communications-compose-title"
+      // The whole region sets to the composer's measure, heading and action included: capping
+      // only the body would leave "Write a message" hanging 600px to the right of the form it
+      // opens.
+      className="comms-compose-region"
       title="Send to speakers"
-      hint={
+      description={
         recipients === null
           ? "Resolving this event's speakers…"
           : `${reachable.length} of ${recipients.length} ${recipients.length === 1 ? "speaker" : "speakers"} can be reached by email`
@@ -281,27 +348,26 @@ export function ComposePanel({ organizationId, eventId, onSent }: ComposePanelPr
             setConfirming(false);
           }}
         >
-          {composing ? "Cancel" : "New template"}
+          {composing ? "Cancel" : "Write a message"}
         </button>
       }
     >
       <div className="comms-compose">
         {feedback.node}
+        {failure ? (
+          <Notice tone="error" reference={failure.reference} onDismiss={() => setFailure(null)}>
+            {failure.message}
+          </Notice>
+        ) : null}
 
         {loadFailure ? (
-          <div className="comms-compose-failure">
-            <Notice tone="error">{loadFailure}</Notice>
-            <button
-              type="button"
-              className="secondary"
-              onClick={() => {
-                // ERROR-INTENT: handlers cannot await; load renders its own failure.
-                void load();
-              }}
-            >
-              Try again
-            </button>
-          </div>
+          <LoadFailure
+            what="the templates and recipients"
+            error={loadFailure.message}
+            reference={loadFailure.reference}
+            onRetry={load}
+            retryLabel="Try again"
+          />
         ) : composing ? (
           <form
             className="comms-compose-form"
@@ -311,38 +377,33 @@ export function ComposePanel({ organizationId, eventId, onSent }: ComposePanelPr
               void publish();
             }}
           >
-            <label htmlFor="template-key">
-              Template name
-              <input
-                id="template-key"
-                value={draft.key}
-                required
-                maxLength={80}
-                placeholder="speaker-welcome"
-                onChange={(event) => setDraft({ ...draft, key: event.target.value })}
-              />
-            </label>
-            <label htmlFor="template-subject">
-              Subject
-              <input
-                id="template-subject"
-                value={draft.subject}
-                maxLength={200}
-                placeholder="You're speaking at Greenroom"
-                onChange={(event) => setDraft({ ...draft, subject: event.target.value })}
-              />
-            </label>
-            <label htmlFor="template-body">
-              Message
-              <textarea
-                id="template-body"
-                value={draft.body}
-                required
-                rows={6}
-                placeholder={"Hi {{speakerName}},\n\nYour session is confirmed."}
-                onChange={(event) => setDraft({ ...draft, body: event.target.value })}
-              />
-            </label>
+            {/* Subject first, and required: it is what a speaker sees, and it is now what
+                names the template. */}
+            <Field label="Subject" id="message-subject" required>
+              {(control) => (
+                <input
+                  {...control}
+                  className="control"
+                  value={draft.subject}
+                  maxLength={200}
+                  placeholder="You're speaking at Greenroom"
+                  onChange={(event) => setDraft({ ...draft, subject: event.target.value })}
+                />
+              )}
+            </Field>
+            <Field label="Message" id="message-body" required>
+              {(control) => (
+                <textarea
+                  {...control}
+                  ref={bodyRef}
+                  className="control"
+                  value={draft.body}
+                  rows={8}
+                  placeholder={"Hi {{speakerName}},\n\nYour session is confirmed."}
+                  onChange={(event) => setDraft({ ...draft, body: event.target.value })}
+                />
+              )}
+            </Field>
             {/*
              * The vocabulary comes from the server that resolves it.
              *
@@ -360,7 +421,15 @@ export function ComposePanel({ organizationId, eventId, onSent }: ComposePanelPr
                   {mergeFields.map((field) => (
                     <div key={field.token}>
                       <dt>
-                        <code>{`{{${field.token}}}`}</code>
+                        <button
+                          type="button"
+                          className="secondary small comms-merge-insert"
+                          disabled={busy}
+                          aria-label={`Insert ${field.token} — ${field.describes}`}
+                          onClick={() => insertToken(field.token)}
+                        >
+                          <code className="figure">{`{{${field.token}}}`}</code>
+                        </button>
                       </dt>
                       <dd>{field.describes}</dd>
                     </div>
@@ -368,38 +437,81 @@ export function ComposePanel({ organizationId, eventId, onSent }: ComposePanelPr
                 </dl>
               ) : null}
             </div>
-            <button type="submit" className="primary" disabled={busy || !draft.body.trim()}>
-              {busy ? "Saving…" : "Save template version"}
-            </button>
+
+            {/*
+             * The storage name, where somebody who needs it can find it.
+             *
+             * This used to be the first field on the form: writing an email began by naming a
+             * primary key. It is still real — a delivery records the key and the version, and
+             * saving the same key again publishes the next version of it — so it is derived,
+             * shown, and editable, rather than hidden or invented.
+             */}
+            <details className="comms-compose-details">
+              <summary>Details</summary>
+              <div className="comms-compose-details-body">
+                <Field
+                  label="Template name"
+                  id="message-key"
+                  hint={
+                    supersedes
+                      ? `Saving publishes version ${supersedes.version + 1} of this template. Every earlier version stays readable.`
+                      : "Derived from the subject. It identifies this message across every version of it."
+                  }
+                >
+                  {(control) => (
+                    <input
+                      {...control}
+                      className="control figure"
+                      value={draftKey}
+                      maxLength={80}
+                      onChange={(event) => setKeyOverride(event.target.value)}
+                    />
+                  )}
+                </Field>
+              </div>
+            </details>
+
+            <div className="toolbar">
+              <button
+                type="submit"
+                className="primary"
+                disabled={busy || !draft.body.trim() || !draftKey}
+              >
+                {busy ? "Saving…" : "Save this message"}
+              </button>
+            </div>
           </form>
         ) : available.length === 0 ? (
-          <p className="comms-compose-empty">
-            No templates yet. Create one to send this event's speakers a message.
-          </p>
+          <EmptyState icon={<IconSend size={20} />} title="No messages yet">
+            Write one and it becomes a message you can send to this event's speakers, and send again
+            — with a correction — as a new version.
+          </EmptyState>
         ) : (
           <>
-            <label htmlFor="template-select">
-              Template
-              <select
-                id="template-select"
-                value={selectedKey}
-                disabled={busy}
-                onChange={(event) => {
-                  setSelectedKey(event.target.value);
-                  setConfirming(false);
-                  // A resolved preview belongs to the template that produced it. Leaving it on
-                  // screen under a different template would show the organizer one message and
-                  // send another.
-                  setPreview(null);
-                }}
-              >
-                {available.map((template) => (
-                  <option key={template.key} value={template.key}>
-                    {template.key} · version {template.version}
-                  </option>
-                ))}
-              </select>
-            </label>
+            {/*
+             * What is being sent, named the way a speaker sees it.
+             *
+             * The picker used to list `speaker-welcome · version 3`, so choosing what to mail
+             * forty people meant recognising a storage key. The subject is the option; the key
+             * and version ride along underneath it, because a delivery records both.
+             */}
+            <Select
+              label="Message"
+              value={selectedKey || null}
+              onChange={(next) => {
+                setSelectedKey(next);
+                setConfirming(false);
+                // A resolved preview belongs to the template that produced it. Leaving it on
+                // screen under a different template would show the organizer one message and
+                // send another.
+                setPreview(null);
+              }}
+              options={available.map((template) => ({
+                value: template.key,
+                label: template.subject ?? "(no subject)",
+                hint: `${template.key} · v${template.version}`,
+              }))}
+            />
 
             {/*
              * Who this send is for.
@@ -417,6 +529,7 @@ export function ComposePanel({ organizationId, eventId, onSent }: ComposePanelPr
                     Find a speaker
                     <input
                       id="recipient-search"
+                      className="control is-sm"
                       type="search"
                       value={search}
                       disabled={busy}
@@ -535,7 +648,7 @@ export function ComposePanel({ organizationId, eventId, onSent }: ComposePanelPr
 
             {unreachable.length ? (
               <p className="comms-unreachable">
-                <IconWarning size={14} />
+                <IconWarning size={20} />
                 {unreachable.length === 1
                   ? `${unreachable[0]?.name} has no email address on their identity and will not be sent to.`
                   : `${unreachable.length} speakers have no email address and will not be sent to: ${unreachable.map(({ name }) => name).join(", ")}.`}
@@ -548,11 +661,11 @@ export function ComposePanel({ organizationId, eventId, onSent }: ComposePanelPr
              * than in front of a confirmation describing a resolution that no longer holds.
              */}
             {confirming && preview ? (
-              // The confirmation names the count and the version, because "Send" on its own
+              // The confirmation names the count and the message, because "Send" on its own
               // does not say how many people are about to receive this.
               <fieldset className="comms-confirm" aria-label="Confirm send">
                 <p>
-                  Send <strong>{selected?.key}</strong> version {selected?.version} to{" "}
+                  Send <strong>{selected?.subject ?? selected?.key}</strong> to{" "}
                   <strong>{audienceLabel}</strong>? Each gets their own delivery you can track and
                   retry.
                 </p>
@@ -589,7 +702,7 @@ export function ComposePanel({ organizationId, eventId, onSent }: ComposePanelPr
                   void resolve();
                 }}
               >
-                <IconSend size={15} />
+                <IconSend size={20} />
                 {busy
                   ? "Preparing each message…"
                   : reachable.length === 0
@@ -602,6 +715,6 @@ export function ComposePanel({ organizationId, eventId, onSent }: ComposePanelPr
           </>
         )}
       </div>
-    </Card>
+    </Section>
   );
 }

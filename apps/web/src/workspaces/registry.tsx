@@ -40,7 +40,7 @@ import { eventSettingsHubTab, eventTemplatesHubTab, eventTemplatesWorkspace } fr
 import { membersWorkspace, teamHubTab } from "./identity";
 import { activityHubTab, auditWorkspace, inboxWorkspace, searchWorkspace } from "./platform";
 import { embedsHubTab, eventSiteHubTab, publishingWorkspace } from "./publishing";
-import { reportsHubTab, reportsWorkspace } from "./reports";
+import { reportsWorkspace } from "./reports";
 import {
   abstractsWorkspace,
   programReviewTab,
@@ -76,11 +76,11 @@ export const workspaceModules: readonly WorkspaceModule[] = [
 /** Complete organizer information architecture, registered atomically by the cutover issue. */
 export const hubTabModules: readonly HubTabModule[] = [
   programFormsTab,
-  {
-    ...programSubmissionsTab,
-    label: "Review",
-    header: programReviewTab.header,
-  },
+  // Registered as itself. It used to be re-labelled "Review" and given `programReviewTab`'s
+  // header, so the visible tab read "Review — Configure rounds and scoring…" above a submissions
+  // queue and the word "Submissions" appeared nowhere in the hub. `programReviewTab` renders the
+  // same workspace, so it stays a hidden alias rather than a second, identical tab.
+  programSubmissionsTab,
   { ...programReviewTab, hidden: true, canonicalTab: programSubmissionsTab.tab },
   crmHubTab,
   directoryHubTab,
@@ -129,7 +129,11 @@ export const hubTabModules: readonly HubTabModule[] = [
     ),
   },
   eventTemplatesHubTab,
-  reportsHubTab,
+  // Reports is deliberately not a Settings tab any more. It is a thing an organizer opens to
+  // answer a question about the event they are running, not a thing they configure once, and as
+  // tab six of Settings it was three clicks from every surface that raises the question. It is
+  // registered as the workspace at `/reports` and sits in the sidebar's landing block; leaving
+  // the tab here as well would have kept `/reports` redirecting into Settings.
   activityHubTab,
 ];
 
@@ -215,4 +219,24 @@ export function canOpen(module: WorkspaceModule, access: WorkspaceAccess): boole
   return module.canAccess ? module.canAccess(access) : true;
 }
 
-export const NAV_GROUP_ORDER: readonly NavGroupName[] = ["home", "Program", "Audience"];
+/**
+ * The four blocks of the sidebar, in order.
+ *
+ * `home` is where a persona lands and the utilities it reaches from anywhere. `operate` is the
+ * run of show — the programme, the people in it, and when each thing happens. `reach` is
+ * everything pointed outwards. `admin` is one pinned block at the foot.
+ */
+export const NAV_GROUP_ORDER: readonly NavGroupName[] = ["home", "operate", "reach", "admin"];
+
+/**
+ * The words on screen, which are not the ids above.
+ *
+ * `null` means the block carries no heading: the landing block needs no caption, and the pinned
+ * administration block is one item under a hairline, which is already its own boundary.
+ */
+export const NAV_GROUP_LABELS: Readonly<Record<NavGroupName, string | null>> = {
+  home: null,
+  operate: "Run of show",
+  reach: "Audience",
+  admin: null,
+};
