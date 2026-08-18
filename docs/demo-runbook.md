@@ -267,9 +267,18 @@ set `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, configure a unique SESSI
 AUTH_EMAIL_ENDPOINT and AUTH_EMAIL_TOKEN, then run `npm run deploy`. Wrangler prints the resulting
 Worker URL. Enabling demo mode in production is explicitly refused by the runtime.
 
-On either the local or deployed Worker, open `/docs` for the browsable API reference or
-`/openapi.json` for the generated source document. Both are public discovery routes; they expose the
-already-checked contract and introduce no authentication mechanism.
+On either the local or deployed Worker, open `/developers` for what the HTTP contract guarantees —
+the three ways a request is authenticated, how a webhook is signed, and what may change under a
+client with how much notice — then `/docs` for the browsable API reference or `/openapi.json` for
+the generated source document behind it. All three are public discovery routes; they expose the
+already-checked contract and introduce no authentication mechanism. `/developers` is also reachable
+from the bar and footer of the marketing page, which is where an evaluator looking for an API will
+look first.
+
+One thing `/developers` says about *this* deployment is worth reading before testing it: a machine
+credential can be issued and displayed here and will not be accepted, because demo mode resolves
+personas by cookie and never reaches the bearer grammar. The page states that on the credential's
+own row rather than leaving it to be discovered from a 401.
 
 ## Reproduce the evidence
 

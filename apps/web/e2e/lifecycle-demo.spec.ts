@@ -15,14 +15,21 @@ const PUBLIC_SURFACES = [
 ] as const;
 const EMBED_SURFACES = ["schedule", "sessions", "speakers", "gallery", "itinerary"] as const;
 /**
- * The two signed-out surfaces. They are audited exactly as the public event pages are, because
+ * The three signed-out surfaces. They are audited exactly as the public event pages are, because
  * they are the same kind of thing: the first screen a stranger sees, rendered before anybody has
  * authenticated. `/` is the marketing page only while signed out — an organizer's `/` is the
  * console Overview, which the organizer sweep below already covers.
+ *
+ * `/developers` is the exception to that last sentence and is here for it: it is a public
+ * reference rather than the signed-out half of a console surface, so it renders for a signed-in
+ * reader too. What it needs from this audit is the same as the other two — landmarks, contrast,
+ * heading order, and a document that does not pan sideways at 390px, which its `curl` samples
+ * are the standing risk to.
  */
 const MARKETING_SURFACES = [
   { path: "/", heading: "Run the whole conference without losing the thread." },
   { path: "/signin", heading: "Sign in" },
+  { path: "/developers", heading: "Greenroom is an API with a console on top of it." },
 ] as const;
 
 async function expectNoAxeViolations(page: Page, surface: string) {
@@ -132,6 +139,16 @@ const READY: Readonly<Record<string, (page: Page) => Locator>> = {
    */
   "marketing /": (page) => page.getByRole("button", { name: "Continue as organizer" }),
   "marketing /signin": (page) => page.getByRole("button", { name: "Continue as organizer" }),
+  /*
+   * The exception on this surface, and the reason it gets its own signal rather than the doors.
+   *
+   * `/developers` reads nothing the probe returns, so `LandingRoot` renders it without waiting —
+   * there are no demo doors on it to wait for, and waiting for them would hang. Its last section
+   * is the readiness signal instead: if the closing door has painted, everything the audit
+   * measures is above it.
+   */
+  "marketing /developers": (page) =>
+    page.getByRole("heading", { level: 2, name: "Read the operations" }),
 
   /*
    * The public site renders `main.public-state` — a lone `<p role="status">` — until its
@@ -339,6 +356,16 @@ test("audits the landing and sign-in surfaces a signed-out visitor lands on", as
   await page.getByRole("link", { name: "Sign in", exact: true }).click();
   await expect(page).toHaveURL(/\/signin$/);
   await expect(page.locator("main")).toBeFocused();
+
+  // The API is reachable from the bar of every signed-out surface, which is the whole reason the
+  // bar became a navigation landmark. Reached from `/signin` here on purpose: the link is in the
+  // shared chrome rather than on the marketing page, and this is what proves it.
+  await page.getByRole("link", { name: "API Docs", exact: true }).click();
+  await expect(page).toHaveURL(/\/developers$/);
+  await expect(page.locator("main")).toBeFocused();
+  await expect(
+    page.getByRole("link", { name: "Browse the API reference" }).first(),
+  ).toHaveAttribute("href", "/docs");
 
   await page.setViewportSize({ width: 390, height: 844 });
   for (const surface of MARKETING_SURFACES) {

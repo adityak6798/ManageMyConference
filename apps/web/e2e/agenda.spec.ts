@@ -65,6 +65,12 @@ async function restoreSeedPlacement(page: Page) {
 async function openAgenda(page: Page) {
   await page.goto("/");
   await page.getByRole("button", { name: "Continue as organizer" }).click();
+  // The click posts the demo session; navigating before its cookie lands loads the board
+  // unauthenticated and the shell paints the demo role picker with "Sign in to continue."
+  // Every other spec that signs in and then navigates already waits here — cfp, cfp-window,
+  // communications and event-templates each say so in a comment — and this helper was the one
+  // that did not, which is why a red `agenda.spec.ts` kept picking a different test each run.
+  await expect(page.getByRole("combobox", { name: "Event workspace" })).toBeVisible();
   await page.goto(`/schedule?event=${demoEventId}&tab=agenda&view=room`);
   await expect(page.getByRole("heading", { level: 1, name: "Agenda" })).toBeVisible();
   await expect(page.getByRole("tab", { name: /^Room/ })).toHaveAttribute("aria-selected", "true");

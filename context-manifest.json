@@ -450,6 +450,7 @@
         "apps/web/src/InstanceMarker.tsx",
         "apps/web/src/OverviewPage.tsx",
         "apps/web/test/landing.test.tsx",
+        "apps/web/test/api-page.test.tsx",
         "apps/web/test/overview-dashboard.test.tsx",
         "apps/web/test/shell-error-surface.test.tsx",
         "apps/web/src/router.ts",

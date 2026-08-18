@@ -8,6 +8,18 @@ The canonical [API compatibility policy](api-compatibility.md) versions the cont
 the URL, defines additive and breaking changes, sets the deprecation procedure, and owns the
 shared cursor-pagination and public `Idempotency-Key` rulings.
 
+## Discovery
+
+Three surfaces, in order of how much a reader already knows. `GET /openapi.json` serves the
+generated document; `GET /docs` renders it as a browsable operation reference; and `/developers` —
+a signed-out page in the web bundle, reachable from the marketing page's bar and footer — states
+the rules that hold across every operation and links to the other two. All three are stable public
+routes. The first two are Worker routes listed in `run_worker_first`, which is why the third is
+`/developers` rather than `/api` or `/docs`: a page under either of those names would never be
+asked for. Every figure `/developers` prints about the contract is asserted against the generated
+document by `apps/web/test/api-page.test.tsx`, so a route added without updating that page fails the
+build rather than turning the page into an overstatement.
+
 ## Route groups
 
 - `API-AUTH-*`: session, seeded demo identity switch, current capabilities, membership and invitation administration, and organization API clients.
