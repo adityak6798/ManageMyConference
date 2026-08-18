@@ -300,7 +300,18 @@ function LandingTopBar({ active }: { active: Surface }) {
           </a>
           <a
             className="landing-door secondary is-sm"
-            {...linkProps(active === "home" ? "/signin" : "/")}
+            /*
+             * A real navigation off the reference, not a pushState.
+             *
+             * "/" is the marketing page for a visitor and the console's home for an organizer, and
+             * `main.tsx` is the module that decides which. Leaving the reference client-side asked
+             * `LandingRoot` to make that call instead, and Back then landed on a `/developers` the
+             * console does not route: it painted "That workspace does not exist" and replaced the
+             * URL, so Back was a no-op *and* the history entry was destroyed. Every other surface
+             * here is one the landing chunk can render either way, so only this one pays the
+             * round trip.
+             */
+            {...(active === "api" ? { href: "/" } : linkProps(active === "home" ? "/signin" : "/"))}
             // No `aria-current`: away from home this link points *back*, at "/", and marking it as
             // the current page tells a screen reader that "Back to the overview" is where you are.
             // axe has no rule for a truthful-but-misapplied aria-current, so the quality gate would

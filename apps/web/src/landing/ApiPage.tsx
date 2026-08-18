@@ -25,7 +25,6 @@
  */
 
 import { apiBase } from "../api/config";
-import { useLinkProps } from "../router";
 
 /**
  * The figures this page prints, and the artifact each one is answerable to.
@@ -167,7 +166,6 @@ const compatible: readonly string[] = [
 ];
 
 export function ApiSurface() {
-  const linkProps = useLinkProps();
   const origin = apiOrigin();
   return (
     <>
@@ -361,7 +359,8 @@ export function ApiSurface() {
           {/* Not "Back to the overview": the sticky bar renders a link by that exact name on this
               very surface, and two links with one accessible name is a coin toss for anybody
               driving the page by voice — the same hazard the footer's link was renamed to avoid. */}
-          <a className="landing-door secondary" {...linkProps("/")}>
+          {/* A real navigation, for the reason the bar's link is one — see `LandingTopBar`. */}
+          <a className="landing-door secondary" href="/">
             Back to the product
           </a>
         </div>
