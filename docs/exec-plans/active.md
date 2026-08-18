@@ -97,7 +97,7 @@ What remains before this plan can close:
 
 ## `PLAN-004` SessionBoard defect closure
 
-Status: active; implementation is complete in PRs #233 and #236, with the scored evaluator rerun blocked on its model credential
+Status: active; implementation is complete in PRs #233 and #236, the scored evaluator rerun is blocked on its model credential, and the 2026-08-18 harness run left six findings below that no gap or issue owns yet
 
 Issue #235 closes the six defects reproduced by the 2026-08-15 pinned SessionBoard evaluation and
 the functional paths that were not judgeable from its deterministic fixture. The work remained
@@ -133,8 +133,8 @@ judges, plus one the runbook promotes from minor because it writes to the wrong 
    one whose profile is open.
 
 A sixth is narrower and follows from membership rule 2 rather than from a defect: a demo-mode
-organizer is offered an invitation form that can only ever refuse on submit. Owner: quality, until
-each lands on a `GAP-0xx` row or an issue.
+organizer is offered an invitation form that can only ever refuse on submit. Owner of this triage list: quality — the plan itself stays with the file's declared owner —
+until each lands on a `GAP-0xx` row or an issue.
 
 ## `PLAN-002` Product lifecycle
 

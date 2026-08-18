@@ -67,9 +67,10 @@ evidence they read was authored by the same operator that dispatched them. Compa
 65.9% compares two judges as much as two trees. It also bypassed `npm run eval:sbek`, so the
 archive's `metadata.json` was written by hand rather than by the wrapper: only its `failures`,
 `target` and `score` blocks describe this run, it carries no `evaluator.log` or `worker.log`, and
-its `configuration` block is the config file as it sat on disk rather than a record of what ran.
+the rest of its `configuration` block is the config file as it sat on disk rather than a record of
+what ran.
 
-Evaluation gaps — most recorded by the judges, the last two argued by the operator from the source —
+Evaluation gaps — most recorded by the judges, the fourth argued by the operator from the source —
 would move the number in **both** directions, and are the first thing to fix on a re-run rather than
 anything in the product:
 
@@ -96,16 +97,17 @@ anything in the product:
   [authorization](../architecture/authorization.md)) — and `apps/web/e2e/members.spec.ts` asserts
   the refusal and its on-screen banner. The real invitation journey is proved in
   `apps/api/test/d1-identity-membership.integration.test.ts`. Because this run signs in through the
-  seeded personas the config tells it to use, the fixture reviewer could not be created and the CFP,
-  Abstract and Speaker areas all fell back to the seeded `Ravi Reviewer`, which is why the judges
+  seeded personas the config tells it to use, the fixture reviewer could not be created and the CFP
+  and Abstract areas both fell back to the seeded `Ravi Reviewer`, which is why the judges
   scored `CFP-10` as a gap. No existing gap owns the residual — `GAP-027` covers sign-in doors, not
   membership administration — so `PLAN-004` picks up the one part that is a product question: the
   invitation form stays enabled and only refuses on submit.
 - Most screenshots are 1280x800 viewport captures even where full-page was requested, so a number of
   verdicts rest on recorded observations plus adjacent evidence rather than on pixels.
 
-The six judgements record 28 defects between them. Below are the **major-severity** ones that no
-existing owner cleanly covers; the remaining minors, and three majors that are duplicates or are
+The six judgements record 28 defects between them. Below are the four **major-severity** ones that no
+existing owner cleanly covers, plus one the judgement grades `minor` and this page lists at a
+higher reading; the remaining minors, and three majors that are duplicates or are
 covered above, stay in
 `.evidence/sbek/runs/2026-08-18T19-36-40-531Z/artifacts/judgements/*.json` rather than being
 promoted here. Worth triaging before the next credentialed run:
