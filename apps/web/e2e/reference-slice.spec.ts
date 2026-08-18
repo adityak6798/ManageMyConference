@@ -123,6 +123,11 @@ test("publishes a clean agenda, explains draft conflicts, and keeps publication 
 }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Continue as organizer" }).click();
+  // The click posts the demo session, and this navigation depends on it twice over: the cookie
+  // has to have landed or the board loads unauthenticated, and the console has to have put the
+  // event into the URL or the `event` parameter read below is the string "null". Every other
+  // spec that signs in and then navigates waits here for the same reason.
+  await expect(page.getByRole("combobox", { name: "Event workspace" })).toBeVisible();
   await page.goto(
     `/schedule?event=${new URL(page.url()).searchParams.get("event")}&tab=agenda&view=room`,
   );
