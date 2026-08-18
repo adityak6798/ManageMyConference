@@ -44,13 +44,18 @@ Its non-pass items also predate several landed fixes.
 
 **Harness path (2026-08-18).** The remedy this runbook prescribes for a missing credential — carry
 the generated run through the evaluator's MCP harness and judge each area in a fresh context — was
-executed in full against target commit `b8ca2dc` with a clean tree, on the pinned evaluator
-`d8fafa41`, over all six required areas and all 18 required scenarios. It scored **85.5% overall /
-95.4% coverage**, with 19 manual checks outstanding: CFP 85.1%, Abstract Management 92.9%, Speaker
-Management 82.8%, Content Management 81.5%, AI Agenda 100%, Public Widgets 76.5%. By probe type:
-scoping 95.0%, roundtrip 90.9%, rule 86.8%, depth 86.4%, crud 83.3%, side-effect 83.3%, exists
-80.4%, bulk 72.7%, handoff 66.7%. Archived at
-`.evidence/sbek/runs/2026-08-18T19-36-40-531Z/` with 297 screenshots.
+executed in full on the pinned evaluator `d8fafa41`, over all six required areas and all 18
+required scenarios, against target commit `b8ca2dc` with a clean tree — **recorded by hand in the
+archive rather than captured by the wrapper**, which is the same provenance weakness this page
+criticises the 65.9% run for. It scored **85.5% overall / 95.4% coverage**, with 19 manual checks
+outstanding: CFP 85.1%, Abstract Management 92.9%, Speaker Management 82.8%, Content Management
+81.5%, AI Agenda 100% (on 83.3% coverage — the lowest of the six, so that figure is the one least
+safe to quote alone), Public Widgets 76.5%. By probe type: scoping 95.0%, roundtrip 90.9%, rule
+86.8%, depth 86.4%, crud 83.3%, side-effect 83.3%, exists 80.4%, bulk 72.7%, handoff 66.7%. Across
+the 84 required rubric items the verdicts are 56 `pass`, 24 `partial`, 3 `cannot_judge` and 1
+`fail`: partial credit is doing a great deal of work in that 85.5%, and it should not be read as
+"one thing is broken". Archived at `.evidence/sbek/runs/2026-08-18T19-36-40-531Z/` with 297
+screenshots.
 
 **That number does not supersede the API-path numbers and does not close issue #193.** The API path
 pins `claude-sonnet-5` as the browsing agent and `claude-opus-5` as the judge; this run used
@@ -59,8 +64,9 @@ in-session Claude Code agents for both, which `report.json` records as
 six judges each ran in a fresh context with no browsing history, as the kit requires, but the
 evidence they read was authored by the same operator that dispatched them. Comparing 85.5% against
 65.9% compares two judges as much as two trees. It also bypassed `npm run eval:sbek`, so the
-archive's `metadata.json` was written by hand rather than by the wrapper; its `failures` array
-records exactly that.
+archive's `metadata.json` was written by hand rather than by the wrapper: only its `failures`,
+`target` and `score` blocks describe this run, it carries no `evaluator.log` or `worker.log`, and
+its `configuration` block is the config file as it sat on disk rather than a record of what ran.
 
 The judges recorded evaluation gaps that would move the number in **both** directions, and these are
 the first thing to fix on a re-run rather than anything in the product:
@@ -74,27 +80,50 @@ the first thing to fix on a re-run rather than anything in the product:
 - `AIA-04` is `cannot_judge` for a speaker double-booking the agent believed impossible, but the
   final public schedule shows one speaker on two sessions — the clash was inducible and simply was
   not attempted.
-- Judges overrode five browsing-agent claims that its own screenshots contradict, most consequentially
+- Judges overrode six browsing-agent claims that its own screenshots contradict, most consequentially
   that only three embed widget types exist when the publishing surface offers five. One `CFP-S4`
   observation was retracted by an appended correction in its `evidence.json` and excluded from
-  scoring.
+  scoring. The two judgement files still disagree with each other on one of them: the
+  abstract-management judgement repeats the retracted "fails silently" wording that the CFP
+  judgement corrects from the screenshot.
+- **Reviewer provisioning is refused by design on this deployment, and that suppressed the score
+  rather than revealing a defect.** `membership.ts` rule 1 refuses a demo persona's membership
+  write — "without this a persona could mint real invitations and real grants in the demo
+  organization" — and `apps/web/e2e/members.spec.ts` asserts the refusal and its on-screen banner.
+  The real invitation journey is proved in
+  `apps/api/test/d1-identity-membership.integration.test.ts`. Because this run signs in through the
+  seeded personas the config tells it to use, the fixture reviewer could not be created and the
+  CFP, Abstract and Speaker areas all fell back to the seeded `Ravi Reviewer`. `GAP-027` already
+  owns the deployment's identity narrowness.
 - Most screenshots are 1280x800 viewport captures even where full-page was requested, so a number of
   verdicts rest on recorded observations plus adjacent evidence rather than on pixels.
 
-Findings this run surfaced that are **not** already owned below, and are worth triaging before the
-next credentialed run:
+The six judgements record 28 defects between them. Below are the **major-severity** ones that no
+existing owner cleanly covers; the remaining minors stay in
+`.evidence/sbek/runs/2026-08-18T19-36-40-531Z/artifacts/judgements/*.json` rather than being
+promoted here. Worth triaging before the next credentialed run:
 
 - A published conditional form field never renders on the public CFP form. Configured, saved and
-  published as v3, reproduced from two personas; the form serves 8 of its 9 questions.
-- `POST /api/organizations/{id}/invitations` returns 403, so an organizer cannot add a reviewer who
-  is not pre-seeded. The refusal is surfaced as a banner with a correlation id.
-- Accepting an abstract creates a speaker record without the submitter's contact address, and the
-  speaker profile editor has no email field, so Communications reports the just-accepted speaker
-  among those it cannot reach.
+  published as v3, reproduced anonymously and as a signed-in speaker; the form serves 8 of its 9
+  questions. **This contradicts `GAP-009`, which is recorded as closed by issue #49 on the claim
+  that conditions are "rendered by both applicant surfaces".** Either the reproduction is wrong or
+  that closure is, and the two canonical statements cannot both stand.
+- Communications reports a just-accepted speaker among those it cannot reach ("2 speakers have no
+  email address"). The mechanism is not that the profile editor lacks a field: addresses are read
+  from identity via `IdentityDirectory.listSpeakersForEvent`, not from content's speaker profile,
+  which is exactly the seam `GAP-010` names. What is unclear — and is the part worth triaging — is
+  whether acceptance is expected to provision an identity address at all, given that `#132`
+  deliberately refuses to treat an unverified CFP answer as a deliverable address. One of the two
+  unreachable speakers is also seeded without an address by construction.
 - File comment threads are write-only for organizers: the deliverables row offers a comment box but
   never renders the existing thread the speaker can see in the portal.
 - Bulk task assignment reports nothing and does not reset its form; two presses create two identical
   tasks.
+- The Speaker workflow panel's speaker selection is independent of the record open in the profile
+  editor, so logistics and custom-field edits are saved against the pinned speaker with nothing
+  signalling the mismatch. In this run travel and dietary values intended for one speaker persisted
+  onto another's record. The judgement grades this `minor`; a silent write to the wrong record is a
+  data-integrity bug and is listed here at the higher reading.
 
 The known owners of score that cannot reach 100% remain #230 (XLSX and track-filtered abstract
 selection), `GAP-028` (private-set content hardening), `GAP-029` (interest forms/campaigns/directory

@@ -1,6 +1,6 @@
 # Quality scorecard
 
-Status: canonical | Owner: quality | Last verified: 2026-08-16
+Status: canonical | Owner: quality | Last verified: 2026-08-18
 
 The commit each verdict was measured against is **not written here**. It lives in the run records
 under `.evidence/`, which is where `gate:evidence` reads it, and duplicating it in this header is
@@ -257,7 +257,7 @@ Where a row carries a gap, the gap is part of the record: it names what is not t
 [technical debt register](../exec-plans/tech-debt.md); the feature-level picture is in
 [competition traceability](../product/competition-traceability.md).
 
-## Closure and external-evidence addendum — 2026-08-14
+## Closure and external-evidence addendum — 2026-08-18
 
 This append-only correction supersedes the older addendum's statement that the programme, portal
 and reporting work has no browser journey. `apps/web/e2e/zz-closure-surfaces.spec.ts` now verifies
@@ -286,8 +286,9 @@ The SessionBoard wrapper pins evaluator commit
 `d8fafa41cdc484309e3fda953c5567cc2d462734`, isolates and resets D1 state, records target commit and
 tree cleanliness, and selects all 18 required scenarios. The wrapper's own run stops explicitly
 blocked without `ANTHROPIC_API_KEY`. On 2026-08-18 the harness path documented as the remedy for
-that block was carried through in full at target commit `b8ca2dc` with a clean tree, scoring 85.5%
-overall / 95.4% coverage / 19 manual. **That number is not comparable with the API-path numbers**:
+that block was carried through in full, scoring 85.5% overall / 95.4% coverage / 19 manual. Its
+target commit `b8ca2dc` and clean tree were recorded by hand in the archive, not captured by the
+wrapper, so that provenance is operator-asserted. **That number is not comparable with the API-path numbers**:
 its browsing agent and its six per-area judges were in-session Claude Code agents rather than the
 pinned `claude-sonnet-5` and `claude-opus-5`, so it measures two judges as much as two trees, and
 the judges themselves recorded rubric items scored `partial` or `cannot_judge` only because a path

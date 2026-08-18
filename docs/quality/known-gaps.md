@@ -154,8 +154,15 @@ feature-by-feature verdict.
   promotion when it would fail, and there is no rollback path — so a broken deploy is discovered by
   a human looking. Owner: platform. Governing ID: `ENG-CI-001`. Closure: run the public/embed/API
   smoke against the deployed URL as a gate, and prevent promotion or roll back when it fails.
-- `GAP-009` **Closed by issue #49**: CFP conditions and category-based status routing are persisted,
-  rendered by both applicant surfaces, enforced by server validation, and snapshotted on submission.
+- `GAP-009` **Closed by issue #49, and that closure is now contested**: CFP conditions and
+  category-based status routing are persisted, rendered by both applicant surfaces, enforced by
+  server validation, and snapshotted on submission. The 2026-08-18 harness evaluator run
+  ([runbook](../engineering/external-evaluator.md#score-status)) reproduced the opposite of the
+  rendering half: a question configured with `show when Format equals <value>`, saved, reloaded and
+  published as v3, never appeared on the public form for any value of the controlling answer, which
+  served 8 of its 9 published questions. Reproduced anonymously and as a signed-in speaker. Until
+  someone re-runs that by hand, treat "rendered by both applicant surfaces" as unverified rather
+  than closed; the persistence, validation and snapshot halves are not in question.
   Owner: cfp. Governing ID: `PRD-CFP-001`, `PRD-CFP-002`, `ACC-CFP`.
   — conditions expressible in the persisted model, honoured by the applicant renderer *and* server
   validation, with a submission visibly routed to a status or category.

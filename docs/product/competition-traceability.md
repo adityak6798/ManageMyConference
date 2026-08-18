@@ -1,6 +1,6 @@
 # Competition traceability
 
-Status: canonical | Owner: product | Evidence: `EVD-001`, `EVD-002`, `EVD-003` | Last verified: 2026-08-14 (working tree, issue #190 branch)
+Status: canonical | Owner: product | Evidence: `EVD-001`, `EVD-002`, `EVD-003` | Last verified: 2026-08-18 (working tree, branch docs/sbek-harness-run-2026-08-18)
 
 ## Where the nine features come from
 
