@@ -223,10 +223,6 @@
   resize: none;
 }
 
-.denied {
-  border-left: 3px solid var(--warn-fg);
-}
-
 @media (max-width: 700px) {
   .form-row {
     flex-direction: column;

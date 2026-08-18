@@ -167,18 +167,30 @@ export function MembersWorkspace({
     await Promise.all([members.reload(), audit.reload()]);
   };
 
-  /** Every mutation takes this path, so one place owns busy state, feedback and reloading. */
+  /**
+   * Every mutation takes this path, so one place owns busy state, feedback and reloading.
+   *
+   * The refresh sits outside the mutation's own `try` on purpose. Inside it, a follow-up read
+   * that failed was caught by the mutation's `catch` and announced as the mutation failing —
+   * so a removal the server had already performed was reported to the organizer as refused,
+   * and the obvious response to that is to do it again. The two outcomes are separate: the
+   * mutation says whether it happened, and a refresh that fails afterwards says the list is
+   * stale, through `refreshError` beside the list it describes.
+   */
   const run = async (what: string, action: () => Promise<unknown>) => {
     setBusy(true);
     try {
       await action();
-      await refresh();
-      announce("success", what);
     } catch (reason) {
       announce("error", describe(reason));
-    } finally {
       setBusy(false);
+      return;
     }
+    announce("success", what);
+    // ERROR-INTENT: a failed refresh is rendered from `members.refreshError` below, beside the
+    // list it makes stale; rethrowing here would overwrite the mutation's own outcome.
+    await refresh().catch(() => undefined);
+    setBusy(false);
   };
 
   async function submitInvitation(formEvent: FormEvent) {
@@ -228,6 +240,14 @@ export function MembersWorkspace({
        page stays readable and `[aria-busy]` says it is working. */
     <div className="members" aria-busy={members.isRefreshing || undefined}>
       {feedback}
+
+      {/* The list on screen survived, so this is news beside it rather than the page: what it
+          says is that the list is older than the change just made to it. */}
+      {members.refreshError ? (
+        <Notice tone="error" reference={members.refreshError.reference}>
+          {members.refreshError.message} The list below is what was read before that.
+        </Notice>
+      ) : null}
 
       <Card title="Invite somebody">
         <form onSubmit={submitInvitation} className="member-invite-form">
@@ -587,6 +607,14 @@ export function MembersWorkspace({
         the answer is in.
       */}
       <Section title="Recent identity activity">
+        {/* The log is read on its own request, so it goes stale on its own too: a refresh after a
+            mutation can fail here while the member list refreshed cleanly. Said beside the log
+            rather than over the page, which still holds the rows read before it. */}
+        {audit.refreshError ? (
+          <Notice tone="error" reference={audit.refreshError.reference}>
+            {audit.refreshError.message} The activity below is what was read before that.
+          </Notice>
+        ) : null}
         {audit.error ? (
           <LoadFailure
             what="the identity activity"

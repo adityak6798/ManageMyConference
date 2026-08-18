@@ -142,6 +142,25 @@ const ACCEPT_INVITATION_PATH = "/invitations/accept";
  */
 const NEW_EVENT_PATH = "/events/new";
 
+/**
+ * The address keys that survive a switch of event, and what makes each one not the previous
+ * event's work.
+ *
+ * `tab` and `view` are *surface* state: which section of a hub is open, and which arrangement of
+ * the agenda board is drawn. Both name a part of the console rather than a row inside the event,
+ * and both are re-read from the address by the remount the switch causes — so dropping `view`
+ * threw an organizer comparing two events' days back to the room view every time.
+ *
+ * `token` is neither surface nor record state: it is the one-time invitation credential the link
+ * carried, and `/invitations/accept` renders inside the shell with the switcher beside it. The
+ * server keeps only its digest, so a dropped token cannot be recovered from anywhere — one press
+ * of the switcher emptied the field and left "ask whoever invited you to send a new one".
+ *
+ * Everything else is *record* state, naming something inside the event being left — a ticked row,
+ * an open record, a filter, the greeting for a just-provisioned workspace — and is dropped.
+ */
+const EVENT_SWITCH_KEEPS: readonly string[] = ["tab", "view", "token"];
+
 const organizerHubs: readonly NavEntry[] = [
   {
     href: HUB_PATHS.program,
@@ -706,16 +725,42 @@ export function App({
     }
   }
 
+  /**
+   * Point the console at another event.
+   *
+   * Only the two parameters that say *where* the reader is survive the switch. Everything else in
+   * a console address names something inside the event being left — a ticked row, an open record,
+   * a filter, the greeting for a workspace that was just provisioned — and carrying it across is
+   * how the previous event's work reappeared over the new one's. The abstracts queue is where
+   * that showed: it writes `?selected=…` for every ticked abstract, the tab remounts on the new
+   * event id and re-seeds its selection straight from the address, so the bulk bar announced a
+   * selection above a queue with nothing ticked and Assign, Distribute and Transition offered to
+   * act on ids belonging to the event just left. The server refuses them by id, so the answer an
+   * organizer got for a selection they could not see was "Proposal not found".
+   *
+   * A whitelist rather than a list of parameters to drop: every workspace is free to put its own
+   * work-in-progress in the address, and a rule phrased as "forget these" would silently stop
+   * covering the next one added. `EVENT_SWITCH_KEEPS` says which keys are kept and why each one
+   * is not a record of the event being left.
+   */
   function selectEvent(eventId: string) {
     setSelectedEventId(eventId);
-    const params = new URLSearchParams(location.split("?")[1] ?? "");
-    params.set("event", eventId);
+    const previous = new URLSearchParams(location.split("?")[1] ?? "");
+    const params = new URLSearchParams({ event: eventId });
+    for (const key of EVENT_SWITCH_KEEPS) {
+      const carried = previous.get(key);
+      if (carried) params.set(key, carried);
+    }
     navigate(`${path}?${params.toString()}`, { replace: true });
   }
 
   async function submit(formEvent: FormEvent) {
     formEvent.preventDefault();
     const organizationId = createOrganizationId;
+    // Unreachable now that `renderCreateEvent` refuses an account with no organization by name:
+    // this form is not drawn unless there is one to create in, and the effect above seeds it from
+    // the session. Kept as the structural guard the request needs, no longer as the whole answer
+    // to a press — returning here was a submit that did nothing and said nothing.
     if (!organizationId) return;
     setBusy(true);
     setError(null);
@@ -872,8 +917,30 @@ export function App({
    * account cannot do, and rendering it around a single refusal is the console telling somebody
    * they are nearly an organizer. They are not; they are in the wrong place, and the useful
    * thing is to say which access is missing and offer the way out.
+   *
+   * Which makes it a claim about the account, not about the persona string, and `activeRole`
+   * alone is not that claim. It falls through to the stored persona whenever the selected event
+   * grants no role, and `public` is what the self-serve doors store: the call-for-proposals
+   * submitter door writes it, and an invitation accepted at organization scope adds a membership
+   * without lifting it. Three accounts were being told they were in the wrong place while
+   * standing in the right one, so the refusal now yields to each of them by name:
+   *
+   * - `ACCEPT_INVITATION_PATH` is how a seatless account stops being seatless, and is reachable
+   *   by every signed-in persona deliberately. Answering it with this page left the submitter who
+   *   was just invited to speak holding a token no surface would take, and a Sign out button that
+   *   returns the same persona.
+   * - `NEW_EVENT_PATH` refuses by name — `renderCreateEvent` says which permission is missing —
+   *   which is the same reason the allowlist effect above exempts it.
+   * - An account holding `events:create` has work here: its home is the no-event empty state,
+   *   whose Create an event button is the only offered route to that form for a persona whose
+   *   sidebar never lists it.
    */
-  if (activeRole === "public")
+  if (
+    activeRole === "public" &&
+    !canCreateEvent &&
+    path !== ACCEPT_INVITATION_PATH &&
+    path !== NEW_EVENT_PATH
+  )
     return (
       <main className="page-body public-landing" id="main" tabIndex={-1}>
         <div className="brandmark">
@@ -884,6 +951,8 @@ export function App({
         </div>
         <Card>
           <Refusal
+            // This card is the whole document, so its title is the document's heading.
+            level={1}
             title="This account has no organizer workspace"
             capability="a seat on an event"
             grantedBy="An organizer of that event"
@@ -1086,6 +1155,33 @@ export function App({
             >
               Every other event you already have a seat on stays reachable from the switcher at the
               top of the console.
+            </Refusal>
+          </Card>
+        </>
+      );
+    /*
+     * The permission without anywhere to use it.
+     *
+     * No door the API opens mints this session today: `events:create` is added to a session only
+     * inside `if (organizationList.length)` in `d1-identity-directory`, an API client gets it only
+     * within a per-organization grant, and no demo persona carries it without a membership. It is
+     * answered here rather than assumed away because the alternative was the form — with no
+     * organization to create in, `submit` returned before the request and **Create event** did
+     * nothing at all, silently, on every press. The console does not draw a control that cannot
+     * act; it says which membership is missing.
+     */
+    if (session.organizations.length === 0)
+      return (
+        <>
+          <PageHeader title="Create an event" />
+          <Card>
+            <Refusal
+              capability="membership of an organization"
+              grantedBy="An organization owner"
+              title="This account belongs to no organization"
+            >
+              An event is always created inside an organization. Ask an owner to add you to theirs,
+              and this form will offer it.
             </Refusal>
           </Card>
         </>

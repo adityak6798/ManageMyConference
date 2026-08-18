@@ -19,7 +19,14 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Checkbox, Combobox, SegmentedControl, Select, type SelectOption } from "../src/ui/fields";
+import {
+  Checkbox,
+  Combobox,
+  CopyableSecret,
+  SegmentedControl,
+  Select,
+  type SelectOption,
+} from "../src/ui/fields";
 import { Menu } from "../src/ui/menu";
 
 afterEach(cleanup);
@@ -115,6 +122,93 @@ describe("Select", () => {
     expect(trigger).toHaveAttribute("aria-expanded", "false");
   });
 
+  it("reaches the first match and cycles on a repeated letter, as a native select does", () => {
+    const rooms: SelectOption[] = [
+      { value: "ballroom", label: "Ballroom" },
+      { value: "balcony", label: "Balcony" },
+      { value: "cellar", label: "Cellar" },
+    ];
+    render(<Select label="Room" value={null} options={rooms} onChange={vi.fn()} />);
+    const trigger = screen.getByLabelText("Room");
+
+    // Nothing is answered yet, so there is no current option to search past: the first "b"
+    // has to land on the first option that starts with it.
+    fireEvent.keyDown(trigger, { key: "b" });
+    expect(activeOptionText()).toBe("Ballroom");
+
+    // A repeated letter is the cycle through everything that starts with it, not a search for
+    // "bb" that matches nothing and leaves the highlight where it was.
+    fireEvent.keyDown(trigger, { key: "b" });
+    expect(activeOptionText()).toBe("Balcony");
+    fireEvent.keyDown(trigger, { key: "b" });
+    expect(activeOptionText()).toBe("Ballroom");
+
+    // A buffer nothing matches leaves the highlight where it is rather than jumping to the top
+    // of the list. "bbb" plus a letter is "bbba", and no room begins with that.
+    fireEvent.keyDown(trigger, { key: "a" });
+    expect(activeOptionText()).toBe("Ballroom");
+  });
+
+  it("re-tests the option it has already reached as the buffer grows into a prefix", () => {
+    const rooms: SelectOption[] = [
+      { value: "ballroom", label: "Ballroom" },
+      { value: "balcony", label: "Balcony" },
+    ];
+    render(<Select label="Room" value={null} options={rooms} onChange={vi.fn()} />);
+    const trigger = screen.getByLabelText("Room");
+
+    /*
+     * The prefix branch, on its own: a single "b" searches from *past* the cursor, and every
+     * letter after it searches from the cursor itself. Typing "ba" must therefore stay on the
+     * Ballroom the "b" reached instead of walking on to Balcony, which is what a search that
+     * always started one below would do — and what nothing here caught, because the assertion
+     * that claimed to cover this appended a letter to a three-"b" cycle and so measured the
+     * no-match branch instead: "bbba" matches nothing, and nothing is also what stays put.
+     */
+    fireEvent.keyDown(trigger, { key: "b" });
+    expect(activeOptionText()).toBe("Ballroom");
+    fireEvent.keyDown(trigger, { key: "a" });
+    expect(activeOptionText()).toBe("Ballroom");
+  });
+
+  it("points assistive technology at nothing when there is nothing to point at", () => {
+    render(<Select label="Round" value={null} options={[]} onChange={vi.fn()} />);
+    const trigger = screen.getByLabelText("Round");
+
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    // An `aria-activedescendant` naming an element that is not in the tree is a claim about
+    // focus the popover cannot honour; the empty-state line is what has something to say.
+    expect(trigger).not.toHaveAttribute("aria-activedescendant");
+    expect(screen.getByText("Nothing to choose from yet.")).toBeInTheDocument();
+  });
+
+  it("lets go of the active option when the list it pointed into gets shorter", () => {
+    const rooms: SelectOption[] = [
+      { value: "main", label: "Main stage" },
+      { value: "workshop", label: "Workshop room" },
+      { value: "breakout", label: "Breakout B" },
+    ];
+    const { rerender } = render(
+      <Select label="Room" value={null} options={rooms} onChange={vi.fn()} />,
+    );
+    const trigger = screen.getByLabelText("Room");
+    fireEvent.keyDown(trigger, { key: "End" });
+    expect(activeOptionText()).toBe("Breakout B");
+
+    /*
+     * A list can shrink under an open popover — a room withdrawn by a save on another screen, a
+     * board reloaded while its picker is open. The cursor stays where the arrows left it, so the
+     * id it names stops resolving: guarding on "the list is not empty" answered for a list that
+     * emptied and not for one that merely got shorter, which is the same broken claim about
+     * focus with two options still on screen to make it look fine.
+     */
+    rerender(<Select label="Room" value={null} options={rooms.slice(0, 1)} onChange={vi.fn()} />);
+
+    const pointedAt = trigger.getAttribute("aria-activedescendant");
+    expect(pointedAt === null || document.getElementById(pointedAt) !== null).toBe(true);
+  });
+
   it("points assistive technology at the active option and marks the selected one", () => {
     render(<SelectHarness />);
     const trigger = screen.getByLabelText("Track");
@@ -157,6 +251,64 @@ describe("Combobox", () => {
 
     fireEvent.keyDown(input, { key: "Enter" });
     expect(onChange).toHaveBeenCalledWith("Europe/Madrid");
+  });
+
+  it("selects the answer it is showing, so a click and a keystroke filter", () => {
+    render(
+      <Combobox
+        label="Event timezone"
+        value="Europe/Madrid"
+        options={[
+          { value: "Europe/Madrid", label: "Europe/Madrid" },
+          { value: "Asia/Kolkata", label: "Asia/Kolkata" },
+        ]}
+        onChange={vi.fn()}
+      />,
+    );
+    const input = screen.getByLabelText<HTMLInputElement>("Event timezone");
+    input.focus();
+
+    // Without this the caret lands where the pointer did and "asia" is spliced into the label
+    // the box is showing, so the filter reads "Europe/Madridasia" and matches nothing.
+    expect(input.selectionStart).toBe(0);
+    expect(input.selectionEnd).toBe("Europe/Madrid".length);
+  });
+
+  it("selects the answer it is showing when the pointer is what focused it", () => {
+    render(
+      <Combobox
+        label="Event timezone"
+        value="Europe/Madrid"
+        options={[
+          { value: "Europe/Madrid", label: "Europe/Madrid" },
+          { value: "Asia/Kolkata", label: "Asia/Kolkata" },
+        ]}
+        onChange={vi.fn()}
+      />,
+    );
+    const input = screen.getByLabelText<HTMLInputElement>("Event timezone");
+
+    /*
+     * The browser's own order for a mouse press, which the test above does not reproduce: focus
+     * moves on the press, and the caret is placed from the pointer position *after* it. So a
+     * selection made in `onFocus` alone is collapsed a moment later by the click that caused it,
+     * and the fix that handler was written for — clicking "Europe/Madrid" and typing "asia"
+     * filtering for "Europe/Madridasia" — was never actually fixed for the mouse.
+     */
+    input.focus();
+    input.setSelectionRange("Europe/Madrid".length, "Europe/Madrid".length);
+    fireEvent.click(input);
+
+    expect(input.selectionStart).toBe(0);
+    expect(input.selectionEnd).toBe("Europe/Madrid".length);
+
+    // A caret placed inside a filter the reader is editing stays where they put it: re-selecting
+    // on every click would make a typo impossible to correct with the mouse.
+    fireEvent.change(input, { target: { value: "asia" } });
+    input.setSelectionRange(2, 2);
+    fireEvent.click(input);
+    expect(input.selectionStart).toBe(2);
+    expect(input.selectionEnd).toBe(2);
   });
 
   it("puts the selected label back when the filter is abandoned", () => {
@@ -231,6 +383,73 @@ describe("Menu", () => {
     expect(onDelete).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("menu")).toBeNull();
     expect(document.activeElement).toBe(trigger);
+  });
+
+  it("can be closed from the keyboard when no item can take focus", () => {
+    // The default state of an unpublished call for proposals: every action names what it is
+    // waiting for and none of them can be run yet.
+    render(
+      <Menu
+        label="Call for proposals actions"
+        items={[
+          { id: "copy", label: "Copy public link", onSelect: vi.fn(), disabled: true },
+          { id: "sep", separator: true },
+          { id: "open", label: "Open public form", onSelect: vi.fn(), disabled: true },
+        ]}
+      />,
+    );
+    const trigger = screen.getByRole("button", { name: "Call for proposals actions" });
+
+    fireEvent.keyDown(trigger, { key: "ArrowDown" });
+    const menu = screen.getByRole("menu", { name: "Call for proposals actions" });
+    // A disabled button cannot be focused, so the menu itself holds focus rather than leaving
+    // it on the trigger, where Escape is not answered by any item.
+    expect(document.activeElement).toBe(menu);
+
+    fireEvent.keyDown(menu, { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("answers Escape on the trigger too, since Enter and Space never reach an item", () => {
+    render(
+      <Menu
+        label="Call for proposals actions"
+        items={[{ id: "copy", label: "Copy public link", onSelect: vi.fn(), disabled: true }]}
+      />,
+    );
+    const trigger = screen.getByRole("button", { name: "Call for proposals actions" });
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+
+    fireEvent.keyDown(trigger, { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("offers no popover at all when there is nothing in it", () => {
+    render(<Menu label="Row actions" items={[]} />);
+    const trigger = screen.getByRole("button", { name: "Row actions" });
+
+    fireEvent.keyDown(trigger, { key: "ArrowDown" });
+    // A `role="menu"` owning no `menuitem` is an empty box with no required children, so the
+    // trigger stays closed rather than presenting one.
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("places its popover against the viewport, out of any container that would clip it", () => {
+    render(<MenuHarness />);
+    const trigger = screen.getByRole("button", { name: "Session actions" });
+    // A row-action trigger inside `.table-wrap`, whose `overflow-x: auto` makes it a scroll
+    // container on both axes: an absolutely-positioned popover under this row is clipped by it.
+    trigger.getBoundingClientRect = () =>
+      ({ top: 100, bottom: 128, left: 40, right: 120, width: 80, height: 28 }) as DOMRect;
+
+    fireEvent.keyDown(trigger, { key: "ArrowDown" });
+    const menu = screen.getByRole("menu", { name: "Session actions" });
+    // Under the trigger, in viewport coordinates, so no ancestor's overflow can clip it.
+    expect(menu.style.top).toBe("132px");
+    expect(menu.style.left).toBe("40px");
   });
 
   it("closes on Escape and on an outside press, and declares itself to the reader", () => {
@@ -378,5 +597,35 @@ describe("SegmentedControl", () => {
     expect(onClear).toHaveBeenCalledTimes(1);
     expect(segment("3")).toHaveAttribute("aria-checked", "false");
     expect(screen.queryByRole("button", { name: "Clear Score" })).toBeNull();
+  });
+
+  it("keeps the tab stop when Clear removes itself under the press", () => {
+    render(<ScoreHarness onClear={vi.fn()} />);
+    const clear = screen.getByRole("button", { name: "Clear Score" });
+    clear.focus();
+    fireEvent.click(clear);
+
+    // Clearing unmounts the button that was pressed, and focus left on `document.body` makes
+    // the next Tab restart at the top of the page instead of moving to the next criterion.
+    expect(screen.queryByRole("button", { name: "Clear Score" })).toBeNull();
+    expect(document.activeElement).toBe(segment("1"));
+    expect(segment("1")).toHaveAttribute("tabindex", "0");
+  });
+});
+
+describe("CopyableSecret", () => {
+  it("draws its copy button from the control tier, not from the console shell", () => {
+    render(<CopyableSecret label="Confirmation reference" value="01JD8Q4M0V6ZC3XK2N7T5RB9WE" />);
+    const copy = screen.getByRole("button", { name: "Copy Confirmation reference" });
+
+    /*
+     * This renders on the public call for proposals, beside the reference an anonymous
+     * submitter is given for a proposal they cannot otherwise look up. `secondary` and `small`
+     * are declared in styles/shell.css, which only `App.tsx` loads, so there the button matched
+     * nothing and fell back to the operating system's own chrome. Which classes the tier
+     * declares is checked against the stylesheet in design-foundation.test.tsx.
+     */
+    expect(copy).toHaveClass("control-button", "secret-copy");
+    expect(copy.className).not.toMatch(/\b(?:btn|primary|secondary|ghost|danger|small)\b/);
   });
 });

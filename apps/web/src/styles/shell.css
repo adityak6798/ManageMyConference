@@ -728,7 +728,18 @@ table.data td.gutter {
 /* ========================== tables ============================ */
 
 /* Positioned so an absolutely-positioned descendant (.visually-hidden) is clipped by
-   the scroll container instead of escaping it and widening the whole page. */
+   the scroll container instead of escaping it and widening the whole page.
+
+   That clip is two-axis, and it applies to every absolutely-positioned descendant, not only the
+   caption: `overflow-x: auto` with nothing declared for the other axis computes `overflow-y` to
+   `auto` as well, so a table row's popover is cut off at the last row and the container silently
+   gains a scrollbar the four background layers below do not hint at. There is no overflow value
+   that lifts it — `visible` beside a scrolling axis computes straight back to `auto`, and `clip`
+   would take this container's horizontal scrolling with it — so anything that has to escape the
+   table has to leave the containing block instead. `.menu-popover` in controls.css is placed in
+   viewport coordinates for exactly this reason; a row-level popover added here later owes the
+   same. Note also that `.content-workspace .table-wrap` (content.css) and `.review-block
+   .table-wrap` (review.css) add `contain: paint`, which clips a fixed descendant too. */
 .table-wrap {
   position: relative;
   overflow-x: auto;
@@ -1218,6 +1229,9 @@ input[type="radio"] {
   background: var(--surface-2);
   color: var(--slate);
 }
+/* Both levels, one size: a refusal that is the whole page carries the document's `<h1>`, and
+   promoting it must change what a screen reader reports, not what anybody sees. */
+.empty h1,
 .empty h3 {
   font-size: var(--text-md);
 }

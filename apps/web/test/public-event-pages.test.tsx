@@ -765,8 +765,15 @@ describe("what the public surface says about the call for proposals", () => {
 
     fireEvent.click(within(side).getByRole("link", { name: "Read the call" }));
     await screen.findByRole("heading", { level: 1, name: "Share what you learned" });
-    expect(container.textContent).toContain("Submissions open");
-    expect(container.textContent).not.toContain("Submissions closed.");
+    // Waited for, and waited for together: the heading is the projection's, while the window line
+    // is the live CFP read's — and moving to this view clears `liveCfp` first, so between the two
+    // the page says "Checking submission availability…" and neither sentence is on it. This is the
+    // defect already recorded further down the file, where the same sync assertion failed about 2
+    // runs in 86 under load.
+    await waitFor(() => {
+      expect(container.textContent).toContain("Submissions open");
+      expect(container.textContent).not.toContain("Submissions closed.");
+    });
   });
 
   it("does not mix a later closed form into an open programme version", async () => {
@@ -779,7 +786,10 @@ describe("what the public surface says about the call for proposals", () => {
     expect(side.textContent).toContain("Open");
     fireEvent.click(within(side).getByRole("link", { name: "Submit a proposal" }));
     await screen.findByRole("heading", { level: 1, name: "Share what you learned" });
-    expect(container.textContent).toContain("Submission form unavailable.");
+    // Awaited for the same reason as the sibling test below, which records the measurement: the
+    // heading is the projection's and this sentence is the live CFP read's, so a synchronous get
+    // samples the tick before the read lands.
+    expect(await screen.findByText("Submission form unavailable.")).toBeInTheDocument();
     expect(container.textContent).not.toContain("Open for submissions.");
     expect(await screen.findByRole("alert")).toHaveTextContent("programme loaded");
     expect(screen.queryByRole("button", { name: "Submit proposal" })).toBeNull();

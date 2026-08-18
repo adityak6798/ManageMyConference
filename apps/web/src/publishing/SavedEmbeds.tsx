@@ -139,8 +139,11 @@ export function SavedEmbeds({ eventId, canManage }: { eventId: string; canManage
          * still gets the empty state, because for them the form is not on the page.
          */
         canManage ? (
-          /* `publishing-sub`, not `hint`: `.hint` is only declared inside `.field`, so a hint
-             standing on its own renders as body copy at full ink. */
+          /* `publishing-sub` is what every subordinate line on this surface sets in, which is the
+             whole reason to use it here too. It is not, any longer, that `.hint` cannot stand on
+             its own: the control tier declares `.hint` bare (`styles/controls.css`) and the two
+             rules are now identical, so switching one line of the fourteen would buy nothing and
+             cost the consistency. */
           <p className="publishing-sub">
             Nothing has been issued yet. The embed sections above compose a URL to copy; naming one
             here is what gives it an address you can withdraw.

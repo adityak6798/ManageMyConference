@@ -172,7 +172,11 @@ describe("AgendaWorkspace timeslot editing", () => {
       startsAt: "2026-08-11T19:00:00.000Z",
       endsAt: "2026-08-11T20:00:00.000Z",
     });
-    expect(screen.getByRole("status")).toHaveTextContent("Timeslot added.");
+    // Waited for, not sampled: `sent` is pushed where the request is *issued*, so the wait above
+    // says nothing about the response the announcement follows. And waiting for the region itself
+    // would prove nothing either — `useActionFeedback` mounts that paragraph from first render so
+    // a late announcement is not missed, which is exactly why the text is what has to be waited on.
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Timeslot added."));
     expect(onError).not.toHaveBeenCalled();
   });
 
@@ -236,7 +240,9 @@ describe("AgendaWorkspace timeslot editing", () => {
         endsAt: "2026-09-01T14:15:00.000Z",
       },
     ]);
-    expect(screen.getByRole("status")).toHaveTextContent("Timeslot updated.");
+    // Waited for the same reason as "Timeslot added." above: the wait on `sent` sees the request
+    // leave, and the live region is mounted empty before any of this happens.
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Timeslot updated."));
   });
 
   it("refuses an end that is not after the start without calling the API", async () => {
@@ -397,7 +403,12 @@ describe("AgendaWorkspace timeslot editing", () => {
       screen.getAllByRole("button", { name: /^Remove Tue, Sep 1/ })[0] as HTMLElement,
     );
     await waitFor(() => expect(sent).toHaveLength(2));
-    expect(screen.getAllByLabelText<HTMLInputElement>(/^Start of /)[0]?.value).toBe("13:45");
+    // Waited for, because this reads the row by position and the position only changes once the
+    // removal's response has re-rendered the drawer: `sent` counts requests issued, so sampling
+    // here reads index 0 as the row that is still on its way out, still carrying its own time.
+    await waitFor(() =>
+      expect(screen.getAllByLabelText<HTMLInputElement>(/^Start of /)[0]?.value).toBe("13:45"),
+    );
     expect(onError).not.toHaveBeenCalled();
   });
 
@@ -441,6 +452,29 @@ describe("AgendaWorkspace timeslot editing", () => {
       { startsAt: "2026-09-01T14:00:00.000Z", endsAt: "2026-09-01T14:45:00.000Z" },
     ]);
     expect(await screen.findByRole("status")).toHaveTextContent("2 time slots added.");
+  });
+
+  /*
+   * Dismissing the drawer has to run the platform's close steps, and only a `<dialog>` that is
+   * still in the document can run them. Both drawers used to be mounted conditionally with a
+   * literal `open`, so React detached a modal dialog: the HTML removing steps drop it from the
+   * top layer without running the focusing steps, and focus fell to `<body>` instead of the
+   * "Rooms and times" trigger. jsdom does not implement those focusing steps, so what is
+   * asserted here is the precondition the browser needs — the element survives its own close.
+   */
+  it("closes the resources drawer in place rather than unmounting it open", async () => {
+    stubFetch(withSlot);
+    render(<AgendaWorkspace event={eventIn("America/New_York")} onError={onError} />);
+    await openResources();
+    const drawer = screen.getByRole("dialog", { name: "Rooms, tracks and times" });
+    expect((drawer as HTMLDialogElement).open).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+
+    await waitFor(() => expect((drawer as HTMLDialogElement).open).toBe(false));
+    expect(drawer.isConnected).toBe(true);
+    // The body goes with the dismissal, so nothing renders behind a closed drawer.
+    expect(screen.queryByLabelText("New timeslot day")).toBeNull();
   });
 
   it("copies the day on screen onto another date", async () => {

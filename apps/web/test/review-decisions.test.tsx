@@ -145,6 +145,9 @@ const optionsOf = (select: HTMLElement) =>
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  // The queue persists its filters and selection into the address, so a test that sets one must
+  // not leave it for the next: `/program` is the pathname that turns that persistence on.
+  window.history.replaceState(null, "", "/");
 });
 
 describe("the pipeline select", () => {
@@ -263,6 +266,27 @@ describe("deciding a whole selection", () => {
     expect(status).toHaveTextContent("Each is now a session under Schedule → Sessions");
     // Both rows now carry the recorded outcome, not just a green status pill.
     await waitFor(() => expect(document.querySelectorAll(".decision-cell .pill")).toHaveLength(2));
+  });
+
+  it("drops an id the queue does not contain rather than counting it into the bulk bar", async () => {
+    // A link copied out of another event's queue, or hand-edited. The address is not evidence
+    // that the abstract is in this event, and the bulk actions post exactly what the bar counts.
+    const strangerId = "33333333-3333-4333-8333-333333333333";
+    bulkApi();
+    window.history.replaceState(
+      null,
+      "",
+      `/program?selected=${firstId}&selected=${strangerId}&proposal=${strangerId}`,
+    );
+    render(<OrganizerReviewWorkspace eventId={eventId} />);
+
+    await screen.findByLabelText("Select Typed boundaries at scale");
+    await waitFor(() => expect(screen.getByText("1 selected")).toBeVisible());
+    expect(screen.getByLabelText("Select Typed boundaries at scale")).toBeChecked();
+    // And the address is rewritten to what survived, so re-sharing the link cannot reintroduce it.
+    await waitFor(() =>
+      expect(new URLSearchParams(window.location.search).getAll("selected")).toEqual([firstId]),
+    );
   });
 
   it("refuses the whole selection when one abstract could never produce a speaker", async () => {

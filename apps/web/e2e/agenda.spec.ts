@@ -72,7 +72,18 @@ async function openAgenda(page: Page) {
   // that did not, which is why a red `agenda.spec.ts` kept picking a different test each run.
   await expect(page.getByRole("combobox", { name: "Event workspace" })).toBeVisible();
   await page.goto(`/schedule?event=${demoEventId}&tab=agenda&view=room`);
-  await expect(page.getByRole("heading", { level: 1, name: "Agenda" })).toBeVisible();
+  /*
+   * More patience than the 5s default, for the cold boot only.
+   *
+   * Every spec in this file pays a full sign-in and first paint here — session probe, event
+   * list, then the hub's own reads. On a loaded runner the eleventh one paid more than five
+   * seconds and the suite failed at this heading with "element(s) not found", which reads as a
+   * broken page rather than a slow one. `returnToAgenda` below keeps the default, because it
+   * navigates inside an application that has already booted.
+   */
+  await expect(page.getByRole("heading", { level: 1, name: "Agenda" })).toBeVisible({
+    timeout: 20_000,
+  });
   await expect(page.getByRole("tab", { name: /^Room/ })).toHaveAttribute("aria-selected", "true");
 }
 

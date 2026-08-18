@@ -16,7 +16,7 @@
  */
 
 import type { CfpChoice, CfpField, CfpRoutingRule } from "@greenroom/contracts";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CfpApiError,
   type CfpFormDto,
@@ -696,6 +696,22 @@ export function CfpWorkspace({
     setDraggingIndex(null);
   };
 
+  /**
+   * The keyboard's half of the drag handle, on both controls a question row offers.
+   *
+   * The grip carried the pointer drag alone, so the one control announced "Reorder <question>"
+   * answered no key at all and the arrows worked only on the *next* tab stop — a focusable
+   * handle that looks like it works, which is what issue #145 already cost the pipeline board.
+   * `moveField` is the same model operation the two Move buttons used to call.
+   */
+  const reorderKeys = (index: number) => (keyEvent: KeyboardEvent) => {
+    if (!keyEvent.ctrlKey && !keyEvent.metaKey) return;
+    const delta = keyEvent.key === "ArrowDown" ? 1 : keyEvent.key === "ArrowUp" ? -1 : 0;
+    if (!delta) return;
+    keyEvent.preventDefault();
+    moveField(index, delta);
+  };
+
   return (
     <>
       {/*
@@ -958,6 +974,7 @@ export function CfpWorkspace({
                                 setDraggingIndex(index);
                               }}
                               onDragEnd={() => setDraggingIndex(null)}
+                              onKeyDown={reorderKeys(index)}
                             >
                               <IconGrip size={16} />
                             </button>
@@ -966,20 +983,7 @@ export function CfpWorkspace({
                               className="cfp-q-name"
                               aria-current={field.id === selectedField?.id ? "true" : undefined}
                               onClick={() => setSelectedFieldId(field.id)}
-                              onKeyDown={(keyEvent) => {
-                                // The keyboard's half of the drag handle. `moveField` is the
-                                // same model operation the two Move buttons used to call.
-                                if (!keyEvent.ctrlKey && !keyEvent.metaKey) return;
-                                const delta =
-                                  keyEvent.key === "ArrowDown"
-                                    ? 1
-                                    : keyEvent.key === "ArrowUp"
-                                      ? -1
-                                      : 0;
-                                if (!delta) return;
-                                keyEvent.preventDefault();
-                                moveField(index, delta);
-                              }}
+                              onKeyDown={reorderKeys(index)}
                             >
                               {name}
                             </button>

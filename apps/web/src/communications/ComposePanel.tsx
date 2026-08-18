@@ -40,7 +40,14 @@ import {
 import { type ApiFailure, describeApiFailure } from "../api/config";
 import { Field, Select } from "../ui/fields";
 import { IconSend, IconWarning } from "../ui/icons";
-import { EmptyState, LoadFailure, Notice, Section, useActionFeedback } from "../ui/primitives";
+import {
+  EmptyState,
+  LoadFailure,
+  Notice,
+  Section,
+  SkeletonRows,
+  useActionFeedback,
+} from "../ui/primitives";
 
 interface ComposePanelProps {
   organizationId: string;
@@ -481,6 +488,16 @@ export function ComposePanel({ organizationId, eventId, onSent }: ComposePanelPr
               </button>
             </div>
           </form>
+        ) : templates === null ? (
+          /*
+           * The read has not answered yet, so nothing here can say what exists.
+           *
+           * `available` is `[]` until the templates read lands, which rendered "No messages yet"
+           * on the first paint of every organization that already had messages — a false claim,
+           * announced as a heading, that then flipped to the picker. The design language rules
+           * that out by name: never an empty state while the first read is unresolved.
+           */
+          <SkeletonRows rows={2} label="Loading the saved messages" />
         ) : available.length === 0 ? (
           <EmptyState icon={<IconSend size={20} />} title="No messages yet">
             Write one and it becomes a message you can send to this event's speakers, and send again

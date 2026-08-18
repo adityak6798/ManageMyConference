@@ -180,6 +180,24 @@ export function OrganizerReviewWorkspace({
     reload: load,
   } = useLoad(eventId, fetchWorkspace, describeLoadFailure);
 
+  /*
+   * The bulk selection is seeded from the address before any read has happened, and the address
+   * is not trustworthy: a link copied out of another event, or hand-edited, carries proposal ids
+   * this queue does not own. Left unclamped the bar counted rows that are not in the table and
+   * aimed its accept, decline and assign actions at abstracts belonging to somebody else's event.
+   * Clamped against the queue the moment the queue is known — the same resolution `openId` gets
+   * through `data.proposals.find(...)` below, which is why a stale `proposal` id was already
+   * harmless and a stale `selected` one was not. Returning `current` unchanged when nothing is
+   * dropped keeps this from re-entering its own state update.
+   */
+  useEffect(() => {
+    if (!data) return;
+    setSelected((current) => {
+      const kept = current.filter((id) => data.proposals.some(({ id: known }) => known === id));
+      return kept.length === current.length ? current : kept;
+    });
+  }, [data]);
+
   const rows = useMemo(() => {
     if (!data) return [];
     const needle = search.trim().toLowerCase();

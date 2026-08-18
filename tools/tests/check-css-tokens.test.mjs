@@ -33,6 +33,22 @@ test("a var reference inside a comment is not a reference", () => {
   assert.deepEqual(check("/* var(--gone) */\n.a { color: red; }", '"a"'), []);
 });
 
+test("a var a component writes inline is checked the same way a stylesheet's is", () => {
+  assert.equal(check("", 'style={{ marginTop: "var(--gone)" }}').length, 1);
+  assert.deepEqual(check(":root { --s-4: 16px; }", 'style={{ marginTop: "var(--s-4)" }}'), []);
+  assert.deepEqual(check("", '// style={{ marginTop: "var(--gone)" }}'), []);
+});
+
+test("a class named only in prose is not named", () => {
+  // `.spine` and `.denied` were dead rules the gate called used, because both words appear in
+  // component headers describing the cue gutter and clipboard permission.
+  assert.equal(check(".spine { border: 0; }", "/* behind a hairline spine */").length, 1);
+  assert.equal(check(".denied { border: 0; }", "  // a denied permission\n").length, 1);
+  // Narrower than the language on purpose: a `//` inside a string is not a comment, so the
+  // class named after one on the same line stays used.
+  assert.deepEqual(check(".a { gap: 0; }", 'href="https://x" className="a"'), []);
+});
+
 test("a class no component names fails, and a class one names passes", () => {
   assert.equal(check(".orphan { gap: 4px; }").length, 1);
   assert.deepEqual(check(".orphan { gap: 4px; }", 'className="orphan"'), []);
@@ -88,4 +104,30 @@ test("the readers report positions and shapes the analysis relies on", () => {
 
 test("the repository's own stylesheets and components agree", () => {
   assert.deepEqual(analyse(readInputs()), []);
+});
+
+test("the analysis still bites against the real corpus, not only against fixtures", () => {
+  // A green gate over 20 stylesheets and 119 sources is also what a check that has stopped
+  // working prints. Every fixture above passes one short source, where a class name cannot
+  // collide with unrelated prose by accident; these mutations put the real corpus behind the
+  // oracle and require it to still notice.
+  const inputs = readInputs();
+  const declaredOnly = {
+    ...inputs,
+    stylesheets: [...inputs.stylesheets, sheet(".zzz-named-by-nobody { gap: 0; }")],
+  };
+  assert.equal(analyse(declaredOnly).length, 1);
+
+  const namedInProse = {
+    ...inputs,
+    stylesheets: [...inputs.stylesheets, sheet(".zzz-prose-only { gap: 0; }")],
+    sources: [...inputs.sources, source("/* the zzz-prose-only rule is described, not used */")],
+  };
+  assert.equal(analyse(namedInProse).length, 1);
+
+  const referenced = {
+    ...inputs,
+    sources: [...inputs.sources, source('style={{ color: "var(--zzz-undeclared)" }}')],
+  };
+  assert.equal(analyse(referenced).length, 1);
 });

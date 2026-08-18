@@ -237,10 +237,14 @@ describe("where a failed load is explained", () => {
     const chip = screen.getByRole("combobox", { name: "Event workspace" });
     fireEvent.keyDown(chip, { key: "ArrowDown" });
     fireEvent.click(screen.getByRole("option", { name: /Workshop Day/ }));
-    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
     // …and the second board is genuinely still waiting, so nothing on screen got there by
-    // being left over from the event that failed.
-    expect(screen.getByRole("status", { name: "Loading the run sheet" })).toBeInTheDocument();
+    // being left over from the event that failed. Both halves are asserted inside the wait: the
+    // cleared alert is not evidence that the second board has mounted, and sampling the region
+    // after waiting only on the alert reads the state one render too early.
+    await waitFor(() => {
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect(screen.getByRole("status", { name: "Loading the run sheet" })).toBeInTheDocument();
+    });
   });
 
   it("keeps a failure of the shell's own on screen", async () => {

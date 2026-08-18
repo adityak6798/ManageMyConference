@@ -26,6 +26,7 @@
  * already linked. A report link is also the rarest of the four routes and the one where a reader
  * expects to wait for something to resolve.
  */
+import { RESERVED_EVENT_SLUGS } from "@greenroom/contracts";
 import { type ReactElement, StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { PublicEventApp, StableItineraryRedirect } from "./PublicEventApp";
@@ -55,8 +56,16 @@ if (itineraryMatch) {
  * from anywhere that causes a document load served "This event page is unavailable" — the public
  * site looking for an event with the slug `new`. Only the sidebar's own client-side navigation
  * ever reached the form, which is precisely the addressability the move was for.
+ *
+ * What the claim rests on is that no event is ever published at one of these addresses, and that
+ * is now enforced rather than assumed: `publicationSettingsInputSchema` refuses
+ * `RESERVED_EVENT_SLUGS` where the address is assigned, so the organizer who types `new` into
+ * Public address is told on that input instead of being accepted end to end and left published
+ * everywhere but their own front door. Built from the same constant on purpose — the routing
+ * claim and the refused vocabulary are one fact, and a set written out here by hand is one that
+ * can silently stop matching the one the server enforces.
  */
-const CONSOLE_EVENT_PATHS = new Set(["/events/new"]);
+const CONSOLE_EVENT_PATHS = new Set(RESERVED_EVENT_SLUGS.map((slug) => `/events/${slug}`));
 const consolePath = window.location.pathname.replace(/\/+$/, "") || "/";
 
 const isItinerary = window.location.pathname.startsWith("/itineraries/");

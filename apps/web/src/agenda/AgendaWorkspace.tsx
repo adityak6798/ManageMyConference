@@ -2046,45 +2046,49 @@ export function AgendaWorkspace({
         )}
       </div>
 
-      {confirmingPublish ? (
-        <Drawer
-          open
-          title="Publish the schedule"
-          busy={busy}
-          onClose={() => setConfirmingPublish(false)}
-          footer={
-            <>
-              <button type="button" className="primary" disabled={busy} onClick={publish}>
-                Publish schedule
-              </button>
-              <button
-                type="button"
-                className="secondary"
-                disabled={busy}
-                onClick={() => setConfirmingPublish(false)}
-              >
-                Keep it private
-              </button>
-            </>
-          }
-        >
-          <p>{publishPreview}</p>
-        </Drawer>
-      ) : null}
-
-      {resourcesOpen ? (
-        <Drawer
-          open
-          title="Rooms, tracks and times"
-          description={`Times are entered on the event's clock: ${zoneLabel}.`}
-          busy={busy}
-          onClose={() => setResourcesOpen(false)}
-          footer={
-            <button type="button" className="secondary" onClick={() => setResourcesOpen(false)}>
-              Done
+      {/* Both drawers stay mounted and take the flag as `open`, because unmounting a modal
+          `<dialog>` is not the same as closing one: the HTML removing steps drop it from the top
+          layer without running the focusing steps, so focus fell to `<body>` and the reader who
+          pressed Escape restarted their next Tab at the skip link. Only `close()` restores focus
+          to the trigger, and `Drawer` calls it on an `open` true -> false transition. The bodies
+          stay guarded so nothing renders behind a closed drawer. */}
+      <Drawer
+        open={confirmingPublish}
+        title="Publish the schedule"
+        busy={busy}
+        onClose={() => setConfirmingPublish(false)}
+        footer={
+          <>
+            <button type="button" className="primary" disabled={busy} onClick={publish}>
+              Publish schedule
             </button>
-          }
-        >
+            <button
+              type="button"
+              className="secondary"
+              disabled={busy}
+              onClick={() => setConfirmingPublish(false)}
+            >
+              Keep it private
+            </button>
+          </>
+        }
+      >
+        {confirmingPublish ? <p>{publishPreview}</p> : null}
+      </Drawer>
+
+      <Drawer
+        open={resourcesOpen}
+        title="Rooms, tracks and times"
+        description={`Times are entered on the event's clock: ${zoneLabel}.`}
+        busy={busy}
+        onClose={() => setResourcesOpen(false)}
+        footer={
+          <button type="button" className="secondary" onClick={() => setResourcesOpen(false)}>
+            Done
+          </button>
+        }
+      >
+        {resourcesOpen ? (
           <div className="agenda-resources">
             <section aria-labelledby="agenda-rooms-heading">
               <h3 id="agenda-rooms-heading">Rooms</h3>
@@ -2619,8 +2623,8 @@ export function AgendaWorkspace({
               </form>
             </section>
           </div>
-        </Drawer>
-      ) : null}
+        ) : null}
+      </Drawer>
 
       {/*
        * Generated arrangements, below the board rather than beside it: generating is a step an

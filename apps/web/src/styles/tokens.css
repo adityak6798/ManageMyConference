@@ -187,8 +187,7 @@ body {
 }
 
 /* Data should always align in columns. */
-table,
-.tabular {
+table {
   font-variant-numeric: tabular-nums;
 }
 

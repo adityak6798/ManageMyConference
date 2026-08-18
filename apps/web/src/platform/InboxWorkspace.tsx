@@ -186,9 +186,12 @@ export function InboxWorkspace({ eventId }: { eventId: string }) {
             return (
               <Card key={key} title={CATEGORY_LABELS[key]} labelledBy={`inbox-${key}`}>
                 {category.state === "failed" ? (
-                  <Notice tone="error">
-                    This could not be read just now. Reference: {category.error.correlationId}.
-                    Every other category below is complete.
+                  /* The reference goes through `reference`, not into the sentence: glued on it
+                     was proportional text in the middle of a paragraph, and the one thing a
+                     reader does with a correlation id is select it and paste it into a support
+                     message. The prop renders it in the measure face as its own value. */
+                  <Notice tone="error" reference={category.error.correlationId}>
+                    This could not be read just now. Every other category below is complete.
                   </Notice>
                 ) : category.items.length === 0 ? (
                   /* Terse on purpose. Four of six categories are routinely clear, and given the

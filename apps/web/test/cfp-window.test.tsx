@@ -189,7 +189,14 @@ describe("the organizer's window controls", () => {
     );
     // The outcome is still reported, and the control shows the instant back as the local time it
     // was typed as.
-    expect(await screen.findByText(/Submission window saved/)).toBeInTheDocument();
+    // Three seconds, not the one-second default, for the reason the `SETTLED` bound further down
+    // this file spells out: `persistWindow` awaits the save, then awaits `refreshLive()`, so this
+    // notice is two stubbed round trips past the request the wait above saw go out. Under vitest's
+    // own 5 s test timeout, so a failure still reports what was on screen rather than "Test timed
+    // out".
+    expect(
+      await screen.findByText(/Submission window saved/, undefined, { timeout: 3_000 }),
+    ).toBeInTheDocument();
     expect(screen.getByLabelText("Deadline")).toHaveValue("2026-09-30T23:59");
     // And *still* only one write, checked after the response has landed. `waitFor` above succeeds
     // the instant the PUT is issued, so on its own it cannot see a second request that follows —
@@ -335,8 +342,13 @@ describe("a saved window converges on the state the server computed", () => {
         SETTLED,
       ),
     ).toBeInTheDocument();
-    // And the announcement says the call is shut rather than promising applicants a date.
-    expect(screen.getByText(/already passed, so the call is closed/)).toBeInTheDocument();
+    // And the announcement says the call is shut rather than promising applicants a date. Awaited
+    // on its own bound: the status line above is `setForm(saved)`, one round trip in, while the
+    // announcement is only made after `refreshLive()` — so the line arriving is no evidence the
+    // sentence has.
+    expect(
+      await screen.findByText(/already passed, so the call is closed/, undefined, SETTLED),
+    ).toBeInTheDocument();
     /*
      * The **public** form is read again, so the Live tab — the same bytes an applicant receives —
      * stops showing an open call too. Counted on that exact URL rather than on "a CFP read",

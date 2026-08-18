@@ -5,9 +5,10 @@
  * rather than a listbox option. What it must never do is render a section heading over an
  * answer it did not get — the omitted and the failed sections are named on screen.
  */
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SearchWorkspace } from "../src/platform/SearchWorkspace";
+import { navigate } from "../src/router";
 
 const eventId = "123e4567-e89b-12d3-a456-426614174000";
 
@@ -134,6 +135,56 @@ describe("the search workspace", () => {
     search("zzz");
 
     expect(await screen.findByText(/No matches for “zzz”/)).toBeInTheDocument();
+  });
+
+  it("runs the term the palette carried instead of asking for it again", async () => {
+    const calls = stubFetch(body);
+    window.history.replaceState(null, "", `/search?event=${eventId}&q=keynote`);
+    render(<SearchWorkspace eventId={eventId} />);
+
+    // The palette's "See all results" option is the only advertised route here, and it arrives
+    // with the term already typed — so the page owes an answer, not an empty form.
+    expect(
+      await screen.findByRole("heading", { name: "Sessions, speakers and tasks" }),
+    ).toBeVisible();
+    expect(screen.getByLabelText(/Sessions, speakers, proposals/i)).toHaveValue("keynote");
+    expect(screen.queryByText("Enter a search to begin.")).not.toBeInTheDocument();
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toContain(`/api/events/${eventId}/search?q=keynote`);
+  });
+
+  it("seeds a carried term too short to search without refusing it unasked", () => {
+    const calls = stubFetch(body);
+    window.history.replaceState(null, "", `/search?event=${eventId}&q=k`);
+    render(<SearchWorkspace eventId={eventId} />);
+
+    expect(screen.getByLabelText(/Sessions, speakers, proposals/i)).toHaveValue("k");
+    expect(screen.queryByText(/at least 2 characters/i)).not.toBeInTheDocument();
+    expect(calls).toHaveLength(0);
+  });
+
+  /**
+   * A second hand-off, while the reader is already standing on this page.
+   *
+   * The palette is reachable from every surface, `/search` included, and its "See all results"
+   * option navigates to `/search?event=…&q=…` with the new term. The workspace is not remounted
+   * by that — the shell keys it on the selected event, which has not changed — so a term read
+   * once at mount left the address saying one thing and the page showing the answer to another.
+   */
+  it("re-asks when the palette hands over a second term on this page", async () => {
+    const calls = stubFetch(body);
+    window.history.replaceState(null, "", `/search?event=${eventId}&q=keynote`);
+    render(<SearchWorkspace eventId={eventId} />);
+
+    await screen.findByRole("heading", { name: "Sessions, speakers and tasks" });
+    expect(calls).toHaveLength(1);
+
+    navigate(`/search?event=${eventId}&q=hallway`);
+
+    await waitFor(() => expect(calls).toHaveLength(2));
+    expect(calls[1]).toContain(`/api/events/${eventId}/search?q=hallway`);
+    // And the box shows the term the address carries, so a further search starts from it.
+    expect(screen.getByLabelText(/Sessions, speakers, proposals/i)).toHaveValue("hallway");
   });
 
   it("reports a refused search with its reference", async () => {

@@ -48,6 +48,7 @@ import {
   LoadFailure,
   Notice,
   Pill,
+  SkeletonBars,
   SkeletonRows,
   Stat,
   Tabs,
@@ -670,19 +671,43 @@ export function CrmWorkspace({ eventId, ownerId }: { eventId: string; ownerId: s
           {configuring ? (
             <div className="stage-editor-panel">
               <h3>Stages</h3>
-              <PipelineStageEditor
-                stages={stages}
-                counts={counts.byStage}
-                busy={busy}
-                onSave={(next) => {
-                  // ERROR-INTENT: handlers cannot await; saveBoard announces both outcomes.
-                  void saveBoard(next);
-                }}
-                onDelete={(stageKey, migrateTo) => {
-                  // ERROR-INTENT: handlers cannot await; removeStage announces both outcomes.
-                  void removeStage(stageKey, migrateTo);
-                }}
-              />
+              {/*
+               * Waited for, like the board below it, because `stages` is empty before the first
+               * read lands and an empty board is not a board.
+               *
+               * The editor holds a *draft* of whatever it is handed, and re-seeds that draft
+               * whenever the saved board changes — so an editor opened over the placeholder took
+               * an organizer's typed stage and dropped it the moment the real board arrived,
+               * leaving Save board dead with nothing said. Worse the other way round: a draft
+               * built on an empty board *is* an empty board, and saving it sent a whole-board
+               * replacement that deleted every stage the read had not delivered yet. Two server
+               * guards bounded the damage — Converted refuses removal, and the
+               * `crm_pipeline_stage_no_stranded_prospects` trigger aborts any stage delete that
+               * still holds a prospect — so what was actually lost was the typed stage plus any
+               * empty stage, silently. Prospects were never strandable.
+               *
+               * A fast machine hides both — the read beats the first keystroke — which is why
+               * this surfaced as a browser test that passed on a Mac and failed on CI.
+               */}
+              {/* Bars without a live region: the board or the table below is already announcing
+                  this same wait, and one screen owes a reader one announcement, not two. */}
+              {loading ? (
+                <SkeletonBars rows={3} />
+              ) : (
+                <PipelineStageEditor
+                  stages={stages}
+                  counts={counts.byStage}
+                  busy={busy}
+                  onSave={(next) => {
+                    // ERROR-INTENT: handlers cannot await; saveBoard announces both outcomes.
+                    void saveBoard(next);
+                  }}
+                  onDelete={(stageKey, migrateTo) => {
+                    // ERROR-INTENT: handlers cannot await; removeStage announces both outcomes.
+                    void removeStage(stageKey, migrateTo);
+                  }}
+                />
+              )}
             </div>
           ) : null}
 

@@ -4,8 +4,10 @@ Status: canonical | Owner: delivery | Last verified: 2026-08-16
 
 ## `PLAN-006` Console modernization
 
-Status: active; the rebuild merged as #243, the suite migration and capture regeneration are on
-`test/e2e-suite-migration` and unmerged, and no browser evidence exists at this head
+Status: active; the rebuild merged as #243 and the suite migration and capture regeneration as #244,
+and the browser suites (`e2e`, `quality`) were last recorded against those branch tips rather than
+the merge commit, so the eleven scorecard rows naming them stay refused until `npm run gate:browser`
+runs here — `npm run gate:evidence` is the current answer for the checkout in front of you
 
 `PLAN-005` rolled the design language across the portal. This is the change that finished the job
 on the console itself: the whole organizer console, the public event pages and the signed-out
@@ -20,8 +22,12 @@ Four things changed at the foundation:
 1. one cool neutral ramp replaced the console/public split, so no component is authored against two
    grounds it cannot see, and public surfaces differentiate by measure, rhythm and scale instead;
 2. a control tier — `Field`, `Select`, `Combobox`, `Menu`, `Checkbox`, `Radio`, `DateTimeField`,
-   `SegmentedControl`, `CopyableSecret` — replaced 73 native `<select>`s and 21 native date inputs,
-   each of which was previously drawn by the reader's operating system;
+   `SegmentedControl`, `CopyableSecret` — took over the pickers the reader's operating system used
+   to draw. Counted in `apps/web/src`, the console held 72 native `<select>`s and 20 native date and
+   time inputs before this change and holds 41 and 21 after it: the tier is how a converted surface
+   asks for a value, the remainder is real, and the date count rose because the agenda split four
+   `datetime-local` fields into ten date and time inputs while five call sites moved to the tier.
+   `GAP-032` records the remainder rather than leaving it to be found by clicking;
 3. `Section` replaced `Card` as the default page region, and a bordered thing may no longer contain
    another one;
 4. the cue gutter — a 56px monospace measure column behind a continuous hairline spine — became the
@@ -36,8 +42,11 @@ restyling them.** Recorded here because each one was reachable by a user before 
   keyboard focus;
 - `.stack`, `.inline` and `.form-stack` were written into roughly 26 forms before the rules that
   space them existed, so those rows had no spacing at all, and six custom properties were
-  referenced with no declaration anywhere — both classes of defect now fail `gate:integrity`
-  through `tools/check-css-tokens.mjs`;
+  referenced with no declaration anywhere. `tools/check-css-tokens.mjs` fails `gate:integrity` on
+  the undeclared `var()` — in a stylesheet or in a component's inline style — and on the mirror of
+  the class defect, a rule no component names. The direction that actually shipped those 26 forms,
+  a component naming a class no stylesheet declares, is **not** gated: it needs an oracle for
+  runtime-composed class names that the file has only in a loose form, and `GAP-033` records it;
 - `/invitations/accept` was unreachable for the invitee it exists for, and dead-ended for a demo
   persona with the standard 401 sentence — "Sign in to continue." — shown to somebody who had just
   signed in;
@@ -73,19 +82,18 @@ address, so the picture proved a setup rather than a product.
 What remains before this plan can close:
 
 - **evidence at the landing commit.** The e2e migration lane measured 96 passed / 1 skipped and
-  `test:quality` 7 passed from a clean reset, and re-ran the suite in place without a reset; those
-  runs predate every commit here. `.evidence/` holds `d1` and `test-build` records naming
-  `2e9e71d`, and no `e2e` or `quality` record at all, so `npm run gate:evidence` refuses every
-  scorecard row until `npm run gate:browser` and `npm run check` are re-run at whatever commit this
-  lands on. That refusal is the gate working;
+  `test:quality` 7 passed from a clean reset, and re-ran the suite in place without a reset; every
+  one of those runs names a commit this merge is not. A record names the commit it ran against and
+  `gate:evidence` compares that name, so a merge invalidates a branch-tip run even where the merge
+  is tree-identical to it — which is what happened here, and which is the gate working rather than
+  a fault in it. `npm run gate:evidence` refuses every scorecard row until `npm run gate:browser`
+  and `npm run check` are re-run at the commit this lands on;
 - **`GAP-032`**, which records what this change deliberately did not build: five surfaces the API
   cannot yet fill, each blocked on contract work that does not belong in a design pull request,
-  and three narrower things left undone. That register is what is verifiable from the tree and the
+  and four narrower things left undone. That register is what is verifiable from the tree and the
   lanes' reports; it is not a claim that the lanes deferred nothing else, and anything else they
   deferred is unrecorded rather than closed;
-- the suite migration and the regenerated captures are unmerged working-tree state on
-  `test/e2e-suite-migration`; `GAP-003` is unchanged, so nothing about hosted CI is a required
-  check for any of it.
+- `GAP-003` is unchanged, so nothing about hosted CI is a required check for any of this.
 
 ## `PLAN-004` SessionBoard defect closure
 

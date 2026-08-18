@@ -28,11 +28,14 @@ Three terms are used precisely:
   side and five on this branch's. The green run carries one commit this branch does not have
   (`10eab43`, the last commit of pull request #88, from whose branch this one was cut one commit
   earlier), and this branch carries five commits that run never saw. Treat hosted CI as pending, not
-  as passed. **That measurement is from 2026-08-11 and the tree has moved a long way since** — pull
-  requests #241, #242 and #243 have merged — and whether hosted CI ran on any of them was *not*
-  checked when this document was last edited, because that needs the network and this edit had
-  none. So the sentence to act on is the last one: treat hosted CI as unknown until somebody
-  inspects a run, and `GAP-003` still means no job is a required check either way.
+  as passed. **That measurement is from 2026-08-11 and the tree has moved a long way since** —
+  `git log --grep="Merge pull request" --since=2026-08-11` counts sixty-one merges dated on or
+  after it, up to and including #244, which is this head — and whether hosted CI ran on any of them
+  was *not* checked when this document was last edited, because that needs the network and this
+  edit had none. Run that command rather than hand-listing the most recent few here: the hand-list
+  is the part that has gone stale twice. So the sentence to act on is the last one: treat hosted CI
+  as unknown until somebody inspects a run, and `GAP-003` still means no job is a required check
+  either way.
 - **Verdict (local)** — a statement about the **journey** the row names, not about the competition
   feature that journey serves. *shipped* means every step of that journey is exercised by an
   automated test on this machine; *partial* means a step of it has no automated exercise, or has no
@@ -43,13 +46,25 @@ Three terms are used precisely:
 
 ## What was measured
 
-**Read this first: no browser evidence exists at this head, and the rows below are therefore
-unbound.** The console rebuild (`PLAN-006`) changed every web surface and every browser spec with
-them. `.evidence/` holds a `d1` record (283 passed) and a `test-build` record (1918 passed), both
-produced at `2e9e71d` — the commit *before* the rebuild — and holds no `e2e` or `quality` record at
-all. So `npm run gate:evidence` refuses every row on this page until `npm run gate:browser` and
-`npm run check` are re-run at whatever commit the rebuild lands on. That is the gate working as
-designed, and the remedy is to produce evidence last, immediately before publishing.
+**Read this first: the suites to re-run are the browser ones, `e2e` and `quality`.** The console
+rebuild (`PLAN-006`) changed every web surface and every browser spec with them, and the runs that
+measured them were made on the branch tips that merged as #243 and #244. A record names the commit
+it ran against and `gate:evidence` compares that name, so those runs do not carry over to the merge
+commit even where the merge is tree-identical to the tip — the gate declines to decide when a
+different commit id is nonetheless the same tree, which is the conservative reading and the one that
+keeps a row from outliving its run. Which rows that leaves unbound is arithmetic on
+[`acceptance-evidence.json`](acceptance-evidence.json), not a guess: eleven of the twelve name `e2e`
+or `quality`, so all eleven stay refused until `npm run gate:browser` is re-run at the commit this
+lands on. `ACC-HARNESS` is the twelfth and the exception — its suites are exactly `test-build` and
+`d1`, which `npm run check` writes itself, so it binds without a browser run. That is the gate
+working as designed, and the remedy is to produce evidence last, immediately before publishing.
+
+What `.evidence/` currently holds is deliberately not written here. The directory is gitignored, so
+it is per-machine state that no commit can describe: a sentence here inventorying it is stale for
+every other checkout the moment it is written, and it went stale once already, naming suites as
+missing that this machine had. `npm run gate:evidence` answers it instead — for every row it
+refuses, it names the suite and either that no record exists or the commit the record it found was
+bound to.
 
 What the rebuild's own lane measured, recorded here as an attributed measurement rather than as
 this document's evidence: `npm run test:e2e` at 96 passed / 1 skipped / 0 failed and

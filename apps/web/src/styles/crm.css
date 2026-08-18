@@ -400,8 +400,14 @@
   font-size: var(--text-sm);
   font-weight: var(--fw-semibold);
 }
+/*
+ * An empty column's zero recedes by weight, not by dropping out of legibility. At --ink-4 it
+ * measured 2.81:1 on the card surface, and the seeded demo alone renders six such columns, so
+ * the figure the column is about was unreadable wherever a stage was empty.
+ */
 .crm .pipeline-column.is-empty .pipeline-count {
-  color: var(--ink-4);
+  color: var(--slate);
+  font-weight: var(--fw-medium);
 }
 .crm .pipeline-column-meta {
   display: flex;

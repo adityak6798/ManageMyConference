@@ -1,9 +1,12 @@
 // @acceptance ACC-DEMO-SMOKE ACC-OPS
 import type { EventDto, SessionDto } from "@greenroom/contracts";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
 import { AppShell } from "../src/AppShell";
+import { Checkbox, Combobox, CopyableSecret, SegmentedControl, Select } from "../src/ui/fields";
+import { Menu } from "../src/ui/menu";
 import {
   Drawer,
   GutterList,
@@ -36,10 +39,29 @@ import {
  * can be started from either the repository root or this workspace, so the file is found by trying
  * both roots rather than by trusting one working directory.
  */
-const shellCss = readFileSync(
-  ["apps/web/src/styles/shell.css", "src/styles/shell.css"].find(existsSync) ?? "",
-  "utf8",
-);
+function source(path: string) {
+  return readFileSync([`apps/web/${path}`, path].find(existsSync) ?? "", "utf8");
+}
+
+const shellCss = source("src/styles/shell.css");
+const controlsCss = source("src/styles/controls.css");
+const tokensCss = source("src/styles/tokens.css");
+const agendaCss = source("src/styles/agenda.css");
+
+/**
+ * The declarations of the rule whose selector list starts with `selector`.
+ *
+ * Anchored on the newline and closed on the first `{`, so `.control:disabled` finds the rule it
+ * heads and never a longer selector that merely begins with the same characters. A selector that
+ * declares nothing throws rather than returning "", because an assertion against an empty rule
+ * body passes for every value it could have held.
+ */
+function rule(sheet: string, selector: string) {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const found = new RegExp(`\\n${escaped}[,\\s][^{]*\\{([^}]*)\\}`).exec(sheet)?.[1];
+  if (!found?.trim()) throw new Error(`No rule declares ${selector}`);
+  return found;
+}
 
 afterEach(() => {
   cleanup();
@@ -305,6 +327,125 @@ describe("design foundation", () => {
     expect(shellCss).not.toMatch(/\nbutton\.tab \{/);
   });
 
+  it("declares every class the control tier renders in the sheet the tier loads", () => {
+    /*
+     * `ui/fields.tsx` and `ui/menu.tsx` load controls.css themselves so that any surface —
+     * console, portal or public page — that renders a control gets the tier with it. A class
+     * declared only in shell.css breaks that promise silently: shell.css is reachable only
+     * through styles.css, which only App.tsx imports, and `main.tsx` routes every `/events/*`
+     * path to a public root that never evaluates App.tsx. `CopyableSecret` shipped its copy
+     * button as `secondary small`, so on the public call for proposals the button beside an
+     * anonymous submitter's confirmation reference matched nothing and fell back to the
+     * operating system's own chrome. The classes are collected from the rendered DOM rather
+     * than read out of the source, so a class assembled at runtime is caught too.
+     */
+    const declared = new Set<string>();
+    // Comments are stripped first, so a class the file only talks about does not count as one
+    // the file declares.
+    for (const sheet of [controlsCss, tokensCss])
+      for (const match of sheet.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/\.([a-z][\w-]*)/g))
+        declared.add(match[1] ?? "");
+
+    const { container } = render(
+      <div>
+        <Select
+          label="Track"
+          hint="Where the session runs"
+          value="main"
+          options={[{ value: "main", label: "Main stage", hint: "1 of 2" }]}
+          onChange={vi.fn()}
+        />
+        <Combobox
+          label="Event timezone"
+          value="UTC"
+          options={[{ value: "UTC", label: "UTC" }]}
+          onChange={vi.fn()}
+        />
+        <Checkbox label="Notify the speaker" hint="Sends on save" checked onChange={vi.fn()} />
+        <SegmentedControl
+          label="Score"
+          numeric
+          value="3"
+          options={[{ value: "3", label: "3" }]}
+          onChange={vi.fn()}
+          onClear={vi.fn()}
+        />
+        <CopyableSecret label="Signing secret" value="whsec_01JD8Q4M0V" />
+        <Menu
+          label="Row actions"
+          items={[
+            { id: "duplicate", label: "Duplicate", onSelect: vi.fn(), hint: "Copies the row" },
+            { id: "sep", separator: true },
+            { id: "delete", label: "Delete", onSelect: vi.fn(), danger: true },
+          ]}
+        />
+      </div>,
+    );
+    // The popovers are half the tier and only exist while open.
+    fireEvent.keyDown(screen.getByLabelText("Track"), { key: "Enter" });
+    fireEvent.keyDown(screen.getByLabelText("Event timezone"), { key: "ArrowDown" });
+    fireEvent.keyDown(screen.getByRole("button", { name: "Row actions" }), { key: "ArrowDown" });
+
+    const rendered = new Set<string>();
+    for (const node of container.querySelectorAll("[class]"))
+      for (const name of node.getAttribute("class")?.split(/\s+/) ?? [])
+        if (name) rendered.add(name);
+
+    expect(rendered.size).toBeGreaterThan(20);
+    expect([...rendered].filter((name) => !declared.has(name))).toEqual([]);
+  });
+
+  it("keeps every text a reader has to read out of the placeholder grey", () => {
+    /*
+     * `--ink-4` is declared for placeholders and disabled glyphs, "which must never carry text a
+     * reader has to read", and it measures 2.81:1 on `--surface` — below AA. Each rule below was
+     * moved off it because it is the *entire* visible content of the thing it draws: the trigger
+     * of an unanswered select, the instruction in a 400-entry filter, the "Choose a date" of every
+     * unfilled date field (whose native input is `opacity: 0; color: transparent`, so the span is
+     * all there is to see), and the duration under each agenda row's start time.
+     *
+     * Pinned as declarations rather than as a ratio because jsdom applies no cascade: tokens.test
+     * already holds `--slate` to 4.5:1 on all three grounds, so naming the token is what carries
+     * the contrast decision. Without this a revert to `--ink-4` passed every gate in the repo.
+     */
+    for (const [selector, sheet] of [
+      [".select-value.is-placeholder", controlsCss],
+      [".combobox-input::placeholder", controlsCss],
+      [".datetime-value.is-empty", controlsCss],
+      [".agenda .board-duration", agendaCss],
+    ] as const)
+      expect(rule(sheet, selector), selector).toContain("color: var(--slate)");
+  });
+
+  it("gives a disabled control one disabled treatment, not the console's fade over its own", () => {
+    /*
+     * shell.css fades every disabled button with a blanket `opacity: 0.55`, which is the exact
+     * treatment these two rules were written to reject — it dims ground, border and label
+     * together and lands the label at roughly 2.4:1. A class beats an element selector, so the
+     * tier's colours win, but `opacity` is a property the tier never declared: the fade composed
+     * on top of the inset ground and the same Copy button read differently on the console than on
+     * the public call for proposals, which loads no shell.css at all.
+     */
+    for (const selector of [".control-button:disabled", ".control:disabled"])
+      expect(rule(controlsCss, selector), selector).toContain("opacity: 1");
+  });
+
+  it("places the menu popover against the viewport, not inside the table that clips it", () => {
+    const popover = /\n\.menu-popover \{([^}]*)\}/.exec(controlsCss)?.[1] ?? "";
+
+    /*
+     * `.table-wrap` declares `overflow-x: auto` and nothing for the other axis, which computes
+     * `overflow-y` to `auto` as well, so an absolutely-positioned popover opened from the last
+     * row of a members or roles table was clipped by the table and the focus call that rescued
+     * it scrolled the rows under their own sticky header. No overflow value on the wrapper
+     * fixes it, so the popover is placed in viewport coordinates by `ui/menu.tsx` instead.
+     */
+    const wrap = /\n\.table-wrap \{([\s\S]*?)\n\}/.exec(shellCss)?.[1] ?? "";
+    expect(wrap).toContain("overflow-x: auto");
+    expect(popover).toContain("position: fixed");
+    expect(popover).not.toContain("top: calc(100%");
+  });
+
   it("labels a drawer, handles Escape, and blocks dismissal while busy", () => {
     const onClose = vi.fn();
     const { rerender } = render(
@@ -333,6 +474,45 @@ describe("design foundation", () => {
     fireEvent(dialog, new Event("cancel", { cancelable: true }));
     expect(onClose).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Close Edit proposal" })).toBeDisabled();
+  });
+
+  it("keeps an open drawer open when React re-runs its effects", () => {
+    const onClose = vi.fn();
+    render(
+      <StrictMode>
+        <Drawer open title="Edit proposal" onClose={onClose}>
+          Proposal fields
+        </Drawer>
+      </StrictMode>,
+    );
+
+    /*
+     * StrictMode double-invokes every effect — mount, tear down, mount again — to surface
+     * cleanups that do not belong on a re-run. The drawer's did: it closed the dialog on every
+     * cleanup, so the simulated teardown fired the platform's `close` event while `open` was
+     * still true, the component reported the close to its caller, and a drawer nobody had
+     * dismissed shut itself the moment it was rendered.
+     */
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: "Edit proposal" })).toHaveAttribute("open");
+  });
+
+  it("still closes a drawer a caller unmounts while it is open", () => {
+    // The safety net the effect above exists for: `{x ? <Drawer …/> : null}` detaches a dialog
+    // the platform still holds as modal, and an open dialog that has left the document keeps its
+    // backdrop and its top-layer entry. The element is held here because the assertion is about
+    // what happened to a node the render tree no longer has.
+    const { rerender } = render(
+      <Drawer open title="Edit proposal" onClose={vi.fn()}>
+        Proposal fields
+      </Drawer>,
+    );
+    const dialog = screen.getByRole("dialog", { name: "Edit proposal" });
+
+    rerender(<div />);
+
+    expect(dialog.isConnected).toBe(false);
+    expect(dialog).not.toHaveAttribute("open");
   });
 
   it("opens the mobile workspace drawer and restores focus after Escape", async () => {

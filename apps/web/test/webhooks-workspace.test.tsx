@@ -14,7 +14,7 @@
  */
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
-import { deleteWebhook, listWebhooks, WebhookApiError } from "../src/api/webhooks";
+import { createWebhook, deleteWebhook, listWebhooks, WebhookApiError } from "../src/api/webhooks";
 import { WebhooksWorkspace } from "../src/WebhooksWorkspace";
 
 const ORGANIZATION = "00000000-0000-4000-8000-0000000000a1";
@@ -37,6 +37,10 @@ vi.mock("../src/api/webhooks", async () => {
     ...actual,
     listWebhooks: vi.fn(async () => ({ subscriptions: [subscription] })),
     deleteWebhook: vi.fn(async () => undefined),
+    createWebhook: vi.fn(async () => ({
+      subscription: { ...subscription, id: "sub_2", url: "https://example.test/hooks/second" },
+      secret: "whsec_22222222222222222222222222222222",
+    })),
     rotateWebhookSecret: vi.fn(async () => ({
       secret: "whsec_ffffffffffffffffffffffffffffffff",
       overlapExpiresAt: "2026-08-02T09:00:00.000Z",
@@ -44,7 +48,10 @@ vi.mock("../src/api/webhooks", async () => {
   };
 });
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.clearAllMocks();
+});
 
 const ENDPOINT = "https://example.test/hooks/greenroom";
 
@@ -105,5 +112,107 @@ it("treats a deployment with no egress as unconfigured rather than as a failure"
   ).toBeInTheDocument();
   // Every local checkout answers this way, so an alert here would be the console's most-seen red
   // banner and would say nothing an organizer could act on.
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+});
+
+it("holds back every control that would replace a signing secret nobody has stored yet", async () => {
+  render(<WebhooksWorkspace organizationId={ORGANIZATION} />);
+  await screen.findAllByText(ENDPOINT);
+
+  fireEvent.click(screen.getByRole("button", { name: "Rotate secret" }));
+  await waitFor(() =>
+    expect(screen.getByText("whsec_ffffffffffffffffffffffffffffffff")).toBeInTheDocument(),
+  );
+
+  // Creating an endpoint is the other half of the same one-time slot, and the form sits below the
+  // table where the secret is: submitting it used to overwrite a rotation secret that exists
+  // nowhere else, leaving the receiver on a secret whose overlap window had already been spent.
+  fireEvent.change(screen.getByLabelText(/Endpoint URL/), {
+    target: { value: "https://example.test/hooks/second" },
+  });
+  expect(screen.getByRole("button", { name: "Add webhook" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Rotate secret" })).toBeDisabled();
+  // A disabled control that does not say why reads as a broken one.
+  expect(screen.getByText(/nothing can show it again/i)).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Add webhook" }));
+  expect(vi.mocked(createWebhook)).not.toHaveBeenCalled();
+  expect(screen.getByText("whsec_ffffffffffffffffffffffffffffffff")).toBeInTheDocument();
+
+  // Acknowledging it is the only way past, and it releases both controls.
+  fireEvent.click(screen.getByRole("button", { name: "I have stored it" }));
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Add webhook" })).not.toBeDisabled(),
+  );
+  expect(screen.getByRole("button", { name: "Rotate secret" })).not.toBeDisabled();
+});
+
+it("does not hold the screen for a secret it never managed to show", async () => {
+  render(<WebhooksWorkspace organizationId={ORGANIZATION} />);
+  await screen.findAllByText(ENDPOINT);
+
+  // The create succeeds and answers with the one-time secret, and the reload that would put the
+  // new row on screen does not come back. Every route into the secret goes through that row, so
+  // there is no secret on screen, no "I have stored it" to press, and nothing the sentence under
+  // the form ("shown on the row above") can be pointing at.
+  vi.mocked(listWebhooks).mockRejectedValueOnce(new TypeError("Failed to fetch"));
+  fireEvent.change(screen.getByLabelText(/Endpoint URL/), {
+    target: { value: "https://example.test/hooks/second" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Add webhook" }));
+
+  await waitFor(() => expect(vi.mocked(createWebhook)).toHaveBeenCalledOnce());
+  await waitFor(() =>
+    expect(screen.queryByText("whsec_22222222222222222222222222222222")).toBeNull(),
+  );
+  expect(screen.queryByRole("button", { name: "I have stored it" })).toBeNull();
+
+  // So the guard has to let go. Derived from `issued` alone it stayed on with no way to clear it:
+  // both controls that issue a secret were inert for the rest of the session, and the reason
+  // given for it was on a row that does not exist.
+  fireEvent.change(screen.getByLabelText(/Endpoint URL/), {
+    target: { value: "https://example.test/hooks/third" },
+  });
+  await waitFor(() =>
+    expect(screen.getByRole("button", { name: "Add webhook" })).not.toBeDisabled(),
+  );
+  expect(screen.getByRole("button", { name: "Rotate secret" })).not.toBeDisabled();
+});
+
+it("says the re-check failed rather than answering the press with an identical page", async () => {
+  vi.mocked(listWebhooks).mockRejectedValueOnce(
+    new WebhookApiError("corr-1", "Webhook delivery is not configured.", {}, "WEBHOOK_UNAVAILABLE"),
+  );
+  render(<WebhooksWorkspace organizationId={ORGANIZATION} />);
+  await screen.findByText("Webhooks are unavailable in this deployment");
+
+  // A refresh over data already on screen keeps the page — but keeping the page is not the same
+  // as keeping quiet. With the API unreachable the retry used to redraw the identical refusal,
+  // so the only control on a dead-end screen answered a press with nothing at all.
+  vi.mocked(listWebhooks).mockRejectedValueOnce(new TypeError("Failed to fetch"));
+  fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+
+  expect(await screen.findByRole("alert")).toHaveTextContent("The webhook service did not answer.");
+  // The deployment fact is still true and still the reason the screen refuses.
+  expect(screen.getByText("Webhooks are unavailable in this deployment")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Check again" })).not.toBeDisabled();
+});
+
+it("clears the failed-recheck notice once the deployment answers", async () => {
+  vi.mocked(listWebhooks).mockRejectedValueOnce(
+    new WebhookApiError("corr-1", "Webhook delivery is not configured.", {}, "WEBHOOK_UNAVAILABLE"),
+  );
+  render(<WebhooksWorkspace organizationId={ORGANIZATION} />);
+  await screen.findByText("Webhooks are unavailable in this deployment");
+
+  vi.mocked(listWebhooks).mockRejectedValueOnce(new TypeError("Failed to fetch"));
+  fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+  await screen.findByRole("alert");
+
+  fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+
+  // Configuration is an operator action taken elsewhere, so the whole point of the button is that
+  // it can succeed: a stale "we could not check" beside a screen that now works is a lie.
+  await screen.findAllByText(ENDPOINT);
   expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 });

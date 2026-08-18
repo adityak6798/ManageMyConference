@@ -69,9 +69,24 @@ export function ReviewerWorkspace({ eventId }: { eventId: string }) {
     items.find((item) => item.evaluation?.state !== "completed" && !item.conflict) ??
     items[0];
   const resolvedId = resolved?.assignment.id ?? null;
+  /*
+   * Committed against the value this holds when the effect runs, not the one the render saw.
+   *
+   * React flushes a passive effect after the commit that scheduled it, so comparing against the
+   * `activeId` of that render let this undo a choice made in between: pressing a row on a queue
+   * that had only just painted put the auto-chosen abstract back on screen instead of the one that
+   * was pressed. That is the same defect the state above exists to prevent — a derivation moving
+   * the abstract out from under whoever is reading it — one frame narrower, so the reviewer's own
+   * press has to win any race with it. Overwriting is left for the one case that needs it: a
+   * selection whose assignment is no longer in the queue at all.
+   */
   useEffect(() => {
-    if (resolvedId && resolvedId !== activeId) setActiveId(resolvedId);
-  }, [resolvedId, activeId]);
+    setActiveId((current) =>
+      current !== null && items.some(({ assignment }) => assignment.id === current)
+        ? current
+        : resolvedId,
+    );
+  }, [items, resolvedId]);
 
   if (error) return <LoadFailure what="your review queue" error={error} onRetry={load} />;
 

@@ -2,6 +2,28 @@ import { z } from "zod";
 
 // @spec PRD-PUB-001
 export const routeSlugSchema = z.string().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/);
+
+/**
+ * Event addresses the console owns, so no event may be published at one.
+ *
+ * `/events/…` is shared between the public event hub and the console: `/events/new` is where an
+ * organizer creates an event. Nothing used to stop another organizer typing `new` into Public
+ * address — the slug contract checks shape, and the publication service checks the address
+ * against other events rather than against a vocabulary — so the event was accepted end to end
+ * and then published everywhere except its own front door: `/events/new/cfp` and
+ * `/events/new/schedule` kept serving it while `/events/new` resolved to the console's create
+ * form. A derived address can never collide, because the generator appends a per-event
+ * discriminator; only a typed one can, which is why this is refused where the address is
+ * assigned: `publicationSettingsInputSchema` below refuses it, so the transport answers with a
+ * field error on `slug` and the organizer is told on the Public address input.
+ *
+ * The contract is where this belongs rather than the publication service, and not only because
+ * the API's application layer may import no package: it is a rule about the address space, not a
+ * fact about other events, so no uniqueness query could ever find it taken. It is also the one
+ * place both sides can read — the web entry builds its console-owned path set from this same
+ * constant, so the routing claim and the refused vocabulary cannot drift apart. @spec PRD-PUB-001
+ */
+export const RESERVED_EVENT_SLUGS: readonly string[] = ["new"];
 export const ianaTimezoneSchema = z.string().refine((value) => {
   try {
     new Intl.DateTimeFormat("en-US", { timeZone: value }).format();
@@ -151,7 +173,15 @@ export const publicationSettingsInputSchema = z
   .object({
     // Bounded by the `public_event_projections_slug_length` check constraint on the column
     // it is stored in, so an over-long slug is refused by the contract rather than by SQLite.
-    slug: routeSlugSchema.max(120).optional(),
+    // Refined rather than merely shaped, because `new` is a well-formed slug that the console
+    // already answers on — see `RESERVED_EVENT_SLUGS`.
+    slug: routeSlugSchema
+      .max(120)
+      .refine(
+        (slug) => !RESERVED_EVENT_SLUGS.includes(slug),
+        "That address is reserved for Greenroom's own pages. Choose another one.",
+      )
+      .optional(),
     summary: z.string().max(2000).optional(),
     venue: z.string().max(200).optional(),
     startsOn: editableDaySchema.optional(),

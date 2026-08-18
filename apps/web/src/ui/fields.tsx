@@ -2,10 +2,15 @@
  * The control tier.
  *
  * Every value a user picks in this product goes through one of these. They exist because the
- * console shipped 73 native `<select>` elements, 21 native date inputs, and native checkboxes
+ * console shipped 72 native `<select>` elements, 20 native date inputs, and native checkboxes
  * and radios with no `appearance` reset anywhere: controls the operating system drew, at
  * whatever height, weight and radius it felt like, next to controls the product drew. That
  * mismatch — not the palette — is what made the console read as a 2010s admin panel.
+ *
+ * Those are counted elements, not an estimate, and the conversion is unfinished: 41 native
+ * selects and 21 native date and time inputs survive it, enumerated per file in `GAP-032`.
+ * Count before repeating a number here — an earlier revision of this header said 73 and 21,
+ * which is what a documentation sweep then propagated into four canonical files.
  *
  * Three rules hold across the file.
  *
@@ -472,23 +477,40 @@ export function Select({
     close(true);
   }
 
-  /** Native `<select>` type-ahead: letters jump to the next option that starts with them. */
+  /**
+   * Native `<select>` type-ahead: letters jump to the next option that starts with them.
+   *
+   * Two branches, as the platform and the WAI-ARIA pattern both have. A run of one repeated
+   * letter cycles through everything beginning with it — "b", "b", "b" walks Ballroom, Balcony,
+   * Ballroom — rather than searching for "bb" and matching nothing; any other buffer is a
+   * prefix, and it re-tests the option already reached so that typing "ba" after "b" stays on
+   * Ballroom instead of walking off it.
+   *
+   * The search is circular from the cursor rather than a scan of the whole list with the cursor
+   * excluded. Excluding it skipped the first match whenever nothing was selected — the cursor
+   * was clamped to index 0, so "b" from an unanswered field landed on Balcony, past the
+   * Ballroom the reader was reaching for — and made a third option starting with the same
+   * letter unreachable, because the scan always restarted at the top.
+   */
   function typeAhead(key: string) {
     const now = Date.now();
     const buffer = now - typed.current.at > 700 ? key : typed.current.buffer + key;
     typed.current = { buffer, at: now };
-    const needle = buffer.toLowerCase();
-    const from = open ? activeIndex : Math.max(selectedIndex, 0);
-    const match = options.findIndex(
-      (option, index) =>
-        index !== from && !option.disabled && option.label.toLowerCase().startsWith(needle),
-    );
-    const wrapped =
-      match >= 0
-        ? match
-        : options.findIndex((option) => !option.disabled && option.label.toLowerCase() === needle);
-    if (wrapped < 0) return;
-    setActiveIndex(wrapped);
+    const cycling = buffer.length > 1 && [...buffer].every((char) => char === buffer[0]);
+    const needle = (cycling ? key : buffer).toLowerCase();
+    // -1 while nothing is selected and the list is closed: there is no current option to search
+    // past, so the search starts at the top of the list rather than one below it.
+    const cursor = open ? activeIndex : selectedIndex;
+    const from = buffer.length === 1 || cycling ? cursor + 1 : cursor;
+    let match = -1;
+    for (let offset = 0; offset < options.length && match < 0; offset += 1) {
+      const index = (((from + offset) % options.length) + options.length) % options.length;
+      const option = options[index];
+      if (option && !option.disabled && option.label.toLowerCase().startsWith(needle))
+        match = index;
+    }
+    if (match < 0) return;
+    setActiveIndex(match);
     setOpen(true);
   }
 
@@ -565,12 +587,28 @@ export function Select({
             role="combobox"
             aria-haspopup="listbox"
             aria-expanded={open}
+            /* Named whether or not the list is mounted, the way every disclosure in this
+               repository names the panel it owns: a collapsed widget's `aria-controls` is not
+               followed by assistive technology, and the e2e helpers find the list through it. */
             aria-controls={`${control.id}-listbox`}
             aria-labelledby={labelId}
             aria-describedby={control["aria-describedby"]}
             aria-invalid={control["aria-invalid"]}
             aria-required={control.required}
-            aria-activedescendant={open ? optionElementId(baseId, activeIndex) : undefined}
+            /* Guarded on the cursor being inside the list, the way `Combobox` below is: the id
+               named here has to resolve to an option that exists, or the trigger is claiming an
+               active descendant the tree does not have.
+
+               `activeIndex < options.length` rather than `options.length > 0`, because the list
+               can also shrink under an open popover — a room withdrawn by another screen, a
+               reload while the picker is open — and the cursor stays where the arrows left it.
+               The empty list is the same condition read at zero: nothing to point at, and the
+               empty line below is what speaks for it. */
+            aria-activedescendant={
+              open && activeIndex < options.length
+                ? optionElementId(baseId, activeIndex)
+                : undefined
+            }
             disabled={disabled}
             onClick={() => (open ? close(false) : openAt(selectedIndex))}
             onKeyDown={onKeyDown}
@@ -752,15 +790,40 @@ export function Combobox({
             // `aria-required`, not `required`: the textbox holds a filter, and native
             // validation would refuse an empty filter over an already-chosen value.
             aria-required={control.required}
+            /* Inside the list, not merely a non-empty list: see `Select` above. Typing resets the
+               cursor to 0, but nothing resets it when the options themselves are replaced. */
             aria-activedescendant={
-              open && visible.length ? optionElementId(baseId, activeIndex) : undefined
+              open && activeIndex < visible.length
+                ? optionElementId(baseId, activeIndex)
+                : undefined
             }
             onChange={(event) => {
               setQuery(event.target.value);
               setActiveIndex(0);
               setOpen(true);
             }}
-            onClick={() => setOpen(true)}
+            /* Arriving at the box selects what it is showing, so the first keystroke filters
+               rather than splicing into the answer already given: on the timezone field, a caret
+               left inside "Europe/Madrid" turns typing "asia" into a filter for
+               "Europe/Madridasia" and the list goes empty.
+
+               It takes both handlers, because focus alone never fixed the path it was written
+               for. A press focuses the box and the click *then* places the caret from the pointer,
+               so the selection `onFocus` made is collapsed a moment later and the mouse user —
+               the only user who had the problem, since tabbing into a text input selects it
+               already — still typed into the middle of the label. `onFocus` stays for the arrivals
+               that are not a click: a tab, and `commit`, which focuses the input so a chosen label
+               arrives selected and typing re-filters.
+
+               The click selects only while the box is showing the value. Once a filter is being
+               typed `query` is a string and the caret belongs to the reader, and re-selecting on
+               every click would make a typo in a 400-entry filter impossible to correct with the
+               mouse. */
+            onFocus={(event) => event.target.select()}
+            onClick={(event) => {
+              setOpen(true);
+              if (query === null) event.currentTarget.select();
+            }}
             onKeyDown={onKeyDown}
           />
           {open ? (
@@ -1231,7 +1294,10 @@ export function CopyableSecret({ label, value, hint, id, className }: CopyableSe
             <code className="secret-value figure">{value}</code>
             <button
               type="button"
-              className="secondary small secret-copy"
+              // `control-button`, not the console's `secondary small`: those classes live in
+              // shell.css, which no public surface loads, and this button renders on the public
+              // call for proposals beside an anonymous submitter's confirmation reference.
+              className="control-button secret-copy"
               // ERROR-INTENT: `copy` settles every outcome into the status below — copied, or
               // the manual path — so it has no rejection left for a handler to receive.
               onClick={() => void copy()}
@@ -1412,7 +1478,17 @@ export function SegmentedControl({
             <button
               type="button"
               className="segmented-clear"
-              onClick={onClear}
+              onClick={() => {
+                /* Focus is handed to the segment that will hold the group's tab stop before
+                   the clear runs. Clearing sets the value to null, which is the condition this
+                   button is rendered under, so the press unmounts the element it landed on and
+                   focus falls to `document.body` — on the reviewer's evaluation card that means
+                   the next Tab restarts at the top of the console instead of continuing to the
+                   next criterion. The Backspace path never had the problem, because the segment
+                   it is pressed on is still there afterwards. */
+                buttons.current[firstEnabled(options, 0, 1)]?.focus();
+                onClear();
+              }}
               aria-label={`${clearLabel} ${label}`}
             >
               {clearLabel}

@@ -526,10 +526,240 @@ describe("App", () => {
     render(<App />);
 
     // An attendee identity gets a page, not a console with every block of chrome disabled.
-    await screen.findByRole("heading", { name: "This account has no organizer workspace" });
+    const refusal = await screen.findByRole("heading", {
+      name: "This account has no organizer workspace",
+    });
+    // And a real page, at that: this card is the whole document, so its title is the document's
+    // heading. Every other branch of the shell carries a PageHeader `<h1>`; this one used to open
+    // at `<h3>`, leaving a reader jumping by heading nothing to land on.
+    expect(refusal.tagName).toBe("H1");
     expect(screen.queryByRole("navigation", { name: "Workspace navigation" })).toBeNull();
     expect(fetchMock).toHaveBeenCalledWith("/api/events/assigned");
     expect(fetchMock).not.toHaveBeenCalledWith("/api/events");
+  });
+
+  /**
+   * An organization member awaiting their first event role is not an attendee.
+   *
+   * An invitation accepted at organization scope writes a membership and no event role, and
+   * nothing lifts the stored persona off `public` — so the session carries `events:create` with an
+   * empty `eventAccess`, and the active role falls through to the persona. Answering that account
+   * with the attendee page told somebody who can create an event that they need somebody else to
+   * grant them a seat, and swallowed `/events/new`, the only surface that would have let them act.
+   */
+  it("keeps the console for an organization member who can still create an event", async () => {
+    const memberSession = {
+      actor: { id: "seed-member", name: "Morgan Member", persona: "public" },
+      organizations: [{ id: organizationId, name: "Greenroom Labs" }],
+      eventAccess: [],
+      capabilities: ["events:read", "events:create"],
+      authentication: "session",
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) =>
+        jsonResponse(String(input).endsWith("/api/session") ? memberSession : { events: [] }),
+      ),
+    );
+    render(<App />);
+
+    // The console's own answer for an account with no event: the empty state that offers the form.
+    await screen.findByRole("heading", { name: "No event workspace" });
+    fireEvent.click(screen.getByRole("link", { name: "Create an event" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/events/new"));
+    expect(await screen.findByLabelText("Event name")).toBeInTheDocument();
+  });
+
+  /**
+   * `/events/new` refuses by name, for every persona.
+   *
+   * The route is deliberately exempt from the allowlist redirect so that an account without
+   * `events:create` is told which permission is missing rather than bounced to its home. The
+   * attendee short-circuit ran ahead of that and answered the wrong question — "you need a seat on
+   * an event" — for the one persona most likely to arrive here from a shared link.
+   */
+  it("names the missing permission when a seatless account opens the create form", async () => {
+    window.history.replaceState(null, "", "/events/new");
+    const attendeeSession = {
+      actor: { id: "seed-public", name: "Pat Attendee", persona: "public" },
+      organizations: [],
+      eventAccess: [],
+      capabilities: [],
+      authentication: "session",
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) =>
+        jsonResponse(String(input).endsWith("/api/session") ? attendeeSession : { events: [] }),
+      ),
+    );
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "This account cannot create events" });
+  });
+
+  /**
+   * A switch of event leaves the previous event's work behind.
+   *
+   * Record-scoped query state used to be copied across verbatim, and the abstracts queue is where
+   * that bit: it writes `?selected=…` for every ticked abstract, the tab remounts on the new event
+   * id, and the fresh mount re-seeded its selection from the address. The bulk bar then read "2
+   * selected" over a queue with nothing ticked, and every bulk action offered to act on the
+   * previous event's proposals — which the server can only answer with "Proposal not found".
+   */
+  it("drops the previous event's record selection when the event changes", async () => {
+    const otherEventId = "323e4567-e89b-42d3-a456-426614174009";
+    const bothEvents = [event, { ...event, id: otherEventId, name: "Workshop Day" }];
+    window.history.replaceState(
+      null,
+      "",
+      `/program?tab=submissions&event=${eventId}&selected=p1&selected=p2&proposal=p1`,
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/api/session"))
+          return jsonResponse({
+            ...organizerSession,
+            eventAccess: bothEvents.map(({ id }) => ({
+              eventId: id,
+              role: "organizer",
+              capabilities: ["events:read", "review:manage"],
+            })),
+          });
+        const workspace = workspaceBody(url);
+        if (workspace) return jsonResponse(workspace);
+        return jsonResponse({ events: bothEvents });
+      }),
+    );
+    render(<App />);
+
+    const chip = await screen.findByRole("combobox", { name: "Event workspace" });
+    fireEvent.keyDown(chip, { key: "ArrowDown" });
+    fireEvent.click(screen.getByRole("option", { name: /Workshop Day/ }));
+
+    // The tab is a section of the console and survives; the ticked rows and the open record are
+    // about the event just left, and do not.
+    await waitFor(() => expect(window.location.search).toContain(`event=${otherEventId}`));
+    expect(window.location.search).toContain("tab=submissions");
+    expect(window.location.search).not.toContain("selected=");
+    expect(window.location.search).not.toContain("proposal=");
+  });
+
+  /**
+   * The other half of the same rule: what a switch of event must *keep*.
+   *
+   * The whitelist carried `tab` and nothing else, which read as "the tab is the only section of
+   * the console" — and it is not. The agenda's `view` names which arrangement of the board is
+   * drawn, exactly as `tab` names which section of the hub is open, and the board re-reads it
+   * from the address on the remount the switch causes. Dropping it threw an organizer comparing
+   * two events' days back to the room view on every switch.
+   */
+  it("keeps the agenda's chosen view when the event changes", async () => {
+    const otherEventId = "323e4567-e89b-42d3-a456-426614174009";
+    const bothEvents = [event, { ...event, id: otherEventId, name: "Workshop Day" }];
+    window.history.replaceState(null, "", `/schedule?tab=agenda&event=${eventId}&view=day`);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/api/session"))
+          return jsonResponse({
+            ...organizerSession,
+            eventAccess: bothEvents.map(({ id }) => ({
+              eventId: id,
+              role: "organizer",
+              capabilities: ["events:read", "agenda:manage"],
+            })),
+          });
+        const workspace = workspaceBody(url);
+        if (workspace) return jsonResponse(workspace);
+        return jsonResponse({ events: bothEvents });
+      }),
+    );
+    render(<App />);
+
+    const chip = await screen.findByRole("combobox", { name: "Event workspace" });
+    fireEvent.keyDown(chip, { key: "ArrowDown" });
+    fireEvent.click(screen.getByRole("option", { name: /Workshop Day/ }));
+
+    await waitFor(() => expect(window.location.search).toContain(`event=${otherEventId}`));
+    expect(window.location.search).toContain("tab=agenda");
+    expect(window.location.search).toContain("view=day");
+  });
+
+  /**
+   * The one-time invitation token is not the previous event's work.
+   *
+   * `/invitations/accept` is reachable by every signed-in persona and renders inside the shell,
+   * so the event switcher is on screen beside it. Rebuilding the address from `event` and `tab`
+   * alone destroyed the token the link carried, and the token exists only in that link: the
+   * server stores its digest, so there is nothing to recover it from. One press of the switcher
+   * emptied the field and left "ask whoever invited you to send a new one" as the only way on.
+   */
+  it("keeps the invitation token when the event is switched on the accept route", async () => {
+    const otherEventId = "323e4567-e89b-42d3-a456-426614174009";
+    const bothEvents = [event, { ...event, id: otherEventId, name: "Workshop Day" }];
+    window.history.replaceState(null, "", `/invitations/accept?token=inv-token-1&event=${eventId}`);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith("/api/session"))
+          return jsonResponse({
+            ...organizerSession,
+            authentication: "session",
+            eventAccess: bothEvents.map(({ id }) => ({
+              eventId: id,
+              role: "organizer",
+              capabilities: ["events:read"],
+            })),
+          });
+        const workspace = workspaceBody(url);
+        if (workspace) return jsonResponse(workspace);
+        return jsonResponse({ events: bothEvents });
+      }),
+    );
+    render(<App />);
+
+    expect(await screen.findByLabelText("Invitation token")).toHaveValue("inv-token-1");
+    const chip = screen.getByRole("combobox", { name: "Event workspace" });
+    fireEvent.keyDown(chip, { key: "ArrowDown" });
+    fireEvent.click(screen.getByRole("option", { name: /Workshop Day/ }));
+
+    await waitFor(() => expect(window.location.search).toContain(`event=${otherEventId}`));
+    expect(window.location.search).toContain("token=inv-token-1");
+    expect(screen.getByLabelText("Invitation token")).toHaveValue("inv-token-1");
+  });
+
+  /**
+   * An account that may create events but belongs to no organization is told so.
+   *
+   * The API issues `events:create` only alongside an organization membership, so this session is
+   * not one any door mints today — which is exactly why the console must not answer it with a
+   * form. It drew one, and `submit` returned before the request because there was no organization
+   * to create in, so **Create event** did nothing at all, silently, on every press.
+   */
+  it("refuses the create form rather than drawing a dead one with no organization", async () => {
+    window.history.replaceState(null, "", "/events/new");
+    const orphanSession = {
+      actor: { id: "seed-member", name: "Morgan Member", persona: "public" },
+      organizations: [],
+      eventAccess: [],
+      capabilities: ["events:read", "events:create"],
+      authentication: "session",
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) =>
+        jsonResponse(String(input).endsWith("/api/session") ? orphanSession : { events: [] }),
+      ),
+    );
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "This account belongs to no organization" });
+    expect(screen.queryByLabelText("Event name")).not.toBeInTheDocument();
   });
 
   it("creates an event inside the organizer organization", async () => {

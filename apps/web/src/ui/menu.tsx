@@ -12,7 +12,15 @@
  * document body after every action is what makes a keyboard user re-navigate the page.
  */
 
-import { type ReactNode, useCallback, useEffect, useId, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { useDismissOnOutsidePointerDown } from "./fields";
 import "../styles/controls.css";
 
@@ -52,7 +60,11 @@ export type MenuProps = {
   items: readonly MenuEntry[];
   /** Trigger content. Omitted, the trigger shows `label` and a chevron. */
   trigger?: ReactNode | undefined;
-  /** Defaults to the console's secondary button. */
+  /**
+   * Defaults to the control tier's own button. A console class — `secondary small` — is a
+   * choice a console surface can still make, and one no public surface may rely on: those
+   * classes are declared in `styles/shell.css`, which only `App.tsx` loads.
+   */
   triggerClassName?: string | undefined;
   /** `"end"` right-aligns the popover, for a trigger at the right edge of a row. */
   align?: "start" | "end" | undefined;
@@ -63,27 +75,91 @@ export function Menu({
   label,
   items,
   trigger,
-  triggerClassName = "secondary small",
+  triggerClassName = "control-button",
   align = "start",
   disabled,
 }: MenuProps) {
   const baseId = useId();
   const [open, setOpen] = useState(false);
   const [focusIndex, setFocusIndex] = useState(0);
+  const [placement, setPlacement] = useState<{ top: number; left: number } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const actions = items.filter(isAction);
+  const anyEnabled = nextIndex(actions, 0, 1) >= 0;
 
   const dismiss = useCallback(() => setOpen(false), []);
   useDismissOnOutsidePointerDown(rootRef, open, dismiss);
 
   useEffect(() => {
     if (!open) return;
-    itemRefs.current[focusIndex]?.focus();
-  }, [open, focusIndex]);
+    /*
+     * The popover takes focus itself when no item can hold it — an empty `items`, or every
+     * action disabled, which is what an unpublished call for proposals renders. Focusing an
+     * absent or disabled button is a no-op in a browser, so focus stayed on the trigger while
+     * `role="menu"` was open, and Escape — which only the items answer — could not reach it:
+     * the keyboard had no way to close a menu it had just opened.
+     */
+    const item = anyEnabled ? itemRefs.current[focusIndex] : null;
+    (item ?? popoverRef.current)?.focus();
+  }, [open, focusIndex, anyEnabled]);
+
+  /*
+   * The popover is placed in viewport coordinates rather than against its trigger.
+   *
+   * `position: absolute` put it inside whatever the trigger was in, and the row-action menus
+   * this component replaced native selects with sit inside `.table-wrap` — a container whose
+   * `overflow-x: auto` computes `overflow-y` to `auto` as well, so it clipped the menu opened
+   * on the last row and silently gained a scrollbar nothing hinted at. No overflow value fixes
+   * that: `visible` beside a scrolling axis computes back to `auto`, and `clip` would take the
+   * table's horizontal scrolling with it. A fixed box is clipped by none of them, and being
+   * measured means it can also flip above a trigger with no room beneath it.
+   */
+  useLayoutEffect(() => {
+    if (!open) return;
+    function place() {
+      const anchor = triggerRef.current?.getBoundingClientRect();
+      const popover = popoverRef.current;
+      if (!anchor || !popover) return;
+      const box = popover.getBoundingClientRect();
+      // `--s-1`, the offset the popover used to take from `top: calc(100% + var(--s-1))`.
+      const gap = 4;
+      const below = anchor.bottom + gap;
+      const above = anchor.top - gap - box.height;
+      const edge = align === "end" ? anchor.right - box.width : anchor.left;
+      const top = below + box.height > window.innerHeight && above >= 0 ? above : below;
+      const left = Math.max(gap, Math.min(edge, window.innerWidth - box.width - gap));
+      // The same two numbers keep the object they are already in. This runs from a capture-phase
+      // scroll listener, so it answers every scroll anywhere in the document — a textarea, a
+      // sidebar, a table on the other side of the page — and a fresh object each time is a new
+      // value by identity, which re-renders the open menu on every frame of a scroll that never
+      // moved its trigger.
+      setPlacement((current) =>
+        current && current.top === top && current.left === left ? current : { top, left },
+      );
+    }
+    place();
+    // Capture, so a scroll inside the table the trigger sits in moves the menu with its row
+    // rather than leaving it hanging over a row that has scrolled away.
+    window.addEventListener("scroll", place, true);
+    window.addEventListener("resize", place);
+    return () => {
+      window.removeEventListener("scroll", place, true);
+      window.removeEventListener("resize", place);
+    };
+  }, [open, align]);
 
   function openMenu(from: "first" | "last") {
+    /*
+     * An empty `items` opens nothing. A `role="menu"` that owns no `menuitem` is not a menu —
+     * it is an empty box with no name to read and no required children — so the trigger stays
+     * closed rather than presenting one. A caller with nothing to offer disables the trigger;
+     * a caller whose actions are all *disabled* still opens, because each disabled item names
+     * what it needs, and that is the answer the reader came for.
+     */
+    if (items.length === 0) return;
     const target =
       from === "first" ? nextIndex(actions, 0, 1) : nextIndex(actions, actions.length - 1, -1);
     setFocusIndex(target < 0 ? 0 : target);
@@ -103,6 +179,15 @@ export function Menu({
   }
 
   function onTriggerKeyDown(event: React.KeyboardEvent<HTMLButtonElement>) {
+    // Escape is answered here as well as on the items, because Enter and Space call
+    // `preventDefault`: with focus still on the trigger there is otherwise no key that closes
+    // an open menu, and no click either, since the activation the trigger's `onClick` needs
+    // was the default that was prevented.
+    if (open && event.key === "Escape") {
+      event.preventDefault();
+      close(true);
+      return;
+    }
     if (event.key === "ArrowDown" || event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       openMenu("first");
@@ -112,6 +197,13 @@ export function Menu({
       event.preventDefault();
       openMenu("last");
     }
+  }
+
+  /** Escape and Tab for the popover itself, which holds focus when no item can. */
+  function onPopoverKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    if (event.target !== event.currentTarget) return;
+    if (event.key === "Escape") event.preventDefault();
+    if (event.key === "Escape" || event.key === "Tab") close(true);
   }
 
   function onItemKeyDown(event: React.KeyboardEvent<HTMLButtonElement>, index: number) {
@@ -167,10 +259,15 @@ export function Menu({
       </button>
       {open ? (
         <div
-          className={align === "end" ? "menu-popover is-end" : "menu-popover"}
+          className="menu-popover"
+          ref={popoverRef}
           id={`${baseId}-menu`}
           role="menu"
           aria-label={label}
+          // Not a tab stop; a focus target for the case where no item is one.
+          tabIndex={-1}
+          style={placement ? { top: placement.top, left: placement.left } : undefined}
+          onKeyDown={onPopoverKeyDown}
         >
           {items.map((entry) => {
             // An `<hr>` rather than a div with `role="separator"`: the element already carries

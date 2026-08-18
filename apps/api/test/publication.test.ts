@@ -5,6 +5,7 @@ import {
   publicationSettingsInputSchema,
   publicEventProjectionSchema,
   publicScheduleSchema,
+  RESERVED_EVENT_SLUGS,
 } from "@greenroom/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { MemoryAgendaRepository } from "../src/adapters/persistence/memory-agenda-repository";
@@ -548,6 +549,29 @@ describe("publication snapshots", () => {
         service.updateSettings(organizer, record.eventId, { slug: "reserved-elsewhere" }),
       ).rejects.toBeInstanceOf(PublicationSlugTakenError);
       expect(reserved).toHaveBeenCalledWith("reserved-elsewhere");
+    });
+
+    it("refuses an address the console owns, which no other event holds", () => {
+      /*
+       * `/events/new` is the console's create form. Nothing in the events table holds `new`, so
+       * the uniqueness query answers "free" and the event was accepted end to end — published
+       * everywhere but its own front door, with `/events/new/cfp` serving it while `/events/new`
+       * served the console. Refused in the contract because it is a rule about the address space
+       * rather than a fact about other events: there is nothing for a query to find.
+       */
+      const refused = publicationSettingsInputSchema.safeParse({ slug: "new" });
+      expect(refused.success).toBe(false);
+      // On `slug`, so `validationFields` puts it on the Public address input rather than above
+      // a form of five.
+      expect(refused.error?.issues[0]?.path).toEqual(["slug"]);
+      expect(refused.error?.issues[0]?.message).toContain("reserved");
+
+      // A slug that merely contains the reserved word is a different address and stays legal.
+      expect(publicationSettingsInputSchema.safeParse({ slug: "new-orleans-2026" }).success).toBe(
+        true,
+      );
+      // And the routing claim is built from the same vocabulary, so the two cannot drift.
+      expect(RESERVED_EVENT_SLUGS).toContain("new");
     });
 
     it("keeps a slug edit off the live address until it is published", async () => {
