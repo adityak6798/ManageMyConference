@@ -1,6 +1,6 @@
 # Known gaps
 
-Status: canonical | Owner: quality | Last verified: 2026-08-16
+Status: canonical | Owner: quality | Last verified: 2026-08-18
 
 A gap is something a judge or a contributor would otherwise discover by clicking. Each entry states
 impact, owner, evidence, governing ID, and the test that closes it. This register is not a place to
@@ -160,9 +160,12 @@ feature-by-feature verdict.
   ([runbook](../engineering/external-evaluator.md#score-status)) reproduced the opposite of the
   rendering half: a question configured with `show when Format equals <value>`, saved, reloaded and
   published as v3, never appeared on the public form for any value of the controlling answer, which
-  served 8 of its 9 published questions. Reproduced anonymously and as a signed-in speaker. Until
-  someone re-runs that by hand, treat "rendered by both applicant surfaces" as unverified rather
-  than closed; the persistence, validation and snapshot halves are not in question.
+  served 8 of its 9 published questions. Reproduced anonymously and as a signed-in speaker. The
+  renderer itself is covered — `apps/web/test/cfp-composer.test.tsx` drives the applicant surface
+  and asserts a `visibleWhen` field appearing and disappearing with its controlling answer — so what
+  is contested is narrower than the closure sentence reads: the builder-save → publish →
+  public-form path, not the renderer, and not the persistence, validation or snapshot halves. Until
+  someone re-runs that path by hand, do not treat it as closed.
   Owner: cfp. Governing ID: `PRD-CFP-001`, `PRD-CFP-002`, `ACC-CFP`.
   — conditions expressible in the persisted model, honoured by the applicant renderer *and* server
   validation, with a submission visibly routed to a status or category.

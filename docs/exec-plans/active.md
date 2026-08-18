@@ -1,6 +1,6 @@
 # Active execution plans
 
-Status: canonical | Owner: delivery | Last verified: 2026-08-16
+Status: canonical | Owner: delivery | Last verified: 2026-08-18
 
 ## `PLAN-006` Console modernization
 
@@ -120,12 +120,21 @@ blocked and does not invent pass verdicts; #193 continues to own the credentiale
 On 2026-08-18 the harness path the runbook prescribes for that block was carried through in full
 and produced a score and a defect list. Both, and the reasons the score is not comparable with the
 API-path numbers, are in
-[the runbook's score status](../engineering/external-evaluator.md#score-status). The four
-major-severity findings it names have **no owner yet** and are the triage this plan should pick up:
-the contested conditional-field rendering (which contests `GAP-009`'s closure), write-only file
-comment threads for organizers, silently duplicating bulk task assignment, and a Speaker workflow
-panel that writes logistics to whichever speaker it has pinned rather than the one being edited.
-Owner: quality, until each lands on a `GAP-0xx` row or an issue.
+[the runbook's score status](../engineering/external-evaluator.md#score-status). The five findings it names
+have **no owner yet** and are the triage this plan should pick up — four graded major by the
+judges, plus one the runbook promotes from minor because it writes to the wrong record:
+
+1. the contested conditional-field rendering, which contests `GAP-009`'s closure;
+2. a just-accepted speaker that communications reports as unreachable, where the open question is
+   whether acceptance should provision an identity address at all;
+3. write-only file comment threads for organizers;
+4. silently duplicating bulk task assignment;
+5. a Speaker workflow panel that writes logistics to whichever speaker it has pinned rather than the
+   one whose profile is open.
+
+A sixth is narrower and follows from membership rule 2 rather than from a defect: a demo-mode
+organizer is offered an invitation form that can only ever refuse on submit. Owner: quality, until
+each lands on a `GAP-0xx` row or an issue.
 
 ## `PLAN-002` Product lifecycle
 

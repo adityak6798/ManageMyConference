@@ -21,7 +21,8 @@ Every run directory contains:
 - `metadata.json`: target/evaluator commits, dirty paths, sanitized configuration and its hash,
   isolated fixture directory, timestamps, status and failures;
 - `evalconfig.json`, with no credentials or recipient data;
-- `evaluator.log` and `worker.log`;
+- `evaluator.log` and `worker.log` — absent from a run assembled by hand rather than by the
+  wrapper, such as the 2026-08-18 harness run below;
 - `artifacts/`, containing the evaluator run directory when it produced files. A completed run
   includes `report.html`, `report.json`, judgments, scenario evidence/screenshots and the manual
   checklist because those are the evaluator's native run artifacts.
@@ -68,53 +69,63 @@ archive's `metadata.json` was written by hand rather than by the wrapper: only i
 `target` and `score` blocks describe this run, it carries no `evaluator.log` or `worker.log`, and
 its `configuration` block is the config file as it sat on disk rather than a record of what ran.
 
-The judges recorded evaluation gaps that would move the number in **both** directions, and these are
-the first thing to fix on a re-run rather than anything in the product:
+Evaluation gaps — most recorded by the judges, the last two argued by the operator from the source —
+would move the number in **both** directions, and are the first thing to fix on a re-run rather than
+anything in the product:
 
 - Several verdicts are `partial` only because a path was never opened. The browsing agent concluded
   no manual add-speaker control exists while the Speakers tab carries an unopened `Import speakers`
   panel and the CRM tab offers `New prospect` with a `Converted to speakers` metric (`SPK-02`,
   `SPK-03`); the speakers-directory search box, an agenda session block, and a gallery card were
   never clicked (`EMB-05`, `EMB-08`, `EMB-13`); `CNT-S3` exhausted its turns before organizer
-  bio/headshot editing (`CNT-10`) or any public-surface approval check (`CNT-12`).
+  bio/headshot editing (`CNT-10`, scored `cannot_judge`) or any public-surface approval check
+  (`CNT-12`).
 - `AIA-04` is `cannot_judge` for a speaker double-booking the agent believed impossible, but the
   final public schedule shows one speaker on two sessions — the clash was inducible and simply was
   not attempted.
 - Judges overrode six browsing-agent claims that its own screenshots contradict, most consequentially
   that only three embed widget types exist when the publishing surface offers five. One `CFP-S4`
   observation was retracted by an appended correction in its `evidence.json` and excluded from
-  scoring. The two judgement files still disagree with each other on one of them: the
-  abstract-management judgement repeats the retracted "fails silently" wording that the CFP
-  judgement corrects from the screenshot.
+  scoring — a separate event from the overrides. The two judgement files still disagree with each
+  other on one override: the abstract-management judgement repeats the "fails silently" wording that
+  the CFP judgement overrode from the screenshot, which shows an explicit red refusal banner.
 - **Reviewer provisioning is refused by design on this deployment, and that suppressed the score
-  rather than revealing a defect.** `membership.ts` rule 1 refuses a demo persona's membership
-  write — "without this a persona could mint real invitations and real grants in the demo
-  organization" — and `apps/web/e2e/members.spec.ts` asserts the refusal and its on-screen banner.
-  The real invitation journey is proved in
+  rather than revealing a defect.** Membership rule 2 refuses a demo persona as the actor of a
+  membership write — "without this a persona could mint real invitations and real grants in the demo
+  organization" (`apps/api/src/application/identity/membership.ts`, stated as rule 2 in
+  [authorization](../architecture/authorization.md)) — and `apps/web/e2e/members.spec.ts` asserts
+  the refusal and its on-screen banner. The real invitation journey is proved in
   `apps/api/test/d1-identity-membership.integration.test.ts`. Because this run signs in through the
-  seeded personas the config tells it to use, the fixture reviewer could not be created and the
-  CFP, Abstract and Speaker areas all fell back to the seeded `Ravi Reviewer`. `GAP-027` already
-  owns the deployment's identity narrowness.
+  seeded personas the config tells it to use, the fixture reviewer could not be created and the CFP,
+  Abstract and Speaker areas all fell back to the seeded `Ravi Reviewer`, which is why the judges
+  scored `CFP-10` as a gap. No existing gap owns the residual — `GAP-027` covers sign-in doors, not
+  membership administration — so `PLAN-004` picks up the one part that is a product question: the
+  invitation form stays enabled and only refuses on submit.
 - Most screenshots are 1280x800 viewport captures even where full-page was requested, so a number of
   verdicts rest on recorded observations plus adjacent evidence rather than on pixels.
 
 The six judgements record 28 defects between them. Below are the **major-severity** ones that no
-existing owner cleanly covers; the remaining minors stay in
+existing owner cleanly covers; the remaining minors, and three majors that are duplicates or are
+covered above, stay in
 `.evidence/sbek/runs/2026-08-18T19-36-40-531Z/artifacts/judgements/*.json` rather than being
 promoted here. Worth triaging before the next credentialed run:
 
 - A published conditional form field never renders on the public CFP form. Configured, saved and
   published as v3, reproduced anonymously and as a signed-in speaker; the form serves 8 of its 9
-  questions. **This contradicts `GAP-009`, which is recorded as closed by issue #49 on the claim
-  that conditions are "rendered by both applicant surfaces".** Either the reproduction is wrong or
-  that closure is, and the two canonical statements cannot both stand.
+  questions. **This contests `GAP-009`, recorded as closed by issue #49 on the claim that conditions
+  are "rendered by both applicant surfaces".** The renderer itself is covered —
+  `apps/web/test/cfp-composer.test.tsx` drives the applicant surface and asserts a `visibleWhen`
+  field appearing and disappearing with its controlling answer — so the path to re-test is
+  builder-save → publish → public form, not the renderer.
 - Communications reports a just-accepted speaker among those it cannot reach ("2 speakers have no
   email address"). The mechanism is not that the profile editor lacks a field: addresses are read
   from identity via `IdentityDirectory.listSpeakersForEvent`, not from content's speaker profile,
-  which is exactly the seam `GAP-010` names. What is unclear — and is the part worth triaging — is
-  whether acceptance is expected to provision an identity address at all, given that `#132`
-  deliberately refuses to treat an unverified CFP answer as a deliverable address. One of the two
-  unreachable speakers is also seeded without an address by construction.
+  a seam stated in `apps/api/src/application/identity/identity-directory.ts`. What is unclear — and
+  is the part worth triaging — is whether acceptance is expected to provision an identity address at
+  all, given that `PRD-COM-001` and communications' `lifecycleRecipient` deliberately send nothing
+  rather than falling through to a form answer, and `#132` remains open on verifying such an address
+  in the first place. One of the two unreachable speakers is also seeded without an address by
+  construction.
 - File comment threads are write-only for organizers: the deliverables row offers a comment box but
   never renders the existing thread the speaker can see in the portal.
 - Bulk task assignment reports nothing and does not reset its form; two presses create two identical
