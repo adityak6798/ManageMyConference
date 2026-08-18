@@ -284,10 +284,18 @@ committing a row, so no signed API-to-target delivery occurred. `GAP-026` and is
 
 The SessionBoard wrapper pins evaluator commit
 `d8fafa41cdc484309e3fda953c5567cc2d462734`, isolates and resets D1 state, records target commit and
-tree cleanliness, and selects all 18 required scenarios. This branch's run stopped explicitly
-blocked without `ANTHROPIC_API_KEY`, so it has no current score. The most recent older completed
-report is directional only because its target commit was not captured: 65.9% overall / 97.6%
-coverage / 16 manual, from a declared baseline of 60.5% / 92.4% / 21. Its areas were CFP 85.1%,
-Abstract Management 36.5%, Speaker Management 57.8%, Content Management 62.9%, AI Agenda 100%, and
-Public Widgets 67.6%. Issue #193 remains open until a current, attributable run completes; #230,
-`GAP-028`, `GAP-029`, #132, #190 and `GAP-030` continue to own known non-100% work.
+tree cleanliness, and selects all 18 required scenarios. The wrapper's own run stops explicitly
+blocked without `ANTHROPIC_API_KEY`. On 2026-08-18 the harness path documented as the remedy for
+that block was carried through in full at target commit `b8ca2dc` with a clean tree, scoring 85.5%
+overall / 95.4% coverage / 19 manual. **That number is not comparable with the API-path numbers**:
+its browsing agent and its six per-area judges were in-session Claude Code agents rather than the
+pinned `claude-sonnet-5` and `claude-opus-5`, so it measures two judges as much as two trees, and
+the judges themselves recorded rubric items scored `partial` or `cannot_judge` only because a path
+was never opened. The most recent older completed API-path report is directional only because its
+target commit was not captured: 65.9% overall / 97.6% coverage / 16 manual, from a declared baseline
+of 60.5% / 92.4% / 21. Its areas were CFP 85.1%, Abstract Management 36.5%, Speaker Management
+57.8%, Content Management 62.9%, AI Agenda 100%, and Public Widgets 67.6%. Both readings and the
+harness run's caveats are recorded in the
+[evaluator runbook](../engineering/external-evaluator.md#score-status). Issue #193 remains open
+until a credentialed API-path run completes; #230, `GAP-028`, `GAP-029`, #132, #190 and `GAP-030`
+continue to own known non-100% work.
