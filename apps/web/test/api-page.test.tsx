@@ -19,6 +19,8 @@
  * able to read it — and that is a branch in `LandingRoot`, which means it can be undone by any
  * later edit to the probe effect.
  */
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { apiErrorCodeSchema, capabilitySchema } from "@greenroom/contracts";
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -55,45 +57,114 @@ const signedIn: LandingBootstrap = {
   failure: null,
 };
 
+/**
+ * The route tables, read as data.
+ *
+ * The page's public-surface and mounted-operation figures are claims about what the *deployment*
+ * answers, and the generated document cannot settle them: it is assembled by hand and nothing
+ * checks it against these tables. Reading the tables is therefore not a convenience, it is the
+ * only artifact that can refute the claim. Each `routes` const is a literal array of
+ * `"<METHOD> <path>"` strings, which is what makes it readable this way at all.
+ */
+/*
+ * Resolved by walking up from the working directory rather than from `import.meta.url`, which
+ * Vite rewrites to an http: URL that `node:fs` refuses.
+ */
+const repositoryRoot = (): string => {
+  let directory = process.cwd();
+  while (!existsSync(join(directory, "apps", "api"))) {
+    const parent = dirname(directory);
+    if (parent === directory) throw new Error("apps/api is not above the working directory");
+    directory = parent;
+  }
+  return directory;
+};
+
+const apiSource = (relative: string): string =>
+  readFileSync(join(repositoryRoot(), "apps", "api", "src", relative), "utf8");
+
+const routeTable = (): string[] => {
+  const directory = join(repositoryRoot(), "apps/api/src/transport/http/routes");
+  const mounted = new Set<string>();
+  for (const file of readdirSync(directory)) {
+    if (!file.endsWith(".ts")) continue;
+    for (const [, route] of readFileSync(join(directory, file), "utf8").matchAll(
+      /"((?:GET|POST|PUT|PATCH|DELETE) \/[^"]*)"/g,
+    ))
+      if (route) mounted.add(route);
+  }
+  return [...mounted];
+};
+
 describe("the figures the developer surface prints", () => {
   it("counts what the generated document actually contains", () => {
     const operations = Object.values(contract.paths).flatMap((item) =>
       METHODS.filter((method) => item[method] !== undefined),
     );
-    /*
-     * Split rather than totalled, because the page describes them as two different offers: what a
-     * browser may read from the published projection, and what somebody with no account is allowed
-     * to send. A new public POST landing silently inside a figure that says "reads" would be the
-     * least visible way this page could start overstating what is open.
-     */
-    const publicOperations = Object.entries(contract.paths).flatMap(([path, item]) =>
-      path.startsWith("/api/public/") ? METHODS.filter((method) => item[method] !== undefined) : [],
-    );
-    expect(CONTRACT.operations).toBe(operations.length);
-    expect(CONTRACT.paths).toBe(Object.keys(contract.paths).length);
-    expect(CONTRACT.publicReads).toBe(publicOperations.filter((method) => method === "get").length);
-    expect(CONTRACT.publicWrites).toBe(
-      publicOperations.filter((method) => method !== "get").length,
-    );
+    expect(CONTRACT.documentedOperations).toBe(operations.length);
+    expect(CONTRACT.documentedPaths).toBe(Object.keys(contract.paths).length);
     expect(CONTRACT.openapi).toBe(contract.openapi);
     expect(CONTRACT.version).toBe(contract.info.version);
   });
 
   /*
-   * The other figure on the page, and the one with real consequences if it drifts: a credential's
-   * scope list is a security surface, and "a subset of the 13 capabilities" is a claim about how
-   * much a caller can be handed. A capability added to the enum without touching this page makes
-   * that sentence understate the blast radius of a credential.
+   * The figure the first draft did not print, and the reason it was wrong about everything else.
+   *
+   * It counted the document and told the reader that was the whole API. The document describes a
+   * subset; the deployment mounts more. Printing both is what lets the page say "treat the
+   * remainder as unsupported" instead of implying it does not exist — and this assertion is what
+   * stops the gap from being quietly restated as closed.
    */
-  it("counts the capabilities a credential can be granted", () => {
-    expect(CONTRACT.capabilities).toBe(capabilitySchema.options.length);
+  it("counts what the deployment actually mounts", () => {
+    expect(CONTRACT.mountedOperations).toBe(routeTable().length);
+    expect(CONTRACT.mountedOperations).toBeGreaterThan(CONTRACT.documentedOperations);
+  });
+
+  /*
+   * Split rather than totalled, and counted from the route table rather than from the document,
+   * because this is the figure a reader uses to reason about what answers with no credential at
+   * all. Counted from the document it read 7 and 5; three mounted public routes — two token-
+   * addressed content shares and an anonymous speaker-interest POST — are undocumented, so the
+   * page was understating an anonymous attack surface by three.
+   */
+  it("counts the credential-free surface from the route table, not the document", () => {
+    const publicRoutes = routeTable().filter((route) => route.includes(" /api/public/"));
+    expect(CONTRACT.publicReads).toBe(
+      publicRoutes.filter((route) => route.startsWith("GET ")).length,
+    );
+    expect(CONTRACT.publicWrites).toBe(
+      publicRoutes.filter((route) => !route.startsWith("GET ")).length,
+    );
+  });
+
+  /*
+   * Bound to the set the credential service enforces, not to `capabilitySchema`.
+   *
+   * The schema declares 13 and `ApiClientService.CAPABILITIES` admits 12 — it omits `reports:pii`,
+   * and a create naming it is refused. The first draft asserted against the schema while its own
+   * comment claimed to protect "a claim about how much a caller can be handed", so it would have
+   * kept passing through exactly the divergence it named.
+   */
+  it("counts the capabilities a credential can actually be granted", () => {
+    const service = apiSource("application/identity/api-clients.ts");
+    const declared =
+      /const CAPABILITIES: ReadonlySet<string> = new Set<Capability>\(\[([^\]]*)\]/.exec(
+        service,
+      )?.[1];
+    expect(
+      declared,
+      "the credential service must still declare its own capability set",
+    ).toBeTruthy();
+    const granted = [...(declared ?? "").matchAll(/"([^"]+)"/g)].map(([, scope]) => scope);
+    expect(CONTRACT.capabilities).toBe(granted.length);
+    expect(granted).not.toContain("reports:pii");
+    expect(capabilitySchema.options.length).toBeGreaterThan(CONTRACT.capabilities);
   });
 
   /*
    * The sample failure body prints a code, and a documented code the API cannot return is the one
-   * mistake on this page a reader only finds by writing the handler for it. The first draft
-   * printed `TIMEZONE_REJECTED`, which the compatibility policy names as a *field error* rather
-   * than as a code.
+   * mistake on this page a reader only finds by writing the handler for it. An early draft printed
+   * `TIMEZONE_REJECTED`, which the compatibility policy names as a *field error* rather than a code.
    */
   it("prints a failure code the contract actually declares", () => {
     expect(apiErrorCodeSchema.options).toContain(ERROR_SAMPLE_CODE);
@@ -149,12 +220,12 @@ describe("the developer surface", () => {
 
     await screen.findByRole("heading", { name: "Three ways a request is authenticated" });
     expect(
-      screen.getByText(/Bearer credentials are resolved on a deployment that is not in demo mode/),
+      screen.getByText(/a demo persona is denied the administration routes outright/),
     ).toBeInTheDocument();
     // And the public half is bounded by publication rather than by permission, which is the other
     // sentence a reader would otherwise learn from a surprise.
     expect(
-      screen.getByText(/An unpublished event answers these routes exactly as an unknown slug does/),
+      screen.getByText(/Three of them are mounted but absent from the generated document/),
     ).toBeInTheDocument();
   });
 
@@ -212,7 +283,9 @@ describe("finding the API from the home page", () => {
     );
     // The claim in the section is the same figure the reference page prints, from one constant.
     expect(
-      screen.getByText(new RegExp(`${CONTRACT.operations} documented operations`)),
+      screen.getByText(
+        new RegExp(`${CONTRACT.documentedOperations} of its operations are described`),
+      ),
     ).toBeInTheDocument();
   });
 });

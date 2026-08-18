@@ -276,9 +276,11 @@ from the bar and footer of the marketing page, which is where an evaluator looki
 look first.
 
 One thing `/developers` says about *this* deployment is worth reading before testing it: a machine
-credential can be issued and displayed here and will not be accepted, because demo mode resolves
-personas by cookie and never reaches the bearer grammar. The page states that on the credential's
-own row rather than leaving it to be discovered from a 401.
+credential is refused twice over here. A demo persona is denied the API-client administration
+routes outright, so it cannot mint one at all (403, `ApiClientService.requireOrganization`), and the
+request pipeline resolves personas by cookie and never reaches the bearer grammar, so a credential
+minted here by a real Google session would still not be accepted. The page states both on the
+credential's own row rather than leaving either to be discovered from a 401.
 
 ## Reproduce the evidence
 

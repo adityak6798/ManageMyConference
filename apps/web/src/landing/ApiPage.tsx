@@ -28,19 +28,38 @@ import { apiBase } from "../api/config";
 import { useLinkProps } from "../router";
 
 /**
- * What the generated document contains, as of the commit that ships this page.
+ * The figures this page prints, and the artifact each one is answerable to.
  *
- * Restated here rather than derived, because deriving it would mean shipping a 3.5 MB JSON
- * document to every reader of a marketing page. `test/api-page.test.tsx` reads the real document
- * and fails when either number drifts, which is the only reason they are allowed to be literals.
+ * Restated here rather than derived, because deriving them would mean shipping a 3.5 MB JSON
+ * document to every reader of a marketing page. `test/api-page.test.tsx` reads the real artifacts
+ * and fails when any of them drifts, which is the only reason they are allowed to be literals.
+ *
+ * The split between `documented` and `mounted` is the important part, and it was not here in the
+ * first draft. That draft counted the generated document and then told the reader "there is no
+ * private console API" — which is false: the OpenAPI registry under `packages/contracts/openapi/`
+ * is hand-maintained and nothing checks it against the Hono route table, so the document describes
+ * 205 of the 238 operations the deployment actually mounts. Printing the smaller number beside a
+ * claim that it is the whole surface is exactly the overstatement the capability ledger exists not
+ * to make, and it understated the credential-free surface by three routes.
  */
 export const CONTRACT = {
-  operations: 205,
-  paths: 165,
-  /** `/api/public/*`, split the way the page describes it: what may be read, and what may be sent. */
-  publicReads: 7,
-  publicWrites: 5,
-  capabilities: 13,
+  /** In `packages/contracts/openapi.json`. */
+  documentedOperations: 205,
+  documentedPaths: 165,
+  /** In the route tables under `apps/api/src/transport/http/routes/`. */
+  mountedOperations: 238,
+  /** `/api/public/*` as *mounted*, split the way the page describes it: read, and sent. */
+  publicReads: 9,
+  publicWrites: 6,
+  /**
+   * What an API client may actually be granted.
+   *
+   * Twelve, not the thirteen `capabilitySchema` declares: `ApiClientService` keeps its own
+   * `CAPABILITIES` set and omits `reports:pii`, so a create naming it is refused. The first draft
+   * printed thirteen and bound its test to the Zod enum, which would have kept passing through
+   * precisely that divergence.
+   */
+  capabilities: 12,
   version: "0.1.0",
   openapi: "3.0.3",
 } as const;
@@ -89,16 +108,16 @@ const doors: readonly Door[] = [
   {
     title: "No credential at all",
     when: "The published programme",
-    body: `${CONTRACT.publicReads} reads under /api/public/* answer without any credential: the published event and its multi-day schedule, the call for proposals, a portal and one of its custom pages, a shared itinerary, and a configured embed. They resolve one versioned publishing projection, so a schedule publish moves all of them together; a 200 carries a strong ETag and no-cache, and they are readable cross-origin, so a browser can call them directly. ${CONTRACT.publicWrites} writes are open too, because the people who make them do not have accounts: submitting a proposal, saving and updating an itinerary, registering through a portal, and resolving a shared report. Each of those is authorized by an unguessable token or by the submission window rather than by a session.`,
+    body: `${CONTRACT.publicReads} reads under /api/public/* answer without any credential: the published event and its multi-day schedule, the call for proposals, a portal and one of its custom pages, a shared itinerary, a configured embed, and a shared speaker profile or asset. A published read resolves one versioned publishing projection, so a schedule publish moves those together; a 200 carries a strong ETag and public, no-cache, and they are readable cross-origin, so a browser can call them directly. ${CONTRACT.publicWrites} writes are open too, because the people who make them do not have accounts: submitting a proposal, registering a speaker interest, saving and updating an itinerary, registering through a portal, and resolving a shared report. `,
     qualifier:
-      "They are bounded by publication rather than by permission. An unpublished event answers these routes exactly as an unknown slug does, which is the point of them.",
+      "They are bounded by publication, by an unguessable token, or by a per-address throttle — never by permission, because there is nobody to have any. An unpublished event answers these routes exactly as an unknown slug does, which is the point of them. Three of them are mounted but absent from the generated document, so read the route table rather than the reference before treating this list as closed.",
   },
   {
     title: "A machine credential",
     when: "Anything server-to-server",
-    body: `An organization issues a bearer credential of the form grn_<prefix>.<secret> and grants it a subset of the ${CONTRACT.capabilities} capabilities plus an explicit allowlist of the events it may touch — so a credential built to read a schedule cannot read the CRM, and cannot reach next year's event either. Only a SHA-256 digest of the secret is stored: the plaintext is returned once, by the create or the rotate that minted it, and no later screen or route can show it again. An expiry is optional, rotation keeps the previous secret valid for 24 hours so a deploy does not have to be atomic, and revocation takes effect on the next request.`,
+    body: `An organization issues a bearer credential of the form grn_<prefix>.<secret> and grants it a subset of the ${CONTRACT.capabilities} capabilities a credential may hold plus an explicit allowlist of the events it may touch — so a credential built to read a schedule cannot read the CRM, and cannot reach next year's event either. Only a SHA-256 digest of the secret is stored: the plaintext is returned once, by the create or the rotate that minted it, and no later screen or route can show it again. An expiry is optional, rotation keeps the previous secret valid for 24 hours so a deploy does not have to be atomic, and revocation takes effect on the next request.`,
     qualifier:
-      "Bearer credentials are resolved on a deployment that is not in demo mode. The seeded demo authenticates personas by cookie and takes that branch first, so a credential issued there is stored and shown but never accepted — issue #12 is the graduation that turns this deployment into one that would honour it.",
+      "Bearer credentials are resolved only on a deployment that is not in demo mode, and the seeded demo refuses them twice over: a demo persona is denied the administration routes outright, so it cannot mint one at all, and the request pipeline authenticates personas by cookie and never reaches the bearer grammar, so a credential minted by a real session there would still not be accepted. Issue #12 is the graduation that turns this deployment into one that would honour it.",
   },
   {
     title: "The console's own session cookie",
@@ -116,7 +135,7 @@ const doors: readonly Door[] = [
 const rules: readonly [string, string][] = [
   [
     "One failure shape",
-    "Every non-2xx response is { error: { code, message, correlationId } }, with fieldErrors naming the request fields when validation is what refused. The same correlation id is on the x-correlation-id header of every response, successful ones included, so an operator can be handed one string and find the request.",
+    "Every 4xx and 5xx is { error: { code, message, correlationId } }, with fieldErrors naming the request fields when validation is what refused. Two documented non-2xx statuses carry no body and no envelope, so branch on the status rather than on res.ok: the 302 that starts the Google sign-in redirect, and the 304 a public read answers a conditional request with. The same correlation id is on the x-correlation-id header of every response, successful ones included, so an operator can be handed one string and find the request.",
   ],
   [
     "Retries you can make safe",
@@ -124,7 +143,7 @@ const rules: readonly [string, string][] = [
   ],
   [
     "Cursors, not offsets",
-    "A paged collection accepts limit and an opaque cursor and returns nextCursor, which is null on the last page. The cursor is not to be parsed, synthesized, or reused with different filters, and each operation documents its own default and maximum page size. One collection is paged today — the communications delivery history; this is the shape the next one will take, not a description of every list.",
+    "A paged collection accepts limit and an opaque cursor and returns nextCursor, which is null on the last page. The cursor is not to be parsed, synthesized, or reused with different filters, and each operation documents its own default and maximum page size. Three collections are paged today — the communications delivery history, the event audit timeline, and a webhook subscription's deliveries. The rest answer in full, so this is the shape to code against rather than a description of every list.",
   ],
   [
     "A version on every response",
@@ -156,11 +175,11 @@ export function ApiSurface() {
         <div className="landing-hero-copy">
           <h1>Greenroom is an API with a console on top of it.</h1>
           <p className="landing-lede">
-            Every screen in the product is drawn by calling the same public HTTP contract you get:{" "}
-            {CONTRACT.operations} operations across {CONTRACT.paths} paths, described by one OpenAPI{" "}
-            {CONTRACT.openapi} document that is generated from the very schemas the server validates
-            requests with — so the reference cannot describe a route the deployment does not
-            implement.
+            Every screen in the product is drawn by calling the same HTTP API you can call:{" "}
+            {CONTRACT.documentedOperations} operations across {CONTRACT.documentedPaths} paths,
+            described by one OpenAPI {CONTRACT.openapi} document generated from the very schemas the
+            server validates requests with — so the reference cannot describe a shape the deployment
+            does not accept.
           </p>
           <div className="landing-doors">
             <a className="landing-door" href={referenceHref(REFERENCE_PATH)}>
@@ -170,10 +189,16 @@ export function ApiSurface() {
               Download the OpenAPI document
             </a>
           </div>
+          {/* The gap, in the hero rather than in a footnote. A developer page that advertises a
+              generated document and does not say what the document leaves out is the same kind of
+              overstatement as a capability ledger with the unproven rows removed. */}
           <p className="landing-fineprint">
-            The reference is served by the deployment itself and loads no third-party runtime, so
-            what it lists is what that deployment answers. Continuous integration rejects any drift
-            between the document and the schemas.
+            The reference is served by the deployment itself and loads no third-party runtime, and
+            continuous integration rejects drift between the document and the schemas. What it does
+            not yet do is prove itself complete: the document is assembled by hand from those
+            schemas, nothing checks it against the route table, and the deployment mounts{" "}
+            {CONTRACT.mountedOperations} operations against the {CONTRACT.documentedOperations} it
+            describes. Treat the undocumented remainder as unsupported rather than as absent.
           </p>
         </div>
       </div>
@@ -333,8 +358,11 @@ export function ApiSurface() {
           <a className="landing-door" href={referenceHref(REFERENCE_PATH)}>
             Browse the API reference
           </a>
+          {/* Not "Back to the overview": the sticky bar renders a link by that exact name on this
+              very surface, and two links with one accessible name is a coin toss for anybody
+              driving the page by voice — the same hazard the footer's link was renamed to avoid. */}
           <a className="landing-door secondary" {...linkProps("/")}>
-            Back to the overview
+            Back to the product
           </a>
         </div>
       </section>

@@ -618,11 +618,11 @@ function LandingSurface({
         <div className="landing-section-head">
           <h2 id="api-title">All of it over HTTP, too.</h2>
           <p>
-            There is no private console API. Every screen above is drawn by calling the same{" "}
-            {CONTRACT.operations} documented operations: scoped machine credentials that name the
-            events they may touch, signed webhooks from a durable outbox, credential-free reads of
-            the published programme, and one OpenAPI document generated from the schemas the server
-            validates every request with.
+            Every screen above is drawn by calling the same HTTP API you can call, and{" "}
+            {CONTRACT.documentedOperations} of its operations are described by one OpenAPI document
+            generated from the schemas the server validates requests with: scoped machine
+            credentials that name the events they may touch, signed webhooks from a durable outbox,
+            and credential-free reads of the published programme.
           </p>
         </div>
         <div className="landing-doors">
@@ -749,6 +749,16 @@ export function LandingRoot({ bootstrap }: { bootstrap: Promise<LandingBootstrap
   const [checking, setChecking] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  /*
+   * The probe found a session, and the console has been asked for but has not arrived.
+   *
+   * Before `/developers` existed, `checking` alone covered this: it could only reach `false` on a
+   * deployment that reported *no* session, so a session holder never saw the signed-out surface.
+   * The public surface breaks that coupling — it clears `checking` with a session in hand — so a
+   * signed-in reader leaving `/developers` for "/" fell through to the marketing hero, demo doors
+   * and all, for as long as the ~300 kB console chunk took to load.
+   */
+  const [signedIn, setSignedIn] = useState(false);
   const mounted = useRef(true);
 
   const surface: Surface =
@@ -840,6 +850,7 @@ export function LandingRoot({ bootstrap }: { bootstrap: Promise<LandingBootstrap
         // A deployment offering demo personas cannot tell a real session from a persona at this
         // distance — both arrive in the same cookie. The session DTO carries the authoritative
         // authentication kind into the shell; this hint only covers an older API or first frame.
+        if (identity.session) setSignedIn(true);
         if (identity.session && !publicSurface)
           openWorkspace(identity.session, identity.doors?.demoMode === false);
         else setChecking(false);
@@ -863,7 +874,7 @@ export function LandingRoot({ bootstrap }: { bootstrap: Promise<LandingBootstrap
    * never reads. The probe still runs — the footer's demo link and the return journey to "/" both
    * come from it — it is just not on this surface's critical path.
    */
-  if (checking && !publicSurface) return <LandingBoot active={surface} />;
+  if (!publicSurface && (checking || signedIn)) return <LandingBoot active={surface} />;
 
   /*
    * The callback sends every *refusal* to the same place without saying which check refused it,

@@ -234,8 +234,10 @@ export function createHttpAppFrom(
    * `/health` is also mounted under `/api` so that a caller reaching the Worker *through the
    * web dev server's proxy* can read the same identity. The browser suite uses exactly that to
    * prove the Vite server in front of it is proxying to this API and not to another
-   * checkout's; the proxy forwards `/api/*` only, so an unprefixed `/health` could never
-   * answer that question.
+   * checkout's. The dev proxy now forwards the unprefixed `/health`, `/openapi.json` and `/docs`
+   * as well — it did not when this mount was written — so the prefixed spelling is no longer the
+   * only one that can answer, but it stays: `apps/web/e2e/global-setup.ts` probes it, and a
+   * `/api`-prefixed check does not depend on the proxy's route list staying as it is.
    */
   const health = (context: HttpContext) =>
     context.json({
