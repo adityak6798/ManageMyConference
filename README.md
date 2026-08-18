@@ -60,6 +60,11 @@ to and code with the token as a Bearer credential. Missing/default signing confi
 startup, while demo mode remains development-only.
 
 The running Worker serves its generated API contract at `/openapi.json` and a self-contained,
-browsable reference at `/docs`. The docs page loads no third-party runtime assets.
+browsable reference at `/docs`. The docs page loads no third-party runtime assets. `/developers`
+is the human entry point in front of both: what the contract guarantees, the three ways a request
+is authenticated, how a webhook is signed, what may change under a client with how much notice, and
+which operations the generated document does not yet describe. It is linked from the marketing
+page's bar and footer, because an API nobody can find from the home page is one an evaluator
+concludes does not exist.
 
 Run `npm run check` before opening a pull request; it runs the same three gates CI's `integrity`, `test-build`, and `d1` jobs run, including the production builds. It deliberately does **not** run the `browser` and `security` gates — [AGENTS.md](AGENTS.md#the-handoff-gate-is-not-the-whole-merge-gate) says why, and `npm run gate:browser` / `npm run gate:security` run them by hand. Product behavior and the implementation roadmap live under `docs/`; this README is only an entrypoint.

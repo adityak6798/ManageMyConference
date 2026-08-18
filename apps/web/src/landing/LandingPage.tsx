@@ -22,6 +22,7 @@ import type { SessionDto } from "@greenroom/contracts";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { type AuthDoors, describeIdentityFailure, type LandingBootstrap } from "../api/identity";
 import { navigate, useLinkProps, useLocation } from "../router";
+import { ApiSurface, CONTRACT } from "./ApiPage";
 import { SignInPanel, useDemoDoor } from "./SignInPanel";
 import "./landing.css";
 
@@ -34,8 +35,14 @@ type Workspace = {
   realSession: boolean;
 };
 
-/** Which signed-out surface this is. The invitation link is one of them, not a stray URL. */
-type Surface = "home" | "signin" | "invitation";
+/**
+ * Which signed-out surface this is. The invitation link is one of them, not a stray URL.
+ *
+ * `api` is the odd one, and deliberately: it is the only one that is *not* a question about
+ * identity. It is a public reference, so it renders for a signed-in reader too rather than being
+ * replaced by the console the way "/" is.
+ */
+type Surface = "home" | "signin" | "invitation" | "api";
 
 const SOURCE_URL = "https://github.com/adityak6798/ManageMyConference";
 
@@ -46,6 +53,17 @@ const SOURCE_URL = "https://github.com/adityak6798/ManageMyConference";
  * exists to *not* download, and reaching into it for a six-character string would undo that.
  */
 const ACCEPT_INVITATION_PATH = "/invitations/accept";
+
+/**
+ * Where the developer reference lives, and why it is not `/api` or `/docs`.
+ *
+ * Both of those are already taken by the deployment itself: `wrangler.toml` runs the Worker
+ * first for `/api/*`, `/health`, `/openapi.json` and `/docs`, so a route claimed here under
+ * either name would be a page nobody could reach — the Worker would answer first and this
+ * bundle would never be asked. `/developers` is the surface; `/docs` remains the generated
+ * operation browser it links to.
+ */
+const DEVELOPERS_PATH = "/developers";
 
 /**
  * Where the invitation token waits while its invitee signs in.
@@ -264,16 +282,44 @@ function LandingTopBar({ active }: { active: Surface }) {
           </span>
           Greenroom
         </a>
-        <a
-          className="landing-door secondary is-sm"
-          {...linkProps(active === "home" ? "/signin" : "/")}
-          // No `aria-current`: away from home this link points *back*, at "/", and marking it as
-          // the current page tells a screen reader that "Back to the overview" is where you are.
-          // axe has no rule for a truthful-but-misapplied aria-current, so the quality gate would
-          // never have caught it.
-        >
-          {active === "home" ? "Sign in" : "Back to the overview"}
-        </a>
+        {/* Two destinations now, so they are a navigation landmark rather than a stray link. It
+            is named, because an unnamed `nav` is one a screen-reader user has to enter to
+            identify — and "Greenroom" is what this one navigates. */}
+        <nav className="landing-topbar-nav" aria-label="Greenroom">
+          {/* A capsule, which is the shape this product reserves for two words — the ledger's
+              state marker deliberately is not one because "Built, not yet proven end to end" is a
+              sentence. "API Docs" is two, and the pill is what makes it read as a destination
+              worth a look rather than as a third piece of bar furniture. */}
+          <a
+            className="landing-topbar-link"
+            {...linkProps(DEVELOPERS_PATH)}
+            // Here the aria-current *is* true, which is why it is set here and not below.
+            {...(active === "api" ? { "aria-current": "page" as const } : {})}
+          >
+            API Docs
+          </a>
+          <a
+            className="landing-door secondary is-sm"
+            /*
+             * A real navigation off the reference, not a pushState.
+             *
+             * "/" is the marketing page for a visitor and the console's home for an organizer, and
+             * `main.tsx` is the module that decides which. Leaving the reference client-side asked
+             * `LandingRoot` to make that call instead, and Back then landed on a `/developers` the
+             * console does not route: it painted "That workspace does not exist" and replaced the
+             * URL, so Back was a no-op *and* the history entry was destroyed. Every other surface
+             * here is one the landing chunk can render either way, so only this one pays the
+             * round trip.
+             */
+            {...(active === "api" ? { href: "/" } : linkProps(active === "home" ? "/signin" : "/"))}
+            // No `aria-current`: away from home this link points *back*, at "/", and marking it as
+            // the current page tells a screen reader that "Back to the overview" is where you are.
+            // axe has no rule for a truthful-but-misapplied aria-current, so the quality gate would
+            // never have caught it.
+          >
+            {active === "home" ? "Sign in" : "Back to the overview"}
+          </a>
+        </nav>
       </div>
     </header>
   );
@@ -325,6 +371,11 @@ function LandingChrome({
         <ul className="landing-footer-links">
           <li>
             <a href={SOURCE_URL}>Source on GitHub</a>
+          </li>
+          <li>
+            {/* Not "API Docs", which is the bar's own name for this destination. A footer that
+                repeats a name already on screen is the same coin toss the sign-in link avoids. */}
+            <a {...linkProps(DEVELOPERS_PATH)}>The HTTP API and its reference</a>
           </li>
           <li>
             {/* Not "Sign in": the sticky bar already has a link by that exact name, and two
@@ -457,6 +508,7 @@ function LandingSurface({
   notice?: ReactNode;
   onSignedIn: (realSession: boolean) => void;
 }) {
+  const linkProps = useLinkProps();
   return (
     <>
       <div className="landing-hero">
@@ -560,6 +612,34 @@ function LandingSurface({
               <p>{body}</p>
             </article>
           ))}
+        </div>
+      </section>
+
+      {/*
+        The API, on the page that decides whether anybody looks for it.
+
+
+        The nine capabilities above describe what an organizer can do in the console and said
+        nothing about the contract underneath it, so a reader evaluating Greenroom against a
+        product that advertises an API had no reason to believe this one has a better story: the
+        console is a client of the same routes, and the reference is generated from the schemas the
+        server validates with. This is the claim; `/developers` is the argument for it.
+      */}
+      <section className="landing-section" aria-labelledby="api-title">
+        <div className="landing-section-head">
+          <h2 id="api-title">All of it over HTTP, too.</h2>
+          <p>
+            Every screen above is drawn by calling the same HTTP API you can call, and{" "}
+            {CONTRACT.documentedOperations} of its operations are described by one OpenAPI document
+            generated from the schemas the server validates requests with: scoped machine
+            credentials that name the events they may touch, signed webhooks from a durable outbox,
+            and credential-free reads of the published programme.
+          </p>
+        </div>
+        <div className="landing-doors">
+          <a className="landing-door secondary" {...linkProps(DEVELOPERS_PATH)}>
+            How the API works
+          </a>
         </div>
       </section>
 
@@ -680,10 +760,37 @@ export function LandingRoot({ bootstrap }: { bootstrap: Promise<LandingBootstrap
   const [checking, setChecking] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  /*
+   * The probe found a session, and the console has been asked for but has not arrived.
+   *
+   * Before `/developers` existed, `checking` alone covered this: it could only reach `false` on a
+   * deployment that reported *no* session, so a session holder never saw the signed-out surface.
+   * The public surface breaks that coupling — it clears `checking` with a session in hand — so a
+   * signed-in reader leaving `/developers` for "/" fell through to the marketing hero, demo doors
+   * and all, for as long as the ~300 kB console chunk took to load.
+   */
+  const [signedIn, setSignedIn] = useState(false);
   const mounted = useRef(true);
 
   const surface: Surface =
-    path === ACCEPT_INVITATION_PATH ? "invitation" : path === "/signin" ? "signin" : "home";
+    path === ACCEPT_INVITATION_PATH
+      ? "invitation"
+      : path === DEVELOPERS_PATH
+        ? "api"
+        : path === "/signin"
+          ? "signin"
+          : "home";
+  /*
+   * The reference is public, so a session is not a reason to take the document away from it.
+   *
+   * Every other surface here hands over to the console the moment the probe reports a session,
+   * because every other surface *is* the signed-out version of something the console owns. The
+   * developer reference is not: it is a page about the product, and an organizer who follows a
+   * link to it should read it rather than be bounced to their Overview. It is in the effect's
+   * dependencies for the return journey — navigating from here to "/" flips this false, the
+   * already-resolved probe is read again, and the hand-off happens then.
+   */
+  const publicSurface = surface === "api";
   const invitationToken =
     surface === "invitation" ? (new URLSearchParams(search).get("token") ?? "") : "";
 
@@ -754,21 +861,31 @@ export function LandingRoot({ bootstrap }: { bootstrap: Promise<LandingBootstrap
         // A deployment offering demo personas cannot tell a real session from a persona at this
         // distance — both arrive in the same cookie. The session DTO carries the authoritative
         // authentication kind into the shell; this hint only covers an older API or first frame.
-        if (identity.session) openWorkspace(identity.session, identity.doors?.demoMode === false);
+        if (identity.session) setSignedIn(true);
+        if (identity.session && !publicSurface)
+          openWorkspace(identity.session, identity.doors?.demoMode === false);
         else setChecking(false);
       })
       .catch((reason: unknown) => {
         setError(describeIdentityFailure(reason));
         setChecking(false);
       });
-  }, [bootstrap, openWorkspace]);
+  }, [bootstrap, openWorkspace, publicSurface]);
 
   if (workspace) {
     const { App, session, realSession } = workspace;
     return <App {...(session ? { session } : {})} realSession={realSession} />;
   }
 
-  if (checking) return <LandingBoot active={surface} />;
+  /*
+   * The reference does not wait for the probe.
+   *
+   * Nothing on it depends on who is reading, so gating it on the identity round trip would show a
+   * skeleton of a hero that has no panel in it, for the length of a request whose answer the page
+   * never reads. The probe still runs — the footer's demo link and the return journey to "/" both
+   * come from it — it is just not on this surface's critical path.
+   */
+  if (!publicSurface && (checking || signedIn)) return <LandingBoot active={surface} />;
 
   /*
    * The callback sends every *refusal* to the same place without saying which check refused it,
@@ -796,7 +913,9 @@ export function LandingRoot({ bootstrap }: { bootstrap: Promise<LandingBootstrap
 
   return (
     <LandingChrome active={surface} doors={doors}>
-      {surface === "home" ? (
+      {surface === "api" ? (
+        <ApiSurface />
+      ) : surface === "home" ? (
         <LandingSurface
           doors={doors}
           onSignedIn={(realSession) => openWorkspace(null, realSession)}

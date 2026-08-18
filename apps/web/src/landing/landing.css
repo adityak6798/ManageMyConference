@@ -56,6 +56,47 @@
   padding-block: var(--s-3);
 }
 
+/* The bar's right-hand side: one text link and one bordered door, so they need a baseline
+   between them rather than each sitting on the flex line on its own terms. */
+.landing-topbar-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--s-5);
+}
+/*
+ * A capsule, not a second door and not plain text.
+ *
+ * It was plain text on the reasoning that two bordered controls in a bar of this height read as a
+ * segmented control. That held, but it bought nothing: a bare word beside a brandmark is bar
+ * furniture, and the whole reason this link exists is that an evaluator was concluding the product
+ * has no API. The pill is the same accent pair the ledger's shipped marker uses and the same
+ * `--r-full` capsule as `.pill`, so it borrows the product's own vocabulary rather than inventing
+ * a third control — filled and unbordered, which is what keeps it distinct from the outlined door
+ * beside it instead of competing with it.
+ */
+.landing-topbar-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-h-sm);
+  padding: 0 var(--s-3);
+  border-radius: var(--r-full);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
+  white-space: nowrap;
+}
+.landing-topbar-link:hover {
+  background: var(--green-line);
+  color: var(--accent-strong);
+}
+/* On the surface it points at, the capsule is the current page rather than an invitation. The
+   marker is weight and ground, not a colour this page uses nowhere else. */
+.landing-topbar-link[aria-current="page"] {
+  background: var(--accent);
+  color: var(--surface);
+}
+
 .landing-brand {
   display: inline-flex;
   align-items: center;
@@ -739,6 +780,112 @@
   max-width: 68ch;
 }
 
+/* ------------------------------- api --------------------------------- */
+
+/*
+ * The developer surface: same sections, same ledger, no panel.
+ *
+ * It is deliberately typeset as the marketing page rather than as the console. Somebody deciding
+ * whether Greenroom can be automated is the same reader as somebody deciding whether to trust it
+ * at all, and the two questions are answered on one measure with one rhythm.
+ */
+
+/* No sign-in panel beside the hero, so the copy takes the whole measure instead of leaving a
+   column of empty paper where the doors would be on "/". */
+.landing-hero.is-single {
+  grid-template-columns: minmax(0, 1fr);
+}
+.landing-hero.is-single h1 {
+  max-width: 26ch;
+}
+.landing-hero.is-single .landing-lede {
+  max-width: 66ch;
+}
+
+/*
+ * A sample somebody will select and paste, which is the whole reason it scrolls rather than wraps.
+ *
+ * A wrapped `curl` line is a line that pastes as two commands. `overflow-x` on the block keeps
+ * the copied bytes identical to the printed ones, and the horizontal scroll is contained here
+ * rather than being handed to the document — the browser suite asserts this page does not pan
+ * sideways at 390px.
+ */
+.landing-sample {
+  margin-top: var(--s-5);
+  padding: var(--s-4) var(--s-5);
+  overflow-x: auto;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  tab-size: 2;
+}
+
+/* Header names in prose. `code` is the product's mono face at the size of the text around it,
+   with no pill: a header name in the middle of a sentence is a quotation, not a status. */
+.landing-shell code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  overflow-wrap: anywhere;
+}
+
+/* Which caller a credential is for, in the mono face the page uses for every other label that is
+   a classification rather than prose. No status dot: `.landing-ledger-state` earns one because
+   it reports proven or unproven, and these three rows report neither. */
+.landing-ledger-when {
+  color: var(--slate);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+/* One argument at a reading measure, for the sections whose content is a paragraph rather than a
+   list of things. */
+.landing-prose {
+  display: grid;
+  gap: var(--s-4);
+  max-width: 72ch;
+  color: var(--ink-2);
+  font-size: var(--text-base);
+}
+
+/* A sentence that belongs to the block above it rather than to the section head. */
+.landing-section-note {
+  max-width: 66ch;
+  margin-top: var(--s-4);
+  color: var(--slate);
+  font-size: var(--text-sm);
+}
+
+/* Two halves of one ruling — what ships freely, and what owes notice — side by side, because the
+   whole point is that they are the two sides of the same policy. */
+.landing-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(var(--s-6), 4vw, var(--s-10));
+}
+.landing-column-title {
+  padding-top: var(--s-4);
+  border-top: 1px solid var(--rule);
+  font-size: var(--text-md);
+  font-weight: var(--fw-semibold);
+}
+.landing-columns p {
+  margin-top: var(--s-3);
+  color: var(--ink-2);
+  font-size: var(--text-base);
+}
+.landing-list {
+  display: grid;
+  gap: var(--s-2);
+  margin: var(--s-3) 0 0;
+  padding-left: var(--s-5);
+  color: var(--ink-2);
+  font-size: var(--text-base);
+}
+
 /* ---------------------------- responsive ----------------------------- */
 
 @media (max-width: 900px) {
@@ -763,6 +910,9 @@
   .landing-ledger li {
     grid-template-columns: minmax(0, 1fr);
     gap: var(--s-3);
+  }
+  .landing-columns {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

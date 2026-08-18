@@ -8,6 +8,31 @@ The canonical [API compatibility policy](api-compatibility.md) versions the cont
 the URL, defines additive and breaking changes, sets the deprecation procedure, and owns the
 shared cursor-pagination and public `Idempotency-Key` rulings.
 
+## Discovery
+
+Three surfaces, in order of how much a reader already knows. `GET /openapi.json` serves the
+generated document; `GET /docs` renders it as a browsable operation reference; and `/developers` —
+a signed-out page in the web bundle, reachable from the marketing page's bar and footer — states
+the rules that hold across every operation and links to the other two. All three are stable public
+routes. The first two are Worker routes listed in `run_worker_first`, which is why the third is
+`/developers` rather than `/api` or `/docs`: a page under either of those names would never be
+asked for.
+
+`apps/web/test/api-page.test.tsx` holds the *counting* claims on that page to the artifacts that
+govern them — documented operations and paths to `openapi.json`, mounted operations and the
+credential-free read/write split to the route tables under
+`apps/api/src/transport/http/routes/`, and the grantable-capability count to `ApiClientService`'s
+own `CAPABILITIES` set rather than to `capabilitySchema`, which declares one more than a credential
+can hold. The page's prose claims — the rotation overlap, the webhook window, the sunset period,
+the header names — are not asserted and remain ordinary documentation.
+
+**The document is not known to be complete.** The registry under `packages/contracts/openapi/` is
+maintained by hand, nothing checks it against the Hono route table in either direction, and the
+deployment currently mounts 238 operations against the 205 the document describes — three of them
+under `/api/public/*` and therefore anonymous. `/developers` states that gap rather than implying
+the document is the whole surface. Closing it is tracked separately; until then, treat an
+undocumented route as unsupported rather than as absent.
+
 ## Route groups
 
 - `API-AUTH-*`: session, seeded demo identity switch, current capabilities, membership and invitation administration, and organization API clients.

@@ -57,7 +57,21 @@ export default defineConfig({
     // waits on a URL nothing is serving until it times out with no hint why.
     port: webPort,
     strictPort: true,
-    proxy: { "/api": `http://127.0.0.1:${apiPort}` },
+    /*
+     * The Worker's own routes, so a local run answers them the way a deployment does.
+     *
+     * `wrangler.toml` runs the Worker first for `/api/*`, `/health`, `/openapi.json` and
+     * `/docs`; the dev server proxied only the first of those, so the two links the developer
+     * page exists to hand a reader — the generated reference and the document behind it — fell
+     * through to the SPA fallback and rendered the console's not-found card. They worked in
+     * production and were broken in the one place somebody would be editing the page.
+     */
+    proxy: {
+      "/api": `http://127.0.0.1:${apiPort}`,
+      "/health": `http://127.0.0.1:${apiPort}`,
+      "/openapi.json": `http://127.0.0.1:${apiPort}`,
+      "/docs": `http://127.0.0.1:${apiPort}`,
+    },
   },
   test: {
     environment: "jsdom",

@@ -80,7 +80,7 @@ const publicRoot = (): ReactElement | Promise<ReactElement> =>
   );
 
 /*
- * The three paths whose application cannot be decided here.
+ * The four paths whose application cannot be decided here.
  *
  * "/" is the marketing page for a visitor and the console's home for an organizer, and the
  * session cookie is `httpOnly`, so this module cannot tell which by reading anything it has.
@@ -106,8 +106,16 @@ const publicRoot = (): ReactElement | Promise<ReactElement> =>
  * beside the probe — at the price of pushing ~300 kB of organizer console at every anonymous
  * visitor who lands on the marketing page, which is the exact cost this split exists to avoid.
  * The trade is deliberate: the signed-out visitor is the one who has not chosen to be here yet.
+ *
+ * "/developers" is the fourth, and the only one of them that is not a question about identity: it
+ * is a public page about the HTTP contract, and it reads nothing the probe brings back. It is
+ * routed here rather than beside the public event pages so that it keeps the marketing page's own
+ * bar, footer and stylesheet — one signed-out surface, not a second chrome to maintain — and
+ * `LandingRoot` renders it without waiting for the probe and without handing the document to the
+ * console when a session does come back. It is deliberately not "/api" or "/docs": `wrangler.toml`
+ * runs the Worker first for both, so a page under either name would never be asked for.
  */
-const landingPaths = new Set(["/", "/signin", "/invitations/accept"]);
+const landingPaths = new Set(["/", "/signin", "/invitations/accept", "/developers"]);
 const landingRoot = () => {
   const bootstrap = import("./api/identity").then(({ probeIdentity }) => probeIdentity());
   return import("./landing/LandingPage").then(({ LandingRoot }) => (
