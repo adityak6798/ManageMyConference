@@ -464,6 +464,7 @@
 - `specification` / `normative`: [docs/exec-plans/active.md](../../docs/exec-plans/active.md)
 
 ### `PLAN-004`
+- `specification` / `normative`: [docs/engineering/external-evaluator.md](../../docs/engineering/external-evaluator.md)
 - `specification` / `normative`: [docs/exec-plans/active.md](../../docs/exec-plans/active.md)
 
 ### `PLAN-005`
@@ -600,6 +601,7 @@
 - `code` / `repository-fact`: [apps/web/src/communications/ComposePanel.tsx](../../apps/web/src/communications/ComposePanel.tsx)
 - `code` / `repository-fact`: [apps/web/src/review/ReviewerProgressPanel.tsx](../../apps/web/src/review/ReviewerProgressPanel.tsx)
 - `code` / `repository-fact`: [apps/web/src/workspaces/communications.tsx](../../apps/web/src/workspaces/communications.tsx)
+- `specification` / `normative`: [docs/engineering/external-evaluator.md](../../docs/engineering/external-evaluator.md)
 - `specification` / `normative`: [docs/exec-plans/competition-waves.md](../../docs/exec-plans/competition-waves.md)
 - `specification` / `normative`: [docs/exec-plans/tech-debt.md](../../docs/exec-plans/tech-debt.md)
 - `specification` / `normative`: [docs/product/competition-traceability.md](../../docs/product/competition-traceability.md)

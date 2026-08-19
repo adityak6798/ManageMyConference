@@ -1,6 +1,6 @@
 # Active execution plans
 
-Status: canonical | Owner: delivery | Last verified: 2026-08-16
+Status: canonical | Owner: delivery | Last verified: 2026-08-18
 
 ## `PLAN-006` Console modernization
 
@@ -97,7 +97,7 @@ What remains before this plan can close:
 
 ## `PLAN-004` SessionBoard defect closure
 
-Status: active; implementation is complete in PRs #233 and #236, with the scored evaluator rerun blocked on its model credential
+Status: active; implementation is complete in PRs #233 and #236, the scored evaluator rerun is blocked on its model credential, and the 2026-08-18 harness run left six findings below that no gap or issue owns yet
 
 Issue #235 closes the six defects reproduced by the 2026-08-15 pinned SessionBoard evaluation and
 the functional paths that were not judgeable from its deterministic fixture. The work remained
@@ -116,6 +116,25 @@ migrations. The final layer reran the credential-optional wrapper for evaluator 
 configuration, timestamps, validated 18-scenario plan, and tree state through the #193 evidence
 path. This environment has no `ANTHROPIC_API_KEY`, so the wrapper correctly records that run as
 blocked and does not invent pass verdicts; #193 continues to own the credentialed scored rerun.
+
+On 2026-08-18 the harness path the runbook prescribes for that block was carried through in full
+and produced a score and a defect list. Both, and the reasons the score is not comparable with the
+API-path numbers, are in
+[the runbook's score status](../engineering/external-evaluator.md#score-status). The five findings it names
+have **no owner yet** and are the triage this plan should pick up — four graded major by the
+judges, plus one the runbook promotes from minor because it writes to the wrong record:
+
+1. the contested conditional-field rendering, which contests `GAP-009`'s closure;
+2. a just-accepted speaker that communications reports as unreachable, where the open question is
+   whether acceptance should provision an identity address at all;
+3. write-only file comment threads for organizers;
+4. silently duplicating bulk task assignment;
+5. a Speaker workflow panel that writes logistics to whichever speaker it has pinned rather than the
+   one whose profile is open.
+
+A sixth is narrower and follows from membership rule 2 rather than from a defect: a demo-mode
+organizer is offered an invitation form that can only ever refuse on submit. Owner of this triage list: quality — the plan itself stays with the file's declared owner —
+until each lands on a `GAP-0xx` row or an issue.
 
 ## `PLAN-002` Product lifecycle
 

@@ -1,6 +1,6 @@
 # Competition traceability
 
-Status: canonical | Owner: product | Evidence: `EVD-001`, `EVD-002`, `EVD-003` | Last verified: 2026-08-14 (working tree, issue #190 branch)
+Status: canonical | Owner: product | Evidence: `EVD-001`, `EVD-002`, `EVD-003` | Last verified: 2026-08-18 (working tree, branch docs/sbek-harness-run-2026-08-18)
 
 ## Where the nine features come from
 
@@ -68,7 +68,9 @@ that every journey surface is discoverable. `zz-closure-surfaces.spec.ts` drives
 report, portal, embed, and webhook-console surfaces rather than only discovering them. Neither
 replaces the remaining acceptance criteria of issue #10, which include hosted CI. The reproducible
 external SessionBoard evaluator is pinned and described in the
-[evaluator runbook](../engineering/external-evaluator.md); the current branch has no model-scored
-result because the credential was unavailable, while the older 65.9% report is directional only.
+[evaluator runbook](../engineering/external-evaluator.md); the credentialed API path remains
+unavailable on this branch, and the 2026-08-18 harness-path run that scored 85.5% / 95.4% at commit
+`b8ca2dc` used in-session judges rather than the pinned models, so it is not comparable with the
+older 65.9% report and neither is a release claim.
 The competition demo order remains in [the demo runbook](../demo-runbook.md); deferred items are in
 [known gaps](../quality/known-gaps.md) and the [technical debt register](../exec-plans/tech-debt.md).
